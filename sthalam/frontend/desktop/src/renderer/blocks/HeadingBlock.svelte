@@ -4,7 +4,7 @@
  */
 
 import type { HeadingBlock, Context, ActionHandler, StateChangeHandler } from '../../lib/types/huml';
-import { interpolateCEL } from '../../lib/services/celEvaluator';
+import { interpolateCEL, evaluateCEL } from '../../lib/services/celEvaluator';
 
 interface Props {
   block: HeadingBlock;
@@ -16,7 +16,15 @@ interface Props {
 let { block, context }: Props = $props();
 
 const level = $derived(block.level || 1);
-const content = $derived(interpolateCEL(block.content, context));
+const content = $derived.by(() => {
+  // If content contains ${ } it's a full expression, evaluate it
+  if (block.content.includes('${')) {
+    const result = evaluateCEL(block.content, context);
+    return typeof result === 'string' ? result : String(result);
+  }
+  // Otherwise it's a template string with {{ }}, interpolate it
+  return interpolateCEL(block.content, context);
+});
 const styles = $derived(block.css ? interpolateCEL(block.css, context) : undefined);
 </script>
 

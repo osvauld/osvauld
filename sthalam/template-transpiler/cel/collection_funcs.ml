@@ -133,6 +133,20 @@ module Collection_funcs = struct
         ) items in
         VString (String.concat separator strings)
     | _ -> raise (Type_error "join(list, string)")
+
+  let sum args _ctx _eval_lambda =
+    match args with
+    | [VList items] ->
+        let total = List.fold_left (fun acc item ->
+          match (acc, item) with
+          | (VInt a, VInt b) -> VInt (Int64.add a b)
+          | (VFloat a, VFloat b) -> VFloat (a +. b)
+          | (VInt a, VFloat b) -> VFloat (Int64.to_float a +. b)
+          | (VFloat a, VInt b) -> VFloat (a +. Int64.to_float b)
+          | _ -> raise (Type_error "sum() requires numeric values")
+        ) (VInt 0L) items in
+        total
+    | _ -> raise (Type_error "sum(list)")
 end
 
 (** Get all collection functions for registry *)
@@ -148,4 +162,5 @@ let get_collection_functions () : func list = [
   { name = "exists_one"; impl = Collection_funcs.exists_one };
   { name = "find"; impl = Collection_funcs.find };
   { name = "join"; impl = Collection_funcs.join };
+  { name = "sum"; impl = Collection_funcs.sum };
 ]

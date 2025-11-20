@@ -10,6 +10,7 @@
 
 import type { LoroCoordinator } from './loroCoordinator';
 import { getMapForField, getMapForDocument } from './documentRouter';
+import { evaluateCEL } from '../../lib/services/celEvaluator';
 
 /**
  * Initialize state from template documents
@@ -17,11 +18,13 @@ import { getMapForField, getMapForDocument } from './documentRouter';
  *
  * @param template Parsed HUML template
  * @param loroCoordinator LoroCoordinator instance
+ * @param context Optional context for evaluating CEL expressions in initial values (e.g., userId, deviceId)
  * @returns Initialized state object
  */
 export function initializeStateFromTemplate(
   template: any,
-  loroCoordinator: LoroCoordinator
+  loroCoordinator: LoroCoordinator,
+  context?: Record<string, any>
 ): Record<string, any> {
   const documentsDefinition = template.documents || {};
 
@@ -34,13 +37,39 @@ export function initializeStateFromTemplate(
 
     // Get initial value from field definition
     if ('initial' in fieldDef) {
-      initialState[fieldName] = (fieldDef as any).initial;
+      let initialValue = (fieldDef as any).initial;
+
+      // Evaluate CEL expressions in initial values if context is provided
+      if (context && typeof initialValue === 'string' && initialValue.includes('${')) {
+        try {
+          const result = evaluateCEL(initialValue, context);
+          if (result !== null && result !== undefined) {
+            initialValue = result;
+            console.log(`✅ [StateManager] Evaluated initial value for '${fieldName}':`, initialValue);
+          }
+        } catch (error) {
+          console.warn(`⚠️ [StateManager] Failed to evaluate initial value for '${fieldName}':`, error);
+          // Keep the literal string if evaluation fails
+        }
+      }
+
+      initialState[fieldName] = initialValue;
     }
 
     // Load persisted value from the field's Loro document
     try {
-      const loroMap = getMapForField(fieldName, template, loroCoordinator);
-      const value = loroMap.get(fieldName);
+      const loroContainer = getMapForField(fieldName, template, loroCoordinator);
+
+      // Check if it's a LoroList (for submissions) or LoroMap (for other fields)
+      let value;
+      if (typeof (loroContainer as any).toJSON === 'function' && fieldName === 'submissions') {
+        // It's a LoroList - use toJSON() to get the array
+        value = (loroContainer as any).toJSON();
+      } else {
+        // It's a LoroMap - use get() to retrieve the value
+        value = (loroContainer as any).get(fieldName);
+      }
+
       if (value !== undefined) {
         persistedState[fieldName] = value;
       }
@@ -89,11 +118,19 @@ export function reloadFieldsFromDocument(
   loroCoordinator: LoroCoordinator
 ): Record<string, any> {
   const updatedState: Record<string, any> = {};
-  const loroMap = getMapForDocument(documentName, loroCoordinator);
+  const loroContainer = getMapForDocument(documentName, loroCoordinator);
   const fields = getFieldsForDocument(template, documentName);
 
   for (const fieldName of fields) {
-    const value = loroMap.get(fieldName);
+    let value;
+
+    // Special handling for submissions (LoroList)
+    if (fieldName === 'submissions' && documentName === 'submissions_doc') {
+      value = (loroContainer as any).toJSON();
+    } else {
+      value = (loroContainer as any).get(fieldName);
+    }
+
     if (value !== undefined) {
       updatedState[fieldName] = value;
     }

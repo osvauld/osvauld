@@ -1,0 +1,221 @@
+name: "Multi-User Chat"
+version: "v1.0.0"
+
+types::
+  Message::
+    id::
+      type: "string"
+    text::
+      type: "string"
+    userId::
+      type: "string"
+    username::
+      type: "string"
+    timestamp::
+      type: "number"
+
+documents::
+  messages::
+    type: "array"
+    items: "Message"
+    initial:: []
+    document: "collaborative_doc"
+
+  currentUserId::
+    type: "string"
+    initial: "${ userId }"
+    document: "user_content_doc"
+
+  newMessageText::
+    type: "string"
+    initial: ""
+    document: "user_content_doc"
+
+computed::
+  totalMessages::
+    expr: "${ size(messages) }"
+    deps::
+      - "messages"
+
+ui::
+  publisher::
+    - ::
+      type: "screen"
+      id: "chat"
+      name: "chat"
+      isEntryPoint: true
+      css: "height: 100vh; display: flex; flex-direction: column; background: #0b141a; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;"
+      blocks::
+        # Header
+        - ::
+          type: "container"
+          css: "background: #202c33; padding: 1rem 1.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: space-between;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 1
+              content: "💬 Chat"
+              css: "margin: 0; font-size: 1.25rem; color: #e9edef; font-weight: 600;"
+
+            - ::
+              type: "text"
+              content: "{{totalMessages}} messages"
+              css: "color: #8696a0; font-size: 0.875rem;"
+
+        # Messages Container (scrollable chat area)
+        - ::
+          type: "container"
+          css: "flex: 1; overflow-y: auto; padding: 1.5rem 1rem; background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZGVmcz48cGF0dGVybiBpZD0iYSIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiPjxwYXRoIGQ9Ik0gMCw1MCBMIDUwLDAgTCAxMDAsNTAgTCA1MCwxMDAgWiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMTExYjIxIiBzdHJva2Utd2lkdGg9IjAuNSIgb3BhY2l0eT0iMC4yIi8+PC9wYXR0ZXJuPjwvZGVmcz48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ1cmwoI2EpIi8+PC9zdmc+'); background-color: #0b141a; display: flex; flex-direction: column; gap: 0.5rem;"
+          blocks::
+            - ::
+              type: "loop"
+              each: "${ messages }"
+              as: "message"
+              key: "id"
+              blocks::
+                # Message container - aligns left for others, right for own messages
+                - ::
+                  type: "container"
+                  css: "${ message.userId == currentUserId ? \"display: flex; justify-content: flex-end; margin-bottom: 0.25rem;\" : \"display: flex; justify-content: flex-start; margin-bottom: 0.25rem;\" }"
+                  blocks::
+                    # Message bubble wrapper (max-width constraint)
+                    - ::
+                      type: "container"
+                      css: "max-width: 65%; min-width: 100px;"
+                      blocks::
+                        # Sender name (only show for other users' messages)
+                        - ::
+                          type: "text"
+                          content: "{{message.username}}"
+                          when: "${ message.userId != currentUserId }"
+                          css: "font-size: 0.75rem; color: #8696a0; margin-bottom: 0.25rem; margin-left: 0.75rem; font-weight: 500;"
+
+                        # Message bubble
+                        - ::
+                          type: "container"
+                          css: "${ message.userId == currentUserId ? \"background: #005c4b; color: #e9edef; padding: 0.5rem 0.75rem; border-radius: 8px; box-shadow: 0 1px 1px rgba(0,0,0,0.2);\" : \"background: #202c33; color: #e9edef; padding: 0.5rem 0.75rem; border-radius: 8px; box-shadow: 0 1px 1px rgba(0,0,0,0.2);\" }"
+                          blocks::
+                            # Message text
+                            - ::
+                              type: "text"
+                              content: "{{message.text}}"
+                              css: "margin: 0; line-height: 1.4; word-wrap: break-word; white-space: pre-wrap; font-size: 0.9375rem;"
+
+                            # Timestamp
+                            - ::
+                              type: "text"
+                              content: "{{message.timestamp}}"
+                              css: "margin-top: 0.25rem; font-size: 0.6875rem; color: #8696a0; text-align: right; opacity: 0.8;"
+
+        # Input Area (bottom bar)
+        - ::
+          type: "container"
+          css: "background: #202c33; padding: 0.75rem 1rem; display: flex; gap: 0.5rem; align-items: center; box-shadow: 0 -1px 2px rgba(0,0,0,0.2);"
+          blocks::
+            # Input field
+            - ::
+              type: "input"
+              name: "newMessageText"
+              placeholder: "Type a message"
+              css: "flex: 1; padding: 0.625rem 1rem; border: none; border-radius: 24px; font-size: 0.9375rem; font-family: inherit; outline: none; background: #2a3942; color: #e9edef; transition: background 0.2s;"
+
+            # Send button
+            - ::
+              type: "button"
+              content: "➤"
+              action: "setState"
+              stateUpdates::
+                messages: "${ messages + [{\"id\": generateId(), \"text\": newMessageText, \"userId\": currentUserId, \"username\": username, \"timestamp\": now()}] }"
+                newMessageText: ""
+              css: "width: 42px; height: 42px; padding: 0; background: #00a884; color: white; border: none; border-radius: 50%; cursor: pointer; font-size: 1.125rem; display: flex; align-items: center; justify-content: center; transition: background 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"
+
+  viewer::
+    - ::
+      type: "screen"
+      id: "chat"
+      name: "chat"
+      isEntryPoint: true
+      css: "height: 100vh; display: flex; flex-direction: column; background: #0b141a; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;"
+      blocks::
+        # Header
+        - ::
+          type: "container"
+          css: "background: #202c33; padding: 1rem 1.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: space-between;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 1
+              content: "💬 Chat"
+              css: "margin: 0; font-size: 1.25rem; color: #e9edef; font-weight: 600;"
+
+            - ::
+              type: "text"
+              content: "{{totalMessages}} messages"
+              css: "color: #8696a0; font-size: 0.875rem;"
+
+        # Messages Container (scrollable chat area)
+        - ::
+          type: "container"
+          css: "flex: 1; overflow-y: auto; padding: 1.5rem 1rem; background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZGVmcz48cGF0dGVybiBpZD0iYSIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAgIj48cGF0aCBkPSJNIDAsNTAgTCA1MCwwIEwgMTAwLDUwIEwgNTAsMTAwIFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzExMWIyMSIgc3Ryb2tlLXdpZHRoPSIwLjUiIG9wYWNpdHk9IjAuMiIvPjwvcGF0dGVybj48L2RlZnM+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0idXJsKCNhKSIvPjwvc3ZnPg=='); background-color: #0b141a; display: flex; flex-direction: column; gap: 0.5rem;"
+          blocks::
+            - ::
+              type: "loop"
+              each: "${ messages }"
+              as: "message"
+              key: "id"
+              blocks::
+                # Message container - aligns left for others, right for own messages
+                - ::
+                  type: "container"
+                  css: "${ message.userId == currentUserId ? \"display: flex; justify-content: flex-end; margin-bottom: 0.25rem;\" : \"display: flex; justify-content: flex-start; margin-bottom: 0.25rem;\" }"
+                  blocks::
+                    # Message bubble wrapper (max-width constraint)
+                    - ::
+                      type: "container"
+                      css: "max-width: 65%; min-width: 100px;"
+                      blocks::
+                        # Sender name (only show for other users' messages)
+                        - ::
+                          type: "text"
+                          content: "{{message.username}}"
+                          when: "${ message.userId != currentUserId }"
+                          css: "font-size: 0.75rem; color: #8696a0; margin-bottom: 0.25rem; margin-left: 0.75rem; font-weight: 500;"
+
+                        # Message bubble
+                        - ::
+                          type: "container"
+                          css: "${ message.userId == currentUserId ? \"background: #005c4b; color: #e9edef; padding: 0.5rem 0.75rem; border-radius: 8px; box-shadow: 0 1px 1px rgba(0,0,0,0.2);\" : \"background: #202c33; color: #e9edef; padding: 0.5rem 0.75rem; border-radius: 8px; box-shadow: 0 1px 1px rgba(0,0,0,0.2);\" }"
+                          blocks::
+                            # Message text
+                            - ::
+                              type: "text"
+                              content: "{{message.text}}"
+                              css: "margin: 0; line-height: 1.4; word-wrap: break-word; white-space: pre-wrap; font-size: 0.9375rem;"
+
+                            # Timestamp
+                            - ::
+                              type: "text"
+                              content: "{{message.timestamp}}"
+                              css: "margin-top: 0.25rem; font-size: 0.6875rem; color: #8696a0; text-align: right; opacity: 0.8;"
+
+        # Input Area (bottom bar)
+        - ::
+          type: "container"
+          css: "background: #202c33; padding: 0.75rem 1rem; display: flex; gap: 0.5rem; align-items: center; box-shadow: 0 -1px 2px rgba(0,0,0,0.2);"
+          blocks::
+            # Input field
+            - ::
+              type: "input"
+              name: "newMessageText"
+              placeholder: "Type a message"
+              css: "flex: 1; padding: 0.625rem 1rem; border: none; border-radius: 24px; font-size: 0.9375rem; font-family: inherit; outline: none; background: #2a3942; color: #e9edef; transition: background 0.2s;"
+
+            # Send button
+            - ::
+              type: "button"
+              content: "➤"
+              action: "setState"
+              stateUpdates::
+                messages: "${ messages + [{\"id\": generateId(), \"text\": newMessageText, \"userId\": currentUserId, \"username\": username, \"timestamp\": now()}] }"
+                newMessageText: ""
+              css: "width: 42px; height: 42px; padding: 0; background: #00a884; color: white; border: none; border-radius: 50%; cursor: pointer; font-size: 1.125rem; display: flex; align-items: center; justify-content: center; transition: background 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"

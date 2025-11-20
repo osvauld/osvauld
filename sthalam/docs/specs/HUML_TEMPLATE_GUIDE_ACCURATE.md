@@ -1,17 +1,116 @@
-# HUML Template Guide (Accurate - 2025-01-12)
+# HUML Template Guide (Accurate - v2.0)
 
 **Status:** ✅ Reflects actual implementation
-**Version:** Sthalam v0.1.0
-**Last Validated:** 2025-01-12
-**Last Updated:** Added collaborativeState documentation and forEach clarifications
+**Version:** Sthalam v2.0
+**Last Updated:** 2025-01-20 - Template v2.0 with nested types, loop blocks, and explicit syntax
+**Breaking Changes:** YES - v2.0 introduces breaking changes from v0.1.0
+
+---
+
+## What's New in v2.0
+
+### Major Features
+✅ **Nested & Recursive Types** - Full support for nested data structures (Reddit-style comments)
+✅ **Loop Blocks** - Dedicated `type: "loop"` blocks with `each` property
+✅ **Type System** - New `types::` section with reusable type definitions
+✅ **Explicit Syntax** - One clear way to do everything (no alternatives)
+✅ **Helper Functions** - `generateId()`, `now()` for common operations
+✅ **Reactive Computed** - Renamed from `publisherComputed::` to `computed::`
+
+### Breaking Changes from v0.1.0
+- `publisherComputed::` → `computed::`
+- `expression:` → `expr:` (shorter)
+- `depends::` → `deps::` (shorter, can be inline)
+- Loop syntax: New `type: "loop"` with `each` (replaces `forEach` on containers)
+- Type definitions: New `types::` section with nested support
 
 ---
 
 ## Overview
 
-This guide documents the **actually implemented** HUML template features based on [HUML v0.1.0 specification](https://huml.io/specifications/v0-1-0/). This is the authoritative guide for writing working Sthalam templates.
+This guide documents the **actually implemented** HUML template features for Sthalam v2.0. Based on [HUML v0.1.0 specification](https://huml.io/specifications/v0-1-0/) with Sthalam-specific extensions.
 
-⚠️ **NOTE:** This guide only documents working features. See implementation status at the end.
+⚠️ **NOTE:** v2.0 is **not backward compatible** with v0.1.0 templates.
+
+---
+
+## v2.0 Quick Start Example
+
+```yaml
+name: "Quick Start"
+version: "v2.0.0"
+
+# NEW: Type definitions with nested structures
+types::
+  Post::
+    id::
+      type: "string"
+    title::
+      type: "string"
+    comments::
+      type: "array"
+      items: "Comment"
+
+  Comment::
+    id::
+      type: "string"
+    text::
+      type: "string"
+    replies::
+      type: "array"
+      items: "Comment"         # Recursive type!
+
+documents::
+  collaborativeState::
+    posts::
+      type: "array"
+      items: "Post"            # Type reference
+      initial::
+        []
+
+# NEW: Renamed from publisherComputed
+computed::
+  totalPosts::
+    expr: "${ size(posts) }"  # NEW: expr (not expression)
+    deps::
+      - "posts"               # NEW: deps (not depends)
+
+ui::
+  publisher::
+    - ::
+      type: "screen"
+      blocks::
+        # NEW: Loop block with 'each'
+        - ::
+          type: "loop"
+          each: "${ posts }"
+          as: "post"
+          key: "id"
+          blocks::
+            - ::
+              type: "text"
+              content: "{{post.title}}"
+
+            # Nested loop for comments
+            - ::
+              type: "loop"
+              each: "${ post.comments }"
+              as: "comment"
+              blocks::
+                - ::
+                  type: "text"
+                  content: "{{comment.text}}"
+
+                # Recursive loop for replies!
+                - ::
+                  type: "loop"
+                  each: "${ comment.replies }"
+                  as: "reply"
+                  blocks::
+                    - ::
+                      type: "text"
+                      content: "→ {{reply.text}}"
+```
 
 ---
 
@@ -105,6 +204,37 @@ stateUpdates::
 - Array concatenation with object literals: `items + [{\"key\": value}]`
 - Creating new objects in expressions: `{\"field\": "value", \"count\": 1}`
 - Nested quotes in string values: `message + \"Quote: \\\"hello\\\"\"`
+
+#### ⚠️ CRITICAL: Single Quotes vs Double Quotes in CEL Map Literals
+
+**CEL requires double quotes (`\"`) for string keys and values in map literals. Single quotes (`'`) will NOT work and will cause parsing errors!**
+
+```yaml
+# ❌ WRONG - Single quotes cause CEL parser to fail
+stateUpdates::
+  posts: "${ posts + [{'id': string(now()), 'title': newPostTitle, 'author': 'Publisher'}] }"
+  # Result: Malformed object with entire expression as a single key!
+  # Loro storage: {"id': string(now()), 'title': newPostTitle...": <value>}
+```
+
+```yaml
+# ✅ CORRECT - Use escaped double quotes
+stateUpdates::
+  posts: "${ posts + [{\"id\": string(now()), \"title\": newPostTitle, \"author\": \"Publisher\"}] }"
+  # Result: Proper object with individual fields: {id: "123", title: "Hello", author: "Publisher"}
+```
+
+**Why this matters:**
+- Single quotes are **not valid string delimiters** in CEL (Common Expression Language)
+- Using single quotes causes the CEL parser to fail silently
+- The raw, unparsed expression string gets stored in Loro instead of the evaluated object
+- This creates malformed objects with the entire expression as a single key
+- Results in "duplicate key" errors in Svelte forEach blocks when rendering
+
+**Always use escaped double quotes (`\"`) for:**
+- Map/object literal keys: `{\"id\": value}`
+- String literal values: `{\"author\": \"Publisher\"}`
+- Array concatenation with objects: `items + [{\"key\": value}]`
 
 #### ⚠️ CRITICAL: Ternary Operators with String Literals
 
@@ -2268,7 +2398,7 @@ See `/docs/examples/README.md` for detailed descriptions and usage instructions.
 
 ---
 
-**Last Updated:** 2025-01-05
+**Last Updated:** 2025-01-19 (Added critical warning about single quotes vs double quotes in CEL map literals)
 **Implementation Rate:** 83% (15/18 blocks functional)
 **Status:** ✅ All documented features verified against actual code
 **Syntax:** ✅ Updated to HUML v0.1.0 specification

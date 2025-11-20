@@ -15,8 +15,14 @@ interface Props {
 
 let { block, context, onAction }: Props = $props();
 
-// Interpolate content
+// Interpolate or evaluate content based on syntax
 const content = $derived.by(() => {
+  // If content contains ${ } it's a full expression, evaluate it
+  if (block.content.includes('${')) {
+    const result = evaluateCEL(block.content, context);
+    return typeof result === 'string' ? result : String(result);
+  }
+  // Otherwise it's a template string with {{ }}, interpolate it
   return interpolateCEL(block.content, context);
 });
 

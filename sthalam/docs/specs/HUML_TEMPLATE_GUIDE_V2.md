@@ -661,6 +661,116 @@ Iterate over arrays.
 
 ---
 
+### Media Blocks
+
+#### `video`
+Video playback with HTML5 controls.
+
+```yaml
+- ::
+  type: "video"
+  src: "{{videoAssetId}}"    # Asset ID from static_assets
+  controls: true              # Show playback controls
+  autoplay: false             # Auto-start playback
+  muted: true                 # Start muted (required for autoplay)
+  loop: false                 # Loop playback
+  width: "100%"               # CSS width
+  css: "border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"
+```
+
+**Supported formats**: MP4, WebM, OGG
+
+#### `image`
+Display images.
+
+```yaml
+- ::
+  type: "image"
+  src: "{{imageAssetId}}"     # Asset ID from static_assets
+  alt: "Description text"
+  width: "100%"                # CSS width
+  css: "border-radius: 8px; object-fit: cover;"
+```
+
+**Supported formats**: PNG, JPG, GIF, WebP, SVG
+
+#### `audio`
+Audio playback with HTML5 controls.
+
+```yaml
+- ::
+  type: "audio"
+  src: "{{audioAssetId}}"     # Asset ID from static_assets
+  controls: true               # Show playback controls
+  autoplay: false
+  loop: false
+  css: "width: 100%;"
+```
+
+**Supported formats**: MP3, OGG, AAC, FLAC, M4A
+
+### Canvas Block
+
+#### `canvas`
+GPU-accelerated pattern rendering and interactive visualizations.
+
+```yaml
+- ::
+  type: "canvas"
+  renderMode: "gpu" | "cpu"   # GPU uses shaders, CPU uses WASM
+  width: 600                   # Canvas width in pixels
+  height: 600                  # Canvas height in pixels
+  gridSize: 100                # Grid resolution (100x100 = 10,000 cells)
+  pattern: "sin(x * 0.1 + time)"  # CEL expression compiled to GLSL
+  autoplay: true               # Auto-start animation
+  fps: 60                      # Target frames per second
+  css: "border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.2);"
+```
+
+**Built-in variables** (available in GPU mode):
+- `x`, `y` - Current grid cell coordinates (0 to gridSize)
+- `time` - Animation time in seconds
+- `gridSize` - Grid size value
+- `mouseX`, `mouseY` - Mouse coordinates (in pixels)
+
+**Interactive patterns example**:
+```yaml
+# Ripple that follows mouse
+pattern: "sin(distance(x, y, mouseX / 6, mouseY / 6) * 0.3 - time * 2)"
+
+# Vortex centered on mouse
+pattern: "sin(atan2(y - mouseY / 6, x - mouseX / 6) * 8 + time)"
+
+# Lightning effect
+pattern: "sin((x - mouseX / 6) * 0.2 + time * 3) * cos((y - mouseY / 6) * 0.2)"
+```
+
+**How it works**:
+1. HUML pattern expression (CEL) is compiled to GLSL shader code by OCaml
+2. WebGL2 runs the shader on GPU, evaluating 10,000+ pixels in parallel
+3. Real-time animation at 60 FPS
+4. Mouse coordinates automatically update as GPU uniforms
+
+**Common patterns**:
+```yaml
+# Simple wave
+pattern: "sin(x * 0.1 + time)"
+
+# Circular ripple
+pattern: "sin(distance(x, y, 50, 50) * 0.3 - time * 2)"
+
+# Spiral
+pattern: "sin(atan2(y - 50, x - 50) * 5 + distance(x, y, 50, 50) * 0.2 - time)"
+
+# Plasma effect
+pattern: "sin(x * 0.1) * cos(y * 0.1) + sin(time)"
+
+# Interference pattern
+pattern: "sin(distance(x, y, 30, 30) * 0.5 - time) + sin(distance(x, y, 70, 70) * 0.5 - time)"
+```
+
+---
+
 ## Actions Reference
 
 ### `setState` Action
@@ -716,15 +826,37 @@ content: "Total: {{totalPosts}}"
 content: "Posted by {{post.author}} • {{post.upvotes}} upvotes"
 ```
 
-### Escaping in setState
+### Object Literals in setState
 
-When creating objects in `stateUpdates`, you must **escape quotes**:
+When creating objects in `stateUpdates`, use **escaped double quotes** `\"` for object keys:
 
 ```yaml
 stateUpdates::
   posts: "${ posts + [{\"id\": generateId(), \"title\": newPostTitle}] }"
-  #                     ^^^^                  ^^^^^^^
-  #                     Escaped quotes required!
+  #                    ^^^^^^                  ^^^^^^^^^
+  #                    Escaped double quotes for object keys
+```
+
+**Why escaped quotes?**
+- CEL expressions are evaluated by the OCaml WASM evaluator
+- YAML string parsing converts `\"` to `"` before passing to CEL
+- The CEL parser receives proper JSON-like object syntax: `[{"id": ...}]`
+- Use `\"` for strings inside CEL expressions within YAML strings
+- Use double quotes `"` for the outer YAML string
+
+**Common patterns**:
+```yaml
+# Adding to array with object
+stateUpdates::
+  videos: "${ videos + [{\"id\": string(now()), \"assetId\": uploadedVideoId, \"title\": currentVideoTitle, \"uploadedAt\": now()}] }"
+
+# Creating object with multiple fields
+stateUpdates::
+  user: "${ {\"name\": username, \"email\": email, \"createdAt\": now()} }"
+
+# Nested objects
+stateUpdates::
+  post: "${ {\"id\": generateId(), \"author\": {\"name\": currentUser, \"avatar\": userAvatar}} }"
 ```
 
 ### Accessing Fields

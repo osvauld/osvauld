@@ -3,10 +3,11 @@
  * BlockRenderer - Core recursive block renderer
  *
  * Renders all HUML blocks with:
- * - Control flow (when, if/else, match, forEach)
+ * - Control flow (when, if/else, match, forEach, type:"loop")
  * - CEL expression evaluation
  * - Action dispatching
  * - Lazy evaluation via direct object access
+ * - Support for nested/recursive loops (v2.0)
  */
 
 import type { Block, Context, ActionHandler, StateChangeHandler } from '../lib/types/huml';
@@ -157,6 +158,30 @@ const hasForEach = $derived('forEach' in block && block.forEach);
         <!-- Render the block with loop context, but without forEach to avoid infinite loop -->
         {@const blockWithoutForEach = { ...block, forEach: undefined, as: undefined, key: undefined }}
         <svelte:self block={blockWithoutForEach} context={loopContext} {onAction} {onStateChange} />
+      {/each}
+    {/if}
+
+  {:else if block.type === 'loop'}
+    <!-- Loop block (v2.0 syntax) - uses 'each' instead of 'forEach' -->
+    {@const loopBlock = block as any}
+    {@const items = evaluateCEL(loopBlock.each, context)}
+    {@const itemName = loopBlock.as || 'item'}
+    {@const keyProp = loopBlock.key}
+
+    {#if Array.isArray(items)}
+      {#each items as item, index (keyProp ? item[keyProp] : index)}
+        {@const loopContext = {
+          ...context,
+          [itemName]: item,
+          [`${itemName}Index`]: index
+        }}
+
+        <!-- Render child blocks with loop context -->
+        {#if loopBlock.blocks && Array.isArray(loopBlock.blocks)}
+          {#each loopBlock.blocks as childBlock (childBlock)}
+            <svelte:self block={childBlock} context={loopContext} {onAction} {onStateChange} />
+          {/each}
+        {/if}
       {/each}
     {/if}
 

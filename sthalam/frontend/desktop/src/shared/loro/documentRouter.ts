@@ -8,29 +8,30 @@
  * while loroCoordinator maintains its fixed set of documents.
  */
 
-import type { LoroMap } from 'loro-crdt';
+import type { LoroMap, LoroList } from 'loro-crdt';
 import type { LoroCoordinator } from './loroCoordinator';
 
 /**
  * Maps UCAN document names (from permissions.ts) to loroCoordinator getter methods
+ * Note: submissions_doc returns LoroList, others return LoroMap
  */
-const DOCUMENT_MAP: Record<string, (coordinator: LoroCoordinator) => LoroMap> = {
+const DOCUMENT_MAP: Record<string, (coordinator: LoroCoordinator) => LoroMap | LoroList> = {
   'template_doc': (c) => c.getTemplateMap(),
   'content_doc': (c) => c.getContentMap(),
   'user_content_doc': (c) => c.getUserContentMap(),
   'collaborative_doc': (c) => c.getCollaborativeMap(),
-  'submissions_doc': (c) => c.getSubmissions(),
+  'submissions_doc': (c) => c.getSubmissions(),  // Returns LoroList
   'ui_state_doc': (c) => c.getUIStateMap(),
 };
 
 /**
- * Get the Loro map for a given UCAN document name
+ * Get the Loro map or list for a given UCAN document name
  * @param docName UCAN document name (e.g., "content_doc", "collaborative_doc")
  * @param coordinator LoroCoordinator instance
- * @returns LoroMap for the specified document
+ * @returns LoroMap or LoroList for the specified document
  * @throws Error if document name is not recognized
  */
-export function getMapForDocument(docName: string, coordinator: LoroCoordinator): LoroMap {
+export function getMapForDocument(docName: string, coordinator: LoroCoordinator): LoroMap | LoroList {
   const getter = DOCUMENT_MAP[docName];
   if (!getter) {
     throw new Error(`Unknown document: ${docName}. Valid documents: ${Object.keys(DOCUMENT_MAP).join(', ')}`);
@@ -50,17 +51,17 @@ export function getDocumentNameForField(fieldName: string, templateDefinition: a
 }
 
 /**
- * Get the Loro map for a given field based on template metadata
+ * Get the Loro map or list for a given field based on template metadata
  * @param fieldName Field name
  * @param templateDefinition Parsed template definition
  * @param coordinator LoroCoordinator instance
- * @returns LoroMap for the field's document
+ * @returns LoroMap or LoroList for the field's document
  */
 export function getMapForField(
   fieldName: string,
   templateDefinition: any,
   coordinator: LoroCoordinator
-): LoroMap {
+): LoroMap | LoroList {
   const docName = getDocumentNameForField(fieldName, templateDefinition);
   return getMapForDocument(docName, coordinator);
 }

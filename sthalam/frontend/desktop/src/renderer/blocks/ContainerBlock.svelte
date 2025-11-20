@@ -4,7 +4,7 @@
  */
 
 import type { ContainerBlock, Context, ActionHandler, StateChangeHandler } from '../../lib/types/huml';
-import { interpolateCEL } from '../../lib/services/celEvaluator';
+import { interpolateCEL, evaluateCEL } from '../../lib/services/celEvaluator';
 import BlockRenderer from '../BlockRenderer.svelte';
 
 interface Props {
@@ -35,7 +35,15 @@ const containerStyles = $derived(() => {
 
   // Add custom CSS
   if (block.css) {
-    const customCSS = interpolateCEL(block.css, context);
+    let customCSS: string;
+    // If CSS contains ${ } it's a full expression, evaluate it
+    if (block.css.includes('${')) {
+      const result = evaluateCEL(block.css, context);
+      customCSS = typeof result === 'string' ? result : String(result);
+    } else {
+      // Otherwise it's a template string with {{ }}, interpolate it
+      customCSS = interpolateCEL(block.css, context);
+    }
     styles.push(customCSS);
   }
 

@@ -34,25 +34,34 @@ pub fn prepare_sync_request(
     our_permit: &str,
     peer_permit: &str,
 ) -> Result<SyncRequestData, Box<dyn std::error::Error>> {
+    use crate::decision::should_request_updates;
+
     // Create SyncContext for dual-permit validation (takes token strings)
     let context = SyncContext::new(our_permit, peer_permit)?;
 
     let mut state_vectors = HashMap::new();
     let mut full_docs = HashMap::new();
 
-    // For each document, determine what to send based on permits
+    // For each document, determine what to send/request based on permits
     for (doc_name, doc) in documents {
+        // First check if we should SEND updates (for submitter docs)
         match should_send_updates(&context, doc_name) {
             SyncDecision::SendFullSnapshot => {
                 // Submitter docs: send full snapshot for proper isolated namespace merge
                 full_docs.insert(doc_name.clone(), MergeService::export_snapshot(doc));
+                continue; // Skip request_updates check since we're sending full doc
             }
-            SyncDecision::SendIncrementalUpdates => {
-                // Collaborative/viewer docs: send state vector for incremental sync
-                state_vectors.insert(doc_name.clone(), MergeService::state_frontiers(doc));
-            }
-            SyncDecision::DontSend => {
-                // Don't send (local_only, no permission, etc.)
+            _ => {
+                // For non-submitter docs, check if we should REQUEST updates
+                match should_request_updates(&context, doc_name) {
+                    SyncDecision::SendIncrementalUpdates => {
+                        // Send state vector to request incremental updates
+                        state_vectors.insert(doc_name.clone(), MergeService::state_frontiers(doc));
+                    }
+                    _ => {
+                        // Don't request (local_only, no permission, etc.)
+                    }
+                }
             }
         }
     }
@@ -94,6 +103,11 @@ pub fn generate_sync_response(
                     if !diff.is_empty() {
                         updates.insert(doc_name.clone(), diff);
                     }
+                } else {
+                    // Peer doesn't have state vector for this document
+                    // Send full snapshot so they can receive it
+                    tracing::warn!("⚠️ [generate_sync_response] Peer has no state vector for '{}' - sending full snapshot", doc_name);
+                    updates.insert(doc_name.clone(), MergeService::export_snapshot(doc));
                 }
             }
             SyncDecision::DontSend => {}
@@ -133,9 +147,27 @@ pub fn apply_peer_docs(
         tracing::info!("🔒 [apply_peer_docs] can_receive_updates('{}') = {}", doc_name, can_receive);
 
         if can_receive {
-            let doc = MergeService::import_snapshot(&snapshot)?;
-            documents.insert(doc_name.clone(), doc);
-            tracing::info!("✅ [apply_peer_docs] Document '{}' snapshot imported and inserted", doc_name);
+            if let Some(existing_doc) = documents.get_mut(&doc_name) {
+                // Document exists - merge the snapshot into it (CRDT merge)
+                tracing::info!("🔀 [apply_peer_docs] Document '{}' exists - merging snapshot", doc_name);
+
+                // Log state before merge
+                let state_before = MergeService::state_frontiers(existing_doc);
+                tracing::info!("📊 [apply_peer_docs] Document '{}' state before merge: {} bytes", doc_name, state_before.len());
+
+                // Merge peer's snapshot into existing document
+                MergeService::merge_updates(existing_doc, &snapshot)?;
+
+                // Log state after merge
+                let state_after = MergeService::state_frontiers(existing_doc);
+                tracing::info!("✅ [apply_peer_docs] Document '{}' snapshot merged! State after: {} bytes", doc_name, state_after.len());
+            } else {
+                // Document doesn't exist - import as new document
+                tracing::info!("📝 [apply_peer_docs] Document '{}' doesn't exist - importing snapshot as new document", doc_name);
+                let doc = MergeService::import_snapshot(&snapshot)?;
+                documents.insert(doc_name.clone(), doc);
+                tracing::info!("✅ [apply_peer_docs] Document '{}' snapshot imported and inserted", doc_name);
+            }
         } else {
             tracing::warn!("🚫 [apply_peer_docs] Skipping document '{}' - can_receive_updates returned false", doc_name);
         }
@@ -226,22 +258,43 @@ pub fn generate_collaborative_updates(
     peer_permit: &str,
     peer_state_vectors: &HashMap<String, Vec<u8>>,
 ) -> Result<Option<SyncResponseData>, Box<dyn std::error::Error>> {
+    tracing::info!("🔄 [generate_collaborative_updates] Starting collaborative update generation for {} documents", documents.len());
     let context = SyncContext::new(our_permit, peer_permit)?;
 
     let mut updates = HashMap::new();
 
     for (doc_name, doc) in documents {
-        if let SyncDecision::SendIncrementalUpdates = should_send_updates(&context, doc_name) {
+        tracing::debug!("📝 [generate_collaborative_updates] Checking document '{}'", doc_name);
+
+        let decision = should_send_updates(&context, doc_name);
+        tracing::debug!("📊 [generate_collaborative_updates] '{}' decision: {:?}", doc_name, decision);
+
+        if let SyncDecision::SendIncrementalUpdates = decision {
             if let Some(peer_vec) = peer_state_vectors.get(doc_name) {
+                tracing::debug!("📊 [generate_collaborative_updates] '{}' has peer state vector ({} bytes)", doc_name, peer_vec.len());
                 let diff = MergeService::export_updates(doc, peer_vec)?;
+                tracing::debug!("📊 [generate_collaborative_updates] '{}' generated diff: {} bytes", doc_name, diff.len());
                 if !diff.is_empty() {
+                    tracing::info!("✅ [generate_collaborative_updates] Including '{}' in updates ({} bytes)", doc_name, diff.len());
                     updates.insert(doc_name.clone(), diff);
+                } else {
+                    tracing::debug!("⚠️ [generate_collaborative_updates] '{}' diff is empty (no changes)", doc_name);
                 }
+            } else {
+                tracing::warn!("⚠️ [generate_collaborative_updates] '{}' has no peer state vector", doc_name);
             }
+        } else {
+            tracing::warn!("🚫 [generate_collaborative_updates] '{}' skipped (decision: {:?})", doc_name, decision);
         }
     }
 
+    tracing::info!("📦 [generate_collaborative_updates] Final update count: {} documents", updates.len());
+    for (doc_name, data) in &updates {
+        tracing::info!("  📄 '{}': {} bytes", doc_name, data.len());
+    }
+
     if updates.is_empty() {
+        tracing::info!("⚠️ [generate_collaborative_updates] No updates to send");
         Ok(None)
     } else {
         let mut our_state_vectors = HashMap::new();

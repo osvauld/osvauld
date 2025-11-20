@@ -612,7 +612,7 @@ pub async fn handle_merge_update(
         updates,
         state_vectors,
         &current_user,
-        repo_ctx,
+        repo_ctx.clone(),
         &crypto_utils,
     )
     .await
@@ -642,6 +642,26 @@ pub async fn handle_merge_update(
             )));
         }
     }
+
+    // Emit ResourceUpdated event with the applied updates
+    // This allows frontend to merge updates in real-time without fetching from DB
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    let metadata_json = serde_json::json!({
+        "id": resource_id,
+        "timestamp": timestamp,
+    });
+
+    peer_conn.event_emitter.emit(crate::p2p::emitter::P2PEvent::ResourceUpdated {
+        resource_id: resource_id.to_string(),
+        updates_json: updates.to_string(),
+        metadata_json: metadata_json.to_string(),
+    });
+
+    info!("📡 Emitted ResourceUpdated event for resource {}", resource_id);
 
     Ok(())
 }

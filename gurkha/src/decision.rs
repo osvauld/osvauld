@@ -10,11 +10,12 @@
 
 use crate::errors::GurkhaError;
 use crate::parser::DelegationTemplate;
+use crate::types::SyncDecision;
 use base64::{Engine as _, engine::general_purpose};
 use ed25519_dalek::VerifyingKey;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 
 pub type DecisionResult<T> = Result<T, GurkhaError>;
 
@@ -582,41 +583,68 @@ impl SyncContext {
 pub fn should_send_updates(context: &SyncContext, doc_name: &str) -> crate::types::SyncDecision {
     use crate::types::SyncDecision;
 
+    tracing::debug!("🔍 [should_send_updates] Checking document '{}'", doc_name);
+
     // 1. Check local_only facts (ours OR peer's)
     // Don't send if either we or the peer want to keep this doc local
-    if context.our_ucan.is_local_only(doc_name) || context.peer_ucan.is_local_only(doc_name) {
+    let our_local_only = context.our_ucan.is_local_only(doc_name);
+    let peer_local_only = context.peer_ucan.is_local_only(doc_name);
+    tracing::debug!("📋 [should_send_updates] '{}': our_local_only={}, peer_local_only={}", doc_name, our_local_only, peer_local_only);
+
+    if our_local_only || peer_local_only {
+        tracing::warn!("🚫 [should_send_updates] '{}' → DontSend (local_only)", doc_name);
         return SyncDecision::DontSend;
     }
 
     // 2. Check our capability (can WE write?)
     match context.our_ucan.get_capability(doc_name) {
-        None => return SyncDecision::DontSend,
+        None => {
+            tracing::warn!("🚫 [should_send_updates] '{}' → DontSend (no our_capability)", doc_name);
+            return SyncDecision::DontSend;
+        }
         Some(our_cap) => {
+            tracing::debug!("📄 [should_send_updates] '{}': our_capability={:?}, can_write={}", doc_name, our_cap, our_cap.can_write());
+
             if !our_cap.can_write() {
                 // We have Viewer capability → can't send
+                tracing::warn!("🚫 [should_send_updates] '{}' → DontSend (our_capability={:?}, can't write)", doc_name, our_cap);
                 return SyncDecision::DontSend;
             }
 
             // Check if we should send full snapshot (Submitter)
             if context.our_ucan.should_send_full_snapshot(doc_name) {
+                tracing::info!("📤 [should_send_updates] '{}' → SendFullSnapshot (submitter)", doc_name);
                 return SyncDecision::SendFullSnapshot;
             }
         }
     }
 
     // 3. Check peer's no_incoming_updates
-    if context.peer_ucan.has_no_incoming_updates(doc_name) {
+    let peer_no_incoming = context.peer_ucan.has_no_incoming_updates(doc_name);
+    tracing::debug!("📋 [should_send_updates] '{}': peer_no_incoming_updates={}", doc_name, peer_no_incoming);
+
+    if peer_no_incoming {
+        tracing::warn!("🚫 [should_send_updates] '{}' → DontSend (peer no_incoming_updates)", doc_name);
         return SyncDecision::DontSend;
     }
 
     // 4. Check peer capability (can THEY receive?)
     match context.peer_ucan.get_capability(doc_name) {
-        None => SyncDecision::DontSend,
+        None => {
+            tracing::warn!("🚫 [should_send_updates] '{}' → DontSend (no peer_capability)", doc_name);
+            SyncDecision::DontSend
+        }
         Some(peer_cap) => {
+            let can_sync_bidirectional = peer_cap.can_sync_bidirectional();
+            let can_write = peer_cap.can_write();
+            tracing::debug!("📄 [should_send_updates] '{}': peer_capability={:?}, can_sync_bidirectional={}, can_write={}", doc_name, peer_cap, can_sync_bidirectional, can_write);
+
             // Peer can receive if they have Collaborator or Viewer capability
-            if peer_cap.can_sync_bidirectional() || !peer_cap.can_write() {
+            if can_sync_bidirectional || !can_write {
+                tracing::info!("✅ [should_send_updates] '{}' → SendIncrementalUpdates", doc_name);
                 SyncDecision::SendIncrementalUpdates
             } else {
+                tracing::warn!("🚫 [should_send_updates] '{}' → DontSend (peer capability check failed)", doc_name);
                 SyncDecision::DontSend
             }
         }
@@ -660,6 +688,78 @@ pub fn can_receive_updates(context: &SyncContext, doc_name: &str) -> bool {
             }
 
             result
+        }
+    }
+}
+
+/// Determine if we should REQUEST updates for a document (used in sync requests)
+///
+/// Different from should_send_updates - this checks if we want to RECEIVE updates
+/// from the peer, so we send our state vector to enable incremental sync.
+///
+/// Algorithm:
+/// 1. Check local_only → DontRequest (no sync for local-only docs)
+/// 2. Check our no_incoming_updates → DontRequest (we don't want updates)
+/// 3. Check our capability → if we can read (Viewer/Collaborator), RequestUpdates
+/// 4. Check peer capability → if peer can write (Collaborator), RequestUpdates
+///
+/// # Returns
+/// - RequestUpdates: Send state vector to request incremental updates
+/// - RequestFullSnapshot: Request full snapshot (not used in current implementation)
+/// - DontRequest: Don't request updates for this document
+pub fn should_request_updates(context: &SyncContext, doc_name: &str) -> SyncDecision {
+    tracing::debug!("🔍 [should_request_updates] Checking document '{}'", doc_name);
+
+    // 1. Check local_only facts (ours OR peer's)
+    let our_local_only = context.our_ucan.is_local_only(doc_name);
+    let peer_local_only = context.peer_ucan.is_local_only(doc_name);
+    tracing::debug!("📋 [should_request_updates] '{}': our_local_only={}, peer_local_only={}", doc_name, our_local_only, peer_local_only);
+
+    if our_local_only || peer_local_only {
+        tracing::warn!("🚫 [should_request_updates] '{}' → DontRequest (local_only)", doc_name);
+        return SyncDecision::DontSend; // Reuse DontSend for "don't request"
+    }
+
+    // 2. Check our no_incoming_updates
+    let our_no_incoming = context.our_ucan.has_no_incoming_updates(doc_name);
+    tracing::debug!("📋 [should_request_updates] '{}': our_no_incoming_updates={}", doc_name, our_no_incoming);
+
+    if our_no_incoming {
+        tracing::warn!("🚫 [should_request_updates] '{}' → DontRequest (our no_incoming_updates)", doc_name);
+        return SyncDecision::DontSend;
+    }
+
+    // 3. Check our capability (can WE read/receive?)
+    match context.our_ucan.get_capability(doc_name) {
+        None => {
+            tracing::warn!("🚫 [should_request_updates] '{}' → DontRequest (no our_capability)", doc_name);
+            SyncDecision::DontSend
+        }
+        Some(our_cap) => {
+            tracing::debug!("📄 [should_request_updates] '{}': our_capability={:?}", doc_name, our_cap);
+
+            // We can request updates if we have ANY capability (Viewer, Collaborator, Submitter)
+            // because we want to receive data
+
+            // Check peer capability - can they send to us?
+            match context.peer_ucan.get_capability(doc_name) {
+                None => {
+                    tracing::warn!("🚫 [should_request_updates] '{}' → DontRequest (no peer_capability)", doc_name);
+                    SyncDecision::DontSend
+                }
+                Some(peer_cap) => {
+                    tracing::debug!("📄 [should_request_updates] '{}': peer_capability={:?}", doc_name, peer_cap);
+
+                    // Peer can send if they can write (Collaborator/Submitter)
+                    if peer_cap.can_write() {
+                        tracing::info!("✅ [should_request_updates] '{}' → RequestUpdates (peer can write, we can receive)", doc_name);
+                        SyncDecision::SendIncrementalUpdates // Reuse for "request incremental"
+                    } else {
+                        tracing::warn!("🚫 [should_request_updates] '{}' → DontRequest (peer can't write)", doc_name);
+                        SyncDecision::DontSend
+                    }
+                }
+            }
         }
     }
 }

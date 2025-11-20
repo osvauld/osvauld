@@ -1,12 +1,13 @@
 /**
  * Submissions Store - Manages form submissions in Loro submissionsDoc
  *
- * Submissions are stored as a Loro Map where:
- * - Key: submission ID (timestamp-random)
- * - Value: {timestamp, eventName, data}
+ * Submissions are stored as a Loro List (array) where each item is:
+ * {id, timestamp, eventName, data, ...formFields}
+ *
+ * This matches the template definition: submissions:: type: "array"
  */
 
-import type { LoroMap } from 'loro-crdt';
+import type { LoroList } from 'loro-crdt';
 
 export interface Submission {
   id: string;
@@ -16,18 +17,18 @@ export interface Submission {
 }
 
 export class SubmissionsStore {
-  private submissionsMap: LoroMap;
+  private submissionsList: LoroList;
   private subscribers: Set<() => void> = new Set();
 
-  constructor(submissionsMap: LoroMap) {
-    this.submissionsMap = submissionsMap;
+  constructor(submissionsList: LoroList) {
+    this.submissionsList = submissionsList;
 
     // Subscribe to Loro document changes
-    this.submissionsMap.subscribe(() => {
+    this.submissionsList.subscribe(() => {
       this.notifySubscribers();
     });
 
-    console.log('📋 [SubmissionsStore] Initialized');
+    console.log('📋 [SubmissionsStore] Initialized with List-based storage');
   }
 
   /**
@@ -37,16 +38,18 @@ export class SubmissionsStore {
     const timestamp = Date.now();
     const id = `${timestamp}-${Math.random().toString(36).substr(2, 6)}`;
 
-    // Store in Loro Map
+    // Store in Loro List as a map entry
     const submissionData = {
+      id,
       timestamp,
       eventName,
-      data
+      ...data  // Spread form data fields directly into the submission object
     };
 
-    this.submissionsMap.set(id, submissionData);
+    // Push to the end of the list (append-only)
+    this.submissionsList.push(submissionData);
 
-    console.log('📝 [SubmissionsStore] Added submission:', { id, eventName, data });
+    console.log('📝 [SubmissionsStore] Added submission to list:', { id, eventName, data });
 
     // Notify subscribers
     this.notifySubscribers();
@@ -60,22 +63,24 @@ export class SubmissionsStore {
   getAllSubmissions(): Submission[] {
     const submissions: Submission[] = [];
 
-    // Iterate over Loro Map entries
-    const entries = this.submissionsMap.toJSON() as Record<string, any>;
+    // Iterate over Loro List items
+    const listData = this.submissionsList.toJSON() as any[];
 
-    for (const [id, value] of Object.entries(entries)) {
-      if (value && typeof value === 'object') {
+    for (const item of listData) {
+      if (item && typeof item === 'object') {
         submissions.push({
-          id,
-          timestamp: value.timestamp || 0,
-          eventName: value.eventName || '',
-          data: value.data || {}
+          id: item.id || '',
+          timestamp: item.timestamp || 0,
+          eventName: item.eventName || '',
+          data: item  // The entire item IS the data (includes all form fields)
         });
       }
     }
 
     // Sort by timestamp (newest first)
     submissions.sort((a, b) => b.timestamp - a.timestamp);
+
+    console.log(`📊 [SubmissionsStore] Retrieved ${submissions.length} submissions from list`);
 
     return submissions;
   }
@@ -126,12 +131,13 @@ export class SubmissionsStore {
    * Clear all submissions (for testing/admin)
    */
   clearAll(): void {
-    const entries = this.submissionsMap.toJSON() as Record<string, any>;
-    Object.keys(entries).forEach(key => {
-      this.submissionsMap.delete(key);
-    });
+    // Clear the list by deleting from end to start (to avoid index shifting issues)
+    const length = this.submissionsList.length;
+    for (let i = length - 1; i >= 0; i--) {
+      this.submissionsList.delete(i, 1);
+    }
 
-    console.log('🗑️  [SubmissionsStore] Cleared all submissions');
+    console.log('🗑️  [SubmissionsStore] Cleared all submissions from list');
     this.notifySubscribers();
   }
 }

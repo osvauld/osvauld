@@ -17,9 +17,13 @@
     }
   }
 
-  // No state changes in viewer mode (read-only)
+  // Handle state changes - route to ViewerApp for permission checking
   function handleStateChange(key: string, value: any): void {
-    console.warn('⚠️ [ScreenRenderer] State changes not allowed in viewer mode');
+    // Viewers can change: user_content_doc, collaborative_doc, submissions_doc
+    // ViewerApp.handleSetState will validate document permissions
+    if (onAction) {
+      onAction('setState', { stateUpdates: { [key]: value } });
+    }
   }
 </script>
 

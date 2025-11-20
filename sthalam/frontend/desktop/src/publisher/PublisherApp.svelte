@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { loroCoordinator } from '../shared/loro/loroCoordinator';
   import { getMapForField, getDocumentNameForField } from '../shared/loro/documentRouter';
   import { initializeStateFromTemplate, reloadFieldsFromDocument, subscribeToDocument, shouldTriggerReactiveUpdate, getUniqueDocuments } from '../shared/loro/stateManager';
@@ -11,6 +11,7 @@
   import NavigationToggle from '../components/NavigationToggle.svelte';
   import { uploadAsset, setAllowedFileTypes } from '../lib/services/assetService';
   import { uiState } from '../state';
+  import { dataState } from '../state/data.svelte';
 
   // Publisher UI State - Local snapshots of CRDT state for reactive UI
   let publisherUIState = $state<Record<string, any>>({});
@@ -28,7 +29,12 @@
   // The reactiveVersion dependency forces this to re-run when state updates
   let computedValues = $derived.by(() => {
     reactiveVersion; // Read to create dependency
-    return getAllReactiveValues();
+    const values = getAllReactiveValues();
+    console.log('🧮 [PublisherApp] Computed values from reactive system:', values);
+    console.log('🧮 [PublisherApp] videoCount:', values.videoCount);
+    console.log('🧮 [PublisherApp] imageCount:', values.imageCount);
+    console.log('🧮 [PublisherApp] hasVideos:', values.hasVideos);
+    return values;
   });
 
   // Asset type configuration for unified upload handler
@@ -46,13 +52,55 @@
   // Template metadata for routing state updates
   let templateDefinition: any = null;
 
-  onMount(() => {
-    initializePublisher();
-  });
+  // Track previous resource ID to prevent double initialization
+  let previousResourceId: string | null = null;
 
   onDestroy(() => {
     if (templateUnsubscribe) templateUnsubscribe();
     documentUnsubscribes.forEach(unsub => unsub());
+  });
+
+  /**
+   * Re-initialize publisher when resource changes
+   * This effect runs on mount and whenever currentResourceId changes
+   */
+  $effect(() => {
+    const resourceId = dataState.currentResourceId;
+
+    // Skip if resourceId hasn't actually changed
+    if (resourceId === previousResourceId) {
+      return;
+    }
+
+    console.log('🔄 [PublisherApp] Effect triggered for resourceId:', resourceId, '(previous:', previousResourceId, ')');
+    previousResourceId = resourceId;
+
+    if (!resourceId) {
+      console.log('❌ [PublisherApp] No resource selected, clearing content');
+      publisherUIState = {};
+      screens = [];
+      currentScreenId = '';
+      return;
+    }
+
+    // Re-initialize publisher with new resource
+    console.log('🔄 [PublisherApp] Resource changed, re-initializing publisher');
+
+    // Clear old state and screens immediately to prevent old blocks from evaluating
+    publisherUIState = {};
+    screens = [];
+    currentScreenId = '';
+
+    // Clean up old subscriptions
+    if (templateUnsubscribe) {
+      templateUnsubscribe();
+      templateUnsubscribe = null;
+    }
+    documentUnsubscribes.forEach(unsub => unsub());
+    documentUnsubscribes = [];
+
+    // Initialize with new resource
+    initializePublisher();
   });
 
   /**
@@ -72,6 +120,9 @@
     for (const [key, value] of Object.entries(stateToSave)) {
       // Only persist non-temporary fields (exclude _uploading, _error)
       if (key.endsWith('_uploading') || key.endsWith('_error')) continue;
+
+      // Skip submissions - they're managed by SubmissionsStore
+      if (key === 'submissions') continue;
 
       try {
         // Get the UCAN document name from template metadata
@@ -118,7 +169,13 @@
       templateDefinition = template;
 
       // 1. Load state from template documents using shared state manager
-      publisherUIState = initializeStateFromTemplate(template, loroCoordinator);
+      // Pass user context so CEL expressions in initial values can access userId, etc.
+      const userContext = {
+        userId: dataState.userDetails?.userId ?? '',
+        deviceId: dataState.userDetails?.deviceId ?? '',
+        username: dataState.userDetails?.username ?? ''
+      };
+      publisherUIState = initializeStateFromTemplate(template, loroCoordinator, userContext);
 
       // Initialize arrays as empty if not defined (for list-based templates)
       if (!publisherUIState.videos) {
@@ -138,6 +195,9 @@
       }
 
       console.log('📊 [PublisherApp] Initialized state:', publisherUIState);
+      console.log('📊 [PublisherApp] Videos array:', publisherUIState.videos);
+      console.log('📊 [PublisherApp] Images array:', publisherUIState.images);
+      console.log('📊 [PublisherApp] Audios array:', publisherUIState.audios);
 
       // 2. Load computed expressions from template
       const expressions = template.computed || {};
@@ -156,14 +216,27 @@
       });
       initReactive(template);
       console.log('⚛️ [PublisherApp] Reactive system initialized');
+
+      // 4. Sync loaded state to reactive system
+      // The reactive system initialized with template defaults, but we have actual data from Loro
+      console.log('🔄 [PublisherApp] Syncing loaded state to reactive system...');
+      const documentsDefinition = template.documents || {};
+      for (const fieldName of Object.keys(documentsDefinition)) {
+        if (publisherUIState[fieldName] !== undefined) {
+          console.log(`  ↪️ Syncing ${fieldName}:`, publisherUIState[fieldName]);
+          updateReactiveState(fieldName, publisherUIState[fieldName]);
+        }
+      }
+      reactiveVersion++; // Force recompute
+      console.log('✅ [PublisherApp] State synced to reactive system');
     } catch (error) {
       console.error('❌ [PublisherApp] Failed to parse HUML:', error);
     }
 
-    // 4. Load publisher screens
+    // 5. Load publisher screens
     loadPublisherScreens();
 
-    // 4. Subscribe to template changes (when HUML source changes)
+    // 6. Subscribe to template changes (when HUML source changes)
     const templateDoc = loroCoordinator.getDocuments().templateDoc;
     templateUnsubscribe = templateDoc.subscribe(() => {
       // Re-initialize when template changes
@@ -182,6 +255,15 @@
           const updatedState = reloadFieldsFromDocument(docName, templateDefinition, loroCoordinator);
           publisherUIState = { ...publisherUIState, ...updatedState };
           console.log(`🔄 [PublisherApp] Updated state from ${docName}:`, updatedState);
+
+          // Update reactive signals for each changed field (fixes computed values!)
+          for (const [key, value] of Object.entries(updatedState)) {
+            updateReactiveState(key, value);
+            console.log(`⚛️ [PublisherApp] Updated reactive signal: ${key} =`, value);
+          }
+
+          // Increment version to trigger Svelte reactivity
+          reactiveVersion++;
         });
       });
       documentUnsubscribes.push(unsubscribe);
@@ -410,7 +492,11 @@
   let expressionContext = $derived({
     ...computedValues,
     ...publisherUIState,  // Spread last so local state overwrites reactive signals
-    mode: 'publisher'
+    mode: 'publisher',
+    // Inject user details for CEL access
+    userId: dataState.userDetails?.userId ?? '',
+    deviceId: dataState.userDetails?.deviceId ?? '',
+    username: dataState.userDetails?.username ?? ''
   });
 </script>
 

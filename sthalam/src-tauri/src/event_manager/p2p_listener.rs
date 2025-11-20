@@ -120,6 +120,38 @@ pub async fn listen_to_p2p_events(
                     error!("Failed to parse resource metadata JSON: {}", metadata_json);
                 }
             }
+
+            P2PEvent::ResourceUpdated {
+                resource_id,
+                updates_json,
+                metadata_json,
+            } => {
+                info!("P2P ResourceUpdated event: resource {}", resource_id);
+                // Parse JSON strings and emit to frontend
+                let updates = serde_json::from_str::<serde_json::Value>(&updates_json);
+                let metadata = serde_json::from_str::<serde_json::Value>(&metadata_json);
+
+                match (updates, metadata) {
+                    (Ok(updates_val), Ok(metadata_val)) => {
+                        if let Err(e) = app_handle.emit(
+                            "resource-updated",
+                            json!({
+                                "resourceId": resource_id,
+                                "updates": updates_val,
+                                "metadata": metadata_val
+                            }),
+                        ) {
+                            error!("Failed to emit resource-updated event: {}", e);
+                        }
+                    }
+                    _ => {
+                        error!(
+                            "Failed to parse resource update JSON for resource {}",
+                            resource_id
+                        );
+                    }
+                }
+            }
         }
     }
 

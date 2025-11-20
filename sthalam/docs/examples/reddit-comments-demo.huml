@@ -47,8 +47,8 @@ documents::
 
   currentUser::
     type: "string"
-    initial: "Guest"
-    document: "collaborative_doc"
+    initial: "${ username }"
+    document: "user_content_doc"
 
   newPostTitle::
     type: "string"

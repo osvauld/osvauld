@@ -69,9 +69,57 @@ interface CELEvaluator {
 }
 
 /**
+ * WASM CEL Reactive interface (OCaml React FRP)
+ */
+interface CELReactive {
+  /**
+   * Initialize reactive system from HUML template
+   * Parses publisherState and publisherComputed to create signal graph
+   * @param template Parsed HUML template object
+   */
+  initTemplate(template: any): void;
+
+  /**
+   * Update a reactive state signal (triggers reactive propagation)
+   * @param name Signal name
+   * @param value New value
+   */
+  updateState(name: string, value: any): void;
+
+  /**
+   * Get current value of a reactive signal
+   * @param name Signal name
+   * @returns Current value or undefined
+   */
+  getValue(name: string): any;
+
+  /**
+   * Get all current reactive signal values
+   * @returns Object with all signal values
+   */
+  getAllValues(): Record<string, any>;
+
+  /**
+   * Set log level for WASM logging
+   * @param level Log level (e.g., "debug", "info", "warn", "error")
+   */
+  setLogLevel(level: string): void;
+
+  /**
+   * Get reactive system version
+   */
+  version: string;
+}
+
+/**
  * Global CEL evaluator instance (set by loadCELEvaluator)
  */
 let celEvaluator: CELEvaluator | null = null;
+
+/**
+ * Global CEL reactive instance (set by loadCELEvaluator)
+ */
+let celReactive: CELReactive | null = null;
 
 /**
  * Load the CEL evaluator WASM module
@@ -96,10 +144,13 @@ export async function loadCELEvaluator(): Promise<void> {
     script.onload = () => {
       // WASM needs time to initialize
       const checkInterval = setInterval(() => {
-        if (typeof (window as any).CELEvaluator !== 'undefined') {
+        if (typeof (window as any).CELEvaluator !== 'undefined' &&
+            typeof (window as any).CELReactive !== 'undefined') {
           clearInterval(checkInterval);
           celEvaluator = (window as any).CELEvaluator;
-          console.log('[CEL] Evaluator loaded, version:', celEvaluator!.version);
+          celReactive = (window as any).CELReactive;
+          console.log('[CEL] Evaluator loaded, version:', celEvaluator!.version());
+          console.log('[CEL] Reactive loaded, version:', celReactive!.version);
           resolve();
         }
       }, 100);
@@ -107,7 +158,7 @@ export async function loadCELEvaluator(): Promise<void> {
       // Timeout after 10 seconds
       setTimeout(() => {
         clearInterval(checkInterval);
-        reject(new Error('Timeout waiting for CELEvaluator to initialize'));
+        reject(new Error('Timeout waiting for CELEvaluator/CELReactive to initialize'));
       }, 10000);
     };
 
@@ -282,4 +333,95 @@ export function isCELLoaded(): boolean {
 export function generateAssetIdCEL(assetType: 'video' | 'image' | 'file' | 'audio'): string {
   const evaluator = ensureLoaded();
   return evaluator.generateAssetId(assetType);
+}
+
+/**
+ * ==== REACTIVE SYSTEM API ====
+ */
+
+/**
+ * Ensure CEL reactive is loaded
+ * @throws Error if reactive not loaded
+ */
+function ensureReactiveLoaded(): CELReactive {
+  if (!celReactive) {
+    throw new Error('CEL reactive not loaded. Call loadCELEvaluator() first.');
+  }
+  return celReactive;
+}
+
+/**
+ * Initialize reactive system from HUML template
+ * Parses publisherState and publisherComputed to create signal graph
+ *
+ * @param template Parsed HUML template object (must have documents.publisherState and documents.publisherComputed)
+ *
+ * @example
+ * ```typescript
+ * const template = parseHUML(humlSource);
+ * initReactive(template);
+ * ```
+ */
+export function initReactive(template: any): void {
+  const reactive = ensureReactiveLoaded();
+  reactive.initTemplate(template);
+  console.log('[CEL Reactive] Template initialized');
+}
+
+/**
+ * Update reactive state (triggers automatic reactive propagation)
+ *
+ * @param name Signal name (from publisherState)
+ * @param value New value
+ *
+ * @example
+ * ```typescript
+ * updateReactiveState('counter', 5);
+ * // This automatically updates dependent computed values!
+ * ```
+ */
+export function updateReactiveState(name: string, value: any): void {
+  const reactive = ensureReactiveLoaded();
+  reactive.updateState(name, value);
+}
+
+/**
+ * Get current value of a reactive signal
+ *
+ * @param name Signal name (from publisherState or publisherComputed)
+ * @returns Current value or undefined
+ *
+ * @example
+ * ```typescript
+ * const counter = getReactiveValue('counter');
+ * const counterDouble = getReactiveValue('counterDouble'); // Computed value
+ * ```
+ */
+export function getReactiveValue(name: string): any {
+  const reactive = ensureReactiveLoaded();
+  return reactive.getValue(name);
+}
+
+/**
+ * Get all current reactive values (state + computed)
+ *
+ * @returns Object with all signal values
+ *
+ * @example
+ * ```typescript
+ * const allValues = getAllReactiveValues();
+ * console.log(allValues);
+ * // { counter: 5, counterDouble: 10, message: "Hello", messageLength: 5 }
+ * ```
+ */
+export function getAllReactiveValues(): Record<string, any> {
+  const reactive = ensureReactiveLoaded();
+  return reactive.getAllValues();
+}
+
+/**
+ * Check if CEL reactive is loaded
+ */
+export function isReactiveLoaded(): boolean {
+  return celReactive !== null;
 }

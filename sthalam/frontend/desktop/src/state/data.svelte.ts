@@ -125,6 +125,30 @@ class DataState {
       });
       this._unlisteners.push(resourceSyncUnlisten);
 
+      // Listen for resource update events (real-time CRDT merging)
+      const resourceUpdateUnlisten = await listen('resource-updated', (event: any) => {
+        const { resourceId, updates, metadata } = event.payload;
+        console.log('🔄 [DataState] Resource updated:', resourceId, metadata);
+
+        // Check if this is the currently active resource
+        if (this.currentResourceId === resourceId) {
+          console.log('✨ [DataState] Merging updates for currently active resource:', resourceId);
+
+          // Merge updates into current Loro documents
+          this.mergeIncomingUpdates(updates).catch((error) => {
+            console.error('❌ [DataState] Failed to merge incoming updates:', error);
+          });
+        } else {
+          console.log('ℹ️ [DataState] Updated resource is not currently active, skipping merge');
+        }
+
+        // Update lastModified in resources list if metadata includes timestamp
+        if (metadata.timestamp) {
+          this.updateResourceLastModified(resourceId, metadata.timestamp);
+        }
+      });
+      this._unlisteners.push(resourceUpdateUnlisten);
+
       console.log('✅ [DataState] Event listeners setup complete');
     } catch (error) {
       console.error('❌ [DataState] Failed to setup listeners:', error);
@@ -292,8 +316,17 @@ class DataState {
         // Convert staticAssets to map format (asset_id -> base64_string)
         const staticAssetsMap: Record<string, string> = {};
         for (const [key, value] of Object.entries(snapshots.staticAssets || {})) {
-          // Convert Uint8Array to base64 string
-          const base64 = btoa(String.fromCharCode(...Array.from(value)));
+          // Convert Uint8Array to base64 string in chunks to avoid stack overflow
+          const uint8Array = value instanceof Uint8Array ? value : new Uint8Array(value);
+          const chunkSize = 8192; // Process 8KB at a time
+          let binaryString = '';
+
+          for (let i = 0; i < uint8Array.length; i += chunkSize) {
+            const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
+            binaryString += String.fromCharCode(...Array.from(chunk));
+          }
+
+          const base64 = btoa(binaryString);
           staticAssetsMap[key] = base64;
         }
 
@@ -402,6 +435,30 @@ class DataState {
 
 
   /**
+   * Merge incoming CRDT updates into currently active Loro documents
+   * Called when resource-updated event is received for the active resource
+   */
+  async mergeIncomingUpdates(updates: Record<string, number[]>) {
+    try {
+      console.log('🔄 [DataState] Merging incoming updates...');
+
+      // Convert number arrays back to Uint8Array
+      const updatesMap: Record<string, Uint8Array> = {};
+      for (const [docName, updateArray] of Object.entries(updates)) {
+        updatesMap[docName] = new Uint8Array(updateArray);
+      }
+
+      // Delegate to loroCoordinator to merge updates
+      loroCoordinator.mergeIncomingUpdates(updatesMap);
+
+      console.log('✅ [DataState] Updates merged successfully');
+    } catch (error) {
+      console.error('❌ [DataState] Failed to merge updates:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Save the currently active resource
    * Gets Loro snapshots from coordinator and saves to backend
    */
@@ -419,8 +476,17 @@ class DataState {
       // Convert staticAssets to map format (asset_id -> base64_string)
       const staticAssetsMap: Record<string, string> = {};
       for (const [key, value] of Object.entries(snapshots.staticAssets || {})) {
-        // Convert Uint8Array to base64 string
-        const base64 = btoa(String.fromCharCode(...Array.from(value)));
+        // Convert Uint8Array to base64 string in chunks to avoid stack overflow
+        const uint8Array = value instanceof Uint8Array ? value : new Uint8Array(value);
+        const chunkSize = 8192; // Process 8KB at a time
+        let binaryString = '';
+
+        for (let i = 0; i < uint8Array.length; i += chunkSize) {
+          const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
+          binaryString += String.fromCharCode(...Array.from(chunk));
+        }
+
+        const base64 = btoa(binaryString);
         staticAssetsMap[key] = base64;
       }
 

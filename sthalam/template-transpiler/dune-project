@@ -18,5 +18,7 @@
     (menhir (>= 20180523))
     js_of_ocaml
     js_of_ocaml-ppx
+    logs
+    react
     yojson
     (alcotest :with-test)))

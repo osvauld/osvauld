@@ -1,7 +1,7 @@
 (library
  (name cel)
  (public_name template-transpiler.cel)
- (libraries yojson str unix)
+ (libraries yojson str unix logs)
  (modules
    cel_types
    cel_eval

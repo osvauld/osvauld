@@ -37,6 +37,12 @@ pub enum P2PEvent {
     ResourceSynced {
         metadata_json: String,
     },
+    /// Emitted when a resource receives updates (with actual CRDT update data)
+    ResourceUpdated {
+        resource_id: String,
+        updates_json: String, // Serialized map of document_name -> base64 encoded update bytes
+        metadata_json: String,
+    },
 }
 
 /// Handles event emission for the P2P service
