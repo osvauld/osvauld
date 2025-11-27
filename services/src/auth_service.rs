@@ -3,6 +3,7 @@ use crypto_utils::{
     CryptoUtils, change_certificate_password, export_certificate as crypto_export_certificate,
     generate_and_encrypt_ed25519_key, generate_keys, get_key_id, import_certificate,
 };
+use PermitService;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::user::User;
 use osvauld_core::models::Certificate;
@@ -88,7 +89,7 @@ pub async fn handle_signup(
             // Decrypt the encrypted UCAN private key
             let (ucan_signing_key, ucan_verifying_key) = crypto.decrypt_ucan_key(&ucan_certificate.private_key)?;
 
-            let mut service = gurkha::UcanService::new();
+            let mut service = PermitService::new();
             service.load_keys(ucan_signing_key, ucan_verifying_key);
             Arc::new(RwLock::new(service))
         };
@@ -344,7 +345,7 @@ async fn generate_ucan_key(crypto_utils: &CryptoUtils) -> ServiceResult<Certific
 #[instrument(skip(ucan_service), fields(relationship = %relationship))]
 pub async fn generate_one_time_ucan_token(
     relationship: &str,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> ServiceResult<(String, String)> {
     info!("🔐 Generating one-time UCAN token");
     let ucan_service_guard = ucan_service.read().await;
@@ -356,7 +357,7 @@ pub async fn generate_one_time_ucan_token(
 #[instrument(skip(ucan_service), fields(folder_id = %folder_id))]
 pub async fn generate_folder_share_token(
     folder_id: &str,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> ServiceResult<(String, String)> {
     info!("🔐 Generating folder share token");
     let ucan_service_guard = ucan_service.read().await;
@@ -402,7 +403,7 @@ pub async fn parse_and_validate_handshake_token(
     ucan_token: &str,
     signed_ucan_pub: &str,
     peer_ucan_pub_key: &str,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> ServiceResult<ParsedHandshakeToken> {
     // 1. Parse connection token
     let conn_permit = Permit::from_token(ucan_token)

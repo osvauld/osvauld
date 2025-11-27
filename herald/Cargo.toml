@@ -1,0 +1,43 @@
+[package]
+name = "herald"
+version = "0.1.0"
+edition = "2021"
+description = "Identity management for Osvauld - BIP39, Ed25519 signing, X25519 encryption"
+license = "MIT"
+
+[dependencies]
+# BIP39 mnemonic
+bip39 = "2.0"
+
+# Ed25519 signing
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+
+# X25519 key exchange (derived from Ed25519)
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+
+# Key derivation
+hkdf = "0.12"
+sha2 = "0.10"
+argon2 = "0.5"
+
+# Symmetric encryption (for mnemonic storage)
+aes-gcm = "0.10"
+
+# Randomness
+rand = "0.8"
+
+# Error handling
+thiserror = "2.0"
+
+# Secure memory
+zeroize = { version = "1", features = ["derive"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+
+# Encoding
+bs58 = "0.5"
+hex = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

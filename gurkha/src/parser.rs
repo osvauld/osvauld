@@ -6,66 +6,59 @@ use ucan::Ucan;
 
 // Note: Role and ResourceTokenType removed - using facts-only approach
 
-/// Error type for UCAN token operations (generic for any capability token)
+/// Error type for Permit token operations
 #[derive(Debug)]
-pub enum UcanTokenError {
+pub enum PermitError {
     InvalidTokenType(String),
     ParsingFailed(String),
     MissingField(String),
     ValidationFailed(String),
 }
 
-impl std::fmt::Display for UcanTokenError {
+impl std::fmt::Display for PermitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UcanTokenError::InvalidTokenType(msg) => write!(f, "Invalid token type: {}", msg),
-            UcanTokenError::ParsingFailed(msg) => write!(f, "Parsing failed: {}", msg),
-            UcanTokenError::MissingField(msg) => write!(f, "Missing field: {}", msg),
-            UcanTokenError::ValidationFailed(msg) => write!(f, "Validation failed: {}", msg),
+            PermitError::InvalidTokenType(msg) => write!(f, "Invalid token type: {}", msg),
+            PermitError::ParsingFailed(msg) => write!(f, "Parsing failed: {}", msg),
+            PermitError::MissingField(msg) => write!(f, "Missing field: {}", msg),
+            PermitError::ValidationFailed(msg) => write!(f, "Validation failed: {}", msg),
         }
     }
 }
 
-impl std::error::Error for UcanTokenError {}
+impl std::error::Error for PermitError {}
 
-pub type UcanTokenResult<T> = StdResult<T, UcanTokenError>;
+pub type PermitResult<T> = StdResult<T, PermitError>;
 
 // ============================================================================
-// UcanCore<T> - Generic core for all UCAN tokens with parsed capabilities
+// PermitCore - Core structure for all Permit tokens
 // ============================================================================
 
-/// Generic core structure containing all common UCAN token fields
+/// Core structure containing common Permit token fields.
 ///
 /// This struct is composed into all specific token types to eliminate duplication.
 /// It handles:
-/// - Raw token and parsed UCAN from the ucan library
-/// - Parsed capabilities with type-safe methods
+/// - Raw token string and parsed token from the ucan library
 /// - Facts stored as raw JSON for flexible access
 ///
-/// # V3 Migration Note
-/// Role and token_type fields removed - identity derived from facts instead.
+/// Identity is derived from facts, not stored as enum.
 #[derive(Debug, Clone)]
-pub struct UcanCore {
-    /// Raw UCAN token string
+pub struct PermitCore {
+    /// Raw permit token string
     raw_token: String,
-    /// Parsed UCAN from ucan library
+    /// Parsed token (uses ucan library internally)
     parsed: Ucan,
     /// Raw facts as JSON (source of truth)
     facts: serde_json::Map<String, serde_json::Value>,
 }
 
-impl UcanCore {
-    /// Create UcanCore by parsing a token string
-    ///
-    /// V3: No capability URI parsing - all authorization in facts
+impl PermitCore {
+    /// Create PermitCore from parsed token data.
     ///
     /// # Arguments
-    /// * `token` - Raw UCAN token string
-    /// * `parsed` - Parsed UCAN from ucan library
+    /// * `token` - Raw permit token string
+    /// * `parsed` - Parsed token from ucan library
     /// * `facts` - Raw facts as JSON map
-    ///
-    /// # Returns
-    /// * `UcanCore` - Successfully initialized core
     pub fn new(token: String, parsed: Ucan, facts: serde_json::Map<String, serde_json::Value>) -> Self {
         Self {
             raw_token: token,
@@ -79,7 +72,7 @@ impl UcanCore {
         &self.raw_token
     }
 
-    /// Get the parsed UCAN from ucan library
+    /// Get the parsed token (internal ucan library type)
     pub fn parsed(&self) -> &Ucan {
         &self.parsed
     }
@@ -158,12 +151,12 @@ pub struct DelegationTemplate {
 }
 
 impl DelegationTemplate {
-    /// Convert template to UCAN facts JSON
+    /// Convert template to permit facts JSON
     ///
     /// This creates the facts structure that will be embedded in the delegated token.
     /// Includes token_type, sync facts, and CEL-related fields if present.
     ///
-    /// Note: Document capabilities go into UCAN capability URIs (via build_capabilities()),
+    /// Note: Document capabilities go into permit capability URIs (via build_capabilities()),
     /// not into facts. The `capabilities` field in facts is for CEL auth capabilities.
     pub fn to_facts(&self) -> serde_json::Map<String, serde_json::Value> {
         let mut facts = serde_json::Map::new();
@@ -277,35 +270,45 @@ impl DelegationTemplate {
     }
 }
 
-/// Parsed UCAN token with domain logic (generic for resources and folders)
+/// Parsed Permit token with domain logic (for resources and folders).
 ///
-/// V3 Migration: Facts-only approach - no Role or ResourceTokenType enums
+/// Facts-only approach - identity is derived from facts, not stored as enum.
 #[derive(Debug, Clone)]
 pub struct Permit {
-    /// Core UCAN data (raw token, parsed UCAN, facts)
-    core: UcanCore,
-    /// Domain-specific fields below (backwards compat, will be removed)
-    capabilities: HashMap<String, Capability>,  // doc_name -> capability
-    doc_metadata: HashMap<String, DocMetadata>,  // doc_name -> metadata
+    /// Core permit data (raw token, parsed, facts)
+    core: PermitCore,
+    /// Document capabilities (doc_name -> capability)
+    capabilities: HashMap<String, Capability>,
+    /// Document metadata (doc_name -> metadata)
+    doc_metadata: HashMap<String, DocMetadata>,
+    /// Sync behavior configuration
     sync_facts: SyncFacts,
+    /// Allowed resource actions
     resource_actions: Option<Vec<ResourceAction>>,
-    delegation_templates: HashMap<String, DelegationTemplate>,  // template_key -> template
-    proof_chain: Vec<String>,  // Parent UCAN CIDs
+    /// Delegation templates (template_key -> template)
+    delegation_templates: HashMap<String, DelegationTemplate>,
+    /// Parent permit CIDs for delegation chain
+    proof_chain: Vec<String>,
 }
 
 impl Permit {
-    /// Parse UCAN token and extract all domain information (facts-only approach)
+    /// Parse permit token and extract all domain information.
     ///
-    /// # V3 Migration
-    /// No longer parses role or token_type enums - identity derived from facts
-    pub fn from_token(token: &str) -> UcanTokenResult<Self> {
-        // Parse UCAN token
+    /// Identity is derived from facts, not stored as enum.
+    pub fn from_token(token: &str) -> PermitResult<Self> {
+        use tracing::debug;
+
+        debug!("Parsing permit token (len={})", token.len());
+
+        // Parse permit token (uses ucan library internally)
         let parsed = Ucan::try_from(token)
-            .map_err(|e| UcanTokenError::ParsingFailed(format!("UCAN parsing error: {}", e)))?;
+            .map_err(|e| PermitError::ParsingFailed(format!("Permit parsing error: {}", e)))?;
+
+        debug!("JWT decoded - issuer: {}, audience: {}", parsed.issuer(), parsed.audience());
 
         // Extract facts as raw JSON (source of truth)
         let facts_ref = parsed.facts().as_ref().ok_or_else(|| {
-            UcanTokenError::MissingField("UCAN facts not found".to_string())
+            PermitError::MissingField("Permit facts not found".to_string())
         })?;
 
         // Clone facts for storage (we'll keep the raw JSON)
@@ -315,25 +318,39 @@ impl Permit {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
 
+        debug!(facts = ?facts.keys().collect::<Vec<_>>(), "Facts extracted");
+
+        // Log key facts for debugging
+        if let Some(rel) = facts.get("relationship") {
+            debug!(relationship = %rel);
+        }
+        if let Some(token_type) = facts.get("token_type") {
+            debug!(token_type = %token_type);
+        }
+        if let Some(first_conn) = facts.get("first_connection") {
+            debug!(first_connection = %first_conn);
+        }
+        if let Some(user_id) = facts.get("user_id") {
+            debug!(user_id = %user_id);
+        }
+
         // Extract capabilities from facts.documents (facts-only approach)
         // Documents should be in facts, not in the cap field
         let mut capabilities = HashMap::new();
         if let Some(documents_obj) = facts.get("documents").and_then(|v| v.as_object()) {
-            use tracing::debug;
-            debug!("📄 [Parser] Found documents in facts: {} documents", documents_obj.len());
+            debug!(count = documents_obj.len(), "Documents found in facts");
             for (doc_name, doc_val) in documents_obj {
                 if let Some(doc_obj) = doc_val.as_object() {
                     if let Some(cap_str) = doc_obj.get("capability").and_then(|v| v.as_str()) {
                         if let Ok(capability) = Capability::from_str(cap_str) {
                             capabilities.insert(doc_name.clone(), capability);
-                            debug!("  ✓ Parsed capability for '{}': {:?}", doc_name, capability);
+                            debug!(doc = %doc_name, capability = ?capability, "Parsed document capability");
                         }
                     }
                 }
             }
         } else {
-            use tracing::debug;
-            debug!("⚠️ [Parser] NO documents found in facts");
+            debug!("No documents found in facts");
         }
 
         // Extract sync facts
@@ -533,8 +550,15 @@ impl Permit {
         // Extract proof chain
         let proof_chain = parsed.proofs().clone().unwrap_or_default();
 
-        // Create UcanCore with parsed data (facts-only, no role/token_type enums)
-        let core = UcanCore::new(token.to_string(), parsed, facts);
+        // Create PermitCore with parsed data (facts-only, no role/token_type enums)
+        let core = PermitCore::new(token.to_string(), parsed, facts.clone());
+
+        // Log parsed permit facts for debugging
+        use tracing::trace;
+        trace!(
+            "Permit parsed:\n{}",
+            serde_json::to_string_pretty(&facts).unwrap_or_else(|_| format!("{:?}", facts))
+        );
 
         Ok(Self {
             core,

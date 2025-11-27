@@ -11,29 +11,29 @@ use std::result::Result as StdResult;
 // Error Types
 // ============================================================================
 
-/// Error type for UCAN token operations
+/// Error type for permit token operations
 #[derive(Debug)]
-pub enum UcanTokenError {
+pub enum PermitTokenError {
     InvalidTokenType(String),
     ParsingFailed(String),
     MissingField(String),
     ValidationFailed(String),
 }
 
-impl std::fmt::Display for UcanTokenError {
+impl std::fmt::Display for PermitTokenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UcanTokenError::InvalidTokenType(msg) => write!(f, "Invalid token type: {}", msg),
-            UcanTokenError::ParsingFailed(msg) => write!(f, "Parsing failed: {}", msg),
-            UcanTokenError::MissingField(msg) => write!(f, "Missing field: {}", msg),
-            UcanTokenError::ValidationFailed(msg) => write!(f, "Validation failed: {}", msg),
+            PermitTokenError::InvalidTokenType(msg) => write!(f, "Invalid token type: {}", msg),
+            PermitTokenError::ParsingFailed(msg) => write!(f, "Parsing failed: {}", msg),
+            PermitTokenError::MissingField(msg) => write!(f, "Missing field: {}", msg),
+            PermitTokenError::ValidationFailed(msg) => write!(f, "Validation failed: {}", msg),
         }
     }
 }
 
-impl std::error::Error for UcanTokenError {}
+impl std::error::Error for PermitTokenError {}
 
-pub type UcanTokenResult<T> = StdResult<T, UcanTokenError>;
+pub type PermitTokenResult<T> = StdResult<T, PermitTokenError>;
 
 // ============================================================================
 // All token wrappers removed - use Permit directly from parser.rs

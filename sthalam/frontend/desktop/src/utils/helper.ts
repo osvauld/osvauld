@@ -21,7 +21,7 @@ export interface AddResourceInput {
   resourcePayload: string;
   folderId: string;
   resourceType: string;
-  ucanTemplateJson: string;
+  permitTemplateJson: string;
   metadataJson: string;
 }
 
@@ -73,7 +73,7 @@ export const sendMessage = async (action: string, data?: any): Promise<any> => {
       exportCertificate: (data: any) => invoke("handle_export_certificate", { input: data }), // ✅
       changePassphrase: (data: any) => invoke("handle_change_passphrase", { input: data }), // ✅
       getUserDetails: () => invoke('get_user_details'), // ✅
-      getOneTimeUcanToken: () => invoke('get_one_time_ucan_token'), // ✅
+      getOneTimePermit: () => invoke('get_one_time_permit'), // ✅
 
       // Folder handlers
       addFolder: (data: any) => invoke("handle_add_folder", { input: data }), // ✅ data.svelte.ts:164

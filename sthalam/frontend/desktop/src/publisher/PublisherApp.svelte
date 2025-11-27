@@ -125,7 +125,7 @@
       if (key === 'submissions') continue;
 
       try {
-        // Get the UCAN document name from template metadata
+        // Get the Permit document name from template metadata
         const docName = getDocumentNameForField(key, templateDefinition);
 
         // Get the Loro map for this document and set the value

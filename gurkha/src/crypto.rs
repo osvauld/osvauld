@@ -1,6 +1,6 @@
-//! Ed25519 cryptographic operations for UCAN signing
+//! Ed25519 cryptographic operations for Permit signing
 //!
-//! This module provides minimal Ed25519 signing and verification for UCAN tokens.
+//! This module provides minimal Ed25519 signing and verification for Permit tokens.
 //! No PGP operations - those belong in the service layer.
 
 use crate::errors::GurkhaError;
@@ -17,7 +17,7 @@ use ucan::{
     },
 };
 
-/// Ed25519 key material for UCAN signing
+/// Ed25519 key material for Permit signing
 #[derive(Clone)]
 pub struct Ed25519KeyMaterial(pub VerifyingKey, pub Option<SigningKey>);
 
@@ -65,12 +65,12 @@ impl KeyMaterial for Ed25519KeyMaterial {
     }
 }
 
-/// Sign a UCAN token based on a decision structure
+/// Sign a permit token based on a decision structure
 ///
 /// FACTS-ONLY ARCHITECTURE (v3):
 /// All authorization is stored in the facts field. The capabilities vec should be empty.
 /// The decision layer (decision.rs) ensures this by never adding URI capabilities.
-pub async fn sign_ucan(
+pub async fn sign_permit(
     signing_key: &SigningKey,
     verifying_key: &VerifyingKey,
     decision: &crate::decision::TokenDecision,
@@ -78,10 +78,10 @@ pub async fn sign_ucan(
     // Enforce facts-only architecture - capabilities should always be empty
     debug_assert!(
         decision.capabilities.is_empty(),
-        "UCAN v3 uses facts-only architecture. Capabilities vec should be empty. All authorization must be in facts."
+        "Permit v3 uses facts-only architecture. Capabilities vec should be empty. All authorization must be in facts."
     );
 
-    generate_ucan_with_cid(
+    generate_permit_with_cid(
         signing_key,
         verifying_key,
         &decision.audience,
@@ -94,16 +94,16 @@ pub async fn sign_ucan(
     .await
 }
 
-/// Generate a UCAN token with its CID hash
+/// Generate a permit token with its CID hash
 ///
-/// # UCAN v3 Architecture Note
+/// # Permit v3 Architecture Note
 /// The `capabilities` parameter exists for UCAN spec compliance but should be empty in v3.
 /// All authorization is stored in the `facts` field using CEL-based rules.
 ///
 /// # Arguments
 /// * `capabilities` - Should be empty vec in v3 (all auth in facts)
 /// * `facts` - Contains all authorization: operations, documents, cel_rules, etc.
-pub async fn generate_ucan_with_cid(
+pub async fn generate_permit_with_cid(
     signing_key: &SigningKey,
     verifying_key: &VerifyingKey,
     audience: &str,
@@ -119,7 +119,7 @@ pub async fn generate_ucan_with_cid(
     // 2. Set lifetime (default to 30 years if None)
     let lifetime = expiry_seconds.unwrap_or(30 * 365 * 24 * 60 * 60);
 
-    // 3. Build UCAN base
+    // 3. Build permit base (using UCAN library internally)
     let mut builder = UcanBuilder::default()
         .issued_by(&key_material)
         .for_audience(audience)
@@ -152,37 +152,37 @@ pub async fn generate_ucan_with_cid(
     // Add proofs to the signable (will go into prf field)
     signable.proofs = proofs;
 
-    // 7. Sign UCAN
-    let ucan = signable
+    // 7. Sign permit
+    let permit = signable
         .sign()
         .await
         .map_err(|e| GurkhaError::SignatureError(e.to_string()))?;
 
     // 7. Compute CID (required for database storage in share records)
-    let token_cid = ucan
+    let token_cid = permit
         .to_cid(UcanBuilder::<Ed25519KeyMaterial>::default_hasher())
-        .map_err(|e| GurkhaError::UcanCidConvertionFailed(e.to_string()))?;
+        .map_err(|e| GurkhaError::PermitCidConversionFailed(e.to_string()))?;
 
     // 8. Encode token string
-    let token_str = ucan
+    let token_str = permit
         .encode()
         .map_err(|e| GurkhaError::EncodingError(e.to_string()))?;
 
     Ok((token_str, token_cid.to_string()))
 }
 
-/// Calculate CID from an existing UCAN token string
-pub fn get_ucan_cid(token: &str) -> Result<String, GurkhaError> {
+/// Calculate CID from an existing permit token string
+pub fn get_permit_cid(token: &str) -> Result<String, GurkhaError> {
     use ucan::ucan::Ucan;
 
     // Decode the token
-    let ucan = Ucan::try_from(token)
-        .map_err(|e| GurkhaError::InvalidUcan(format!("Failed to decode token: {}", e)))?;
+    let permit = Ucan::try_from(token)
+        .map_err(|e| GurkhaError::InvalidPermit(format!("Failed to decode token: {}", e)))?;
 
     // Calculate CID
-    let cid = ucan
+    let cid = permit
         .to_cid(UcanBuilder::<Ed25519KeyMaterial>::default_hasher())
-        .map_err(|e| GurkhaError::UcanCidConvertionFailed(e.to_string()))?;
+        .map_err(|e| GurkhaError::PermitCidConversionFailed(e.to_string()))?;
 
     Ok(cid.to_string())
 }

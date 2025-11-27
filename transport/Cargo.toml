@@ -1,0 +1,32 @@
+[package]
+name = "transport"
+version = "0.1.0"
+edition = "2021"
+description = "Pure P2P transport layer for Osvauld (iroh-based)"
+license = "MIT"
+
+[dependencies]
+# Networking - match network crate versions
+iroh = "0.91.1"
+iroh-base = "0.91.1"
+iroh-quinn = "0.14.0"
+n0-watcher = "0.3.0"
+
+# Async
+tokio = { version = "1", features = ["sync", "time", "macros"] }
+futures-lite = "2.3.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+
+# Base64 for connection strings
+base64 = "0.22"

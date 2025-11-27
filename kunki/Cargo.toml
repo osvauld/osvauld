@@ -1,20 +1,20 @@
 [package]
 name = "kunki"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [[bin]]
 name = "kunki"
 path = "src/main.rs"
 
 [dependencies]
-# Core dependencies from the original project
-network = { path = "../network" }
-crypto_utils = { path = "../crypto_utils" }
+# Core crates
 gurkha = { path = "../gurkha" }
-osvauld_core = { path = "../core" }
-persistance = { path = "../persistance" }
-services = { path = "../services" }
+butler = { path = "../butler" }
+herald = { path = "../herald" }
+transport = { path = "../transport" }
+courier = { path = "../courier" }
+ed25519-dalek = "2.1"
 
 # CLI and async runtime
 clap = { version = "4.5.40", features = ["derive"] }

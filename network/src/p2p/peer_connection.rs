@@ -54,7 +54,7 @@ pub struct PeerConnection {
     pub on_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>,
     pub disconnection_timer: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     pub crypto_utils: Arc<RwLock<CryptoUtils>>,
-    pub ucan_service: Arc<RwLock<gurkha::UcanService>>,
+    pub ucan_service: Arc<RwLock<gurkha::PermitService>>,
     pub repo_ctx: Arc<RepositoryContext>,
     pub challenge: String,
 }
@@ -69,7 +69,7 @@ impl PeerConnection {
         event_emitter: P2PEventEmitter,
         on_close: Option<Box<dyn Fn(String) + Send + Sync>>,
         crypto_utils: Arc<RwLock<CryptoUtils>>,
-        ucan_service: Arc<RwLock<gurkha::UcanService>>,
+        ucan_service: Arc<RwLock<gurkha::PermitService>>,
         repo_ctx: Arc<RepositoryContext>,
         node_id: String,
         local_user: User,

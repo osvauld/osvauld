@@ -1,10 +1,10 @@
 /**
- * Document Router - Maps UCAN document names to Loro documents
+ * Document Router - Maps Permit document names to Loro documents
  *
  * Provides a dynamic routing layer between template field definitions
  * and loroCoordinator's fixed document structure.
  *
- * This allows templates to specify which UCAN document each field belongs to,
+ * This allows templates to specify which Permit document each field belongs to,
  * while loroCoordinator maintains its fixed set of documents.
  */
 
@@ -12,7 +12,7 @@ import type { LoroMap, LoroList } from 'loro-crdt';
 import type { LoroCoordinator } from './loroCoordinator';
 
 /**
- * Maps UCAN document names (from permissions.ts) to loroCoordinator getter methods
+ * Maps Permit document names (from permissions.ts) to loroCoordinator getter methods
  * Note: submissions_doc returns LoroList, others return LoroMap
  */
 const DOCUMENT_MAP: Record<string, (coordinator: LoroCoordinator) => LoroMap | LoroList> = {
@@ -25,8 +25,8 @@ const DOCUMENT_MAP: Record<string, (coordinator: LoroCoordinator) => LoroMap | L
 };
 
 /**
- * Get the Loro map or list for a given UCAN document name
- * @param docName UCAN document name (e.g., "content_doc", "collaborative_doc")
+ * Get the Loro map or list for a given Permit document name
+ * @param docName Permit document name (e.g., "content_doc", "collaborative_doc")
  * @param coordinator LoroCoordinator instance
  * @returns LoroMap or LoroList for the specified document
  * @throws Error if document name is not recognized
@@ -40,10 +40,10 @@ export function getMapForDocument(docName: string, coordinator: LoroCoordinator)
 }
 
 /**
- * Get the UCAN document name for a given field from the template
+ * Get the Permit document name for a given field from the template
  * @param fieldName Field name (e.g., "posts", "newPostTitle")
  * @param templateDefinition Parsed template definition
- * @returns UCAN document name or 'content_doc' as default
+ * @returns Permit document name or 'content_doc' as default
  */
 export function getDocumentNameForField(fieldName: string, templateDefinition: any): string {
   const fieldDef = templateDefinition?.documents?.[fieldName];
@@ -67,7 +67,7 @@ export function getMapForField(
 }
 
 /**
- * List all supported UCAN document names
+ * List all supported Permit document names
  */
 export function getSupportedDocuments(): string[] {
   return Object.keys(DOCUMENT_MAP);

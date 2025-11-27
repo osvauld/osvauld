@@ -87,7 +87,7 @@ export function initializeStateFromTemplate(
  * Get fields that belong to a specific document
  *
  * @param template Parsed HUML template
- * @param documentName UCAN document name (e.g., "content_doc", "collaborative_doc")
+ * @param documentName Permit document name (e.g., "content_doc", "collaborative_doc")
  * @returns Array of field names that belong to this document
  */
 export function getFieldsForDocument(template: any, documentName: string): string[] {
@@ -107,7 +107,7 @@ export function getFieldsForDocument(template: any, documentName: string): strin
  * Reload fields from a specific Loro document
  * Used when a document changes from sync
  *
- * @param documentName UCAN document name
+ * @param documentName Permit document name
  * @param template Parsed HUML template
  * @param loroCoordinator LoroCoordinator instance
  * @returns Updated state object with values from the document
@@ -143,7 +143,7 @@ export function reloadFieldsFromDocument(
  * Setup subscription to a Loro document
  * Calls callback when the document changes
  *
- * @param documentName UCAN document name
+ * @param documentName Permit document name
  * @param loroCoordinator LoroCoordinator instance
  * @param callback Callback to invoke when document changes
  * @returns Unsubscribe function
@@ -153,7 +153,7 @@ export function subscribeToDocument(
   loroCoordinator: LoroCoordinator,
   callback: () => void
 ): () => void {
-  // Map UCAN document names to Loro document instances
+  // Map Permit document names to Loro document instances
   const docMap: Record<string, keyof ReturnType<typeof loroCoordinator.getDocuments>> = {
     'template_doc': 'templateDoc',
     'content_doc': 'contentDoc',
@@ -177,7 +177,7 @@ export function subscribeToDocument(
  * Get all unique document names used in the template
  *
  * @param template Parsed HUML template
- * @returns Array of unique UCAN document names
+ * @returns Array of unique Permit document names
  */
 export function getUniqueDocuments(template: any): string[] {
   const documentsDefinition = template.documents || {};
@@ -195,7 +195,7 @@ export function getUniqueDocuments(template: any): string[] {
 /**
  * Check if a document should trigger reactive updates
  *
- * @param documentName UCAN document name
+ * @param documentName Permit document name
  * @returns True if this document should trigger reactive signal updates
  */
 export function shouldTriggerReactiveUpdate(documentName: string): boolean {

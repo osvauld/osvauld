@@ -7,6 +7,7 @@
 use super::core;
 use crate::errors::{ResourceServiceError, ServiceError, ServiceResult};
 use crypto_utils::{encrypt_data_for_user, CryptoUtils};
+use PermitService;
 use tracing::{debug, error, info, instrument};
 use osvauld_core::models::{
     resource::{EncryptedResource, Resource},
@@ -49,7 +50,7 @@ pub async fn create_resource(
     user: &User,
     _current_device_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> ServiceResult<Resource> {
     info!("📦 Creating resource");
 
@@ -360,7 +361,7 @@ pub async fn share_resource(
     recipient_role: &str,
     current_user: &User,
     repo_ctx: Arc<RepositoryContext>,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> ServiceResult<()> {
     info!(
         "Sharing resource {} with user {} (role: {})",

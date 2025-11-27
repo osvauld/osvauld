@@ -1,0 +1,260 @@
+name: "Space Invaders"
+version: "v1.0.0"
+
+documents::
+  playerX::
+    type: "number"
+    initial: 45
+    document: "user_content_doc"
+
+  score::
+    type: "number"
+    initial: 0
+    document: "user_content_doc"
+
+  gameStarted::
+    type: "boolean"
+    initial: false
+    document: "user_content_doc"
+
+  enemyHits::
+    type: "number"
+    initial: 0
+    document: "user_content_doc"
+
+computed::
+  enemiesLeft::
+    expr: "${ 12 - enemyHits }"
+    deps::
+      - "enemyHits"
+
+ui::
+  publisher::
+    - ::
+      type: "screen"
+      id: "game"
+      name: "Space Invaders"
+      isEntryPoint: true
+      css: "height: 100vh; display: flex; flex-direction: column; background: linear-gradient(180deg, #000428 0%, #004e92 100%); font-family: 'Courier New', monospace;"
+      blocks::
+        # Header
+        - ::
+          type: "container"
+          css: "padding: 1.5rem 2rem; background: rgba(0,0,0,0.6); border-bottom: 3px solid #00ff00; display: flex; justify-content: space-between; align-items: center;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 1
+              content: "👾 SPACE INVADERS"
+              css: "margin: 0; color: #00ff00; font-size: 2rem; text-shadow: 0 0 15px #00ff00; font-weight: bold;"
+
+            - ::
+              type: "container"
+              css: "display: flex; gap: 2rem;"
+              blocks::
+                - ::
+                  type: "text"
+                  content: "SCORE: {{score}}"
+                  css: "color: #ffffff; font-size: 1.5rem; font-weight: bold; text-shadow: 0 0 8px #ffffff;"
+
+                - ::
+                  type: "text"
+                  content: "ENEMIES: {{enemiesLeft}}"
+                  css: "color: #ff00ff; font-size: 1.5rem; font-weight: bold; text-shadow: 0 0 8px #ff00ff;"
+
+        # Start Screen
+        - ::
+          type: "container"
+          when: "${ !gameStarted }"
+          css: "flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2rem;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 1
+              content: "SPACE INVADERS"
+              css: "color: #00ff00; font-size: 4rem; margin: 0; text-shadow: 0 0 30px #00ff00; animation: pulse 2s infinite;"
+
+            - ::
+              type: "text"
+              content: "🚀 Defend Earth from alien invasion! 🌍"
+              css: "color: #ffffff; font-size: 1.5rem; text-align: center; text-shadow: 0 0 10px #ffffff;"
+
+            - ::
+              type: "button"
+              content: "▶ START GAME"
+              action: "setState"
+              stateUpdates::
+                gameStarted: true
+                score: 0
+                playerX: 45
+                enemyHits: 0
+              css: "background: linear-gradient(135deg, #00ff00 0%, #00cc00 100%); color: #000000; border: none; padding: 1.5rem 4rem; font-size: 1.75rem; font-weight: bold; border-radius: 12px; cursor: pointer; box-shadow: 0 0 30px #00ff00; transition: transform 0.2s; text-transform: uppercase;"
+
+            - ::
+              type: "text"
+              content: "🎮 Use LEFT/RIGHT to move • FIRE to shoot"
+              css: "color: #00ff00; font-size: 1rem; margin-top: 1rem; opacity: 0.8;"
+
+        # Game Area
+        - ::
+          type: "container"
+          when: "${ gameStarted }"
+          css: "flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3rem; position: relative; padding: 3rem;"
+          blocks::
+            # Aliens Display
+            - ::
+              type: "container"
+              css: "display: grid; grid-template-columns: repeat(6, 1fr); gap: 2rem; margin-bottom: 2rem;"
+              blocks::
+                - ::
+                  type: "text"
+                  content: "👾"
+                  css: "font-size: 3rem; filter: drop-shadow(0 0 15px #ff00ff); animation: float 2s ease-in-out infinite;"
+
+                - ::
+                  type: "text"
+                  content: "👾"
+                  css: "font-size: 3rem; filter: drop-shadow(0 0 15px #ff00ff); animation: float 2s ease-in-out infinite 0.2s;"
+
+                - ::
+                  type: "text"
+                  content: "👾"
+                  css: "font-size: 3rem; filter: drop-shadow(0 0 15px #ff00ff); animation: float 2s ease-in-out infinite 0.4s;"
+
+                - ::
+                  type: "text"
+                  content: "👾"
+                  css: "font-size: 3rem; filter: drop-shadow(0 0 15px #ff00ff); animation: float 2s ease-in-out infinite 0.6s;"
+
+                - ::
+                  type: "text"
+                  content: "👾"
+                  css: "font-size: 3rem; filter: drop-shadow(0 0 15px #ff00ff); animation: float 2s ease-in-out infinite 0.8s;"
+
+                - ::
+                  type: "text"
+                  content: "👾"
+                  css: "font-size: 3rem; filter: drop-shadow(0 0 15px #ff00ff); animation: float 2s ease-in-out infinite 1s;"
+
+            - ::
+              type: "container"
+              css: "display: grid; grid-template-columns: repeat(6, 1fr); gap: 2rem;"
+              blocks::
+                - ::
+                  type: "text"
+                  content: "👾"
+                  css: "font-size: 3rem; filter: drop-shadow(0 0 15px #ff00ff); animation: float 2s ease-in-out infinite 1.2s;"
+
+                - ::
+                  type: "text"
+                  content: "👾"
+                  css: "font-size: 3rem; filter: drop-shadow(0 0 15px #ff00ff); animation: float 2s ease-in-out infinite 1.4s;"
+
+                - ::
+                  type: "text"
+                  content: "👾"
+                  css: "font-size: 3rem; filter: drop-shadow(0 0 15px #ff00ff); animation: float 2s ease-in-out infinite 1.6s;"
+
+                - ::
+                  type: "text"
+                  content: "👾"
+                  css: "font-size: 3rem; filter: drop-shadow(0 0 15px #ff00ff); animation: float 2s ease-in-out infinite 1.8s;"
+
+                - ::
+                  type: "text"
+                  content: "👾"
+                  css: "font-size: 3rem; filter: drop-shadow(0 0 15px #ff00ff); animation: float 2s ease-in-out infinite 2s;"
+
+                - ::
+                  type: "text"
+                  content: "👾"
+                  css: "font-size: 3rem; filter: drop-shadow(0 0 15px #ff00ff); animation: float 2s ease-in-out infinite 2.2s;"
+
+            # Player Ship
+            - ::
+              type: "text"
+              content: "🚀"
+              css: "font-size: 4rem; filter: drop-shadow(0 0 20px #00ff00); animation: hover 1s ease-in-out infinite;"
+
+            - ::
+              type: "text"
+              content: "Player Position: {{playerX}}%"
+              css: "color: #00ffff; font-size: 1rem; font-family: monospace;"
+
+        # Controls
+        - ::
+          type: "container"
+          when: "${ gameStarted }"
+          css: "padding: 2rem; background: rgba(0,0,0,0.8); border-top: 3px solid #00ff00; display: flex; justify-content: center; gap: 1.5rem;"
+          blocks::
+            - ::
+              type: "button"
+              content: "◀◀ LEFT"
+              action: "setState"
+              stateUpdates::
+                playerX: "${ playerX > 0 ? playerX - 10 : playerX }"
+              css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: 3px solid #00ff00; padding: 1.5rem 3rem; font-size: 1.25rem; font-weight: bold; border-radius: 12px; cursor: pointer; box-shadow: 0 0 20px rgba(0,255,0,0.6); transition: transform 0.1s; min-width: 160px;"
+
+            - ::
+              type: "button"
+              content: "🔥 FIRE!"
+              action: "setState"
+              stateUpdates::
+                score: "${ score + 10 }"
+                enemyHits: "${ enemyHits < 12 ? enemyHits + 1 : enemyHits }"
+              css: "background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; border: 4px solid #ff0000; padding: 1.75rem 4rem; font-size: 1.5rem; font-weight: bold; border-radius: 12px; cursor: pointer; box-shadow: 0 0 30px rgba(255,0,0,0.8); transition: transform 0.1s; min-width: 200px; transform: scale(1.1);"
+
+            - ::
+              type: "button"
+              content: "RIGHT ▶▶"
+              action: "setState"
+              stateUpdates::
+                playerX: "${ playerX < 90 ? playerX + 10 : playerX }"
+              css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: 3px solid #00ff00; padding: 1.5rem 3rem; font-size: 1.25rem; font-weight: bold; border-radius: 12px; cursor: pointer; box-shadow: 0 0 20px rgba(0,255,0,0.6); transition: transform 0.1s; min-width: 160px;"
+
+        # Win Screen
+        - ::
+          type: "container"
+          when: "${ gameStarted && enemyHits >= 12 }"
+          css: "position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2rem; z-index: 1000;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 1
+              content: "🎉 VICTORY! 🎉"
+              css: "color: #00ff00; font-size: 4rem; margin: 0; text-shadow: 0 0 40px #00ff00; animation: pulse 1s infinite;"
+
+            - ::
+              type: "text"
+              content: "You saved Earth!"
+              css: "color: #ffffff; font-size: 2rem; text-shadow: 0 0 10px #ffffff;"
+
+            - ::
+              type: "text"
+              content: "Final Score: {{score}}"
+              css: "color: #ffff00; font-size: 2.5rem; font-weight: bold; text-shadow: 0 0 15px #ffff00;"
+
+            - ::
+              type: "button"
+              content: "🔄 PLAY AGAIN"
+              action: "setState"
+              stateUpdates::
+                gameStarted: true
+                score: 0
+                playerX: 45
+                enemyHits: 0
+              css: "background: linear-gradient(135deg, #00ff00 0%, #00cc00 100%); color: #000000; border: none; padding: 1.5rem 4rem; font-size: 1.5rem; font-weight: bold; border-radius: 12px; cursor: pointer; box-shadow: 0 0 30px #00ff00; margin-top: 2rem;"
+
+  viewer::
+    - ::
+      type: "screen"
+      id: "viewer-game"
+      name: "Space Invaders (View Only)"
+      isEntryPoint: true
+      css: "height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #000428 0%, #004e92 100%); font-family: 'Courier New', monospace;"
+      blocks::
+        - ::
+          type: "heading"
+          level: 1
+          content: "👾 Space Invaders is Publisher-Only"
+          css: "color: #00ff00; font-size: 2rem; text-align: center; text-shadow: 0 0 20px #00ff00; padding: 2rem;"

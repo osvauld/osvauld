@@ -1,7 +1,7 @@
-// Permissions Configuration - UCAN v3 Facts-Only Architecture
+// Permissions Configuration - Permit Facts-Only Architecture
 // Defines capability templates for folders and resources
 //
-// ⚠️  IMPORTANT: This is the source of truth for permissions in UCAN tokens.
+// ⚠️  IMPORTANT: This is the source of truth for permissions in Permit tokens.
 // All authorization is stored in token facts - no URI capabilities are used.
 //
 // Facts-Only Architecture:
@@ -9,7 +9,7 @@
 // - CEL rules in facts.cel_rules provide dynamic authorization
 // - Relationships (owner/node/viewer) stored in facts.relationship
 //
-// Backend transforms these templates into UCAN token facts.
+// Backend transforms these templates into Permit token facts.
 
 // ========== FOLDER TEMPLATES ==========
 //

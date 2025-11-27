@@ -99,7 +99,7 @@ pub fn init_rich_tracing(
     // Tree layer for stdout (hierarchical, beautiful)
     if config.log_to_stdout && config.use_tree_format {
         let tree_layer = HierarchicalLayer::new(2)
-            .with_targets(config.show_source_location)
+            .with_targets(true)  // Always show targets (lib/module prefix like "gurkha::parser")
             .with_bracketed_fields(true)
             .with_indent_lines(true)
             .with_indent_amount(2)

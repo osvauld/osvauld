@@ -1,6 +1,6 @@
 //! Proof chain verification and validation
 //!
-//! Provides stateless validation of UCAN proof chains using embedded proof tokens.
+//! Provides stateless validation of permit proof chains using embedded proof tokens.
 //! No database lookups needed - all proofs are self-contained in the token.
 
 use crate::errors::GurkhaError;
@@ -10,9 +10,9 @@ use tracing::{debug, error, info};
 
 pub type VerificationResult<T> = Result<T, GurkhaError>;
 
-/// Cache of proof tokens extracted from UCAN facts
+/// Cache of proof tokens extracted from permit facts
 ///
-/// The `prf_tokens` field in UCAN facts contains a map of CID → full JWT token.
+/// The `prf_tokens` field in permit facts contains a map of CID → full JWT token.
 /// This enables stateless proof chain validation without database lookups.
 #[derive(Debug, Clone)]
 pub struct ProofCache {
@@ -20,14 +20,14 @@ pub struct ProofCache {
 }
 
 impl ProofCache {
-    /// Extract proof cache from UCAN token
+    /// Extract proof cache from permit token
     ///
     /// Reads the `prf_tokens` fact field which contains embedded proof tokens
     /// for stateless validation.
-    pub fn from_ucan(ucan: &Permit) -> Self {
+    pub fn from_permit(permit: &Permit) -> Self {
         let mut tokens = HashMap::new();
 
-        if let Some(fct) = ucan.parsed().facts() {
+        if let Some(fct) = permit.parsed().facts() {
             if let Some(prf_tokens) = fct.get("prf_tokens") {
                 if let Some(obj) = prf_tokens.as_object() {
                     for (cid, token_val) in obj {
@@ -94,7 +94,7 @@ impl ProofCache {
             validate_link(&proof_ucan, ucan)?;
 
             // Recursive validation of proof's own chain
-            let proof_cache = ProofCache::from_ucan(&proof_ucan);
+            let proof_cache = ProofCache::from_permit(&proof_ucan);
             proof_cache.validate_chain(&proof_ucan)?;
         }
 
@@ -143,14 +143,14 @@ pub struct ProofChainTracer {
 }
 
 impl ProofChainTracer {
-    /// Create tracer from a UCAN token
+    /// Create tracer from a permit token
     pub fn new(token: &str) -> VerificationResult<Self> {
-        let ucan = Permit::from_token(token)?;
-        let cache = ProofCache::from_ucan(&ucan);
+        let permit = Permit::from_token(token)?;
+        let cache = ProofCache::from_permit(&permit);
 
         Ok(Self {
             cache,
-            root_ucan: ucan,
+            root_ucan: permit,
         })
     }
 

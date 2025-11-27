@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use crate::errors::{ServiceResult, ServiceError, UserServiceError};
 use crypto_utils::{CryptoUtils, get_key_id};
-use tracing::{debug, error, info, instrument, warn};
+use PermitService;
+use tracing::{debug, error, info, instrument};
 use osvauld_core::models::{Device, ShareOperation, User, UserWithDevices};
 use persistance::database::RepositoryContext;
 use tokio::sync::RwLock;
 
-#[instrument(skip(crypto_utils, repo_ctx), fields(
+#[instrument(skip(repo_ctx), fields(
     username = %username,
     user_id
 ))]
@@ -18,7 +19,6 @@ pub async fn add_known_user(
     one_time_token: String,
     ucan_pub_key: String,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<(User, Device)> {
     info!("👤 Adding known user");
 
@@ -26,12 +26,8 @@ pub async fn add_known_user(
     tracing::Span::current().record("user_id", &user_id.as_str());
     debug!("✓ Generated user ID from public key: {}", user_id);
 
-    debug!("🔐 Signing user public key");
-    let signature = {
-        let crypto = crypto_utils.read().await;
-        crypto.sign_message(&user_public_key)?
-    };
-    debug!("✓ Public key signed");
+    // No longer using PGP signature - signature field kept for backwards compatibility
+    let signature = String::new();
 
     // TODO: Get CID from token if needed
     let ucan_cid = String::new();
@@ -166,7 +162,7 @@ pub async fn get_shared_user_devices_for_note(
 pub async fn get_ucan_pub_key(
     _repo_ctx: Arc<RepositoryContext>,
     _crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> ServiceResult<String> {
     info!("🔑 Getting UCAN public key");
     let pub_key = ucan_service.read().await.get_public_key()?;
@@ -184,7 +180,7 @@ pub async fn issue_connect_ucan_token(
     domain: &str,
     peer_ucan_pub_key: &str,
     role: &str,
-    ucan_service: &Arc<gurkha::UcanService>,
+    ucan_service: &Arc<PermitService>,
 ) -> ServiceResult<String> {
     info!("🔐 Issuing connection UCAN token");
 
@@ -206,7 +202,7 @@ pub async fn issue_connect_ucan_token(
 pub async fn sign_ucan_pub_key(
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
     repo_ctx: Arc<RepositoryContext>,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> ServiceResult<String> {
     info!("✍️ Signing UCAN public key");
 
@@ -251,8 +247,8 @@ pub struct ConnectionStringData {
     pub username: String,
     pub user_public_key: String,
     pub device_public_key: String,
-    pub ucan_token: String,
-    pub ucan_pub_key: String,
+    /// The permit (UCAN token) for authorization
+    pub permit: String,
     pub folder_id: Option<String>,
 }
 
@@ -322,16 +318,10 @@ pub fn parse_connection_string(
                 reason: "Missing device_public_key in connection string".into(),
             })?
             .to_string(),
-        ucan_token: details["ucan_token"].as_str()
+        permit: details["permit"].as_str()
             .ok_or_else(|| UserServiceError::InvalidUserData {
-                field: "ucan_token".into(),
-                reason: "Missing ucan_token in connection string".into(),
-            })?
-            .to_string(),
-        ucan_pub_key: details["ucan_pub_key"].as_str()
-            .ok_or_else(|| UserServiceError::InvalidUserData {
-                field: "ucan_pub_key".into(),
-                reason: "Missing ucan_pub_key in connection string".into(),
+                field: "permit".into(),
+                reason: "Missing permit in connection string".into(),
             })?
             .to_string(),
         folder_id: details["folder_id"].as_str().map(|s| s.to_string()),

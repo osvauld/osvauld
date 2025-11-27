@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# SQLite (being phased out)
 diesel_migrations = "2.0.0"
 diesel = { version = "2.2.0", features = [
   "sqlite",
@@ -15,6 +16,10 @@ libsqlite3-sys = { version = "0.25.2", features = [
   "unlock_notify",
   "min_sqlite_version_3_7_16",
 ] }
+
+# Sled - new primary storage
+sled = "0.34"
+
 chrono = "0.4.40"
 async-trait = "0.1.87"
 log = "0.4.26"
@@ -25,3 +30,4 @@ osvauld_core = { path = "../core" }
 tokio = { version = "1.44.2", features = ["full"] }
 serde = { version = "1.0.219", features = ["derive"] }
 uuid = { version = "1.15.1", features = ["v4"] }
+bincode = "1.3"

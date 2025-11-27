@@ -1,17 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
-  "crypto_utils",
   "sthalam/src-tauri",
-  "core",
-  "persistance",
   "gurkha",
-  "services",
-  "network",
   "kunki",
-  "search_indexer",
   "tauri_handlers",
   "logging_utils",
+  "butler",
+  "herald",
+  "transport",
+  "courier",
 ]
 
 # Speed up dev builds

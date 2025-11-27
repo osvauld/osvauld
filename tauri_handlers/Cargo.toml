@@ -8,13 +8,11 @@ edition = "2021"
 tauri = { version = "2", features = [] }
 
 # Workspace crates
-crypto_utils = { path = "../crypto_utils" }
 gurkha = { path = "../gurkha" }
-persistance = { path = "../persistance" }
-services = { path = "../services" }
-network = { path = "../network" }
-search_indexer = { path = "../search_indexer" }
-osvauld_core = { path = "../core" }
+butler = { path = "../butler" }
+herald = { path = "../herald" }
+transport = { path = "../transport" }
+courier = { path = "../courier" }
 
 # Async
 tokio = { version = "1", features = ["full"] }
@@ -31,3 +29,4 @@ base64 = "0.22"
 
 # Locale
 sys-locale = "0.3"
+ed25519-dalek = "2.2.0"

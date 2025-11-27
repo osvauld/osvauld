@@ -1,26 +1,22 @@
-use crate::types::{BaseCryptoResponse, UserDetails};
+//! User handlers - Simplified for new architecture
+
+use crate::types::{BaseCryptoResponse, UserDetails, KnownUserResponse};
+use butler::NodeService;
 use base64::{Engine as _, engine::general_purpose};
-use crypto_utils::CryptoUtils;
-use network::P2PService;
-use persistance::database::RepositoryContext;
-use services::{add_known_user, get_known_users};
 use std::sync::Arc;
 use sys_locale::get_locale;
 use tauri::State;
-use tokio::sync::RwLock;
 use tracing::instrument;
 
 #[tauri::command]
-#[instrument(skip(input, crypto_utils, repo_ctx, _p2p_service))]
+#[instrument(skip(input, node_service))]
 pub async fn handle_add_user(
     input: String,
-    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
-    _p2p_service: State<'_, Arc<P2PService>>,
+    node_service: State<'_, Arc<NodeService>>,
 ) -> Result<BaseCryptoResponse, String> {
     // Decode the base64 string
     let json_bytes = general_purpose::STANDARD
-        .decode(input)
+        .decode(&input)
         .map_err(|e| format!("Failed to decode input: {}", e))?;
 
     // Convert bytes to UTF-8 string
@@ -31,45 +27,32 @@ pub async fn handle_add_user(
     let details: UserDetails = serde_json::from_str(&json_str)
         .map_err(|e| format!("Failed to deserialize user details: {}", e))?;
 
-    // Now you can use the extracted fields
-    let username = details.username;
-    let user_public_key = details.user_public_key;
-    let device_public_key = details.device_public_key;
-    let one_time_token = details.ucan_token;
-    let ucan_pub_key = details.ucan_pub_key;
-
-    let (_user, _device) = add_known_user(
-        username,
-        user_public_key,
-        device_public_key,
-        one_time_token,
-        ucan_pub_key,
-        repo_ctx.inner().clone(),
-        &crypto_utils,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-
-    // TODO: Re-implement P2P connection after Loro migration
-    // let device = device.clone();
-    // let p2p_service_clone = p2p_service.inner().clone();
-    // tokio::spawn(async move {
-    //     if let Err(e) = p2p_service_clone.connect_with_ticket(&device.id).await {
-    //         error!("Failed to start P2P service: {}", e);
-    //     }
-    // });
+    // Store as sovereign node using butler
+    node_service
+        .add_sovereign_node(&input)
+        .map_err(|e| format!("Failed to add user: {}", e))?;
 
     Ok(BaseCryptoResponse::Success)
 }
 
 #[tauri::command]
-#[instrument(skip(repo_ctx))]
+#[instrument(skip(node_service))]
 pub async fn handle_get_known_users(
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
+    node_service: State<'_, Arc<NodeService>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let known_users = get_known_users(repo_ctx.inner().clone())
-        .await
+    let nodes = node_service
+        .list_sovereign_nodes()
         .map_err(|e| e.to_string())?;
+
+    let known_users: Vec<KnownUserResponse> = nodes
+        .into_iter()
+        .map(|node| KnownUserResponse {
+            user_id: node.node_id.clone(),
+            username: node.username,
+            public_key: node.user_public_key,
+        })
+        .collect();
+
     Ok(BaseCryptoResponse::GetKnownUsers(known_users))
 }
 

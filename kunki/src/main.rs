@@ -1,20 +1,25 @@
 use clap::{Parser, Subcommand};
-use crypto_utils::CryptoUtils;
-use tracing::{error, info};
-use network::{P2PService, p2p_init};
-use persistance::{database::initialize_repositories, initialize_database};
+use tracing::{error, info, warn};
 
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
+use ed25519_dalek::SigningKey;
+use gurkha::PermitService;
 use serde_json::json;
-use services::{
-    generate_folder_share_token, generate_one_time_ucan_token, handle_signup, is_signed_up,
-    load_certificate,
-};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+// Butler for storage
+use butler::{RedbStore, NodeService};
+
+// Transport and Courier for P2P
+use courier::{Courier, CourierEvent, CourierHandle, CourierMode, HandshakeServices};
+use transport::{Transport, TransportConfig};
+
 /// Helper function to get passphrase - either from argument or by prompting
-fn get_passphrase(passphrase_opt: Option<String>, prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
+fn get_passphrase(
+    passphrase_opt: Option<String>,
+    prompt: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     match passphrase_opt {
         Some(p) => Ok(p),
         None => {
@@ -29,13 +34,13 @@ fn get_passphrase(passphrase_opt: Option<String>, prompt: &str) -> Result<String
 }
 
 #[derive(Parser)]
-#[command(author, version, about = "LivNote P2P CLI", long_about = None)]
+#[command(author, version, about = "Osvauld P2P CLI", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// Database path
-    #[arg(short, long, default_value = "cli.db")]
+    /// Database path (without extension)
+    #[arg(short, long, default_value = "cli")]
     db_path: String,
 }
 
@@ -80,19 +85,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
 
-    // Initialize database
-    let db_connection =
-        initialize_database(&cli.db_path)
-            .await
-            .map_err(|e| -> Box<dyn std::error::Error> {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
-    let repo_ctx = Arc::new(initialize_repositories(db_connection.clone()));
-    let crypto_utils = Arc::new(RwLock::new(CryptoUtils::new()));
-    let ucan_service = Arc::new(RwLock::new(gurkha::UcanService::new()));
+    // Initialize Butler's RedbStore for storage
+    let redb_path = format!("{}.redb", cli.db_path);
+    let redb_store = RedbStore::open(&redb_path).map_err(|e| -> Box<dyn std::error::Error> {
+        Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to open RedbStore: {}", e),
+        ))
+    })?;
+    let redb_store = Arc::new(redb_store);
+
+    // Initialize PermitService for permit generation
+    let permit_service = Arc::new(RwLock::new(PermitService::new()));
 
     match cli.command {
         Commands::Init {
@@ -100,31 +104,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             passphrase,
         } => {
             let pass = get_passphrase(passphrase, "Enter passphrase:")?;
-            handle_init(&username, &pass, repo_ctx.clone()).await?;
+            handle_init(&username, &pass, redb_store.clone()).await?;
         }
         Commands::Start { passphrase } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
-            handle_start(
-                &pass,
-                repo_ctx.clone(),
-                crypto_utils.clone(),
-                ucan_service.clone(),
-            )
-            .await?;
+            handle_start(&pass, redb_store.clone(), permit_service.clone()).await?;
         }
         Commands::FolderToken {
             passphrase,
             folder_id,
         } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
-            handle_folder_token(
-                &pass,
-                &folder_id,
-                repo_ctx.clone(),
-                crypto_utils.clone(),
-                ucan_service.clone(),
-            )
-            .await?;
+            handle_folder_token(&pass, &folder_id, redb_store.clone(), permit_service.clone())
+                .await?;
         }
     }
 
@@ -134,23 +126,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn handle_init(
     username: &str,
     passphrase: &str,
-    repo_ctx: Arc<persistance::database::RepositoryContext>,
+    redb_store: Arc<RedbStore>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Check if already signed up
-    if is_signed_up(repo_ctx.clone()).await? {
+    // Check if already signed up using Butler
+    if butler::is_signed_up(&redb_store)? {
         error!("User already initialized. Use 'start' command to begin.");
         return Ok(());
     }
 
     info!("Initializing new user: {}", username);
 
-    // Create user and certificates
-    handle_signup(username, passphrase, repo_ctx.clone()).await?;
+    // Create user using Butler (Herald-based identity)
+    let result = butler::signup(&redb_store, username, passphrase)?;
 
-    // Create default folder
+    info!("✔ Identity created");
+    info!("✔ DID: {}", result.identity.did());
+    info!("⚠️  IMPORTANT: Save your recovery phrase:");
+    println!("\n  {}\n", result.mnemonic);
 
     info!("✔ User '{}' created successfully", username);
-    info!("✔ Default folder created");
     info!("Use 'start' command with your passphrase to begin P2P service");
 
     Ok(())
@@ -158,54 +152,185 @@ async fn handle_init(
 
 async fn handle_start(
     passphrase: &str,
-    repo_ctx: Arc<persistance::database::RepositoryContext>,
-    crypto_utils: Arc<RwLock<CryptoUtils>>,
-    ucan_service: Arc<RwLock<gurkha::UcanService>>,
+    redb_store: Arc<RedbStore>,
+    permit_service: Arc<RwLock<PermitService>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Check if user exists
-    if !is_signed_up(repo_ctx.clone()).await? {
+    // Check if user exists in Butler
+    if !butler::is_signed_up(&redb_store)? {
         error!("No user found. Please run 'init' first.");
         return Ok(());
     }
 
-    info!("Loading user certificate...");
+    info!("Loading identity...");
 
-    // Load certificate and get user/device
-    let (user, device) = load_certificate(passphrase, repo_ctx.clone(), &crypto_utils).await?;
+    // Login with Butler (returns Herald Identity)
+    let identity = butler::login(&redb_store, passphrase)?;
+    let identity_data = butler::get_identity_data(&redb_store)?.ok_or("Identity data not found")?;
 
-    info!("✔ Logged in as: {}", user.username);
-    info!("✔ User ID: {}", user.id);
-    info!("✔ Device ID: {}", device.id);
+    info!("✔ Logged in as: {}", identity_data.username);
+    info!("✔ DID: {}", identity.did());
 
-    // Load UCAN keys into ucan_service
-    let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
-    let (signing_key, verifying_key) = {
-        let crypto = crypto_utils.read().await;
-        crypto.decrypt_ucan_key(&encrypted_ucan_key)?
-    };
+    // Load Herald's signing key into PermitService
+    let signing_key = SigningKey::from_bytes(&identity.secret_signing_key());
+    let verifying_key = signing_key.verifying_key();
     {
-        let mut ucan_guard = ucan_service.write().await;
-        ucan_guard.load_keys(signing_key, verifying_key);
+        let mut permit_guard = permit_service.write().await;
+        permit_guard.load_keys(signing_key, verifying_key);
     }
 
-    // Generate and print connection token (always)
-    let (token, pub_key) = generate_one_time_ucan_token(
-        "owner",  // relationship for one-time token
-        &ucan_service,
-    )
-    .await?;
+    // Generate one-time permit for connection string
+    let token = {
+        let permit_guard = permit_service.read().await;
+        let (token, _cid) = permit_guard
+            .issue_one_time("owner")
+            .await
+            .map_err(|e| format!("Failed to create permit: {:?}", e))?;
+        token
+    };
 
+    // Initialize Transport layer using the device key from Herald identity
+    info!("Initializing transport layer...");
+    let transport_config = TransportConfig::new(identity.secret_device_key());
+    let (transport, event_rx) = Transport::init(transport_config)
+        .await
+        .map_err(|e| format!("Failed to init transport: {}", e))?;
+
+    let transport = Arc::new(transport);
+    let node_id = transport.node_id();
+
+    info!("✔ Transport initialized");
+    info!("✔ Node ID: {}", node_id);
+
+    // Get relay URLs
+    let relay_urls = transport.relay_urls();
+    if !relay_urls.is_empty() {
+        info!("✔ Relay: {}", relay_urls[0]);
+    }
+
+    // Create NodeService for owner storage
+    let node_service = Arc::new(NodeService::new(redb_store.clone()));
+
+    // Create HandshakeServices for auto-processing
+    let handshake_services = Arc::new(HandshakeServices::new(
+        node_service,
+        permit_service.clone(),
+    ));
+
+    // Set the identity on HandshakeServices (for signing)
+    handshake_services.set_identity(identity.clone()).await;
+
+    // Initialize Courier with services for auto-processing
+    let (courier_handle, mut courier_events, courier) = Courier::init_with_services(
+        CourierMode::Node,
+        transport.clone(),
+        Some(handshake_services),
+    );
+
+    // Start accepting connections
+    transport.start_accepting();
+
+    // Spawn Courier event processor
+    tokio::spawn(async move {
+        courier.run(event_rx).await;
+    });
+
+    // Spawn application event handler
+    let _courier_handle = courier_handle.clone(); // Keep handle for future use
+    tokio::spawn(async move {
+        while let Some(event) = courier_events.recv().await {
+            match event {
+                CourierEvent::HelloReceived {
+                    node_id,
+                    did,
+                    username,
+                    permit,
+                } => {
+                    info!(
+                        "👋 Hello received from {} ({}) with permit len={}",
+                        username, node_id, permit.len()
+                    );
+                    // TODO: Verify permit, send Welcome back
+                }
+                CourierEvent::WelcomeReceived {
+                    node_id,
+                    permit_for_us,
+                } => {
+                    info!(
+                        "🤝 Welcome received from {} with permit len={}",
+                        node_id, permit_for_us.len()
+                    );
+                    // TODO: Store permit, send PermitGrant if first connection
+                }
+                CourierEvent::PeerAuthenticated {
+                    node_id: _,
+                    peer_type,
+                    username,
+                    did,
+                } => {
+                    info!(
+                        "📱 Peer authenticated: {} ({}) - {:?}",
+                        username, did, peer_type
+                    );
+                }
+                CourierEvent::PeerDisconnected { node_id } => {
+                    info!("📴 Peer disconnected: {}", node_id);
+                }
+                CourierEvent::SyncRequest {
+                    node_id,
+                    request_id,
+                    resource_id,
+                    ..
+                } => {
+                    info!(
+                        "🔄 Sync request from {}: {} (id={})",
+                        node_id, resource_id, request_id
+                    );
+                }
+                CourierEvent::SyncPush {
+                    node_id,
+                    resource_id,
+                    updates,
+                } => {
+                    info!(
+                        "📥 Sync push from {}: {} ({} bytes)",
+                        node_id,
+                        resource_id,
+                        updates.len()
+                    );
+                }
+                CourierEvent::FolderRequest {
+                    node_id,
+                    request_id,
+                    folder_id,
+                } => {
+                    info!(
+                        "📁 Folder request from {}: {} (id={})",
+                        node_id, folder_id, request_id
+                    );
+                }
+                CourierEvent::Error { message } => {
+                    warn!("⚠️  Error: {}", message);
+                }
+            }
+        }
+    });
+
+    // Print connection string
     println!("\n╔══════════════════════════════════════════╗");
-    println!("║     ONE-TIME CONNECTION STRING           ║");
+    println!("║     CONNECTION STRING                    ║");
     println!("╚══════════════════════════════════════════╝");
 
-    // Create connection string JSON
+    // Create connection string with Ed25519 keys
+    let user_pub_key = general_purpose::STANDARD.encode(identity.public_signing_key());
+    let device_pub_key = general_purpose::STANDARD.encode(identity.public_device_key());
+
     let connection_details = json!({
-        "user_public_key": user.public_key,
-        "device_public_key": device.device_key,
-        "username": user.username,
-        "ucan_token": token,
-        "ucan_pub_key": pub_key,
+        "user_public_key": user_pub_key,
+        "device_public_key": device_pub_key,
+        "node_id": node_id.to_string(),
+        "username": identity_data.username,
+        "permit": token,
+        "relay": relay_urls.first(),
     });
 
     // Convert to string and base64 encode
@@ -214,26 +339,13 @@ async fn handle_start(
 
     println!("{}", encoded_connection);
     println!("╚══════════════════════════════════════════╝");
-    println!("\nℹ️  User: {}", user.username);
-    println!("ℹ️  User ID: {}", user.id);
+    println!("\nℹ️  User: {}", identity_data.username);
+    println!("ℹ️  DID: {}", identity.did());
+    println!("ℹ️  Node ID: {}", node_id);
     println!("╚══════════════════════════════════════════╝\n");
 
-    // Initialize P2P service (CLI doesn't need event handling)
-    info!("Starting P2P service...");
-    let (p2p_service, _p2p_receiver) =
-        P2PService::new(repo_ctx.clone(), crypto_utils.clone(), ucan_service.clone());
-
-    let p2p_service = Arc::new(p2p_service);
-
-    // Initialize P2P network (new pattern)
-    p2p_init::initialize_p2p(&p2p_service, &user, &device).await?;
-
-    info!("✔ P2P service started");
-    info!("✔ Node ID: {}", device.device_key);
-    info!("Listening for incoming connections...");
-
     // Print status
-    println!("\n🟢 SERVICE STATUS: ONLINE");
+    println!("🟢 SERVICE STATUS: ONLINE");
     println!("🔐 Press Ctrl+C to stop the service");
     println!("🔗 Service is ready to accept connections\n");
 
@@ -256,39 +368,45 @@ async fn handle_start(
 async fn handle_folder_token(
     passphrase: &str,
     folder_id: &str,
-    repo_ctx: Arc<persistance::database::RepositoryContext>,
-    crypto_utils: Arc<RwLock<CryptoUtils>>,
-    ucan_service: Arc<RwLock<gurkha::UcanService>>,
+    redb_store: Arc<RedbStore>,
+    permit_service: Arc<RwLock<PermitService>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Check if user exists
-    if !is_signed_up(repo_ctx.clone()).await? {
+    // Check if user exists using Butler
+    if !butler::is_signed_up(&redb_store)? {
         error!("No user found. Please run 'init' first.");
         return Ok(());
     }
 
-    info!("Loading user certificate...");
+    info!("Loading identity...");
 
-    // Load certificate to verify passphrase
-    let (user, device) = load_certificate(passphrase, repo_ctx.clone(), &crypto_utils).await?;
+    // Login with Butler (returns Herald Identity)
+    let identity = butler::login(&redb_store, passphrase)?;
+    let identity_data = butler::get_identity_data(&redb_store)?.ok_or("Identity data not found")?;
 
-    info!("✔ Authenticated as: {}", user.username);
+    info!("✔ Authenticated as: {}", identity_data.username);
 
-    // Load UCAN keys into ucan_service
-    let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
-    let (signing_key, verifying_key) = {
-        let crypto = crypto_utils.read().await;
-        crypto.decrypt_ucan_key(&encrypted_ucan_key)?
-    };
+    // Load Herald's signing key into PermitService
+    let signing_key = SigningKey::from_bytes(&identity.secret_signing_key());
+    let verifying_key = signing_key.verifying_key();
     {
-        let mut ucan_guard = ucan_service.write().await;
-        ucan_guard.load_keys(signing_key, verifying_key);
+        let mut permit_guard = permit_service.write().await;
+        permit_guard.load_keys(signing_key, verifying_key);
     }
 
     info!("Generating folder share token for folder: {}", folder_id);
 
     // Generate folder share token
-    let (token, pub_key) =
-        generate_folder_share_token(folder_id, &ucan_service).await?;
+    let (token, pub_key) = {
+        let permit_guard = permit_service.read().await;
+        let (token, _cid) = permit_guard
+            .issue_folder_viewer_auth(folder_id)
+            .await
+            .map_err(|e| format!("Failed to create folder permit: {:?}", e))?;
+        let pub_key = permit_guard
+            .get_public_key()
+            .map_err(|e| format!("Failed to get public key: {:?}", e))?;
+        (token, pub_key)
+    };
 
     println!("\n╔══════════════════════════════════════════╗");
     println!("║     FOLDER SHARE TOKEN                   ║");
@@ -300,13 +418,15 @@ async fn handle_folder_token(
     println!("Public Key: {}", pub_key);
     println!("╚══════════════════════════════════════════╝");
 
-    // Create connection string JSON (same format as connection token)
+    // Create connection string JSON using Herald identity
+    let user_pub_key = general_purpose::STANDARD.encode(identity.public_signing_key());
+    let device_pub_key = general_purpose::STANDARD.encode(identity.public_device_key());
+
     let connection_details = json!({
-        "user_public_key": user.public_key,
-        "device_public_key": device.device_key,
-        "username": user.username,
-        "ucan_token": token,
-        "ucan_pub_key": pub_key,
+        "user_public_key": user_pub_key,
+        "device_public_key": device_pub_key,
+        "username": identity_data.username,
+        "permit": token,
     });
 
     // Convert to string and base64 encode

@@ -1,71 +1,70 @@
-use crate::config::HandlerConfig;
-use crate::types::{
-    AddDeviceInput, BaseCryptoResponse, ExportedCertificate, LoadPvtKeyInput, PasswordChangeInput,
-    SavePassphraseInput, UcanOneTimeTokenOut,
-};
+//! Auth handlers - Simplified for new architecture
+//!
+//! Uses Butler + Herald for authentication
+
+use crate::types::{BaseCryptoResponse, LoadPvtKeyInput, SavePassphraseInput, OneTimePermitOut};
 use crate::user_state::UserState;
-use crypto_utils::CryptoUtils;
+use butler::RedbStore;
+use ed25519_dalek::SigningKey;
+use gurkha::PermitService;
 use tracing::{error, info, instrument};
-use network::P2PService;
-use persistance::database::RepositoryContext;
-use search_indexer::SearchIndexManager;
-use services::{
-    change_passphrase, export_certificate, generate_one_time_ucan_token, handle_signup,
-    import_user, is_signed_up, load_certificate,
-};
 use std::sync::Arc;
 use tauri::State;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
 /// Check if user has completed the signup process
 #[tauri::command]
-#[instrument(skip(repo_ctx))]
+#[instrument(skip(redb_store))]
 pub async fn check_signup_status(
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
+    redb_store: State<'_, Arc<RedbStore>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let is_signed_up = is_signed_up(repo_ctx.inner().clone())
-        .await
+    let is_signed_up = butler::is_signed_up(&redb_store)
         .map_err(|e| e.to_string())?;
+
     Ok(BaseCryptoResponse::IsSignedUp { is_signed_up })
 }
 
 #[tauri::command]
 #[instrument(skip(user_state))]
-pub async fn get_user_details(user_state: State<'_, UserState>) -> Result<BaseCryptoResponse, String> {
+pub async fn get_user_details(
+    user_state: State<'_, UserState>,
+) -> Result<BaseCryptoResponse, String> {
     let user = user_state.get_user().await?;
-    let device = user_state.get_device().await?;
+    let identity = user_state.get_identity().await?;
+
     Ok(BaseCryptoResponse::UserDetails {
-        user_id: user.id,
+        user_id: user.did.clone(),
         username: user.username,
-        device_id: device.id,
-        public_key: user.public_key,
-        device_key: device.device_key,
+        device_id: identity.did().to_string(), // Device ID is same as DID for now
+        public_key: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &user.public_key),
+        device_key: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, identity.public_device_key()),
     })
 }
 
 #[tauri::command]
-#[instrument(skip(input, repo_ctx), fields(username = %input.username))]
+#[instrument(skip(input, redb_store), fields(username = %input.username))]
 pub async fn handle_sign_up(
     input: SavePassphraseInput,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
+    redb_store: State<'_, Arc<RedbStore>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let _result = handle_signup(
-        &input.username,
-        &input.passphrase,
-        repo_ctx.inner().clone(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-    Ok(BaseCryptoResponse::Success)
+    let result = butler::signup(&redb_store, &input.username, &input.passphrase)
+        .map_err(|e| e.to_string())?;
+
+    info!("Signup successful for {}", input.username);
+
+    // Return the mnemonic seed phrase for user to backup
+    Ok(BaseCryptoResponse::SeedPhrase {
+        mnemonic: result.mnemonic,
+    })
 }
 
 #[tauri::command]
-#[instrument(skip(crypto_utils))]
+#[instrument(skip(user_state))]
 pub async fn check_private_key_loaded(
-    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
+    user_state: State<'_, UserState>,
 ) -> Result<BaseCryptoResponse, String> {
-    let crypto = crypto_utils.read().await;
-    Ok(BaseCryptoResponse::CheckPvtKeyLoaded(crypto.is_cert_loaded()))
+    let loaded = user_state.is_logged_in().await;
+    Ok(BaseCryptoResponse::CheckPvtKeyLoaded(loaded))
 }
 
 #[tauri::command]
@@ -73,157 +72,102 @@ pub async fn check_private_key_loaded(
 pub async fn login(
     input: LoadPvtKeyInput,
     user_state: State<'_, UserState>,
-    _p2p_service: State<'_, Arc<P2PService>>,
-    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
-    ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
-    search_manager: State<'_, Arc<Mutex<SearchIndexManager>>>,
+    permit_service: State<'_, Arc<RwLock<PermitService>>>,
+    redb_store: State<'_, Arc<RedbStore>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let (user, current_device) =
-        load_certificate(&input.passphrase, repo_ctx.inner().clone(), &crypto_utils)
-            .await
-            .map_err(|e| e.to_string())?;
-    {
-        let mut current_user_state = user_state.current_user.write().await;
-        current_user_state.user = Some(user.clone());
-        current_user_state.device = Some(current_device.clone());
-    }
-
-    // Load UCAN keys into ucan_service
-    let encrypted_ucan_key = repo_ctx
-        .store_repo
-        .get_ucan_key()
-        .await
+    // Login with Butler (returns Herald Identity)
+    let identity = butler::login(&redb_store, &input.passphrase)
         .map_err(|e| e.to_string())?;
-    let (signing_key, verifying_key) = {
-        let crypto = crypto_utils.read().await;
-        crypto
-            .decrypt_ucan_key(&encrypted_ucan_key)
-            .map_err(|e| e.to_string())?
-    };
+
+    // Get username from identity data
+    let identity_data = butler::get_identity_data(&redb_store)
+        .map_err(|e| e.to_string())?
+        .ok_or("No identity data found")?;
+
+    info!("Login successful for {}", identity_data.username);
+
+    // Store identity in user state
+    user_state.set_identity(identity.clone(), identity_data.username.clone()).await;
+
+    // Load signing key into PermitService
+    let signing_key = SigningKey::from_bytes(&identity.secret_signing_key());
+    let verifying_key = signing_key.verifying_key();
     {
-        let mut ucan_guard = ucan_service.write().await;
-        ucan_guard.load_keys(signing_key, verifying_key);
+        let mut permit_guard = permit_service.write().await;
+        permit_guard.load_keys(signing_key, verifying_key);
     }
+    info!("PermitService loaded with Herald's signing key");
 
-    // TODO: Re-implement P2P service startup after Loro migration
-    // let p2p_service_clone = p2p_service.inner().clone();
-    // let device_clone = current_device.clone();
-    // let user_clone = user.clone();
-    // tokio::spawn(async move {
-    //     if let Err(e) = p2p_service_clone
-    //         .start_p2p_service(&device_clone, &user_clone)
-    //         .await
-    //     {
-    //         error!("Failed to start P2P service: {}", e);
-    //     }
-    // });
-
-    let search_manager_clone = search_manager.inner().clone();
-    let crypto_utils_clone = crypto_utils.inner().clone();
-    let repo_ctx_clone = repo_ctx.inner().clone();
-    let user_pub_key = user.public_key.clone();
-    tokio::spawn(async move {
-        match search_manager_clone
-            .lock()
-            .await
-            .initialize(&crypto_utils_clone, &repo_ctx_clone, user_pub_key)
-            .await
-        {
-            Ok(_) => {
-                SearchIndexManager::start_scheduled_save(
-                    search_manager_clone.clone(),
-                    repo_ctx_clone.clone(),
-                    5, // Save every 5 minutes
-                );
-                info!("Search index initialized successfully")
-            }
-            Err(e) => error!("Failed to initialize search index: {}", e),
-        }
-    });
     Ok(BaseCryptoResponse::User {
-        user_id: user.id.clone(),
-        username: user.username,
-        public_key: user.public_key,
+        user_id: identity.did().to_string(),
+        username: identity_data.username,
+        public_key: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, identity.public_signing_key()),
     })
 }
 
 #[tauri::command]
-#[instrument(skip(input, repo_ctx), fields(username = %input.username, device_id = %input.device_id))]
+#[instrument(skip_all)]
 pub async fn handle_add_device(
-    input: AddDeviceInput,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
+    _input: crate::types::AddDeviceInput,
 ) -> Result<BaseCryptoResponse, String> {
-    import_user(
-        &input.certificate,
-        &input.passphrase,
-        &input.username,
-        &input.device_id,
-        repo_ctx.inner().clone(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-    Ok(BaseCryptoResponse::Success)
+    // TODO: Implement device import using Herald
+    Err("Device import not yet implemented".to_string())
 }
 
 #[tauri::command]
 #[instrument(skip_all)]
 pub async fn handle_export_certificate(
-    input: ExportedCertificate,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
+    _input: crate::types::ExportedCertificate,
 ) -> Result<BaseCryptoResponse, String> {
-    let exported_cert = export_certificate(input.passphrase, repo_ctx.inner().clone())
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(BaseCryptoResponse::ExportedCertificate(exported_cert))
+    // TODO: Implement certificate export using Herald
+    Err("Certificate export not yet implemented".to_string())
 }
 
 #[tauri::command]
 #[instrument(skip_all)]
 pub async fn handle_change_passphrase(
-    input: PasswordChangeInput,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
+    input: crate::types::PasswordChangeInput,
+    redb_store: State<'_, Arc<RedbStore>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let _new_certificate = change_passphrase(
-        input.old_password,
-        input.new_password,
-        repo_ctx.inner().clone(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    butler::change_passphrase(&redb_store, &input.old_password, &input.new_password)
+        .map_err(|e| e.to_string())?;
 
+    info!("Passphrase changed successfully");
     Ok(BaseCryptoResponse::Success)
 }
 
 #[tauri::command]
 #[instrument(skip_all)]
 pub async fn handle_logout(
-    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
-    ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
+    user_state: State<'_, UserState>,
+    permit_service: State<'_, Arc<RwLock<PermitService>>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let mut crypto = crypto_utils.write().await;
-    crypto.clear_cert();
+    user_state.clear().await;
 
-    // Clear UCAN keys
-    let mut ucan_guard = ucan_service.write().await;
-    ucan_guard.clear_keys();
+    let mut permit_guard = permit_service.write().await;
+    permit_guard.clear_keys();
 
     Ok(BaseCryptoResponse::Success)
 }
 
 #[tauri::command]
 #[instrument(skip_all)]
-pub async fn get_one_time_ucan_token(
-    ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
+pub async fn get_one_time_permit(
+    permit_service: State<'_, Arc<RwLock<PermitService>>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let (ucan_token, ucan_pub_key) = generate_one_time_ucan_token(
-        "owner",  // relationship for one-time token
-        &ucan_service,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-    Ok(BaseCryptoResponse::OneTimeUcanToken(UcanOneTimeTokenOut {
-        ucan_token,
-        ucan_pub_key,
+    let permit_guard = permit_service.read().await;
+
+    let (permit, _cid) = permit_guard
+        .issue_one_time("owner")
+        .await
+        .map_err(|e| format!("Failed to generate token: {:?}", e))?;
+
+    let permit_pub_key = permit_guard
+        .get_public_key()
+        .map_err(|e| format!("Failed to get public key: {:?}", e))?;
+
+    Ok(BaseCryptoResponse::OneTimePermit(OneTimePermitOut {
+        permit,
+        permit_pub_key,
     }))
 }

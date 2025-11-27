@@ -1,179 +1,253 @@
+//! P2P Handlers - Using new Transport + Courier architecture
+//!
+//! These handlers use:
+//! - Butler's NodeService for storage and connection string parsing
+//! - CourierHandle for sending P2P commands
+//! - Transport for P2P connectivity
+
 use crate::types::BaseCryptoResponse;
 use crate::user_state::UserState;
-use crypto_utils::CryptoUtils;
-use tracing::{error, info, instrument};
-use network::p2p_init;
-use network::P2PService;
-use persistance::database::RepositoryContext;
-use services::add_known_user;
+use butler::NodeService;
+use courier::{Courier, CourierEvent, CourierHandle, CourierMode, HandshakeServices, PermitService};
+use tracing::{info, instrument};
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::RwLock;
+use transport::{Transport, TransportConfig};
 
-/// Initialize P2P network after login
+/// P2P state wrapper - holds CourierHandle after initialization
+pub struct P2PState {
+    pub handle: RwLock<Option<CourierHandle>>,
+}
+
+impl P2PState {
+    pub fn new() -> Self {
+        Self {
+            handle: RwLock::new(None),
+        }
+    }
+
+    pub async fn get_handle(&self) -> Result<CourierHandle, String> {
+        self.handle
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| "P2P not initialized. Call start_p2p_listener first.".to_string())
+    }
+
+    pub async fn set_handle(&self, handle: CourierHandle) {
+        let mut guard = self.handle.write().await;
+        *guard = Some(handle);
+    }
+}
+
+impl Default for P2PState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Start P2P listener with the user's device key
 ///
-/// This handler initializes the P2P network by:
-/// 1. Setting user/device context on P2PService
-/// 2. Binding Iroh endpoint to the network
-/// 3. Starting listener for incoming connections
-///
-/// Note: Does NOT auto-connect to known peers (manual connection only)
+/// This must be called after login when the Herald identity is available.
+/// Initializes Transport + Courier and stores the handle.
 #[tauri::command]
-#[instrument(skip(user_state, p2p_service))]
+#[instrument(skip_all)]
 pub async fn start_p2p_listener(
     user_state: State<'_, UserState>,
-    p2p_service: State<'_, Arc<P2PService>>,
+    p2p_state: State<'_, P2PState>,
+    node_service: State<'_, Arc<NodeService>>,
+    permit_service: State<'_, Arc<RwLock<PermitService>>>,
 ) -> Result<BaseCryptoResponse, String> {
+    // Check if already initialized
+    if p2p_state.handle.read().await.is_some() {
+        info!("P2P already initialized");
+        return Ok(BaseCryptoResponse::Success);
+    }
 
-    // Get user and device from state
-    let user = user_state.get_user().await?;
-    let device = user_state.get_device().await?;
+    // Get identity from user state (requires login)
+    let identity = user_state.get_identity().await?;
+    let device_key = identity.secret_device_key();
 
-    // Call p2p_init module to initialize network
-    p2p_init::initialize_p2p(&p2p_service, &user, &device)
+    info!("Initializing P2P with device key");
+
+    // Initialize Transport
+    let config = TransportConfig::new(device_key);
+    let (transport, transport_rx) = Transport::init(config)
         .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to initialize P2P");
-            format!("P2P initialization failed: {}", e)
-        })?;
+        .map_err(|e| format!("Failed to initialize transport: {}", e))?;
 
-    info!("P2P network initialized successfully");
+    let transport = Arc::new(transport);
+
+    // Get our node ID for logging
+    let node_id = transport.node_id();
+    info!("Transport initialized with node ID: {}", node_id);
+
+    // Create HandshakeServices for auto-processing
+    let handshake_services = Arc::new(HandshakeServices::new(
+        node_service.inner().clone(),
+        permit_service.inner().clone(),
+    ));
+
+    // Set the identity on HandshakeServices (for signing and issuing permits)
+    handshake_services.set_identity(identity.clone()).await;
+
+    // Initialize Courier with services for auto-processing
+    let (handle, mut event_rx, courier) = Courier::init_with_services(
+        CourierMode::User,
+        transport,
+        Some(handshake_services),
+    );
+
+    // Spawn courier event loop
+    tokio::spawn(async move {
+        courier.run(transport_rx).await;
+    });
+
+    // Spawn event consumer (events are auto-processed, but we still need to drain the channel)
+    tokio::spawn(async move {
+        while let Some(event) = event_rx.recv().await {
+            info!("P2P event: {:?}", event);
+        }
+    });
+
+    // Store handle in state (clone for auto-reconnect)
+    let handle_for_reconnect = handle.clone();
+    p2p_state.set_handle(handle).await;
+
+    info!("P2P listener started successfully");
+
+    // Auto-reconnect to known nodes with stored permits
+    let user = user_state.get_user().await;
+    if let Ok(user) = user {
+        if let Ok(nodes) = node_service.list_sovereign_nodes() {
+            info!("Found {} sovereign nodes for potential reconnection", nodes.len());
+            for node in nodes {
+                if let Some(our_permit) = &node.our_permit {
+                    info!(
+                        "Auto-reconnecting to {} (node_id={}, permit_preview={}...)",
+                        node.username,
+                        node.node_id,
+                        &our_permit[..our_permit.len().min(30)]
+                    );
+                    let result = handle_for_reconnect
+                        .reconnect(
+                            &node.node_id,
+                            &user.did,
+                            &user.username,
+                            &user.public_key,
+                            our_permit,
+                        )
+                        .await;
+
+                    match result {
+                        Ok(_) => info!("Reconnection initiated to {}", node.username),
+                        Err(e) => info!("Failed to reconnect to {}: {}", node.username, e),
+                    }
+                } else {
+                    info!(
+                        "Skipping {} - no our_permit stored (first connection incomplete?)",
+                        node.username
+                    );
+                }
+            }
+        }
+    }
+
     Ok(BaseCryptoResponse::Success)
 }
 
-/// Add a sovereign node and establish connection
-///
-/// This handler adds a sovereign node to the database and immediately initiates
-/// a P2P connection. The connection string contains:
-/// - One-time UCAN token with role='owner' (from Kunki)
-/// - Node's public keys and device information
+/// Add a sovereign node and initiate handshake
 ///
 /// Flow:
-/// 1. Decode and parse connection string
-/// 2. Save node to database with first_sync=false
-/// 3. Initiate P2P connection immediately (happy path - no error handling)
-/// 4. Handshake will exchange tokens with reciprocal roles
+/// 1. Parse connection string using butler
+/// 2. Store sovereign node info
+/// 3. Use CourierHandle to connect and send Hello
 #[tauri::command]
 #[instrument(skip_all)]
 pub async fn handle_add_sovereign_node(
     input: String,
-    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
-    p2p_service: State<'_, Arc<P2PService>>,
+    node_service: State<'_, Arc<NodeService>>,
+    p2p_state: State<'_, P2PState>,
+    user_state: State<'_, UserState>,
 ) -> Result<BaseCryptoResponse, String> {
+    info!("Adding sovereign node from connection string");
 
-    // 1. Parse connection string using shared service function
-    let connection_data = services::parse_connection_string(&input)
-        .map_err(|e| e.to_string())?;
+    // Get CourierHandle (must be initialized)
+    let courier_handle = p2p_state.get_handle().await?;
 
-    info!(username = %connection_data.username, "Parsed sovereign node details");
+    // 1. Parse and store sovereign node using butler
+    let sovereign_node = node_service
+        .add_sovereign_node(&input)
+        .map_err(|e| format!("Failed to add sovereign node: {}", e))?;
 
-    // 2. Save node to database (first_sync=false)
-    let (_user, device) = add_known_user(
-        connection_data.username,
-        connection_data.user_public_key,
-        connection_data.device_public_key,
-        connection_data.ucan_token,  // One-time token with role='owner'
-        connection_data.ucan_pub_key,
-        repo_ctx.inner().clone(),
-        &crypto_utils,
-    )
-    .await
-    .map_err(|e| format!("Failed to save sovereign node: {}", e))?;
+    info!(
+        username = %sovereign_node.username,
+        node_id = %sovereign_node.node_id,
+        "Sovereign node saved"
+    );
 
-    info!("Sovereign node saved to database");
+    // 2. Get our identity info for the Hello message
+    let user = user_state.get_user().await?;
 
-    // 3. Connect immediately (happy path only)
-    let node_device_id = device.id.clone();
-    p2p_service
-        .connect_with_ticket(&node_device_id)
+    // 3. Connect via Courier (sends Hello with permit)
+    // Courier handles node_id parsing internally
+    courier_handle
+        .connect(
+            &sovereign_node.node_id,
+            &user.did,
+            &user.username,
+            &user.public_key,
+            &sovereign_node.their_permit,
+        )
         .await
-        .map_err(|e| format!("Failed to connect to sovereign node: {}", e))?;
+        .map_err(|e| format!("Failed to connect: {}", e))?;
 
-    info!("Successfully initiated connection to sovereign node");
+    info!("Connection initiated to sovereign node");
     Ok(BaseCryptoResponse::Success)
 }
 
 /// Handle viewer connecting to a website/node
 ///
 /// Flow:
-/// 1. Parse connection string (includes folder_id for viewer connections)
-/// 2. Derive user_id from public key (no DB lookup needed)
-/// 3. Check if node already exists in viewer's database
-/// 4. If not, add node to database
-/// 5. Delegate to sync_handler to initiate P2P connection (fire-and-forget)
-/// 6. Return success immediately (handshake happens in background)
+/// 1. Parse connection string
+/// 2. Store node info
+/// 3. Initiate connection
 #[tauri::command]
 #[instrument(skip_all)]
 pub async fn handle_connect_to_website(
     input: String,
-    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
-    p2p_service: State<'_, Arc<P2PService>>,
+    node_service: State<'_, Arc<NodeService>>,
+    p2p_state: State<'_, P2PState>,
+    user_state: State<'_, UserState>,
 ) -> Result<BaseCryptoResponse, String> {
+    info!("Viewer connecting to website");
 
-    // 1. Parse connection string
-    let connection_data = services::parse_connection_string(&input)
-        .map_err(|e| e.to_string())?;
+    // Get CourierHandle (must be initialized)
+    let courier_handle = p2p_state.get_handle().await?;
 
-    info!(username = %connection_data.username, "Viewer connecting to node");
+    // 1. Parse and store node (reuse sovereign node storage)
+    let node = node_service
+        .add_sovereign_node(&input)
+        .map_err(|e| format!("Failed to add node: {}", e))?;
 
-    // 3. Derive user_id from public key (same as auth_service.rs:68)
-    let user_id = crypto_utils::get_key_id(&connection_data.user_public_key)
-        .map_err(|e| format!("Failed to derive user_id: {}", e))?;
+    info!(username = %node.username, "Node saved for viewer connection");
 
-    // Clone ucan_token before it gets moved
-    let ucan_token = connection_data.ucan_token.clone();
+    // 2. Get our identity
+    let user = user_state.get_user().await?;
 
-    // 4. Check if node already exists
-    let existing_user = repo_ctx
-        .user_repo
-        .get_user_by_id(&user_id)
-        .await;
-
-    let device_id = if existing_user.is_ok() {
-        // Node exists, get first device
-        info!(user_id = %user_id, "Node already exists in database, reusing connection");
-        let devices = repo_ctx
-            .device_repo
-            .get_devices_by_user_id(&user_id)
-            .await
-            .map_err(|e| format!("Failed to get devices: {}", e))?;
-
-        devices
-            .first()
-            .ok_or_else(|| "Node has no devices".to_string())?
-            .id
-            .clone()
-    } else {
-        // 5. Add node to viewer's database (first_sync=false)
-        info!(user_id = %user_id, "Adding new node to viewer database");
-        let (_, device) = add_known_user(
-            connection_data.username,
-            connection_data.user_public_key,
-            connection_data.device_public_key,
-            connection_data.ucan_token,
-            connection_data.ucan_pub_key,
-            repo_ctx.inner().clone(),
-            &crypto_utils,
+    // 3. Connect via Courier (handles node_id parsing internally)
+    courier_handle
+        .connect(
+            &node.node_id,
+            &user.did,
+            &user.username,
+            &user.public_key,
+            &node.their_permit,
         )
         .await
-        .map_err(|e| format!("Failed to add node user: {}", e))?;
+        .map_err(|e| format!("Failed to connect: {}", e))?;
 
-        device.id
-    };
-
-    info!(device_id = %device_id, "Initiating viewer connection to node");
-
-    // 6. Delegate to sync_handler to initiate connection (fire-and-forget)
-    network::p2p::sync_handler::connect_to_website(
-        device_id,
-        ucan_token,
-        p2p_service.inner().clone(),
-    );
-
-    info!("Viewer connection task spawned, returning success");
-
-    // 7. Return success immediately (handshake happens in background)
+    info!("Viewer connection initiated");
     Ok(BaseCryptoResponse::Success)
 }

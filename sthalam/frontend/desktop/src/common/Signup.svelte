@@ -167,11 +167,16 @@
 		isLoaderActive = true;
 
 		try {
-			const response = await sendMessage("savePassphrase", {
+			// Signup returns the mnemonic seed phrase directly
+			const signupResponse = await sendMessage("savePassphrase", {
 				passphrase,
 				username: collectedUsername,
 			});
-			const privatekey = await sendMessage("login", { passphrase });
+
+			// Store the mnemonic for display in the next step
+			collectedRecoveryString = signupResponse.mnemonic;
+
+			await sendMessage("login", { passphrase });
 
 			// Initialize P2P network after successful login
 			try {
@@ -182,10 +187,6 @@
 				// Non-fatal error - user is logged in but P2P won't work
 			}
 
-			const certificate = await sendMessage("exportCertificate", {
-				passphrase,
-			});
-			collectedRecoveryString = JSON.stringify(certificate);
 			navigateTo(VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY);
 		} catch (error) {
 			console.error("Error during new user password setup:", error);

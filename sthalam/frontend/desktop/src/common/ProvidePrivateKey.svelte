@@ -25,12 +25,12 @@
 
 <div class="h-full w-full flex flex-col items-center justify-around py-10">
 	<div class="flex flex-col items-center justify-center mb-4">
-		<h1 class="text-xl font-semibold text-white">This is your recovery Key</h1>
+		<h1 class="text-xl font-semibold text-white">Your Recovery Seed Phrase</h1>
 		<p
 			class="text-sm font-inter font-extralight text-mobile-textActive text-center"
 		>
-			This helps you recover your account if you lose your password.<br />you
-			can find this in settings later.
+			Write down these 12 words in order. This is the only way to recover your
+			account on a new device.
 		</p>
 	</div>
 	<div class="relative w-full my-10">
@@ -76,7 +76,7 @@
 			disabled={!collectedRecoveryString}
 			class="w-[12rem] h-12 px-5 rounded-lg font-medium flex justify-center items-center whitespace-nowrap cursor-pointer border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300 bg-livnotePink text-black"
 		>
-			{revealKey ? "Proceed" : "Reveal my key"}
+			{revealKey ? "Proceed" : "Reveal seed phrase"}
 		</button>
 	</div>
 </div>

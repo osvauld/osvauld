@@ -1,15 +1,15 @@
-//! UCAN Token Builder - Execution Layer
+//! Permit Token Builder - Execution Layer
 //!
-//! Separates "what to build" (TokenDecision) from "how to build" (GurkhaUcanBuilder).
+//! Separates "what to build" (TokenDecision) from "how to build" (GurkhaPermitBuilder).
 //! This layer handles the actual token construction with automatic proof chain handling.
 
-use crate::crypto::sign_ucan;
+use crate::crypto::sign_permit;
 use crate::decision::TokenDecision;
 use crate::errors::GurkhaError;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use tracing::{debug, info};
 
-/// Builder for constructing UCAN tokens from decisions
+/// Builder for constructing permit tokens from decisions
 ///
 /// This execution layer takes a TokenDecision (pure logic) and builds the actual
 /// token with automatic proof chain handling.
@@ -17,15 +17,15 @@ use tracing::{debug, info};
 /// # Example
 /// ```rust
 /// let decision = TokenDecision::new(audience, capabilities, facts);
-/// let builder = GurkhaUcanBuilder::new(&signing_key, &verifying_key);
+/// let builder = GurkhaPermitBuilder::new(&signing_key, &verifying_key);
 /// let (token, cid) = builder.build(decision).await?;
 /// ```
-pub struct GurkhaUcanBuilder<'a> {
+pub struct GurkhaPermitBuilder<'a> {
     signing_key: &'a SigningKey,
     verifying_key: &'a VerifyingKey,
 }
 
-impl<'a> GurkhaUcanBuilder<'a> {
+impl<'a> GurkhaPermitBuilder<'a> {
     /// Create a new builder with cryptographic keys
     pub fn new(signing_key: &'a SigningKey, verifying_key: &'a VerifyingKey) -> Self {
         Self {
@@ -34,7 +34,7 @@ impl<'a> GurkhaUcanBuilder<'a> {
         }
     }
 
-    /// Build a UCAN token from a decision
+    /// Build a permit token from a decision
     ///
     /// Takes a TokenDecision and constructs the actual token with:
     /// - Capabilities from the decision
@@ -46,15 +46,15 @@ impl<'a> GurkhaUcanBuilder<'a> {
     /// - `Ok((token_string, cid))` - The JWT token and its CID
     /// - `Err(GurkhaError)` - If token construction fails
     pub async fn build(&self, decision: TokenDecision) -> Result<(String, String), GurkhaError> {
-        debug!("🔨 Building UCAN token from decision");
+        debug!("🔨 Building permit token from decision");
         debug!("  Audience: {}", decision.audience);
         debug!("  Capabilities: {:?}", decision.capabilities);
         debug!("  Proofs in chain: {}", decision.proofs.len());
         debug!("  Embedded proof tokens: {}", decision.proof_tokens.len());
 
-        let result = sign_ucan(self.signing_key, self.verifying_key, &decision).await?;
+        let result = sign_permit(self.signing_key, self.verifying_key, &decision).await?;
 
-        info!("✓ UCAN token built successfully");
+        info!("✓ Permit token built successfully");
         debug!("  CID: {}", result.1);
 
         Ok(result)
@@ -79,9 +79,9 @@ impl<'a> GurkhaUcanBuilder<'a> {
         use crate::verification::ProofCache;
 
         debug!("🔍 Validating proof chain in built token");
-        let ucan = Permit::from_token(&token)?;
-        let cache = ProofCache::from_ucan(&ucan);
-        cache.validate_chain(&ucan)?;
+        let permit = Permit::from_token(&token)?;
+        let cache = ProofCache::from_permit(&permit);
+        cache.validate_chain(&permit)?;
 
         info!("✓ Token built and proof chain validated");
         Ok((token, cid))
@@ -108,7 +108,7 @@ mod tests {
         );
 
         // Build token
-        let builder = GurkhaUcanBuilder::new(&signing_key, &verifying_key);
+        let builder = GurkhaPermitBuilder::new(&signing_key, &verifying_key);
         let result = builder.build(decision).await;
 
         assert!(result.is_ok());

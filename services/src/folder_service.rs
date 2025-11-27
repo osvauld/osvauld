@@ -2,6 +2,7 @@ use crate::{
     errors::{FolderServiceError, ServiceResult},
     resource_service,
 };
+use PermitService;
 use osvauld_core::models::{
     Folder, FolderShareRecord,
     PermissionLevel, User, ViewerFolderInfo,
@@ -23,7 +24,7 @@ pub async fn create_folder(
     folder_template_json: String,
     repo_ctx: Arc<RepositoryContext>,
     user: &User,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> ServiceResult<Folder> {
     info!("📁 Creating folder");
 
@@ -102,7 +103,7 @@ pub async fn share_folder(
     recipient_role: &str,
     current_user: &User,
     repo_ctx: Arc<RepositoryContext>,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> ServiceResult<()> {
     // 1. Validate recipient exists
     let recipient_user = repo_ctx
@@ -257,7 +258,7 @@ pub async fn get_responder_folder_ucan_for_folder(
     initiator_folder_ucan: &str,
     local_user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-    ucan_service: &Arc<gurkha::UcanService>,
+    ucan_service: &Arc<PermitService>,
 ) -> ServiceResult<String> {
     tracing::info!("Looking up responder's folder_ucan");
 
@@ -359,7 +360,7 @@ pub async fn prepare_viewer_folder_data(
     node_user_id: &str,
     viewer_ucan_pub_key: &str,
     repo_ctx: &Arc<RepositoryContext>,
-    ucan_service: &Arc<gurkha::UcanService>,
+    ucan_service: &Arc<PermitService>,
 ) -> ServiceResult<()> {
     // 1. Load folder from database
     let folder = repo_ctx
@@ -518,7 +519,7 @@ pub async fn create_share_records_for_folder_recipients(
     folder_id: &str,
     owner_user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-    ucan_service: Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: Arc<RwLock<PermitService>>,
 ) -> ServiceResult<()> {
     info!("Creating resource share records for folder recipients");
 

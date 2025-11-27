@@ -255,41 +255,41 @@ impl MergeService {
         Self::import_snapshot(&snapshot)
     }
 
-    // ==================== UCAN-AWARE MERGE OPERATIONS ====================
-    // These methods combine UCAN authorization with CRDT merge logic.
+    // ==================== PERMIT-AWARE MERGE OPERATIONS ====================
+    // These methods combine permit authorization with CRDT merge logic.
     // All decision-making happens here - services layer just provides data.
 
-    /// Filter documents to send to peer based on UCAN permissions
+    /// Filter documents to send to peer based on permit permissions
     ///
-    /// Takes our UCAN and peer's UCAN, determines which documents should be sent.
+    /// Takes our permit and peer's permit, determines which documents should be sent.
     /// Checks:
     /// - Our sync facts (local_only, no_outgoing_updates)
     /// - Peer's capabilities (which documents they can access)
     ///
     /// # Arguments
     /// * `documents` - Map of doc_name -> LoroDoc reference
-    /// * `our_ucan_token` - Our UCAN token (for sync facts)
-    /// * `peer_ucan_token` - Peer's UCAN token (for capabilities)
+    /// * `our_permit_token` - Our permit token (for sync facts)
+    /// * `peer_permit_token` - Peer's permit token (for capabilities)
     ///
     /// # Returns
     /// * `Ok(HashMap<doc_name, snapshot_bytes>)` - Filtered documents as shallow snapshots
-    /// * `Err(...)` - If UCAN parsing or export fails
+    /// * `Err(...)` - If permit parsing or export fails
     pub fn filter_documents_for_peer(
         documents: std::collections::HashMap<String, &LoroDoc>,
-        our_ucan_token: &str,
-        peer_ucan_token: &str,
+        our_permit_token: &str,
+        peer_permit_token: &str,
     ) -> Result<std::collections::HashMap<String, Vec<u8>>, Box<dyn std::error::Error>> {
         use crate::decision::{should_send_updates, SyncContext};
         use crate::parser::Permit;
 
-        debug!("🔍 Filtering documents for peer based on UCAN permissions");
+        debug!("🔍 Filtering documents for peer based on permit permissions");
 
-        // Parse UCANs
-        let our_ucan = Permit::from_token(our_ucan_token)?;
-        let peer_ucan = Permit::from_token(peer_ucan_token)?;
+        // Parse permits
+        let our_permit = Permit::from_token(our_permit_token)?;
+        let peer_permit = Permit::from_token(peer_permit_token)?;
 
-        // Create sync context for dual-UCAN decisions
-        let sync_context = SyncContext::from_ucans(our_ucan, peer_ucan);
+        // Create sync context for dual-permit decisions
+        let sync_context = SyncContext::from_permits(our_permit, peer_permit);
 
         let mut filtered_docs = std::collections::HashMap::new();
 
@@ -316,9 +316,9 @@ impl MergeService {
         Ok(filtered_docs)
     }
 
-    /// Apply updates from peer based on UCAN permissions
+    /// Apply updates from peer based on permit permissions
     ///
-    /// Takes incoming updates and our UCAN, determines which documents can receive updates.
+    /// Takes incoming updates and our permit, determines which documents can receive updates.
     /// Checks:
     /// - Our sync facts (no_incoming_updates)
     /// - Our capabilities (which documents we manage)
@@ -326,28 +326,28 @@ impl MergeService {
     /// # Arguments
     /// * `documents` - Map of doc_name -> mutable LoroDoc reference
     /// * `updates` - Map of doc_name -> update bytes from peer
-    /// * `our_ucan_token` - Our UCAN token (for sync facts and capabilities)
+    /// * `our_permit_token` - Our permit token (for sync facts and capabilities)
     ///
     /// # Returns
     /// * `Ok(Vec<doc_name>)` - List of documents that were updated
-    /// * `Err(...)` - If UCAN parsing or merge fails
+    /// * `Err(...)` - If permit parsing or merge fails
     pub fn apply_peer_updates(
         documents: std::collections::HashMap<String, &LoroDoc>,
         updates: std::collections::HashMap<String, Vec<u8>>,
-        our_ucan_token: &str,
-        peer_ucan_token: &str,
+        our_permit_token: &str,
+        peer_permit_token: &str,
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         use crate::decision::{can_receive_updates, SyncContext};
         use crate::parser::Permit;
 
-        debug!("🔍 Applying peer updates based on UCAN permissions");
+        debug!("🔍 Applying peer updates based on permit permissions");
 
-        // Parse UCANs
-        let our_ucan = Permit::from_token(our_ucan_token)?;
-        let peer_ucan = Permit::from_token(peer_ucan_token)?;
+        // Parse permits
+        let our_permit = Permit::from_token(our_permit_token)?;
+        let peer_permit = Permit::from_token(peer_permit_token)?;
 
-        // Create sync context for dual-UCAN decisions
-        let sync_context = SyncContext::from_ucans(our_ucan, peer_ucan);
+        // Create sync context for dual-permit decisions
+        let sync_context = SyncContext::from_permits(our_permit, peer_permit);
 
         let mut updated_docs = Vec::new();
 
@@ -375,28 +375,28 @@ impl MergeService {
         Ok(updated_docs)
     }
 
-    /// Generate state vector based on UCAN token type
+    /// Generate state vector based on permit token type
     ///
-    /// Returns appropriate version vector based on whether the UCAN represents
+    /// Returns appropriate version vector based on whether the permit represents
     /// a full history holder (owner/node) or viewer (state only).
     ///
     /// # Arguments
     /// * `doc` - Document to get version from
-    /// * `our_ucan_token` - Our UCAN token (determines if we track full history)
+    /// * `our_permit_token` - Our permit token (determines if we track full history)
     ///
     /// # Returns
     /// * `Vec<u8>` - Encoded version vector (oplog_vv or state_frontiers)
     pub fn generate_state_vector(
         doc: &LoroDoc,
-        our_ucan_token: &str,
+        our_permit_token: &str,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         use crate::parser::Permit;
 
-        let our_ucan = Permit::from_token(our_ucan_token)?;
+        let our_permit = Permit::from_token(our_permit_token)?;
 
         // Check relationship fact to determine if we have full history
         // Viewers get state frontiers only, others get full oplog
-        let relationship = our_ucan.relationship();
+        let relationship = our_permit.relationship();
         let is_viewer = relationship.map(|r| r == "viewer").unwrap_or(false);
 
         let state_vector = if is_viewer {

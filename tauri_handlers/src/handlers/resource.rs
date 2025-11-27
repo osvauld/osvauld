@@ -1,31 +1,45 @@
-// Resource handlers - to be reimplemented with Loro architecture
-// See HANDOFF.md and LISTENERS_ARCHITECTURE.md for migration context
+//! Resource handlers - Uses Butler's SpaceService
 
-use crate::config::HandlerConfig;
-use crate::types::{AddResourceInput, BaseCryptoResponse, GetResource, ResourceMetadata, ResourceResponse, SyncResourceInput, UpdateResourceInput};
+use crate::types::{
+    AddResourceInput, BaseCryptoResponse, GetResource, ResourceMetadata, ResourceResponse,
+    SyncResourceInput, UpdateResourceInput,
+};
 use crate::user_state::UserState;
-use crypto_utils::CryptoUtils;
-use tracing::{error, info, instrument};
-use network::P2PService;
-use persistance::database::RepositoryContext;
-use services::{create_resource, get_all_resources_metadata, get_resource_by_id_direct, update_resource};
+use butler::{SpaceService, PageType};
+use tracing::{info, instrument};
 use std::sync::Arc;
 use tauri::State;
-use tokio::sync::RwLock;
+
+/// Extract layer names from Permit template JSON
+fn extract_layer_names_from_template(permit_template_json: &str) -> Vec<String> {
+    let Ok(template) = serde_json::from_str::<serde_json::Value>(permit_template_json) else {
+        return Vec::new();
+    };
+
+    let Some(documents) = template.get("documents").and_then(|d| d.as_object()) else {
+        return Vec::new();
+    };
+
+    documents
+        .iter()
+        .filter_map(|(name, config)| {
+            let layer_type = config.get("type").and_then(|t| t.as_str()).unwrap_or("crdt");
+            if layer_type == "crdt" {
+                Some(name.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
 
 #[tauri::command]
-#[instrument(skip(input, user_state, repo_ctx, ucan_service), fields(folder_id = %input.folder_id, resource_type = %input.resource_type))]
+#[instrument(skip(input, user_state, space_service), fields(space_id = %input.folder_id, resource_type = %input.resource_type))]
 pub async fn handle_add_resource(
     input: AddResourceInput,
     user_state: State<'_, UserState>,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
-    ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
+    space_service: State<'_, Arc<SpaceService>>,
 ) -> Result<BaseCryptoResponse, String> {
-
-    // Get current user and device
-    let user = user_state.get_user().await?;
-    let device = user_state.get_device().await?;
-
     // Parse metadata to extract title
     let metadata: serde_json::Value = serde_json::from_str(&input.metadata_json)
         .map_err(|e| format!("Failed to parse metadata: {}", e))?;
@@ -35,241 +49,178 @@ pub async fn handle_add_resource(
         .unwrap_or("Untitled")
         .to_string();
 
-    // Call service to create resource
-    let resource = create_resource(
-        input.resource_payload,
-        input.ucan_template_json,
-        input.metadata_json,
-        input.folder_id.clone(),
-        &user,
-        &device.id,
-        repo_ctx.inner().clone(),
-        &ucan_service,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    // Get identity for encryption key
+    let identity = user_state
+        .get_identity()
+        .await
+        .map_err(|e| format!("Failed to get identity: {}", e))?;
+    let owner_did = identity.did().to_string();
+    let owner_pub_key = identity.public_encryption_key();
 
-    // Build response with metadata
+    // Extract layer names from UCAN template
+    let layer_names = extract_layer_names_from_template(&input.permit_template_json);
+
+    // Determine page type
+    let page_type = match input.resource_type.as_str() {
+        "content" => PageType::Content,
+        "comments" => PageType::Comments,
+        "submissions" => PageType::Submissions,
+        _ => PageType::Content,
+    };
+
+    // Create page in Butler
+    let page = space_service
+        .create_page(
+            input.folder_id.clone(),
+            title.clone(),
+            owner_did,
+            &owner_pub_key,
+            page_type,
+            layer_names,
+        )
+        .await
+        .map_err(|e| format!("Failed to create page: {}", e))?;
+
+    info!(page_id = %page.id, "Page created");
+
     let response = ResourceMetadata {
-        id: resource.id.clone(),
+        id: page.id.clone(),
         title,
         resource_type: input.resource_type,
         folder_id: input.folder_id,
-        last_modified: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64,
+        last_modified: page.created_at,
         favourite: false,
         preview: None,
     };
 
-    info!(resource_id = %response.id, title = %response.title, "Resource created successfully");
     Ok(BaseCryptoResponse::ResourceCreated(response))
 }
 
 #[tauri::command]
-#[instrument(skip(input, repo_ctx, crypto_utils), fields(resource_id = %input.resource_id))]
+#[instrument(skip(input, user_state, space_service), fields(page_id = %input.resource_id))]
 pub async fn handle_get_resource(
     input: GetResource,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
-    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
+    user_state: State<'_, UserState>,
+    space_service: State<'_, Arc<SpaceService>>,
 ) -> Result<BaseCryptoResponse, String> {
+    let identity = user_state
+        .get_identity()
+        .await
+        .map_err(|e| format!("Failed to get identity: {}", e))?;
+    let secret_key = identity.secret_encryption_key();
+    let user_did = identity.did().to_string();
 
-    // Fetch and decrypt resource
-    let resource = get_resource_by_id_direct(
-        &input.resource_id,
-        repo_ctx.inner().clone(),
-        &crypto_utils,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let decrypted_page = space_service
+        .get_decrypted_page(&input.resource_id, &user_did, &secret_key)
+        .await
+        .map_err(|e| format!("Failed to get page: {}", e))?;
 
-    // Convert Resource to JSON format expected by frontend
-    let data_json = resource
-        .to_json()
-        .map_err(|e| format!("Failed to serialize resource: {}", e))?;
-    let data: serde_json::Value = serde_json::from_str(&data_json)
-        .map_err(|e| format!("Failed to parse resource JSON: {}", e))?;
+    let data = decrypted_page.docs_to_json();
 
-    // Build response
     let response = ResourceResponse {
-        id: resource.id,
+        id: decrypted_page.id,
         data,
-        favourite: false, // TODO: Add favourite tracking
+        favourite: false,
         last_accessed: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64,
-        folder_id: resource.folder_id,
+        folder_id: decrypted_page.space_id,
     };
 
-    info!(resource_id = %response.id, "Resource fetched successfully");
     Ok(BaseCryptoResponse::SelectedResourceResponse(response))
 }
 
 #[tauri::command]
-#[instrument(skip(user_state, repo_ctx))]
+#[instrument(skip(user_state, space_service))]
 pub async fn handle_get_all_resources_metadata(
     user_state: State<'_, UserState>,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
+    space_service: State<'_, Arc<SpaceService>>,
 ) -> Result<BaseCryptoResponse, String> {
-
-    // Get current user
-    let user = user_state.get_user().await?;
-
-    // Get all resources metadata (no decryption)
-    let resources_with_keys = get_all_resources_metadata(&user.id, repo_ctx.inner().clone())
+    let identity = user_state
+        .get_identity()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Failed to get identity: {}", e))?;
+    let user_did = identity.did().to_string();
 
-    // Convert to ResourceMetadata
-    let metadata_list: Vec<ResourceMetadata> = resources_with_keys
+    let pages = space_service
+        .get_accessible_pages(&user_did)
+        .map_err(|e| format!("Failed to get pages: {}", e))?;
+
+    let metadata_list: Vec<ResourceMetadata> = pages
         .into_iter()
-        .map(|(encrypted_resource, _encrypted_key)| {
-            // Parse metadata JSON to extract fields
-            let metadata_value = &encrypted_resource.metadata;
-
-            let title = metadata_value
-                .get("title")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Untitled")
-                .to_string();
-
-            let resource_type = metadata_value
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("website")
-                .to_string();
-
-            let last_modified = metadata_value
-                .get("last_modified")
-                .and_then(|v| v.as_i64())
-                .unwrap_or_else(|| encrypted_resource.updated_at);
+        .map(|page| {
+            let resource_type = match page.page_type {
+                PageType::Content => "content",
+                PageType::Comments => "comments",
+                PageType::Submissions => "submissions",
+                PageType::PrivateChat => "private_chat",
+            }
+            .to_string();
 
             ResourceMetadata {
-                id: encrypted_resource.id,
-                title,
+                id: page.id,
+                title: page.name,
                 resource_type,
-                folder_id: encrypted_resource.folder_id,
-                last_modified,
-                favourite: false, // TODO: Add favourite tracking
-                preview: None,    // TODO: Generate previews
+                folder_id: page.space_id,
+                last_modified: page.updated_at,
+                favourite: false,
+                preview: None,
             }
         })
         .collect();
 
-    info!(count = metadata_list.len(), "Returning resources metadata");
     Ok(BaseCryptoResponse::ResourcesMetadata(metadata_list))
 }
 
 #[tauri::command]
-#[instrument(skip(input, user_state, repo_ctx), fields(resource_id = %input.id))]
+#[instrument(skip(input, user_state, space_service), fields(page_id = %input.id))]
 pub async fn handle_update_resource(
     input: UpdateResourceInput,
     user_state: State<'_, UserState>,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
+    space_service: State<'_, Arc<SpaceService>>,
 ) -> Result<BaseCryptoResponse, String> {
-
-    // Get current user
-    let user = user_state.get_user().await?;
-
-    // Call service to update resource
-    update_resource(
-        &input.id,
-        input.data.clone(),
-        &user,
-        repo_ctx.inner().clone(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-
-    // Fetch updated resource to get new metadata
-    let encrypted_resource = repo_ctx
-        .resource_repo
-        .find_by_id(&input.id)
+    let identity = user_state
+        .get_identity()
         .await
-        .map_err(|e| format!("Failed to fetch updated resource: {}", e))?;
+        .map_err(|e| format!("Failed to get identity: {}", e))?;
+    let secret_key = identity.secret_encryption_key();
 
-    // Parse metadata to extract fields
-    let metadata_value = &encrypted_resource.metadata;
+    let layer_updates: std::collections::HashMap<String, serde_json::Value> =
+        serde_json::from_str(&input.data)
+            .map_err(|e| format!("Failed to parse update data: {}", e))?;
 
-    let title = metadata_value
-        .get("title")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Untitled")
-        .to_string();
+    let page = space_service
+        .update_page_layers(&input.id, &secret_key, &layer_updates)
+        .map_err(|e| format!("Failed to update page: {}", e))?;
 
-    let resource_type = metadata_value
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("website")
-        .to_string();
+    let resource_type = match page.page_type {
+        PageType::Content => "content",
+        PageType::Comments => "comments",
+        PageType::Submissions => "submissions",
+        PageType::PrivateChat => "private_chat",
+    }
+    .to_string();
 
-    let last_modified = metadata_value
-        .get("last_modified")
-        .and_then(|v| v.as_i64())
-        .unwrap_or_else(|| encrypted_resource.updated_at);
-
-    // Build response
     let response = ResourceMetadata {
-        id: encrypted_resource.id,
-        title,
+        id: page.id,
+        title: page.name,
         resource_type,
-        folder_id: encrypted_resource.folder_id,
-        last_modified,
-        favourite: false, // TODO: Add favourite tracking
-        preview: None,    // TODO: Generate previews
+        folder_id: page.space_id,
+        last_modified: page.updated_at,
+        favourite: false,
+        preview: None,
     };
 
-    info!(resource_id = %response.id, title = %response.title, "Resource updated successfully");
     Ok(BaseCryptoResponse::ResourceUpdated(response))
 }
 
-/// Sync a resource with connected peers
-///
-/// Initiates the resource sync protocol by calling the network layer.
-/// The sync_resource function will:
-/// 1. Get all users with access to the resource
-/// 2. For each user, get their devices and establish connections
-/// 3. Send ResourceSyncRequest to start the sync protocol
-///
-/// This is fire-and-forget - spawned as async task.
 #[tauri::command]
-#[instrument(skip(input, repo_ctx, crypto_utils, p2p_service), fields(resource_id = %input.resource_id))]
+#[instrument(skip(input), fields(resource_id = %input.resource_id))]
 pub async fn handle_sync_resource(
     input: SyncResourceInput,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
-    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
-    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<BaseCryptoResponse, String> {
-
-    // Spawn async task for sync
-    let resource_id = input.resource_id.clone();
-    let repo = repo_ctx.inner().clone();
-    let crypto = crypto_utils.inner().clone();
-    let p2p = p2p_service.inner().clone();
-
-    tokio::spawn(async move {
-        if let Err(e) = network::p2p::sync_handler::sync_resource(
-            resource_id.clone(),
-            repo,
-            crypto,
-            p2p,
-        )
-        .await
-        {
-            error!("Failed to sync resource {}: {}", resource_id, e);
-        }
-    });
-
-    info!("Resource sync task spawned");
+    // TODO: Implement with Courier
+    info!("Resource sync requested: {}", input.resource_id);
     Ok(BaseCryptoResponse::Success)
 }
-
-// TODO: Implement remaining resource handlers as needed:
-// - handle_delete_resource
-// - handle_get_resources_for_folder
-// - handle_share_resource
-// - handle_publish_resource
-// - handle_search_resources
-// etc.

@@ -11,6 +11,7 @@
 
 use crate::errors::{ResourceServiceError, ServiceError, ServiceResult};
 use crypto_utils::{encrypt_data_for_user, CryptoUtils};
+use PermitService;
 use gurkha::decision::{SyncContext, should_send_updates};
 use log::{error, info};
 use osvauld_core::models::{
@@ -337,7 +338,7 @@ pub async fn delegate_and_create_share_record(
     current_user: &osvauld_core::models::User,
     persist: bool,
     repo_ctx: Arc<RepositoryContext>,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> ServiceResult<(osvauld_core::models::ShareRecord, String, String)> {
     // 1. Get recipient user
     let recipient_user = repo_ctx

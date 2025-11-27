@@ -1,0 +1,38 @@
+[package]
+name = "courier"
+version = "0.1.0"
+edition = "2021"
+description = "Business logic layer for P2P communication in Osvauld"
+license = "MIT"
+
+[dependencies]
+# Transport layer
+transport = { path = "../transport" }
+
+# Networking types (for NodeId)
+iroh = "0.91.1"
+
+# Domain crates
+gurkha = { path = "../gurkha" }
+butler = { path = "../butler" }
+herald = { path = "../herald" }
+
+# Async
+tokio = { version = "1", features = ["sync", "time", "macros"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+
+# Time for timestamps
+chrono = "0.4"
+
+# Encoding
+base64 = "0.22"

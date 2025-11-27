@@ -10,6 +10,7 @@
 use super::core::{self, load_and_decrypt_resource, encrypt_and_save_resource};
 use crate::errors::{ResourceServiceError, ServiceError, ServiceResult};
 use crypto_utils::CryptoUtils;
+use PermitService;
 use gurkha::decision::SyncContext;
 use log::{error, info};
 use osvauld_core::models::{
@@ -43,7 +44,7 @@ pub async fn get_resource_state_vectors_by_ucan(
     _domain: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    ucan_service: &Arc<gurkha::UcanService>,
+    ucan_service: &Arc<PermitService>,
 ) -> Result<String, ResourceServiceError> {
     info!("Getting state vectors from UCAN token");
 
@@ -93,7 +94,7 @@ pub async fn generate_updates_for_peer(
     _domain: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    ucan_service: &Arc<gurkha::UcanService>,
+    ucan_service: &Arc<PermitService>,
 ) -> Result<String, ResourceServiceError> {
     info!("Generating updates for peer");
 
@@ -132,7 +133,7 @@ pub async fn apply_peer_updates(
     user: &User,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    ucan_service: &Arc<gurkha::UcanService>,
+    ucan_service: &Arc<PermitService>,
 ) -> Result<(), ResourceServiceError> {
     info!("Applying peer updates");
 
@@ -164,7 +165,7 @@ pub async fn get_resource_ucans_for_sync(
     peer_role: &str,
     peer_user: &User,
     repo_ctx: Arc<RepositoryContext>,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> Result<(String, String, String), ResourceServiceError> {
     info!("Getting resource UCANs for sync: {}", resource_id);
     info!("  Peer role: {}", peer_role);
@@ -294,7 +295,7 @@ pub async fn prepare_resource_sync_request(
     ucan_token: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> Result<String, ResourceServiceError> {
     info!("Preparing resource sync request");
 
@@ -366,7 +367,7 @@ pub async fn prepare_resource_transfer(
     peer_user: &User,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> Result<EncryptedResource, ResourceServiceError> {
     info!("Preparing resource transfer: {}", resource_id);
     info!("  Current user: {}", current_user.id);
@@ -460,7 +461,7 @@ pub async fn accept_resource_from_peer(
     share_records: &[ShareRecord],
     folder_ucan: &str,
     repo_ctx: Arc<RepositoryContext>,
-    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+    ucan_service: &Arc<RwLock<PermitService>>,
 ) -> ServiceResult<()> {
     info!("📥 Accepting resource {} from peer", resource.id);
     info!("  Folder: {}", resource.folder_id);

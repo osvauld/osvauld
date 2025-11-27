@@ -268,7 +268,7 @@ class DataState {
         resourcePayload: JSON.stringify(loroContent),
         folderId: websiteId,
         resourceType: resourceType,
-        ucanTemplateJson: JSON.stringify(RESOURCE_TEMPLATE),
+        permitTemplateJson: JSON.stringify(RESOURCE_TEMPLATE),
         metadataJson: JSON.stringify(metadata)
       });
       console.log("response we got back", resourceMetadata);
@@ -391,7 +391,7 @@ class DataState {
       }
 
       // Load Loro documents from snapshots
-      // Note: Documents may be missing for viewers (per UCAN permission filtering)
+      // Note: Documents may be missing for viewers (per Permit permission filtering)
       // Create empty snapshots for missing documents to avoid Loro import errors
       const snapshots = {
         template: loroData.template_doc

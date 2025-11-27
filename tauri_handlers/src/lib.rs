@@ -8,4 +8,5 @@ pub mod user_state;
 
 // Re-export commonly used items
 pub use config::HandlerConfig;
+pub use handlers::p2p::P2PState;
 pub use user_state::UserState;

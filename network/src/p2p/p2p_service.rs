@@ -28,7 +28,7 @@ pub struct P2PState {
 pub struct P2PService {
     pub state: Arc<Mutex<Option<P2PState>>>,
     pub crypto_utils: Arc<RwLock<CryptoUtils>>,
-    pub ucan_service: Arc<RwLock<gurkha::UcanService>>,
+    pub ucan_service: Arc<RwLock<gurkha::PermitService>>,
     pub repo_ctx: Arc<RepositoryContext>,
     pub event_emitter: P2PEventEmitter,
     pub current_user: Arc<RwLock<Option<User>>>,
@@ -41,7 +41,7 @@ impl P2PService {
     pub fn new(
         repo_ctx: Arc<RepositoryContext>,
         crypto_utils: Arc<RwLock<CryptoUtils>>,
-        ucan_service: Arc<RwLock<gurkha::UcanService>>,
+        ucan_service: Arc<RwLock<gurkha::PermitService>>,
     ) -> (Self, mpsc::UnboundedReceiver<P2PEvent>) {
         let (emitter, receiver) = P2PEventEmitter::new();
         info!("Creating new P2P service instance");

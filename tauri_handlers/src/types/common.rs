@@ -1,5 +1,14 @@
-use osvauld_core::models::{Device, Folder, User};
+use butler::Space;
 use serde::{Deserialize, Serialize};
+
+/// Known user response (for sharing, contacts list)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownUserResponse {
+    pub user_id: String,
+    pub username: String,
+    pub public_key: String,
+}
 
 /// Base response type used by shared handlers
 /// Projects can extend this with additional variants
@@ -54,23 +63,27 @@ pub enum BaseCryptoResponse {
     UserId(String),
     ChangedPassphrase(String),
     ExportedCertificate(String),
+    /// Seed phrase (mnemonic) for account recovery
+    SeedPhrase {
+        mnemonic: String,
+    },
     Folders(Vec<FolderResponse>),
+    Spaces(Vec<SpaceResponse>),
     ResourcesMetadata(Vec<ResourceMetadata>),
     SearchedResourceIds(Vec<String>),
-    FolderCreated(Folder),
+    FolderCreated(Space),
+    SpaceCreated(Space),
     Success,
     UpdateResources,
     ResourceCreated(ResourceMetadata),
     ResourceUpdated(ResourceMetadata),
     SelectedResourceResponse(ResourceResponse),
-    CreatedKnownUser {
-        user: User,
-        device: Device,
-    },
-    GetKnownUsers(Vec<User>),
+    GetKnownUsers(Vec<KnownUserResponse>),
     UserDetailsForShare(String),
-    OneTimeUcanToken(UcanOneTimeTokenOut),
-    Users(Vec<User>),
+    OneTimePermit(OneTimePermitOut),
+    Users(Vec<KnownUserResponse>),
+    // Node-related responses
+    NodeRegistered(crate::handlers::node::NodeInfoResponse),
 }
 
 // ========== Input Types (all shared) ==========
@@ -82,9 +95,9 @@ pub struct SavePassphraseInput {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct UcanOneTimeTokenOut {
-    pub ucan_token: String,
-    pub ucan_pub_key: String,
+pub struct OneTimePermitOut {
+    pub permit: String,
+    pub permit_pub_key: String,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -110,7 +123,7 @@ pub struct AddResourceInput {
     pub resource_payload: String,
     pub folder_id: String,
     pub resource_type: String,
-    pub ucan_template_json: String,
+    pub permit_template_json: String,
     pub metadata_json: String,
 }
 
@@ -196,6 +209,45 @@ pub struct FolderResponse {
     pub default: bool,
 }
 
+// ========== Space Types (new terminology) ==========
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddSpaceInput {
+    pub name: String,
+    pub description: String,
+    pub folder_template_json: String, // Still using folder template for compatibility
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoftDeleteSpace {
+    pub space_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceShareUsersInput {
+    pub space_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareSpace {
+    pub space_id: String,
+    pub user_id: String,
+    pub recipient_role: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceResponse {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub default: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceMetadata {
@@ -249,8 +301,8 @@ pub struct UserDetails {
     pub user_public_key: String,
     pub device_public_key: String,
     pub username: String,
-    pub ucan_token: String,
-    pub ucan_pub_key: String,
+    /// The permit (UCAN token) for authorization
+    pub permit: String,
 }
 
 #[derive(Deserialize, Debug)]

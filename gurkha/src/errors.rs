@@ -1,12 +1,12 @@
-//! Error types for Gurkha UCAN domain
+//! Error types for Gurkha Permit domain
 
 use thiserror::Error;
 
 /// Gurkha error type
 #[derive(Error, Debug)]
 pub enum GurkhaError {
-    #[error("UCAN error: {0}")]
-    Ucan(String),
+    #[error("Permit error: {0}")]
+    Permit(String),
 
     #[error("Invalid token: {0}")]
     InvalidToken(String),
@@ -20,8 +20,8 @@ pub enum GurkhaError {
     #[error("Keys not loaded - please login first")]
     KeysNotLoaded,
 
-    #[error("Invalid UCAN: {0}")]
-    InvalidUcan(String),
+    #[error("Invalid permit: {0}")]
+    InvalidPermit(String),
 
     #[error("Invalid template: {0}")]
     InvalidTemplate(String),
@@ -41,8 +41,8 @@ pub enum GurkhaError {
     #[error("Signature error: {0}")]
     SignatureError(String),
 
-    #[error("UCAN CID conversion failed: {0}")]
-    UcanCidConvertionFailed(String),
+    #[error("Permit CID conversion failed: {0}")]
+    PermitCidConversionFailed(String),
 
     #[error("Encoding error: {0}")]
     EncodingError(String),
@@ -73,14 +73,14 @@ pub type ServiceResult<T> = std::result::Result<T, ServiceError>;
 /// Result type for Gurkha operations
 pub type Result<T> = std::result::Result<T, GurkhaError>;
 
-/// Convert UcanTokenError to GurkhaError
-impl From<crate::parser::UcanTokenError> for GurkhaError {
-    fn from(err: crate::parser::UcanTokenError) -> Self {
+/// Convert PermitError to GurkhaError
+impl From<crate::parser::PermitError> for GurkhaError {
+    fn from(err: crate::parser::PermitError) -> Self {
         match err {
-            crate::parser::UcanTokenError::InvalidTokenType(msg) => GurkhaError::InvalidToken(msg),
-            crate::parser::UcanTokenError::ParsingFailed(msg) => GurkhaError::ParseError(msg),
-            crate::parser::UcanTokenError::MissingField(msg) => GurkhaError::ParseError(format!("Missing field: {}", msg)),
-            crate::parser::UcanTokenError::ValidationFailed(msg) => GurkhaError::ValidationError(msg),
+            crate::parser::PermitError::InvalidTokenType(msg) => GurkhaError::InvalidToken(msg),
+            crate::parser::PermitError::ParsingFailed(msg) => GurkhaError::ParseError(msg),
+            crate::parser::PermitError::MissingField(msg) => GurkhaError::ParseError(format!("Missing field: {}", msg)),
+            crate::parser::PermitError::ValidationFailed(msg) => GurkhaError::ValidationError(msg),
         }
     }
 }
