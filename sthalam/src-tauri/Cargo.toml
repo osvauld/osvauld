@@ -14,11 +14,14 @@ strip = true      # Ensures debug symbols are removed.
 
 [lib]
 name = "sthalam"
-crate-type = ["lib", "cdylib"]  # Removed staticlib - not needed for Tauri, speeds up linking
+crate-type = [
+  "lib",
+  "cdylib",
+] # Removed staticlib - not needed for Tauri, speeds up linking
 
 [build-dependencies]
-tauri-build = { version = "2.3.0", features = [] }
-cc = "1.2.29"
+tauri-build = { version = "2.5.2", features = [] }
+cc = "1.2.47"
 
 [dependencies]
 # New architecture crates
@@ -27,10 +30,8 @@ butler = { path = "../../butler" }
 herald = { path = "../../herald" }
 transport = { path = "../../transport" }
 courier = { path = "../../courier" }
-gurkha = { path = "../../gurkha" }
-
 # Tauri
-tauri = { version = "2.4.1", features = ["protocol-asset"] }
+tauri = { version = "2.9.3", features = ["protocol-asset"] }
 tauri-plugin-shell = "2.2.1"
 tauri-plugin-store = "2.2.0"
 tauri-plugin-clipboard-manager = "2.0.2"
@@ -38,7 +39,7 @@ tauri-plugin-clipboard-manager = "2.0.2"
 # Core
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1.44.2", features = ["rt-multi-thread", "macros", "sync", "io-util", "time", "fs"] }
+tokio = { version = "1.44.2", features = ["sync"] }
 anyhow = "1.0.91"
 thiserror = "2.0.0"
 
@@ -52,16 +53,10 @@ chrono = "0.4.38"
 base64 = "0.22.1"
 rand = "0.8.5"
 url = "2.5.4"
-async-trait = "0.1.83"
-futures-lite = "2.3.0"
 sys-locale = "0.3.1"
-rcgen = "0.14.2"
 tauri-plugin-fs = "2.2.1"
-loro = "1.5"
 tauri-plugin-dialog = "2.0.0-rc"
 clap = { version = "4.5.40", features = ["derive"] }
-regex = "1.11.1"
-quick-xml = "0.38.1"
 mime_guess = "2.0"
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2.0.0-rc"

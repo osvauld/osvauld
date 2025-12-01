@@ -1,9 +1,9 @@
-mod space_service;
-mod layer_service;
-mod node_service;
+// Internal service modules - Butler calls these directly
+pub(crate) mod space_service;
+pub(crate) mod layer_service;
+pub(crate) mod node_service;
+pub(crate) mod contact_service;
 pub mod auth_service;
 
-pub use space_service::SpaceService;
-pub use layer_service::LayerService;
-pub use node_service::NodeService;
+// Auth functions are standalone (don't need Butler instance)
 pub use auth_service::{signup, login, is_signed_up, recover, change_passphrase, SignupResult, get_identity_data};

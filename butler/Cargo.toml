@@ -34,4 +34,5 @@ uuid = { version = "1", features = ["v4"] }
 
 # Internal crates
 herald = { path = "../herald" }
+gurkha = { path = "../gurkha" }
 futures = "0.3.31"

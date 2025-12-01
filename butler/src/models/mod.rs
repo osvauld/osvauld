@@ -12,7 +12,7 @@ pub mod layer;
 
 pub use identity::*;
 pub use node::*;
-pub use contact::*;
+pub use contact::{ContactData, ShareInfo};
 pub use device::*;
 pub use space::*;
 pub use page::*;

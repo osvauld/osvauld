@@ -1,28 +1,28 @@
 //! Folder handlers - Simplified for new architecture
 //!
-//! Uses Butler's SpaceService
+//! Uses Butler facade
 
 use crate::types::{
     AddFolderInput, BaseCryptoResponse, FolderResponse, FolderShareUsersInput,
     RequestFolderResourcesInput, ShareFolder, SoftDeleteFolder,
 };
-use crate::user_state::UserState;
-use butler::SpaceService;
+use butler::Butler;
 use tracing::{info, instrument};
 use std::sync::Arc;
 use tauri::State;
 
 #[tauri::command]
-#[instrument(skip(input, user_state, space_service), fields(folder_name = %input.name))]
+#[instrument(skip(input, butler), fields(folder_name = %input.name))]
 pub async fn handle_add_folder(
     input: AddFolderInput,
-    user_state: State<'_, UserState>,
-    space_service: State<'_, Arc<SpaceService>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let user = user_state.get_user().await?;
+    let user = butler.user_info().await
+        .map_err(|e| e.to_string())?;
 
-    let space = space_service
-        .create_space(input.name.clone(), user.did.clone())
+    let space = butler
+        .create_space(input.name.clone(), user.did.clone(), &input.folder_template_json)
+        .await
         .map_err(|e| format!("Failed to create space: {}", e))?;
 
     info!("Space created: {} (id: {})", space.name, space.id);
@@ -31,12 +31,12 @@ pub async fn handle_add_folder(
 }
 
 #[tauri::command]
-#[instrument(skip(space_service))]
+#[instrument(skip(butler))]
 pub async fn handle_get_folders(
-    space_service: State<'_, Arc<SpaceService>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let spaces = space_service
-        .list_all_spaces()
+    let spaces = butler
+        .list_spaces()
         .map_err(|e| e.to_string())?;
 
     let folder_responses: Vec<FolderResponse> = spaces
@@ -53,13 +53,13 @@ pub async fn handle_get_folders(
 }
 
 #[tauri::command]
-#[instrument(skip(input, space_service), fields(folder_id = %input.folder_id))]
+#[instrument(skip(input, butler), fields(folder_id = %input.folder_id))]
 pub async fn handle_soft_delete_folder(
     input: SoftDeleteFolder,
-    space_service: State<'_, Arc<SpaceService>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    space_service
-        .delete_space(&input.folder_id, true)
+    butler
+        .delete_space(&input.folder_id)
         .map_err(|e| format!("Failed to delete space: {}", e))?;
 
     info!("Space deleted: {}", input.folder_id);
@@ -72,17 +72,19 @@ pub async fn handle_get_shared_folder_users(
     input: FolderShareUsersInput,
 ) -> Result<BaseCryptoResponse, String> {
     // TODO: Implement with Butler
+    let _ = input; // Silence unused warning
     Ok(BaseCryptoResponse::Users(vec![]))
 }
 
 #[tauri::command]
-#[instrument(skip(input, space_service), fields(folder_id = %input.folder_id))]
+#[instrument(skip(input, butler), fields(folder_id = %input.folder_id))]
 pub async fn handle_share_folder(
     input: ShareFolder,
-    space_service: State<'_, Arc<SpaceService>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    space_service
-        .share_space(&input.folder_id, input.user_id.clone(), input.recipient_role.clone())
+    // Track that space was shared with user (pubkey only, actual permit in Contact.shares)
+    butler
+        .share_space(&input.folder_id, input.user_id.clone())
         .map_err(|e| format!("Failed to share space: {}", e))?;
 
     info!("Space shared: {} with {}", input.folder_id, input.user_id);

@@ -36,6 +36,8 @@ const CONTACTS: TableDefinition<&str, &[u8]> = TableDefinition::new("contacts");
 const NODES: TableDefinition<&str, &[u8]> = TableDefinition::new("nodes");
 const SOVEREIGN_NODES: TableDefinition<&str, &[u8]> = TableDefinition::new("sovereign_nodes");
 const OWNER_INFO: TableDefinition<&str, &[u8]> = TableDefinition::new("owner_info");
+// Index: shares_by_page/{page_id}/{user_did} → user_did (for "who has page X" queries)
+const SHARES_BY_PAGE: TableDefinition<&str, &str> = TableDefinition::new("shares_by_page");
 
 /// RedbStore - Main persistent storage using redb
 pub struct RedbStore {
@@ -60,6 +62,7 @@ impl RedbStore {
             let _ = write_txn.open_table(NODES)?;
             let _ = write_txn.open_table(SOVEREIGN_NODES)?;
             let _ = write_txn.open_table(OWNER_INFO)?;
+            let _ = write_txn.open_table(SHARES_BY_PAGE)?;
         }
         write_txn.commit()?;
 
@@ -630,6 +633,63 @@ impl RedbStore {
             contacts.push(contact);
         }
         Ok(contacts)
+    }
+
+    /// Add a share to a contact and update the shares_by_page index
+    pub fn add_share_to_contact(
+        &self,
+        user_did: &str,
+        page_id: &str,
+        share: crate::models::ShareInfo,
+    ) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut contacts_table = write_txn.open_table(CONTACTS)?;
+            let mut index_table = write_txn.open_table(SHARES_BY_PAGE)?;
+
+            // Get existing contact
+            let mut contact: ContactData = match contacts_table.get(user_did)? {
+                Some(guard) => bincode::deserialize(guard.value())
+                    .map_err(|e| ButlerError::Serialization(e.to_string()))?,
+                None => return Err(ButlerError::NotFound(format!("Contact not found: {}", user_did))),
+            };
+
+            // Add share to contact
+            contact.add_share(page_id.to_string(), share);
+
+            // Save contact
+            let value = bincode::serialize(&contact)
+                .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+            contacts_table.insert(user_did, value.as_slice())?;
+
+            // Update index: shares_by_page/{page_id}/{user_did} → user_did
+            let index_key = format!("{}/{}", page_id, user_did);
+            index_table.insert(index_key.as_str(), user_did)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Get all user DIDs who have a share for a given page
+    pub fn get_users_for_page(&self, page_id: &str) -> Result<Vec<String>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(SHARES_BY_PAGE)?;
+
+        let prefix = format!("{}/", page_id);
+        let mut user_dids = Vec::new();
+
+        for result in table.range(prefix.as_str()..)? {
+            let (key, value) = result?;
+            let key_str = key.value();
+
+            // Stop if we've passed the prefix
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+
+            user_dids.push(value.value().to_string());
+        }
+        Ok(user_dids)
     }
 
     // =========================================================================

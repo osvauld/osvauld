@@ -6,11 +6,8 @@ description = "Business logic layer for P2P communication in Osvauld"
 license = "MIT"
 
 [dependencies]
-# Transport layer
+# Transport layer (provides NodeId re-export)
 transport = { path = "../transport" }
-
-# Networking types (for NodeId)
-iroh = "0.91.1"
 
 # Domain crates
 gurkha = { path = "../gurkha" }

@@ -2,17 +2,15 @@ use clap::{Parser, Subcommand};
 use tracing::{error, info, warn};
 
 use base64::{engine::general_purpose, Engine as _};
-use ed25519_dalek::SigningKey;
-use gurkha::PermitService;
 use serde_json::json;
 use std::sync::Arc;
+
+// Butler for storage and identity
+use butler::{Butler, RedbStore, LayerCache};
 use tokio::sync::RwLock;
 
-// Butler for storage
-use butler::{RedbStore, NodeService};
-
 // Transport and Courier for P2P
-use courier::{Courier, CourierEvent, CourierHandle, CourierMode, HandshakeServices};
+use courier::{Courier, CourierEvent, CourierMode, HandshakeServices};
 use transport::{Transport, TransportConfig};
 
 /// Helper function to get passphrase - either from argument or by prompting
@@ -95,9 +93,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     let redb_store = Arc::new(redb_store);
 
-    // Initialize PermitService for permit generation
-    let permit_service = Arc::new(RwLock::new(PermitService::new()));
-
     match cli.command {
         Commands::Init {
             username,
@@ -108,14 +103,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Start { passphrase } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
-            handle_start(&pass, redb_store.clone(), permit_service.clone()).await?;
+            handle_start(&pass, redb_store.clone()).await?;
         }
         Commands::FolderToken {
             passphrase,
             folder_id,
         } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
-            handle_folder_token(&pass, &folder_id, redb_store.clone(), permit_service.clone())
+            handle_folder_token(&pass, &folder_id, redb_store.clone())
                 .await?;
         }
     }
@@ -153,7 +148,6 @@ async fn handle_init(
 async fn handle_start(
     passphrase: &str,
     redb_store: Arc<RedbStore>,
-    permit_service: Arc<RwLock<PermitService>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists in Butler
     if !butler::is_signed_up(&redb_store)? {
@@ -170,27 +164,21 @@ async fn handle_start(
     info!("✔ Logged in as: {}", identity_data.username);
     info!("✔ DID: {}", identity.did());
 
-    // Load Herald's signing key into PermitService
-    let signing_key = SigningKey::from_bytes(&identity.secret_signing_key());
-    let verifying_key = signing_key.verifying_key();
-    {
-        let mut permit_guard = permit_service.write().await;
-        permit_guard.load_keys(signing_key, verifying_key);
-    }
+    // Create Butler with LayerCache and set identity
+    let layer_cache = Arc::new(RwLock::new(LayerCache::new(redb_store.clone(), 100)));
+    let butler = Arc::new(Butler::new(redb_store.clone(), layer_cache));
+    butler.set_identity(identity.clone()).await;
 
-    // Generate one-time permit for connection string
-    let token = {
-        let permit_guard = permit_service.read().await;
-        let (token, _cid) = permit_guard
-            .issue_one_time("owner")
-            .await
-            .map_err(|e| format!("Failed to create permit: {:?}", e))?;
-        token
-    };
+    // Generate one-time permit for connection string using Butler
+    let (token, _pub_key) = butler.issue_one_time_permit("owner")
+        .await
+        .map_err(|e| format!("Failed to create permit: {:?}", e))?;
 
-    // Initialize Transport layer using the device key from Herald identity
+    // Initialize Transport layer using the device key from Butler
     info!("Initializing transport layer...");
-    let transport_config = TransportConfig::new(identity.secret_device_key());
+    let device_key = butler.device_key().await
+        .map_err(|e| format!("Failed to get device key: {:?}", e))?;
+    let transport_config = TransportConfig::new(device_key);
     let (transport, event_rx) = Transport::init(transport_config)
         .await
         .map_err(|e| format!("Failed to init transport: {}", e))?;
@@ -207,17 +195,8 @@ async fn handle_start(
         info!("✔ Relay: {}", relay_urls[0]);
     }
 
-    // Create NodeService for owner storage
-    let node_service = Arc::new(NodeService::new(redb_store.clone()));
-
-    // Create HandshakeServices for auto-processing
-    let handshake_services = Arc::new(HandshakeServices::new(
-        node_service,
-        permit_service.clone(),
-    ));
-
-    // Set the identity on HandshakeServices (for signing)
-    handshake_services.set_identity(identity.clone()).await;
+    // Create HandshakeServices with Butler
+    let handshake_services = Arc::new(HandshakeServices::new(butler.clone()));
 
     // Initialize Courier with services for auto-processing
     let (courier_handle, mut courier_events, courier) = Courier::init_with_services(
@@ -369,7 +348,6 @@ async fn handle_folder_token(
     passphrase: &str,
     folder_id: &str,
     redb_store: Arc<RedbStore>,
-    permit_service: Arc<RwLock<PermitService>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists using Butler
     if !butler::is_signed_up(&redb_store)? {
@@ -385,28 +363,14 @@ async fn handle_folder_token(
 
     info!("✔ Authenticated as: {}", identity_data.username);
 
-    // Load Herald's signing key into PermitService
-    let signing_key = SigningKey::from_bytes(&identity.secret_signing_key());
-    let verifying_key = signing_key.verifying_key();
-    {
-        let mut permit_guard = permit_service.write().await;
-        permit_guard.load_keys(signing_key, verifying_key);
-    }
-
     info!("Generating folder share token for folder: {}", folder_id);
 
-    // Generate folder share token
-    let (token, pub_key) = {
-        let permit_guard = permit_service.read().await;
-        let (token, _cid) = permit_guard
-            .issue_folder_viewer_auth(folder_id)
-            .await
-            .map_err(|e| format!("Failed to create folder permit: {:?}", e))?;
-        let pub_key = permit_guard
-            .get_public_key()
-            .map_err(|e| format!("Failed to get public key: {:?}", e))?;
-        (token, pub_key)
-    };
+    // Generate folder share token using gurkha's stateless function
+    let signing_key_bytes = identity.secret_signing_key();
+    let (token, _cid) = gurkha::issue_folder_viewer_auth(&signing_key_bytes, folder_id)
+        .await
+        .map_err(|e| format!("Failed to create folder permit: {:?}", e))?;
+    let pub_key = gurkha::get_public_key(&signing_key_bytes);
 
     println!("\n╔══════════════════════════════════════════╗");
     println!("║     FOLDER SHARE TOKEN                   ║");

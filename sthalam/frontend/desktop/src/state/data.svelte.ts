@@ -1,8 +1,8 @@
 import { sendMessage } from '../utils/helper';
 import { loroCoordinator } from '../shared/loro/loroCoordinator';
-import type { Website, Resource, UserDetails } from '../types';
+import type { Website, Resource, UserDetails, SovereignNode } from '../types';
 import { listen } from '@tauri-apps/api/event';
-import { FOLDER_TEMPLATE, RESOURCE_TEMPLATE } from '../config/permissions';
+import { SPACE_TEMPLATE, PAGE_TEMPLATE } from '../config/permissions';
 
 /**
  * Clean Data State Management for Sthalam
@@ -21,7 +21,8 @@ class DataState {
   userDetails = $state<UserDetails | null>(null);
   clientId: number = 0;
 
-  // Sovereign node
+  // Sovereign nodes (paired Kunki nodes)
+  sovereignNodes = $state<SovereignNode[]>([]);
   sovereignNodeId = $state<string | null>(null);
 
   // Loading states
@@ -75,7 +76,8 @@ class DataState {
       // Setup event listeners and load websites in parallel
       await Promise.all([
         this.setupEventListeners(),
-        this.fetchWebsites()
+        this.fetchWebsites(),
+        this.fetchSovereignNodes()
       ]);
 
       console.log('✅ [DataState] Setup ready');
@@ -176,6 +178,28 @@ class DataState {
   }
 
   /**
+   * Fetch sovereign nodes (Kunki nodes we've paired with)
+   */
+  async fetchSovereignNodes() {
+    try {
+      const nodes = await sendMessage("getSovereignNodes", {});
+      this.sovereignNodes = nodes || [];
+
+      // Set the first node as the default sovereign node
+      if (this.sovereignNodes.length > 0) {
+        this.sovereignNodeId = this.sovereignNodes[0].nodeId;
+      }
+
+      console.log('🌐 [DataState] Fetched sovereign nodes:', this.sovereignNodes.length);
+      console.log('🌐 [DataState] Sovereign node ID:', this.sovereignNodeId);
+    } catch (error) {
+      console.error('❌ [DataState] Failed to fetch sovereign nodes:', error);
+      this.sovereignNodes = [];
+      this.sovereignNodeId = null;
+    }
+  }
+
+  /**
    * Fetch all resources metadata from backend
    */
   async fetchAllResources() {
@@ -218,7 +242,7 @@ class DataState {
       const website = await sendMessage("addFolder", {
         name,
         description: "",
-        folderTemplateJson: JSON.stringify(FOLDER_TEMPLATE)
+        folderTemplateJson: JSON.stringify(SPACE_TEMPLATE)
       });
       this.websites = [...this.websites, website];
       console.log('✅ [DataState] Website created:', name);
@@ -268,7 +292,7 @@ class DataState {
         resourcePayload: JSON.stringify(loroContent),
         folderId: websiteId,
         resourceType: resourceType,
-        permitTemplateJson: JSON.stringify(RESOURCE_TEMPLATE),
+        permitTemplateJson: JSON.stringify(PAGE_TEMPLATE),
         metadataJson: JSON.stringify(metadata)
       });
       console.log("response we got back", resourceMetadata);

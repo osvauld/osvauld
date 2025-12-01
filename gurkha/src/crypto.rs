@@ -70,9 +70,12 @@ impl KeyMaterial for Ed25519KeyMaterial {
 /// FACTS-ONLY ARCHITECTURE (v3):
 /// All authorization is stored in the facts field. The capabilities vec should be empty.
 /// The decision layer (decision.rs) ensures this by never adding URI capabilities.
+///
+/// # Arguments
+/// * `signing_key_bytes` - 32-byte Ed25519 secret key
+/// * `decision` - Token decision containing audience, facts, etc.
 pub async fn sign_permit(
-    signing_key: &SigningKey,
-    verifying_key: &VerifyingKey,
+    signing_key_bytes: &[u8; 32],
     decision: &crate::decision::TokenDecision,
 ) -> Result<(String, String), GurkhaError> {
     // Enforce facts-only architecture - capabilities should always be empty
@@ -82,8 +85,7 @@ pub async fn sign_permit(
     );
 
     generate_permit_with_cid(
-        signing_key,
-        verifying_key,
+        signing_key_bytes,
         &decision.audience,
         decision.capabilities.clone(),
         Some(decision.facts.clone()),
@@ -101,11 +103,11 @@ pub async fn sign_permit(
 /// All authorization is stored in the `facts` field using CEL-based rules.
 ///
 /// # Arguments
+/// * `signing_key_bytes` - 32-byte Ed25519 secret key
 /// * `capabilities` - Should be empty vec in v3 (all auth in facts)
 /// * `facts` - Contains all authorization: operations, documents, cel_rules, etc.
 pub async fn generate_permit_with_cid(
-    signing_key: &SigningKey,
-    verifying_key: &VerifyingKey,
+    signing_key_bytes: &[u8; 32],
     audience: &str,
     capabilities: Vec<(String, String)>,
     facts: Option<serde_json::Map<String, serde_json::Value>>,
@@ -113,8 +115,10 @@ pub async fn generate_permit_with_cid(
     proofs: Vec<String>,
     proof_tokens: std::collections::HashMap<String, String>,
 ) -> Result<(String, String), GurkhaError> {
-    // 1. Create KeyMaterial
-    let key_material = Ed25519KeyMaterial::new(signing_key.clone(), verifying_key.clone());
+    // 1. Reconstruct typed keys from bytes and create KeyMaterial
+    let signing_key = SigningKey::from_bytes(signing_key_bytes);
+    let verifying_key = signing_key.verifying_key();
+    let key_material = Ed25519KeyMaterial::new(signing_key, verifying_key);
 
     // 2. Set lifetime (default to 30 years if None)
     let lifetime = expiry_seconds.unwrap_or(30 * 365 * 24 * 60 * 60);

@@ -26,7 +26,6 @@ bs58 = "0.5"
 
 # Async
 async-trait = "0.1"
-tokio = { version = "1", features = ["full"] }
 
 # Error handling
 thiserror = "1.0"
@@ -34,7 +33,9 @@ anyhow = "1.0"
 
 # Logging
 tracing = { version = "0.1", features = ["attributes"] }
-log = "0.4"
 
 # Time (for token expiry)
 chrono = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

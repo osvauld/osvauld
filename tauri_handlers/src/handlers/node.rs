@@ -1,8 +1,7 @@
 //! Node handler for sovereign node registration
 
 use crate::types::BaseCryptoResponse;
-use crate::user_state::UserState;
-use butler::NodeService;
+use butler::Butler;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
@@ -32,21 +31,13 @@ pub struct NodeInfoResponse {
 
 /// Register my sovereign node
 #[tauri::command]
-#[instrument(skip(input, user_state, node_service))]
+#[instrument(skip(input, butler))]
 pub async fn handle_register_my_node(
     input: RegisterNodeInput,
-    user_state: State<'_, UserState>,
-    node_service: State<'_, Arc<NodeService>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let identity = user_state
-        .get_identity()
-        .await
-        .map_err(|e| format!("Failed to get identity: {}", e))?;
-    let my_did = identity.did().to_string();
-
-    let node = node_service
+    let node = butler
         .register_my_node(
-            my_did,
             input.node_did,
             input.device_id,
             input.iroh_node_id,

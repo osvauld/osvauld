@@ -29,18 +29,26 @@
 
 	async function fetchUsers() {
 		try {
-			const users = await sendMessage("getKnownUsers");
-			availableUsers = users || [];
+			const rawUsers = await sendMessage("getKnownUsers");
+			// Map backend response (userId) to frontend User interface (id)
+			availableUsers = (rawUsers || []).map((u: any) => ({
+				id: u.userId,
+				username: u.username,
+			}));
 
 			console.log("📋 Available users:", availableUsers);
 			console.log("🌐 Sovereign node ID:", dataState.sovereignNodeId);
 
 			// Fetch users this folder is already shared with
 			if (dataState.currentWebsite && dataState.currentWebsite.id !== "all") {
-				const sharedUsers = await sendMessage("getSharedFolderUsers", {
+				const rawSharedUsers = await sendMessage("getSharedFolderUsers", {
 					folderId: dataState.currentWebsite.id,
 				});
-				existingUsers = sharedUsers || [];
+				// Map backend response to frontend User interface
+				existingUsers = (rawSharedUsers || []).map((u: any) => ({
+					id: u.userId || u.id,
+					username: u.username,
+				}));
 				console.log("✅ Existing users for folder:", existingUsers);
 			}
 		} catch (error) {
@@ -106,7 +114,7 @@
 
 	const handlePublish = async () => {
 		if (!selectedUserId) {
-			console.error("No user selected");
+			console.error("No node selected");
 			return;
 		}
 
@@ -116,16 +124,22 @@
 			return;
 		}
 
+		// Find the selected sovereign node to get its nodeId (iroh node ID)
+		const selectedNode = dataState.sovereignNodes.find(n => n.nodeId === selectedUserId);
+		if (!selectedNode) {
+			console.error("Selected node not found in sovereign nodes");
+			return;
+		}
+
 		isPublishing = true;
 		try {
-			// Share folder with 'node' role (template-based permissions)
-			await sendMessage("shareFolder", {
-				folderId: currentWebsite.id,
-				userId: selectedUserId,
-				recipientRole: "node",
+			// Publish space to the selected sovereign node
+			await sendMessage("publishSpace", {
+				spaceId: currentWebsite.id,
+				nodeId: selectedNode.nodeId,
 			});
 
-			console.log("✅ Website published successfully!");
+			console.log("✅ Space published to node successfully!");
 			// TODO: Show success toast
 
 			// Refresh shared folder users
@@ -135,7 +149,7 @@
 			selectedUserId = null;
 			onClose();
 		} catch (error) {
-			console.error("❌ Failed to publish website:", error);
+			console.error("❌ Failed to publish space:", error);
 			// TODO: Show error toast
 		} finally {
 			isPublishing = false;

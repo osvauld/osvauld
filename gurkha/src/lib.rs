@@ -6,7 +6,7 @@
 //! ## Design Principles
 //!
 //! - **Pure domain logic** - No database, no crypto utilities, no services
-//! - **Raw key input** - Receives Ed25519 SigningKey/VerifyingKey directly
+//! - **Stateless functions** - Receives key bytes, returns results
 //! - **OCaml-ready** - Can be replaced with OCaml implementation
 //! - **Facts-driven** - All authorization in facts field, no typed wrappers
 //!
@@ -21,7 +21,7 @@
 //! - `builder` - Execution layer (builds tokens from decisions)
 //! - `merge` - Pure CRDT merge logic (Loro document operations)
 //! - `sync` - Pure sync logic (permit-driven document synchronization)
-//! - `service` - Public API (orchestrates decision + crypto)
+//! - `service` - Stateless permit functions (takes key bytes, returns permits)
 //! - `cel` - CEL rule evaluation for authorization
 //! - `errors` - GurkhaError types
 
@@ -47,12 +47,24 @@ pub use verification::{ProofCache, ProofChainTracer};
 pub use builder::GurkhaPermitBuilder;
 pub use merge::MergeService;
 pub use sync::{SyncRequestData, SyncResponseData, prepare_sync_request, generate_sync_response, apply_peer_docs, apply_peer_updates, generate_collaborative_updates};
-pub use service::PermitService;
 pub use cel::{OperationValidator, CelError, CelResult};
 
-// Factory function
-pub fn create_permit_service(signing_key: ed25519_dalek::SigningKey, verifying_key: ed25519_dalek::VerifyingKey) -> std::sync::Arc<std::sync::RwLock<PermitService>> {
-    let mut service = PermitService::new();
-    service.load_keys(signing_key, verifying_key);
-    std::sync::Arc::new(std::sync::RwLock::new(service))
-}
+// Re-export stateless permit functions
+pub use service::{
+    // Connection tokens
+    issue_one_time,
+    issue_peer_connection,
+    issue_viewer_auth,
+    issue_folder_viewer_auth,
+    // Page tokens
+    delegate_page,
+    // Space tokens
+    issue_space_owner_token,
+    delegate_space,
+    // Utilities
+    get_public_key,
+    extract_space_id,
+    extract_page_id,
+    extract_capabilities,
+    validate_permit_structure,
+};

@@ -1,7 +1,7 @@
 //! User handlers - Simplified for new architecture
 
-use crate::types::{BaseCryptoResponse, UserDetails, KnownUserResponse};
-use butler::NodeService;
+use crate::types::{BaseCryptoResponse, UserDetails, KnownUserResponse, SovereignNodeResponse};
+use butler::Butler;
 use base64::{Engine as _, engine::general_purpose};
 use std::sync::Arc;
 use sys_locale::get_locale;
@@ -9,10 +9,10 @@ use tauri::State;
 use tracing::instrument;
 
 #[tauri::command]
-#[instrument(skip(input, node_service))]
+#[instrument(skip(input, butler))]
 pub async fn handle_add_user(
     input: String,
-    node_service: State<'_, Arc<NodeService>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
     // Decode the base64 string
     let json_bytes = general_purpose::STANDARD
@@ -24,11 +24,11 @@ pub async fn handle_add_user(
         .map_err(|e| format!("Invalid UTF-8 in decoded input: {}", e))?;
 
     // Deserialize the JSON string to our UserDetails struct
-    let details: UserDetails = serde_json::from_str(&json_str)
+    let _details: UserDetails = serde_json::from_str(&json_str)
         .map_err(|e| format!("Failed to deserialize user details: {}", e))?;
 
-    // Store as sovereign node using butler
-    node_service
+    // Store as sovereign node via Butler
+    butler
         .add_sovereign_node(&input)
         .map_err(|e| format!("Failed to add user: {}", e))?;
 
@@ -36,11 +36,11 @@ pub async fn handle_add_user(
 }
 
 #[tauri::command]
-#[instrument(skip(node_service))]
+#[instrument(skip(butler))]
 pub async fn handle_get_known_users(
-    node_service: State<'_, Arc<NodeService>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let nodes = node_service
+    let nodes = butler
         .list_sovereign_nodes()
         .map_err(|e| e.to_string())?;
 
@@ -59,4 +59,32 @@ pub async fn handle_get_known_users(
 #[tauri::command]
 pub fn get_system_locale() -> String {
     get_locale().unwrap_or_else(|| String::from("en-US"))
+}
+
+/// Get sovereign nodes (kunki nodes we've paired with)
+///
+/// **Context**: Frontend needs to display node info for publishing
+/// **Returns**: List of sovereign nodes with connection status
+#[tauri::command]
+#[instrument(skip(butler))]
+pub async fn handle_get_sovereign_nodes(
+    butler: State<'_, Arc<Butler>>,
+) -> Result<BaseCryptoResponse, String> {
+    let nodes = butler
+        .list_sovereign_nodes()
+        .map_err(|e| e.to_string())?;
+
+    let sovereign_nodes: Vec<SovereignNodeResponse> = nodes
+        .into_iter()
+        .map(|node| SovereignNodeResponse {
+            node_id: node.node_id,
+            username: node.username,
+            user_public_key: node.user_public_key,
+            device_public_key: node.device_public_key,
+            is_connected: node.is_connected,
+            last_connected_at: node.last_connected_at,
+        })
+        .collect();
+
+    Ok(BaseCryptoResponse::GetSovereignNodes(sovereign_nodes))
 }

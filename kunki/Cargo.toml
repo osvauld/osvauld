@@ -14,7 +14,6 @@ butler = { path = "../butler" }
 herald = { path = "../herald" }
 transport = { path = "../transport" }
 courier = { path = "../courier" }
-ed25519-dalek = "2.1"
 
 # CLI and async runtime
 clap = { version = "4.5.40", features = ["derive"] }

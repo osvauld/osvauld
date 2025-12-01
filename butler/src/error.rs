@@ -47,6 +47,12 @@ pub enum ButlerError {
     #[error("Crypto error: {0}")]
     Crypto(String),
 
+    #[error("Permit not found: {0}")]
+    PermitNotFound(String),
+
+    #[error("Permit error: {0}")]
+    Permit(String),
+
     #[error("User already signed up")]
     AlreadySignedUp,
 
@@ -55,6 +61,15 @@ pub enum ButlerError {
 
     #[error("Invalid passphrase")]
     InvalidPassphrase,
+
+    #[error("Not logged in")]
+    NotLoggedIn,
+
+    #[error("Permit error: {0}")]
+    PermitError(String),
+
+    #[error("Not found: {0}")]
+    NotFound(String),
 }
 
 pub type Result<T> = std::result::Result<T, ButlerError>;

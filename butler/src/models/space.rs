@@ -7,7 +7,6 @@
 
 use chrono::Local;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 /// SpaceMeta - Space metadata stored in redb
@@ -54,42 +53,62 @@ impl SpaceMeta {
     }
 }
 
-/// SpaceData - Complete space data with embedded shares
+/// SpaceData - Complete space data with permit and share tracking
 ///
 /// Stored in redb as: spaces/{space_id} → SpaceData
+///
+/// Key design:
+/// - `permit` stores MY permit for this space (context-dependent: owner's, node's, or viewer's)
+/// - `shares` tracks WHO I've shared with (just pub keys for UI/tracking)
+/// - Actual permits issued to others are stored in Contact.shares (Node-side)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpaceData {
     pub meta: SpaceMeta,
-    /// Embedded shares: user_did → UCAN token string
-    pub shares: HashMap<String, String>,
+    /// My permit for this space (self-issued for owner, received from parent for others)
+    pub permit: Option<String>,
+    /// Pub keys of users this space is shared with (tracking only)
+    pub shares: Vec<String>,
 }
 
 impl SpaceData {
     pub fn new(meta: SpaceMeta) -> Self {
         Self {
             meta,
-            shares: HashMap::new(),
+            permit: None,
+            shares: Vec::new(),
         }
     }
 
-    /// Add or update a share for a user
-    pub fn add_share(&mut self, user_did: String, ucan: String) {
-        self.shares.insert(user_did, ucan);
+    /// Set my permit for this space
+    pub fn set_permit(&mut self, permit: String) {
+        self.permit = Some(permit);
     }
 
-    /// Remove a share for a user
-    pub fn remove_share(&mut self, user_did: &str) -> Option<String> {
-        self.shares.remove(user_did)
+    /// Get my permit for this space
+    pub fn get_permit(&self) -> Option<&String> {
+        self.permit.as_ref()
     }
 
-    /// Check if a user has access
-    pub fn has_share(&self, user_did: &str) -> bool {
-        self.shares.contains_key(user_did)
+    /// Track that we shared with a user (stores pub key only)
+    pub fn add_share(&mut self, user_pubkey: String) {
+        if !self.shares.contains(&user_pubkey) {
+            self.shares.push(user_pubkey);
+        }
     }
 
-    /// Get UCAN for a user
-    pub fn get_share(&self, user_did: &str) -> Option<&String> {
-        self.shares.get(user_did)
+    /// Remove share tracking for a user
+    pub fn remove_share(&mut self, user_pubkey: &str) -> bool {
+        if let Some(pos) = self.shares.iter().position(|k| k == user_pubkey) {
+            self.shares.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Check if we've shared with this user
+    pub fn has_share(&self, user_pubkey: &str) -> bool {
+        self.shares.contains(&user_pubkey.to_string())
     }
 }
 

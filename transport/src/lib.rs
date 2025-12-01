@@ -18,11 +18,14 @@ pub mod protocol;
 
 pub use events::TransportEvent;
 pub use pool::{ConnectionHandle, ConnectionPool};
-pub use protocol::{ConnectionString, ErrorCode, Message};
+pub use protocol::{ConnectionString, ErrorCode, Message, PublishedPageMeta, PublishedSpace};
+
+// Re-export iroh types so consumers don't need direct iroh dependency
+pub use iroh::NodeId;
 
 use anyhow::{anyhow, Result};
 use iroh::endpoint::Connection;
-use iroh::{Endpoint, NodeAddr, NodeId, RelayMode, SecretKey, Watcher};
+use iroh::{Endpoint, NodeAddr, RelayMode, SecretKey, Watcher};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace, warn};
@@ -104,11 +107,7 @@ impl Transport {
     /// Get the endpoint's home relay URLs if available
     pub fn relay_urls(&self) -> Vec<String> {
         let mut watcher = self.endpoint.home_relay();
-        watcher
-            .get()
-            .iter()
-            .map(|url| url.to_string())
-            .collect()
+        watcher.get().iter().map(|url| url.to_string()).collect()
     }
 
     /// Start accepting incoming connections
@@ -120,50 +119,7 @@ impl Transport {
         let pool = self.pool.clone();
         let event_tx = self.event_tx.clone();
 
-        tokio::spawn(async move {
-            info!("Started accepting connections");
-
-            while let Some(incoming) = endpoint.accept().await {
-                let pool = pool.clone();
-                let event_tx = event_tx.clone();
-
-                match incoming.accept() {
-                    Ok(connecting) => {
-                        tokio::spawn(async move {
-                            match connecting.await {
-                                Ok(conn) => {
-                                    let node_id = conn.remote_node_id()
-                                        .expect("connection should have remote node id");
-                                    info!("Accepted connection from: {}", node_id);
-
-                                    let handle = ConnectionHandle::new(conn.clone(), node_id);
-                                    pool.insert(handle.clone()).await;
-
-                                    // Emit connected event
-                                    let _ = event_tx
-                                        .send(TransportEvent::Connected {
-                                            node_id,
-                                            conn: handle.clone(),
-                                        })
-                                        .await;
-
-                                    // Start reading messages from this connection
-                                    spawn_message_reader(conn, node_id, event_tx, pool).await;
-                                }
-                                Err(e) => {
-                                    error!("Connection failed: {}", e);
-                                }
-                            }
-                        });
-                    }
-                    Err(e) => {
-                        error!("Failed to accept incoming: {}", e);
-                    }
-                }
-            }
-
-            warn!("Connection acceptor stopped");
-        });
+        tokio::spawn(run_accept_loop(endpoint, pool, event_tx));
     }
 
     /// Connect to a peer by NodeId
@@ -202,7 +158,7 @@ impl Transport {
         // Start reading messages
         let event_tx = self.event_tx.clone();
         let pool = self.pool.clone();
-        spawn_message_reader(conn, node_id, event_tx, pool).await;
+        tokio::spawn(read_message_loop(conn, node_id, event_tx, pool));
 
         Ok(handle)
     }
@@ -249,7 +205,7 @@ impl Transport {
         // Start reading messages
         let event_tx = self.event_tx.clone();
         let pool = self.pool.clone();
-        spawn_message_reader(conn, node_id, event_tx, pool).await;
+        tokio::spawn(read_message_loop(conn, node_id, event_tx, pool));
 
         Ok(handle)
     }
@@ -309,86 +265,172 @@ impl Transport {
     }
 }
 
-/// Spawn a task to read messages from a connection
-async fn spawn_message_reader(
+// ============================================================================
+// Connection Acceptance - Flattened Helper Functions
+// ============================================================================
+
+/// Main accept loop - runs until endpoint is closed
+async fn run_accept_loop(
+    endpoint: Arc<Endpoint>,
+    pool: Arc<ConnectionPool>,
+    event_tx: mpsc::Sender<TransportEvent>,
+) {
+    info!("Started accepting connections");
+
+    while let Some(incoming) = endpoint.accept().await {
+        let pool = pool.clone();
+        let event_tx = event_tx.clone();
+        tokio::spawn(handle_incoming_connection(incoming, pool, event_tx));
+    }
+
+    warn!("Connection acceptor stopped");
+}
+
+/// Handle a single incoming connection attempt
+async fn handle_incoming_connection(
+    incoming: iroh::endpoint::Incoming,
+    pool: Arc<ConnectionPool>,
+    event_tx: mpsc::Sender<TransportEvent>,
+) {
+    let connecting = match incoming.accept() {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Failed to accept incoming: {}", e);
+            return;
+        }
+    };
+
+    let conn = match connecting.await {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Connection failed: {}", e);
+            return;
+        }
+    };
+
+    setup_accepted_connection(conn, pool, event_tx).await;
+}
+
+/// Setup a successfully accepted connection
+async fn setup_accepted_connection(
+    conn: Connection,
+    pool: Arc<ConnectionPool>,
+    event_tx: mpsc::Sender<TransportEvent>,
+) {
+    let node_id = conn.remote_node_id().expect("should have remote node id");
+    info!("Accepted connection from: {}", node_id);
+
+    let handle = ConnectionHandle::new(conn.clone(), node_id);
+    pool.insert(handle.clone()).await;
+
+    let _ = event_tx
+        .send(TransportEvent::Connected {
+            node_id,
+            conn: handle,
+        })
+        .await;
+
+    tokio::spawn(read_message_loop(conn, node_id, event_tx, pool));
+}
+
+// ============================================================================
+// Message Reading - Flattened Helper Functions
+// ============================================================================
+
+/// Read messages from a connection until it closes
+async fn read_message_loop(
     conn: Connection,
     node_id: NodeId,
     event_tx: mpsc::Sender<TransportEvent>,
     pool: Arc<ConnectionPool>,
 ) {
-    tokio::spawn(async move {
-        loop {
-            match conn.accept_bi().await {
-                Ok((send, mut recv)) => {
-                    // Drop send - we don't need to respond on the same stream
-                    drop(send);
-
-                    // Read length prefix
-                    let mut len_buf = [0u8; 4];
-                    if let Err(e) = recv.read_exact(&mut len_buf).await {
-                        // Check if it's a connection close (stream finished)
-                        let err_str = e.to_string();
-                        if err_str.contains("closed") || err_str.contains("reset") || err_str.contains("finished") {
-                            debug!("Stream closed by peer: {}", node_id);
-                            continue; // Try accepting next stream
-                        }
-                        trace!("Failed to read message length: {}", e);
-                        continue;
-                    }
-
-                    let len = u32::from_be_bytes(len_buf) as usize;
-                    if len > 10 * 1024 * 1024 {
-                        // 10MB max
-                        warn!("Message too large from {}: {} bytes", node_id, len);
-                        continue;
-                    }
-
-                    // Read message data
-                    let mut data = vec![0u8; len];
-                    if let Err(e) = recv.read_exact(&mut data).await {
-                        error!("Failed to read message data: {}", e);
-                        continue;
-                    }
-
-                    // Deserialize
-                    match bincode::deserialize::<Message>(&data) {
-                        Ok(message) => {
-                            trace!("←─ RECV ({} bytes) from {}: {:?}", len, node_id, message);
-                            let _ = event_tx
-                                .send(TransportEvent::Message { node_id, message })
-                                .await;
-                        }
-                        Err(e) => {
-                            error!("Failed to deserialize message: {}", e);
-                            let _ = event_tx
-                                .send(TransportEvent::Error {
-                                    node_id: Some(node_id),
-                                    error: format!("Deserialization error: {}", e),
-                                })
-                                .await;
-                        }
-                    }
-                }
-                Err(e) => {
-                    // Connection error - check if it's expected closure
-                    let err_str = e.to_string();
-                    if err_str.contains("closed") || err_str.contains("reset") || err_str.contains("timed out") {
-                        debug!("Connection closed: {}", node_id);
-                    } else {
-                        error!("Failed to accept stream from {}: {}", node_id, e);
-                    }
-                    break;
-                }
-            }
+    loop {
+        match accept_and_read_message(&conn, node_id, &event_tx).await {
+            Ok(true) => continue, // Message processed, continue loop
+            Ok(false) => break,   // Connection closed gracefully
+            Err(_) => break,      // Fatal error, exit loop
         }
+    }
 
-        // Connection ended - clean up
-        pool.remove(&node_id).await;
-        let _ = event_tx
-            .send(TransportEvent::Disconnected { node_id })
-            .await;
-        info!("Disconnected from: {}", node_id);
-    });
+    // Connection ended - clean up
+    pool.remove(&node_id).await;
+    let _ = event_tx
+        .send(TransportEvent::Disconnected { node_id })
+        .await;
+    info!("Disconnected from: {}", node_id);
+}
+
+/// Accept a stream and read one message. Returns:
+/// - Ok(true): message processed, continue loop
+/// - Ok(false): connection closed gracefully
+/// - Err: fatal error
+async fn accept_and_read_message(
+    conn: &Connection,
+    node_id: NodeId,
+    event_tx: &mpsc::Sender<TransportEvent>,
+) -> Result<bool, ()> {
+    let (send, mut recv) = match conn.accept_bi().await {
+        Ok(streams) => streams,
+        Err(e) => {
+            let err_str = e.to_string();
+            if err_str.contains("closed")
+                || err_str.contains("reset")
+                || err_str.contains("timed out")
+            {
+                debug!("Connection closed: {}", node_id);
+            } else {
+                error!("Failed to accept stream from {}: {}", node_id, e);
+            }
+            return Ok(false); // Graceful close
+        }
+    };
+    drop(send); // Don't need to respond on same stream
+
+    // Read length prefix
+    let mut len_buf = [0u8; 4];
+    if let Err(e) = recv.read_exact(&mut len_buf).await {
+        let err_str = e.to_string();
+        if err_str.contains("closed") || err_str.contains("reset") || err_str.contains("finished") {
+            debug!("Stream closed by peer: {}", node_id);
+            return Ok(true); // Try next stream
+        }
+        trace!("Failed to read message length: {}", e);
+        return Ok(true); // Try next stream
+    }
+
+    let len = u32::from_be_bytes(len_buf) as usize;
+    if len > 10 * 1024 * 1024 {
+        warn!("Message too large from {}: {} bytes", node_id, len);
+        return Ok(true); // Skip this message
+    }
+
+    // Read message data
+    let mut data = vec![0u8; len];
+    if let Err(e) = recv.read_exact(&mut data).await {
+        error!("Failed to read message data: {}", e);
+        return Ok(true); // Try next stream
+    }
+
+    // Deserialize and emit
+    match bincode::deserialize::<Message>(&data) {
+        Ok(message) => {
+            trace!("←─ RECV ({} bytes) from {}: {:?}", len, node_id, message);
+            let _ = event_tx
+                .send(TransportEvent::Message { node_id, message })
+                .await;
+        }
+        Err(e) => {
+            error!("Failed to deserialize message: {}", e);
+            let _ = event_tx
+                .send(TransportEvent::Error {
+                    node_id: Some(node_id),
+                    error: format!("Deserialization error: {}", e),
+                })
+                .await;
+        }
+    }
+
+    Ok(true) // Continue reading
 }
 
 #[cfg(test)]

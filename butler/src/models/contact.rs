@@ -1,14 +1,15 @@
 //! Contact - Known users (peers we've connected with)
 //!
-//! Stored in Sled as: contacts/{user_did} → ContactData
+//! Stored in redb as: contacts/{user_did} → ContactData
+//! Index: shares_by_page/{page_id}/{user_did} → user_did (for "who has page X" queries)
 
 use chrono::Local;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// ContactData - A known user/peer
 ///
-/// These are users we've established connections with.
-/// Stored in Sled contacts tree under key "{user_did}".
+/// For Node mode: also stores shares we issued TO this user.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContactData {
     /// User's DID (did:key:...)
@@ -17,12 +18,25 @@ pub struct ContactData {
     pub public_key: String,
     /// Display username
     pub username: String,
-    /// Public key for Permit verification (may be different from identity key)
+    /// Public key for Permit verification
     pub permit_pub_key: String,
+    /// Shares we issued TO this user: page_id → ShareInfo
+    pub shares: HashMap<String, ShareInfo>,
     /// When we added this contact
     pub added_at: i64,
-    /// Last time we saw this user online
-    pub last_seen_at: Option<i64>,
+}
+
+/// Information about a share we issued to a contact
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShareInfo {
+    /// The permit token we issued
+    pub permit: String,
+    /// Parent space ID
+    pub space_id: String,
+    /// Template used (descriptive: "viewer", "collaborator", etc.)
+    pub template_key: String,
+    /// When the permit was issued
+    pub issued_at: i64,
 }
 
 impl ContactData {
@@ -32,12 +46,29 @@ impl ContactData {
             public_key,
             username,
             permit_pub_key,
+            shares: HashMap::new(),
             added_at: Local::now().timestamp_millis(),
-            last_seen_at: None,
         }
     }
 
-    pub fn update_last_seen(&mut self) {
-        self.last_seen_at = Some(Local::now().timestamp_millis());
+    /// Add or update a share for a page
+    pub fn add_share(&mut self, page_id: String, share: ShareInfo) {
+        self.shares.insert(page_id, share);
+    }
+
+    /// Get all page IDs this contact has shares for
+    pub fn shared_page_ids(&self) -> Vec<String> {
+        self.shares.keys().cloned().collect()
+    }
+}
+
+impl ShareInfo {
+    pub fn new(permit: String, space_id: String, template_key: String) -> Self {
+        Self {
+            permit,
+            space_id,
+            template_key,
+            issued_at: Local::now().timestamp_millis(),
+        }
     }
 }

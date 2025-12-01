@@ -3,7 +3,7 @@
 //! After Transport establishes a connection, Courier performs handshake.
 //! Once authenticated, peer info is stored here.
 
-use iroh::NodeId;
+use transport::NodeId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::RwLock;

@@ -1,12 +1,11 @@
 //! Sthalam - Peer-to-peer collaborative website and document publisher
 //!
 //! Uses the new architecture:
-//! - Butler for storage (redb)
-//! - Herald for identity
+//! - Butler for storage (redb) and identity
+//! - Herald for identity (via Butler)
 //! - Transport + Courier for P2P
-//! - Gurkha for Permit permissions
+//! - Gurkha for Permit permissions (stateless functions)
 
-use gurkha::PermitService;
 use tracing::{error, info};
 use tauri::Manager;
 pub mod asset_protocol;
@@ -19,9 +18,9 @@ use tauri_handlers::handlers::p2p::*;
 use tauri_handlers::handlers::resource::*;
 use tauri_handlers::handlers::user::*;
 use tauri_handlers::handlers::node::*;
-use tauri_handlers::{P2PState, UserState};
+use tauri_handlers::P2PState;
 
-use butler::{RedbStore, LayerCache, SpaceService, NodeService};
+use butler::{Butler, RedbStore, LayerCache};
 
 use clap::Parser;
 use std::fs;
@@ -88,30 +87,18 @@ pub fn run() {
                 }
             };
 
-            // Initialize LayerCache and SpaceService
+            // Initialize LayerCache
             let layer_cache = Arc::new(RwLock::new(LayerCache::new(redb_store.clone(), 100)));
-            let space_service = Arc::new(SpaceService::new(redb_store.clone(), layer_cache.clone()));
 
-            // Initialize NodeService for sovereign node and contact management
-            let node_service = Arc::new(NodeService::new(redb_store.clone()));
-
-            // Initialize PermitService for permits
-            let permit_service = Arc::new(RwLock::new(PermitService::new()));
-
-            // Create user state for handlers
-            let user_state = UserState::new();
+            // Create Butler (owns store, cache, and will hold identity after login)
+            let butler = Arc::new(Butler::new(redb_store, layer_cache));
 
             // P2P state (initialized after login via start_p2p_listener)
             let p2p_state = P2PState::new();
 
-            // Manage state
-            app.manage(user_state);
+            // Manage state - Butler is the single entry point for all storage/identity operations
+            app.manage(butler);
             app.manage(p2p_state);
-            app.manage(permit_service);
-            app.manage(redb_store);
-            app.manage(layer_cache);
-            app.manage(space_service);
-            app.manage(node_service);
 
             #[cfg(debug_assertions)]
             {
@@ -143,6 +130,7 @@ pub fn run() {
             // User handlers
             handle_add_user,
             handle_get_known_users,
+            handle_get_sovereign_nodes,
             get_system_locale,
             // Resource handlers
             handle_add_resource,
@@ -154,6 +142,7 @@ pub fn run() {
             start_p2p_listener,
             handle_add_sovereign_node,
             handle_connect_to_website,
+            handle_publish_space,
             // Node handlers
             handle_register_my_node,
         ])

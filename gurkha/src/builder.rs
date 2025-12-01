@@ -6,7 +6,6 @@
 use crate::crypto::sign_permit;
 use crate::decision::TokenDecision;
 use crate::errors::GurkhaError;
-use ed25519_dalek::{SigningKey, VerifyingKey};
 use tracing::{debug, info};
 
 /// Builder for constructing permit tokens from decisions
@@ -16,21 +15,19 @@ use tracing::{debug, info};
 ///
 /// # Example
 /// ```rust
-/// let decision = TokenDecision::new(audience, capabilities, facts);
-/// let builder = GurkhaPermitBuilder::new(&signing_key, &verifying_key);
+/// let secret_key: [u8; 32] = identity.secret_signing_key();
+/// let builder = GurkhaPermitBuilder::from_bytes(&secret_key);
 /// let (token, cid) = builder.build(decision).await?;
 /// ```
-pub struct GurkhaPermitBuilder<'a> {
-    signing_key: &'a SigningKey,
-    verifying_key: &'a VerifyingKey,
+pub struct GurkhaPermitBuilder {
+    signing_key_bytes: [u8; 32],
 }
 
-impl<'a> GurkhaPermitBuilder<'a> {
-    /// Create a new builder with cryptographic keys
-    pub fn new(signing_key: &'a SigningKey, verifying_key: &'a VerifyingKey) -> Self {
+impl GurkhaPermitBuilder {
+    /// Create a new builder from signing key bytes
+    pub fn from_bytes(signing_key_bytes: &[u8; 32]) -> Self {
         Self {
-            signing_key,
-            verifying_key,
+            signing_key_bytes: *signing_key_bytes,
         }
     }
 
@@ -46,15 +43,15 @@ impl<'a> GurkhaPermitBuilder<'a> {
     /// - `Ok((token_string, cid))` - The JWT token and its CID
     /// - `Err(GurkhaError)` - If token construction fails
     pub async fn build(&self, decision: TokenDecision) -> Result<(String, String), GurkhaError> {
-        debug!("🔨 Building permit token from decision");
+        debug!("Building permit token from decision");
         debug!("  Audience: {}", decision.audience);
         debug!("  Capabilities: {:?}", decision.capabilities);
         debug!("  Proofs in chain: {}", decision.proofs.len());
         debug!("  Embedded proof tokens: {}", decision.proof_tokens.len());
 
-        let result = sign_permit(self.signing_key, self.verifying_key, &decision).await?;
+        let result = sign_permit(&self.signing_key_bytes, &decision).await?;
 
-        info!("✓ Permit token built successfully");
+        info!("Permit token built successfully");
         debug!("  CID: {}", result.1);
 
         Ok(result)
@@ -78,12 +75,12 @@ impl<'a> GurkhaPermitBuilder<'a> {
         use crate::parser::Permit;
         use crate::verification::ProofCache;
 
-        debug!("🔍 Validating proof chain in built token");
+        debug!("Validating proof chain in built token");
         let permit = Permit::from_token(&token)?;
         let cache = ProofCache::from_permit(&permit);
         cache.validate_chain(&permit)?;
 
-        info!("✓ Token built and proof chain validated");
+        info!("Token built and proof chain validated");
         Ok((token, cid))
     }
 }
@@ -97,8 +94,7 @@ mod tests {
     #[tokio::test]
     async fn test_builder_creates_token() {
         // Create test keys
-        let signing_key = SigningKey::from_bytes(&[1u8; 32]);
-        let verifying_key = signing_key.verifying_key();
+        let signing_key_bytes = [1u8; 32];
 
         // Create simple decision
         let decision = TokenDecision::new(
@@ -108,7 +104,7 @@ mod tests {
         );
 
         // Build token
-        let builder = GurkhaPermitBuilder::new(&signing_key, &verifying_key);
+        let builder = GurkhaPermitBuilder::from_bytes(&signing_key_bytes);
         let result = builder.build(decision).await;
 
         assert!(result.is_ok());

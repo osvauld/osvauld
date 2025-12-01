@@ -15,7 +15,7 @@ use base64::{Engine as _, engine::general_purpose};
 use ed25519_dalek::VerifyingKey;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
-use tracing::{debug, info, instrument};
+use tracing::{debug, info};
 
 pub type DecisionResult<T> = Result<T, GurkhaError>;
 
@@ -302,76 +302,6 @@ pub fn decide_folder_viewer_auth(
     Ok(decision)
 }
 
-// ==================== RESOURCE TOKEN DECISIONS ====================
-
-/// Decide what should be in a resource owner token
-///
-/// Parses template JSON and decides:
-/// - Which documents and capabilities to include from template
-/// - Which facts to copy
-/// - Self-signed (audience is own pubkey)
-/// - Facts-based (no URI capabilities)
-pub fn decide_owner_token(
-    verifying_key: &VerifyingKey,
-    resource_id: &str,
-    template_json: &str,
-) -> DecisionResult<TokenDecision> {
-    let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
-
-    let mut decision = TokenDecision::new(&pub_key_b64); // Self-signed
-
-    // Parse template
-    let template_data: Value = serde_json::from_str(template_json)
-        .map_err(|e| GurkhaError::InvalidTemplate(format!("Invalid template JSON: {}", e)))?;
-
-    let owner_template = template_data
-        .get("owner_template")
-        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing owner_template".to_string()))?;
-
-    // Extract documents map from template
-    // Format: { doc_name: { capability: "collaborator"|"viewer", type: "crdt"|"asset" } }
-    let documents = owner_template
-        .get("documents")
-        .and_then(|v| v.as_object())
-        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing documents in owner_template".to_string()))?
-        .clone();
-
-    // Build facts from template (no URI capabilities)
-    decision.add_fact("token_type".into(), json!("resource_owner"));
-    decision.add_fact("relationship".into(), json!("owner"));
-    decision.add_fact("resource_id".into(), json!(resource_id));
-    decision.add_fact("user_id".into(), json!(pub_key_b64));
-    decision.add_fact("documents".into(), json!(documents));
-
-    // Extract operations from template
-    let ops = owner_template
-        .get("operations")
-        .and_then(|v| v.as_object())
-        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string()))?;
-
-    // Keep operations as strings ("allow"/"deny") instead of converting to booleans
-    decision.add_fact("operations".into(), json!(ops));
-
-    // Copy sync facts if present
-    if let Some(sync) = owner_template.get("sync") {
-        decision.add_fact("sync".into(), sync.clone());
-    }
-
-    // Copy delegation templates
-    if let Some(delegation) = owner_template.get("delegation") {
-        decision.add_fact("delegation".into(), delegation.clone());
-    }
-
-    Ok(decision)
-}
-
-/// Decide what capabilities should be delegated to node from owner
-///
-/// Extracts delegation template from owner token and determines:
-/// - Which capabilities the node should receive
-/// - Which facts to include
-/// - Audience is the node's pubkey
-
 // ==================== UNIFIED DELEGATION API ====================
 
 /// Unified delegation decision (replaces role-specific functions)
@@ -416,12 +346,12 @@ pub fn decide_delegation(
         debug!("  ⚠️ NO documents in facts!");
     }
 
-    // Add resource ID based on type
-    if resource_type == "resource" {
-        facts.insert("resource_id".to_string(), json!(resource_id));
-    } else if resource_type == "folder" {
-        facts.insert("folder_id".to_string(), json!(resource_id));
-    }
+    // Add ID based on type (space or page only)
+    match resource_type {
+        "space" => facts.insert("space_id".to_string(), json!(resource_id)),
+        "page" => facts.insert("page_id".to_string(), json!(resource_id)),
+        _ => return Err(GurkhaError::ValidationError(format!("Unknown resource type: {}", resource_type))),
+    };
 
     // Copy delegation templates from parent token (for further delegation)
     if let Some(parent_token_str) = parent_token {
@@ -454,12 +384,14 @@ pub fn decide_delegation(
     Ok(decision)
 }
 
-// ==================== FOLDER TOKEN DECISIONS ====================
+// ==================== SPACE TOKEN DECISIONS ====================
 
-/// Decide what should be in a folder owner token
-pub fn decide_folder_owner_token(
+/// Decide what should be in a space owner token
+///
+/// Parses template JSON and decides which operations and delegation templates to include.
+pub fn decide_space_owner_token(
     verifying_key: &VerifyingKey,
-    folder_id: &str,
+    space_id: &str,
     template_json: &str,
 ) -> DecisionResult<TokenDecision> {
     let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
@@ -481,9 +413,9 @@ pub fn decide_folder_owner_token(
         .ok_or_else(|| GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string()))?;
 
     // Build facts from template (no URI capabilities)
-    decision.add_fact("token_type".into(), json!("folder_owner"));
+    decision.add_fact("token_type".into(), json!("space_owner"));
     decision.add_fact("relationship".into(), json!("owner"));
-    decision.add_fact("folder_id".into(), json!(folder_id));
+    decision.add_fact("space_id".into(), json!(space_id));
     decision.add_fact("user_id".into(), json!(pub_key_b64));
     // Keep operations as strings ("allow"/"deny") instead of converting to booleans
     decision.add_fact("operations".into(), json!(ops));
@@ -500,7 +432,6 @@ pub fn decide_folder_owner_token(
 
     Ok(decision)
 }
-
 
 // ==================== EXTRACTION/INFERENCE FUNCTIONS ====================
 
@@ -541,7 +472,10 @@ pub fn validate_template_has_capability(
 
 // ==================== SYNC DECISIONS ====================
 
-/// Context for dual-permit sync decisions
+/// Context for dual-permit sync decisions (CEL-based)
+///
+/// Uses CEL functions embedded in permits for authorization decisions.
+/// Falls back to hardcoded logic if functions are not present.
 #[derive(Debug, Clone)]
 pub struct SyncContext {
     our_permit: crate::parser::Permit,
@@ -571,195 +505,114 @@ impl SyncContext {
     pub fn peer_permit(&self) -> &crate::parser::Permit {
         &self.peer_permit
     }
+
+    /// Evaluate a CEL function comparing our permit with peer's
+    ///
+    /// Returns None if function doesn't exist (caller should use fallback)
+    pub fn evaluate_function(&self, function_name: &str, layer: &str) -> Option<bool> {
+        use crate::cel::{evaluate_function, EvalContext};
+
+        // Build eval context using issuer/audience from parsed UCAN
+        let our_iss = self.our_permit.parsed().issuer();
+        let our_aud = self.our_permit.parsed().audience();
+        let peer_iss = self.peer_permit.parsed().issuer();
+        let peer_aud = self.peer_permit.parsed().audience();
+
+        let eval_ctx = EvalContext::new(
+            our_iss.to_string(),
+            peer_iss.to_string(),
+        ).with_layer(layer.to_string());
+
+        // Try to evaluate the function
+        match evaluate_function(
+            self.our_permit.facts(),
+            our_iss,
+            our_aud,
+            self.peer_permit.facts(),
+            peer_iss,
+            peer_aud,
+            function_name,
+            &eval_ctx,
+        ) {
+            Ok(result) => Some(result),
+            Err(e) => {
+                tracing::debug!("CEL function '{}' evaluation failed: {:?}", function_name, e);
+                None // Function doesn't exist or failed - use fallback
+            }
+        }
+    }
 }
 
-/// Determine if we should send updates for a document
+/// Determine if we should send updates for a layer
 ///
-/// Algorithm:
-/// 1. Check our local_only facts → DontSend
-/// 2. Check our capability (can WE write?) → Viewer: DontSend, Collaborator: Continue, Submitter: SendFullSnapshot
-/// 3. Check peer's no_incoming_updates → DontSend
-/// 4. Check peer capability (can THEY receive?) → Collaborator/Viewer: SendIncrementalUpdates
-pub fn should_send_updates(context: &SyncContext, doc_name: &str) -> crate::types::SyncDecision {
+/// Uses CEL function `should_send_layer` from permit facts.
+/// Returns DontSend if function not found or evaluates to false.
+pub fn should_send_updates(context: &SyncContext, layer_name: &str) -> crate::types::SyncDecision {
     use crate::types::SyncDecision;
 
-    tracing::debug!("🔍 [should_send_updates] Checking document '{}'", doc_name);
+    tracing::debug!("🔍 [should_send_updates] Checking layer '{}'", layer_name);
 
-    // 1. Check local_only facts (ours OR peer's)
-    // Don't send if either we or the peer want to keep this doc local
-    let our_local_only = context.our_permit.is_local_only(doc_name);
-    let peer_local_only = context.peer_permit.is_local_only(doc_name);
-    tracing::debug!("📋 [should_send_updates] '{}': our_local_only={}, peer_local_only={}", doc_name, our_local_only, peer_local_only);
-
-    if our_local_only || peer_local_only {
-        tracing::warn!("🚫 [should_send_updates] '{}' → DontSend (local_only)", doc_name);
-        return SyncDecision::DontSend;
-    }
-
-    // 2. Check our capability (can WE write?)
-    match context.our_permit.get_capability(doc_name) {
-        None => {
-            tracing::warn!("🚫 [should_send_updates] '{}' → DontSend (no our_capability)", doc_name);
-            return SyncDecision::DontSend;
-        }
-        Some(our_cap) => {
-            tracing::debug!("📄 [should_send_updates] '{}': our_capability={:?}, can_write={}", doc_name, our_cap, our_cap.can_write());
-
-            if !our_cap.can_write() {
-                // We have Viewer capability → can't send
-                tracing::warn!("🚫 [should_send_updates] '{}' → DontSend (our_capability={:?}, can't write)", doc_name, our_cap);
-                return SyncDecision::DontSend;
-            }
-
-            // Check if we should send full snapshot (Submitter)
-            if context.our_permit.should_send_full_snapshot(doc_name) {
-                tracing::info!("📤 [should_send_updates] '{}' → SendFullSnapshot (submitter)", doc_name);
-                return SyncDecision::SendFullSnapshot;
+    // Evaluate CEL function
+    match context.evaluate_function("should_send_layer", layer_name) {
+        Some(true) => {
+            // Check if submitter (needs full snapshot)
+            if context.our_permit.should_send_full_snapshot(layer_name) {
+                tracing::info!("📤 [should_send_updates] '{}' → SendFullSnapshot (CEL)", layer_name);
+                SyncDecision::SendFullSnapshot
+            } else {
+                tracing::info!("✅ [should_send_updates] '{}' → SendIncrementalUpdates (CEL)", layer_name);
+                SyncDecision::SendIncrementalUpdates
             }
         }
-    }
-
-    // 3. Check peer's no_incoming_updates
-    let peer_no_incoming = context.peer_permit.has_no_incoming_updates(doc_name);
-    tracing::debug!("📋 [should_send_updates] '{}': peer_no_incoming_updates={}", doc_name, peer_no_incoming);
-
-    if peer_no_incoming {
-        tracing::warn!("🚫 [should_send_updates] '{}' → DontSend (peer no_incoming_updates)", doc_name);
-        return SyncDecision::DontSend;
-    }
-
-    // 4. Check peer capability (can THEY receive?)
-    match context.peer_permit.get_capability(doc_name) {
-        None => {
-            tracing::warn!("🚫 [should_send_updates] '{}' → DontSend (no peer_capability)", doc_name);
+        Some(false) => {
+            tracing::info!("🚫 [should_send_updates] '{}' → DontSend (CEL)", layer_name);
             SyncDecision::DontSend
         }
-        Some(peer_cap) => {
-            let can_sync_bidirectional = peer_cap.can_sync_bidirectional();
-            let can_write = peer_cap.can_write();
-            tracing::debug!("📄 [should_send_updates] '{}': peer_capability={:?}, can_sync_bidirectional={}, can_write={}", doc_name, peer_cap, can_sync_bidirectional, can_write);
-
-            // Peer can receive if they have Collaborator or Viewer capability
-            if can_sync_bidirectional || !can_write {
-                tracing::info!("✅ [should_send_updates] '{}' → SendIncrementalUpdates", doc_name);
-                SyncDecision::SendIncrementalUpdates
-            } else {
-                tracing::warn!("🚫 [should_send_updates] '{}' → DontSend (peer capability check failed)", doc_name);
-                SyncDecision::DontSend
-            }
+        None => {
+            tracing::warn!("⚠️ [should_send_updates] '{}' → DontSend (no CEL function)", layer_name);
+            SyncDecision::DontSend
         }
     }
 }
 
-/// Check if we can receive updates for a document
+/// Check if we can receive updates for a layer
 ///
-/// Algorithm:
-/// 1. Check our no_incoming_updates facts → false
-/// 2. Check our capability (can WE receive?) → Collaborator/Viewer: true
-pub fn can_receive_updates(context: &SyncContext, doc_name: &str) -> bool {
-    tracing::debug!("🔒 [can_receive_updates] Checking permissions for document '{}'", doc_name);
+/// Uses CEL function `can_receive_layer` from permit facts.
+/// Returns false if function not found or evaluates to false.
+pub fn can_receive_updates(context: &SyncContext, layer_name: &str) -> bool {
+    tracing::debug!("🔒 [can_receive_updates] Checking layer '{}'", layer_name);
 
-    // 1. Check our no_incoming_updates facts
-    if context.our_permit.has_no_incoming_updates(doc_name) {
-        tracing::warn!("🚫 [can_receive_updates] Document '{}' has no_incoming_updates fact - DENYING", doc_name);
-        return false;
-    }
-
-    // 2. Check our capability (can WE receive?)
-    match context.our_permit.get_capability(doc_name) {
-        None => {
-            tracing::warn!("🚫 [can_receive_updates] Document '{}' has no capability defined - DENYING", doc_name);
-            false
-        }
-        Some(our_cap) => {
-            let can_bidirectional = our_cap.can_sync_bidirectional();
-            let can_write = our_cap.can_write();
-            let result = can_bidirectional || !can_write;
-
-            tracing::info!(
-                "🔒 [can_receive_updates] Document '{}': capability={:?}, can_sync_bidirectional={}, can_write={}, result={}",
-                doc_name, our_cap, can_bidirectional, can_write, result
-            );
-
-            if result {
-                tracing::info!("✅ [can_receive_updates] Document '{}' - ALLOWING updates", doc_name);
-            } else {
-                tracing::warn!("🚫 [can_receive_updates] Document '{}' - DENYING updates (capability check failed)", doc_name);
-            }
-
+    match context.evaluate_function("can_receive_layer", layer_name) {
+        Some(result) => {
+            tracing::info!("🎯 [can_receive_updates] '{}' → {} (CEL)", layer_name, result);
             result
         }
+        None => {
+            tracing::warn!("⚠️ [can_receive_updates] '{}' → false (no CEL function)", layer_name);
+            false
+        }
     }
 }
 
-/// Determine if we should REQUEST updates for a document (used in sync requests)
+/// Determine if we should REQUEST updates for a layer (used in sync requests)
 ///
-/// Different from should_send_updates - this checks if we want to RECEIVE updates
-/// from the peer, so we send our state vector to enable incremental sync.
-///
-/// Algorithm:
-/// 1. Check local_only → DontRequest (no sync for local-only docs)
-/// 2. Check our no_incoming_updates → DontRequest (we don't want updates)
-/// 3. Check our capability → if we can read (Viewer/Collaborator), RequestUpdates
-/// 4. Check peer capability → if peer can write (Collaborator), RequestUpdates
-///
-/// # Returns
-/// - RequestUpdates: Send state vector to request incremental updates
-/// - RequestFullSnapshot: Request full snapshot (not used in current implementation)
-/// - DontRequest: Don't request updates for this document
-pub fn should_request_updates(context: &SyncContext, doc_name: &str) -> SyncDecision {
-    tracing::debug!("🔍 [should_request_updates] Checking document '{}'", doc_name);
+/// Uses CEL function `can_receive_layer` - if we can receive, we should request.
+/// Returns DontSend if function not found or evaluates to false.
+pub fn should_request_updates(context: &SyncContext, layer_name: &str) -> SyncDecision {
+    tracing::debug!("🔍 [should_request_updates] Checking layer '{}'", layer_name);
 
-    // 1. Check local_only facts (ours OR peer's)
-    let our_local_only = context.our_permit.is_local_only(doc_name);
-    let peer_local_only = context.peer_permit.is_local_only(doc_name);
-    tracing::debug!("📋 [should_request_updates] '{}': our_local_only={}, peer_local_only={}", doc_name, our_local_only, peer_local_only);
-
-    if our_local_only || peer_local_only {
-        tracing::warn!("🚫 [should_request_updates] '{}' → DontRequest (local_only)", doc_name);
-        return SyncDecision::DontSend; // Reuse DontSend for "don't request"
-    }
-
-    // 2. Check our no_incoming_updates
-    let our_no_incoming = context.our_permit.has_no_incoming_updates(doc_name);
-    tracing::debug!("📋 [should_request_updates] '{}': our_no_incoming_updates={}", doc_name, our_no_incoming);
-
-    if our_no_incoming {
-        tracing::warn!("🚫 [should_request_updates] '{}' → DontRequest (our no_incoming_updates)", doc_name);
-        return SyncDecision::DontSend;
-    }
-
-    // 3. Check our capability (can WE read/receive?)
-    match context.our_permit.get_capability(doc_name) {
-        None => {
-            tracing::warn!("🚫 [should_request_updates] '{}' → DontRequest (no our_capability)", doc_name);
+    match context.evaluate_function("can_receive_layer", layer_name) {
+        Some(true) => {
+            tracing::info!("✅ [should_request_updates] '{}' → RequestUpdates (CEL)", layer_name);
+            SyncDecision::SendIncrementalUpdates
+        }
+        Some(false) => {
+            tracing::info!("🚫 [should_request_updates] '{}' → DontRequest (CEL)", layer_name);
             SyncDecision::DontSend
         }
-        Some(our_cap) => {
-            tracing::debug!("📄 [should_request_updates] '{}': our_capability={:?}", doc_name, our_cap);
-
-            // We can request updates if we have ANY capability (Viewer, Collaborator, Submitter)
-            // because we want to receive data
-
-            // Check peer capability - can they send to us?
-            match context.peer_permit.get_capability(doc_name) {
-                None => {
-                    tracing::warn!("🚫 [should_request_updates] '{}' → DontRequest (no peer_capability)", doc_name);
-                    SyncDecision::DontSend
-                }
-                Some(peer_cap) => {
-                    tracing::debug!("📄 [should_request_updates] '{}': peer_capability={:?}", doc_name, peer_cap);
-
-                    // Peer can send if they can write (Collaborator/Submitter)
-                    if peer_cap.can_write() {
-                        tracing::info!("✅ [should_request_updates] '{}' → RequestUpdates (peer can write, we can receive)", doc_name);
-                        SyncDecision::SendIncrementalUpdates // Reuse for "request incremental"
-                    } else {
-                        tracing::warn!("🚫 [should_request_updates] '{}' → DontRequest (peer can't write)", doc_name);
-                        SyncDecision::DontSend
-                    }
-                }
-            }
+        None => {
+            tracing::warn!("⚠️ [should_request_updates] '{}' → DontRequest (no CEL function)", layer_name);
+            SyncDecision::DontSend
         }
     }
 }

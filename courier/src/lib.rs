@@ -8,7 +8,7 @@
 //! # Architecture
 //!
 //! ```text
-//! App <--events-- Courier --calls--> Services/Butler/Gurkha
+//! App <--events-- Courier --calls--> Butler/Gurkha
 //!  |                 ^
 //!  +---commands----->+
 //!
@@ -21,9 +21,9 @@ pub mod registry;
 pub use handlers::{PairingContext, PendingHello, PermitInfo};
 pub use registry::{PeerInfo, PeerRegistry, PeerType};
 
-// Re-export types needed for initialization
-pub use butler::{NodeService, OwnerInfo};
-pub use gurkha::{PermitService, Permit};
+// Re-export Butler for initialization
+pub use butler::{Butler, OwnerInfo};
+pub use gurkha::Permit;
 
 use anyhow::Result;
 use base64::Engine;
@@ -31,10 +31,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, error, info, warn};
-use transport::{Message, Transport, TransportEvent};
-
-// Domain crate imports
-use herald::Identity;
+use transport::{Message, NodeId, Transport, TransportEvent};
 
 /// Courier mode of operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,40 +44,20 @@ pub enum CourierMode {
 
 // ==================== HANDSHAKE SERVICES ====================
 
-/// Services needed for auto-processing handshake messages
+/// Services needed for auto-processing handshake messages and publishing
 ///
 /// When provided, Courier will automatically process Hello/Welcome/PermitGrant
 /// messages instead of emitting events for the app to handle manually.
+///
+/// Uses Butler as the single entry point for all storage and identity operations.
 pub struct HandshakeServices {
-    /// Node service for storing owner info (Node mode)
-    pub node_service: Arc<NodeService>,
-    /// Permit service (Gurkha) for permit operations
-    pub permit_service: Arc<RwLock<PermitService>>,
-    /// Identity for signing (wrapped in RwLock for interior mutability)
-    pub identity: Arc<RwLock<Option<Identity>>>,
+    /// Butler provides identity, storage, and all domain operations
+    pub butler: Arc<Butler>,
 }
 
 impl HandshakeServices {
-    pub fn new(
-        node_service: Arc<NodeService>,
-        permit_service: Arc<RwLock<PermitService>>,
-    ) -> Self {
-        Self {
-            node_service,
-            permit_service,
-            identity: Arc::new(RwLock::new(None)),
-        }
-    }
-
-    /// Set identity after login
-    pub async fn set_identity(&self, identity: Identity) {
-        let mut guard = self.identity.write().await;
-        *guard = Some(identity);
-    }
-
-    /// Get identity (if set)
-    pub async fn get_identity(&self) -> Option<Identity> {
-        self.identity.read().await.clone()
+    pub fn new(butler: Arc<Butler>) -> Self {
+        Self { butler }
     }
 }
 
@@ -91,41 +68,41 @@ impl HandshakeServices {
 pub enum CourierEvent {
     /// Peer authenticated and ready
     PeerAuthenticated {
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         peer_type: PeerType,
         username: String,
         did: String,
     },
     /// Peer disconnected
-    PeerDisconnected { node_id: iroh::NodeId },
+    PeerDisconnected { node_id: NodeId },
     /// Handshake: Hello received (for apps that want to handle manually)
     HelloReceived {
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         did: String,
         username: String,
         permit: String,
     },
     /// Handshake: Welcome received (for apps that want to handle manually)
     WelcomeReceived {
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         permit_for_us: String,
     },
     /// Sync request received
     SyncRequest {
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         request_id: String,
         resource_id: String,
         state_vector: Vec<u8>,
     },
     /// Sync push received
     SyncPush {
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         resource_id: String,
         updates: Vec<u8>,
     },
     /// Folder request received
     FolderRequest {
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         request_id: String,
         folder_id: String,
     },
@@ -151,7 +128,7 @@ pub enum CourierCommand {
     },
     /// Send Welcome response (used in node mode)
     SendWelcome {
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         node_public_key: Vec<u8>,
         signature: Vec<u8>,
         timestamp: i64,
@@ -159,17 +136,27 @@ pub enum CourierCommand {
     },
     /// Send PermitGrant (owner -> node after Welcome)
     SendPermitGrant {
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         permit_for_node: String,
     },
     /// Send Ack
-    SendAck { node_id: iroh::NodeId },
+    SendAck { node_id: NodeId },
     /// Disconnect from a peer
-    Disconnect { node_id: iroh::NodeId },
+    Disconnect { node_id: NodeId },
     /// Send a raw message (for advanced use)
     SendMessage {
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         message: Message,
+    },
+
+    /// Publish a space to connected node (User mode)
+    ///
+    /// **Flow**: Get identity from Butler, prepare space/pages, transform to transport types, send
+    PublishSpace {
+        space_id: String,
+        node_id: String,
+        /// Callback channel for publish result
+        result_tx: mpsc::Sender<Result<(), String>>,
     },
 }
 
@@ -236,7 +223,7 @@ impl CourierHandle {
 
     /// Disconnect from a peer
     pub async fn disconnect(&self, node_id: &str) -> Result<(), String> {
-        let parsed: iroh::NodeId = node_id
+        let parsed: NodeId = node_id
             .parse()
             .map_err(|e| format!("Invalid node_id: {}", e))?;
         self.cmd_tx
@@ -248,7 +235,7 @@ impl CourierHandle {
     /// Send Welcome response
     pub async fn send_welcome(
         &self,
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         node_public_key: Vec<u8>,
         signature: Vec<u8>,
         timestamp: i64,
@@ -269,7 +256,7 @@ impl CourierHandle {
     /// Send PermitGrant
     pub async fn send_permit_grant(
         &self,
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         permit_for_node: String,
     ) -> Result<(), String> {
         self.cmd_tx
@@ -282,7 +269,7 @@ impl CourierHandle {
     }
 
     /// Send Ack
-    pub async fn send_ack(&self, node_id: iroh::NodeId) -> Result<(), String> {
+    pub async fn send_ack(&self, node_id: NodeId) -> Result<(), String> {
         self.cmd_tx
             .send(CourierCommand::SendAck { node_id })
             .await
@@ -290,11 +277,43 @@ impl CourierHandle {
     }
 
     /// Send a raw message
-    pub async fn send_message(&self, node_id: iroh::NodeId, message: Message) -> Result<(), String> {
+    pub async fn send_message(&self, node_id: NodeId, message: Message) -> Result<(), String> {
         self.cmd_tx
             .send(CourierCommand::SendMessage { node_id, message })
             .await
             .map_err(|e| format!("Failed to send message command: {}", e))
+    }
+
+    // ==================== PUBLISHING ====================
+
+    /// Publish a space and its pages to connected node
+    ///
+    /// **Context**: Owner manually triggers publish from UI
+    /// **Flow**:
+    /// 1. Get identity from Butler
+    /// 2. Prepare space via Butler (issue folder permit)
+    /// 3. Send PublishSpace message
+    /// 4. For each page: prepare via Butler, send PublishPage
+    ///
+    /// # Arguments
+    /// * `space_id` - Space to publish
+    /// * `node_id` - Target node to publish to
+    pub async fn publish_space(&self, space_id: &str, node_id: &str) -> Result<(), String> {
+        let (result_tx, mut result_rx) = mpsc::channel(1);
+
+        self.cmd_tx
+            .send(CourierCommand::PublishSpace {
+                space_id: space_id.to_string(),
+                node_id: node_id.to_string(),
+                result_tx,
+            })
+            .await
+            .map_err(|e| format!("Failed to send publish command: {}", e))?;
+
+        result_rx
+            .recv()
+            .await
+            .ok_or_else(|| "No response from courier".to_string())?
     }
 
     // ==================== REGISTRY QUERIES ====================
@@ -320,12 +339,12 @@ impl CourierHandle {
     }
 
     /// Get peer by NodeId
-    pub async fn get_peer(&self, node_id: &iroh::NodeId) -> Option<PeerInfo> {
+    pub async fn get_peer(&self, node_id: &NodeId) -> Option<PeerInfo> {
         self.registry.get(node_id).await
     }
 
     /// Check if a peer is connected
-    pub async fn is_peer_connected(&self, node_id: &iroh::NodeId) -> bool {
+    pub async fn is_peer_connected(&self, node_id: &NodeId) -> bool {
         self.registry.contains(node_id).await
     }
 
@@ -344,7 +363,7 @@ pub struct Courier {
     /// Peer registry (authenticated peers)
     registry: Arc<PeerRegistry>,
     /// Pending Hello states (waiting for Welcome)
-    pending_hellos: RwLock<HashMap<iroh::NodeId, PendingHello>>,
+    pending_hellos: RwLock<HashMap<NodeId, PendingHello>>,
     /// Transport reference for sending
     transport: Arc<Transport>,
     /// Event sender to application layer
@@ -496,7 +515,7 @@ impl Courier {
     }
 
     /// Handle a message from a peer
-    async fn handle_message(&self, node_id: iroh::NodeId, message: Message) -> Result<()> {
+    async fn handle_message(&self, node_id: NodeId, message: Message) -> Result<()> {
         match message {
             Message::Hello {
                 did,
@@ -683,6 +702,35 @@ impl Courier {
                     node_id, code, message, id
                 );
             }
+
+            // ==================== Publishing (Node receives from Owner) ====================
+
+            Message::PublishSpace {
+                request_id,
+                space,
+                space_permit,
+            } => {
+                info!(
+                    "Received PublishSpace from {}: space_id={}, name={}",
+                    node_id, space.id, space.name
+                );
+                debug!("Space permit (preview): {}...", &space_permit[..space_permit.len().min(50)]);
+                // TODO: Validate permit, store space via Butler
+            }
+
+            Message::PublishPage {
+                request_id,
+                page,
+                page_permit,
+                layers,
+            } => {
+                info!(
+                    "Received PublishPage from {}: page_id={}, name={}, {} layers",
+                    node_id, page.id, page.name, layers.len()
+                );
+                debug!("Page permit (preview): {}...", &page_permit[..page_permit.len().min(50)]);
+                // TODO: Validate permit, re-encrypt layers, store via Butler
+            }
         }
 
         Ok(())
@@ -700,7 +748,7 @@ impl Courier {
                 result_tx,
             } => {
                 // Parse node_id from string
-                let result = match node_id_str.parse::<iroh::NodeId>() {
+                let result = match node_id_str.parse::<NodeId>() {
                     Ok(node_id) => {
                         self.do_connect(node_id, &our_did, &our_username, &our_public_key, &permit)
                             .await
@@ -766,6 +814,15 @@ impl Courier {
                     warn!("No connection for {} to send message", node_id);
                 }
             }
+
+            CourierCommand::PublishSpace {
+                space_id,
+                node_id,
+                result_tx,
+            } => {
+                let result = self.do_publish_space(&space_id, &node_id).await;
+                let _ = result_tx.send(result).await;
+            }
         }
 
         Ok(())
@@ -778,7 +835,7 @@ impl Courier {
     /// **We store**: PendingHello state to track handshake progress
     async fn do_connect(
         &self,
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         our_did: &str,
         our_username: &str,
         our_public_key: &[u8],
@@ -848,7 +905,7 @@ impl Courier {
     }
 
     /// Get authenticated peer by NodeId
-    pub async fn get_peer(&self, node_id: &iroh::NodeId) -> Option<PeerInfo> {
+    pub async fn get_peer(&self, node_id: &NodeId) -> Option<PeerInfo> {
         self.registry.get(node_id).await
     }
 
@@ -874,7 +931,7 @@ impl Courier {
     /// **We send**: Welcome with permit_for_owner
     async fn process_hello(
         &self,
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         did: &str,
         username: &str,
         public_key: &[u8],
@@ -883,6 +940,8 @@ impl Courier {
     ) -> Result<(), String> {
         info!("Processing Hello from {} ({})", username, did);
         debug!("Received permit (preview): {}...", &permit[..permit.len().min(50)]);
+
+        let butler = &services.butler;
 
         // 1. Parse and verify the permit using Gurkha
         let parsed_permit = Permit::from_token(permit)
@@ -901,9 +960,9 @@ impl Courier {
             return Err(format!("Expected owner relationship, got {:?}", relationship));
         }
 
-        // Get our identity for signing Welcome
-        let identity = services.get_identity().await
-            .ok_or_else(|| "No identity set for signing".to_string())?;
+        // Get our identity from Butler for signing Welcome
+        let identity = butler.get_identity().await
+            .map_err(|_| "No identity set for signing".to_string())?;
 
         let conn = self.transport.get_connection(&node_id).await
             .ok_or_else(|| "No connection to send Welcome".to_string())?;
@@ -916,7 +975,7 @@ impl Courier {
             // ==================== FIRST CONNECTION ====================
             info!("First connection from owner {}", username);
 
-            // Create and store owner info
+            // Create and store owner info via Butler
             let owner_info = OwnerInfo::new(
                 did.to_string(),
                 username.to_string(),
@@ -924,21 +983,19 @@ impl Courier {
                 node_id.as_bytes().to_vec(), // device_public_key (iroh node id)
             );
 
-            services.node_service.set_owner(&owner_info)
+            butler.set_owner(&owner_info)
                 .map_err(|e| format!("Failed to store owner: {}", e))?;
 
             info!("Owner info stored for {}", username);
 
-            // Issue a long-lived permit for the owner
+            // Issue a long-lived permit for the owner via Butler
             let owner_pubkey = base64::engine::general_purpose::STANDARD.encode(public_key);
-            let permit_service = services.permit_service.read().await;
-            let permit_for_owner = permit_service.issue_peer_connection(&owner_pubkey, "owner")
+            let (permit_for_owner, _) = butler.issue_peer_connection_permit(&owner_pubkey, "owner")
                 .await
                 .map_err(|e| format!("Failed to issue permit: {}", e))?;
-            drop(permit_service);
 
-            // Store the permit we issued to owner
-            services.node_service.set_owner_permit_for_owner(permit_for_owner.clone())
+            // Store the permit we issued to owner via Butler
+            butler.set_owner_permit_for_owner(permit_for_owner.clone())
                 .map_err(|e| format!("Failed to store permit: {}", e))?;
 
             // Send Welcome with new permit
@@ -957,8 +1014,8 @@ impl Courier {
             // ==================== RECONNECTION ====================
             info!("Reconnection from owner {}", username);
 
-            // Verify we have this owner stored
-            let existing_owner = services.node_service.get_owner()
+            // Verify we have this owner stored via Butler
+            let existing_owner = butler.get_owner()
                 .map_err(|e| format!("Failed to check owner: {}", e))?
                 .ok_or_else(|| "No owner stored, but got reconnection permit".to_string())?;
 
@@ -967,8 +1024,8 @@ impl Courier {
                 return Err(format!("DID mismatch: expected {}, got {}", existing_owner.owner_did, did));
             }
 
-            // Update last connected timestamp
-            services.node_service.update_owner_last_connected()
+            // Update last connected timestamp via Butler
+            butler.update_owner_last_connected()
                 .map_err(|e| format!("Failed to update last connected: {}", e))?;
 
             // Get the permit we already issued to them (re-use it)
@@ -1002,7 +1059,7 @@ impl Courier {
     /// **We send**: PermitGrant with permit_for_node
     async fn process_welcome(
         &self,
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         _remote_node_id: &str,
         node_public_key: &[u8],
         permit_for_us: &str,
@@ -1010,6 +1067,8 @@ impl Courier {
     ) -> Result<(), String> {
         info!("Processing Welcome from {}", node_id);
         debug!("Received permit_for_us (preview): {}...", &permit_for_us[..permit_for_us.len().min(50)]);
+
+        let butler = &services.butler;
 
         // 1. Parse and verify the permit
         let parsed_permit = Permit::from_token(permit_for_us)
@@ -1032,10 +1091,10 @@ impl Courier {
         let conn_type = if is_first_connection { "first_connection" } else { "reconnection" };
         info!("Welcome received ({})", conn_type);
 
-        // 3. Store the permit we received (in sovereign_node record)
+        // 3. Store the permit we received (in sovereign_node record) via Butler
         //    This permit is what we'll use for future reconnections
         let node_id_str = node_id.to_string();
-        let stored = services.node_service.set_sovereign_node_permit(&node_id_str, permit_for_us.to_string())
+        let stored = butler.set_sovereign_node_permit(&node_id_str, permit_for_us.to_string())
             .map_err(|e| format!("Failed to store permit: {}", e))?;
 
         if stored {
@@ -1051,20 +1110,14 @@ impl Courier {
             // ==================== FIRST CONNECTION ====================
             info!("First connection Welcome from {}", node_id);
 
-            // Get our identity to issue permit
-            let _identity = services.get_identity().await
-                .ok_or_else(|| "No identity set for issuing permit".to_string())?;
-
-            // Issue a long-lived permit for the node
+            // Issue a long-lived permit for the node via Butler
             let node_pubkey = base64::engine::general_purpose::STANDARD.encode(node_public_key);
-            let permit_service = services.permit_service.read().await;
-            let permit_for_node = permit_service.issue_peer_connection(&node_pubkey, "node")
+            let (permit_for_node, _) = butler.issue_peer_connection_permit(&node_pubkey, "node")
                 .await
                 .map_err(|e| format!("Failed to issue permit: {}", e))?;
-            drop(permit_service);
 
-            // Store the permit we issued TO the node
-            services.node_service.set_sovereign_node_permit_for_them(&node_id_str, permit_for_node.clone())
+            // Store the permit we issued TO the node via Butler
+            butler.set_sovereign_node_permit_for_them(&node_id_str, permit_for_node.clone())
                 .map_err(|e| format!("Failed to store permit_for_them: {}", e))?;
 
             // Send PermitGrant with new permit
@@ -1079,8 +1132,8 @@ impl Courier {
             // ==================== RECONNECTION ====================
             info!("Reconnection Welcome from {}", node_id);
 
-            // Get the node record with stored permit
-            let sovereign_node = services.node_service.get_sovereign_node(&node_id_str)
+            // Get the node record with stored permit via Butler
+            let sovereign_node = butler.get_sovereign_node(&node_id_str)
                 .map_err(|e| format!("Failed to get sovereign node: {}", e))?
                 .ok_or_else(|| "No sovereign node found for reconnection".to_string())?;
 
@@ -1092,14 +1145,12 @@ impl Courier {
                 // Re-issue permit if not stored (backwards compatibility)
                 info!("No stored permit, re-issuing");
                 let node_pubkey = base64::engine::general_purpose::STANDARD.encode(node_public_key);
-                let permit_service = services.permit_service.read().await;
-                let permit = permit_service.issue_peer_connection(&node_pubkey, "node")
+                let (permit, _) = butler.issue_peer_connection_permit(&node_pubkey, "node")
                     .await
                     .map_err(|e| format!("Failed to issue permit: {}", e))?;
-                drop(permit_service);
 
-                // Store it for future use
-                services.node_service.set_sovereign_node_permit_for_them(&node_id_str, permit.clone())
+                // Store it for future use via Butler
+                butler.set_sovereign_node_permit_for_them(&node_id_str, permit.clone())
                     .map_err(|e| format!("Failed to store permit_for_them: {}", e))?;
                 permit
             };
@@ -1130,12 +1181,14 @@ impl Courier {
     /// **We send**: Ack to confirm handshake completion
     async fn process_permit_grant(
         &self,
-        node_id: iroh::NodeId,
+        node_id: NodeId,
         permit_for_node: &str,
         services: &HandshakeServices,
     ) -> Result<(), String> {
         info!("Processing PermitGrant from {}", node_id);
         debug!("Received permit_for_node (preview): {}...", &permit_for_node[..permit_for_node.len().min(50)]);
+
+        let butler = &services.butler;
 
         // 1. Parse and verify the permit
         let parsed_permit = Permit::from_token(permit_for_node)
@@ -1147,8 +1200,8 @@ impl Courier {
             parsed_permit.relationship()
         );
 
-        // 2. Check if this is a reconnection (owner already has permit stored)
-        let (is_reconnection, owner_did) = if let Ok(Some(owner)) = services.node_service.get_owner() {
+        // 2. Check if this is a reconnection (owner already has permit stored) via Butler
+        let (is_reconnection, owner_did) = if let Ok(Some(owner)) = butler.get_owner() {
             let has_permit = owner.permit_from_owner.is_some();
             debug!("Owner exists: did={}, has_permit_from_owner={}", owner.owner_did, has_permit);
             (has_permit, Some(owner.owner_did))
@@ -1159,9 +1212,9 @@ impl Courier {
 
         let conn_type = if is_reconnection { "reconnection" } else { "first_connection" };
 
-        // 3. Only store if first connection (avoid redundant writes on reconnection)
+        // 3. Only store if first connection (avoid redundant writes on reconnection) via Butler
         if !is_reconnection {
-            services.node_service.set_owner_permit_from_owner(permit_for_node.to_string())
+            butler.set_owner_permit_from_owner(permit_for_node.to_string())
                 .map_err(|e| format!("Failed to store permit: {}", e))?;
             info!("Stored permit_from_owner (first connection)");
         } else {
@@ -1177,6 +1230,124 @@ impl Courier {
         }
 
         info!("Handshake complete with owner ({})", conn_type);
+        Ok(())
+    }
+
+    // ==================== PUBLISHING ====================
+
+    /// Orchestrates publishing a space and its pages to connected node.
+    ///
+    /// **Context**: Owner manually triggers publish from UI
+    /// **Flow**:
+    /// 1. Get identity from Butler
+    /// 2. Get target node's public key from Butler
+    /// 3. Call Butler to prepare space (issue space permit)
+    /// 4. Transform SpaceMeta → PublishedSpace, send PublishSpace message
+    /// 5. For each page: prepare via Butler, transform, send PublishPage
+    ///
+    /// # Arguments
+    /// * `space_id` - Space to publish
+    /// * `node_id_str` - Target node ID (iroh node ID as string)
+    async fn do_publish_space(&self, space_id: &str, node_id_str: &str) -> Result<(), String> {
+        info!("Publishing space {} to node {}", space_id, node_id_str);
+
+        // 1. Ensure we're in User mode and have services
+        if self.mode != CourierMode::User {
+            return Err("Publishing only available in User mode".to_string());
+        }
+
+        let services = self.services.as_ref()
+            .ok_or_else(|| "No services configured for publishing".to_string())?;
+
+        let butler = &services.butler;
+
+        // 2. Parse node_id and get node's public key for permit issuance
+        let node_id: NodeId = node_id_str.parse()
+            .map_err(|e| format!("Invalid node ID: {}", e))?;
+
+        let sovereign_node = butler
+            .get_sovereign_node(node_id_str)
+            .map_err(|e| format!("Failed to get sovereign node: {}", e))?
+            .ok_or_else(|| format!("Sovereign node {} not found", node_id_str))?;
+
+        // user_public_key is already base64 encoded
+        let node_pubkey_b64 = sovereign_node.user_public_key;
+
+        // 3. Prepare space via Butler (issues folder permit, uses stored identity)
+        let (space_meta, space_permit) = butler
+            .prepare_space_for_publish(space_id, &node_pubkey_b64)
+            .await
+            .map_err(|e| format!("Failed to prepare space: {}", e))?;
+
+        info!("Space prepared, permit issued");
+
+        // 4. Transform SpaceMeta → PublishedSpace
+        let published_space = transport::PublishedSpace {
+            id: space_meta.id.clone(),
+            name: space_meta.name,
+            parent_space_id: space_meta.parent_space_id,
+            owner_did: space_meta.owner_did,
+            description: space_meta.description,
+            created_at: space_meta.created_at,
+            updated_at: space_meta.updated_at,
+        };
+
+        // 5. Send PublishSpace message
+        let conn = self.transport.get_connection(&node_id).await
+            .ok_or_else(|| "No connection to node".to_string())?;
+
+        conn.send(&Message::PublishSpace {
+            request_id: space_id.to_string(),
+            space: published_space,
+            space_permit,
+        })
+        .await
+        .map_err(|e| format!("Failed to send PublishSpace: {}", e))?;
+
+        info!("PublishSpace sent, now publishing pages");
+
+        // 6. Get all pages in space via Butler
+        let pages = butler.list_pages(space_id)
+            .map_err(|e| format!("Failed to list pages: {}", e))?;
+
+        info!("Found {} pages to publish", pages.len());
+
+        // 7. For each page: prepare, transform, send
+        for page in pages {
+            info!("Publishing page: {} ({})", page.name, page.id);
+
+            // Prepare page via Butler (issues resource permit, decrypts layers, uses stored identity)
+            let (page_meta, page_permit, layers) = butler
+                .prepare_page_for_publish(&page.id, &node_pubkey_b64)
+                .await
+                .map_err(|e| format!("Failed to prepare page {}: {}", page.id, e))?;
+
+            // Transform PageMeta → PublishedPageMeta
+            let published_page = transport::PublishedPageMeta {
+                id: page_meta.id,
+                space_id: page_meta.space_id,
+                name: page_meta.name,
+                page_type: format!("{:?}", page_meta.page_type),
+                owner_did: page_meta.owner_did,
+                is_private: page_meta.is_private,
+                created_at: page_meta.created_at,
+                updated_at: page_meta.updated_at,
+            };
+
+            // Send PublishPage message
+            conn.send(&Message::PublishPage {
+                request_id: page.id.clone(),
+                page: published_page,
+                page_permit,
+                layers,
+            })
+            .await
+            .map_err(|e| format!("Failed to send PublishPage: {}", e))?;
+
+            info!("PublishPage sent for {}", page.name);
+        }
+
+        info!("Space {} published successfully", space_id);
         Ok(())
     }
 }

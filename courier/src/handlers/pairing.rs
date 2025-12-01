@@ -17,7 +17,7 @@
 use crate::registry::{PeerInfo, PeerRegistry, PeerType};
 use anyhow::{anyhow, Result};
 use chrono::Utc;
-use iroh::NodeId;
+use transport::NodeId;
 use tracing::{debug, error, info, warn};
 use transport::{ConnectionHandle, Message};
 

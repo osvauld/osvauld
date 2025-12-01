@@ -35,3 +35,12 @@ export interface UserDetails {
   publicKey: string;
   deviceKey: string;
 }
+
+export interface SovereignNode {
+  nodeId: string;
+  username: string;
+  userPublicKey: string;
+  devicePublicKey: string;
+  isConnected: boolean;
+  lastConnectedAt: number | null;
+}

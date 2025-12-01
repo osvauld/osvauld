@@ -1,36 +1,34 @@
 //! Auth handlers - Simplified for new architecture
 //!
-//! Uses Butler + Herald for authentication
+//! Uses Butler for authentication and identity management
 
 use crate::types::{BaseCryptoResponse, LoadPvtKeyInput, SavePassphraseInput, OneTimePermitOut};
-use crate::user_state::UserState;
-use butler::RedbStore;
-use ed25519_dalek::SigningKey;
-use gurkha::PermitService;
-use tracing::{error, info, instrument};
+use butler::Butler;
+use tracing::{info, instrument};
 use std::sync::Arc;
 use tauri::State;
-use tokio::sync::RwLock;
 
 /// Check if user has completed the signup process
 #[tauri::command]
-#[instrument(skip(redb_store))]
+#[instrument(skip(butler))]
 pub async fn check_signup_status(
-    redb_store: State<'_, Arc<RedbStore>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let is_signed_up = butler::is_signed_up(&redb_store)
+    let is_signed_up = butler::is_signed_up(butler.store())
         .map_err(|e| e.to_string())?;
 
     Ok(BaseCryptoResponse::IsSignedUp { is_signed_up })
 }
 
 #[tauri::command]
-#[instrument(skip(user_state))]
+#[instrument(skip(butler))]
 pub async fn get_user_details(
-    user_state: State<'_, UserState>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let user = user_state.get_user().await?;
-    let identity = user_state.get_identity().await?;
+    let user = butler.user_info().await
+        .map_err(|e| e.to_string())?;
+    let identity = butler.get_identity().await
+        .map_err(|e| e.to_string())?;
 
     Ok(BaseCryptoResponse::UserDetails {
         user_id: user.did.clone(),
@@ -42,12 +40,12 @@ pub async fn get_user_details(
 }
 
 #[tauri::command]
-#[instrument(skip(input, redb_store), fields(username = %input.username))]
+#[instrument(skip(input, butler), fields(username = %input.username))]
 pub async fn handle_sign_up(
     input: SavePassphraseInput,
-    redb_store: State<'_, Arc<RedbStore>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let result = butler::signup(&redb_store, &input.username, &input.passphrase)
+    let result = butler::signup(butler.store(), &input.username, &input.passphrase)
         .map_err(|e| e.to_string())?;
 
     info!("Signup successful for {}", input.username);
@@ -59,11 +57,11 @@ pub async fn handle_sign_up(
 }
 
 #[tauri::command]
-#[instrument(skip(user_state))]
+#[instrument(skip(butler))]
 pub async fn check_private_key_loaded(
-    user_state: State<'_, UserState>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let loaded = user_state.is_logged_in().await;
+    let loaded = butler.is_logged_in().await;
     Ok(BaseCryptoResponse::CheckPvtKeyLoaded(loaded))
 }
 
@@ -71,32 +69,21 @@ pub async fn check_private_key_loaded(
 #[instrument(skip_all)]
 pub async fn login(
     input: LoadPvtKeyInput,
-    user_state: State<'_, UserState>,
-    permit_service: State<'_, Arc<RwLock<PermitService>>>,
-    redb_store: State<'_, Arc<RedbStore>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
     // Login with Butler (returns Herald Identity)
-    let identity = butler::login(&redb_store, &input.passphrase)
+    let identity = butler::login(butler.store(), &input.passphrase)
         .map_err(|e| e.to_string())?;
 
     // Get username from identity data
-    let identity_data = butler::get_identity_data(&redb_store)
+    let identity_data = butler::get_identity_data(butler.store())
         .map_err(|e| e.to_string())?
         .ok_or("No identity data found")?;
 
     info!("Login successful for {}", identity_data.username);
 
-    // Store identity in user state
-    user_state.set_identity(identity.clone(), identity_data.username.clone()).await;
-
-    // Load signing key into PermitService
-    let signing_key = SigningKey::from_bytes(&identity.secret_signing_key());
-    let verifying_key = signing_key.verifying_key();
-    {
-        let mut permit_guard = permit_service.write().await;
-        permit_guard.load_keys(signing_key, verifying_key);
-    }
-    info!("PermitService loaded with Herald's signing key");
+    // Store identity in Butler (owns identity state now)
+    butler.set_identity(identity.clone()).await;
 
     Ok(BaseCryptoResponse::User {
         user_id: identity.did().to_string(),
@@ -127,9 +114,9 @@ pub async fn handle_export_certificate(
 #[instrument(skip_all)]
 pub async fn handle_change_passphrase(
     input: crate::types::PasswordChangeInput,
-    redb_store: State<'_, Arc<RedbStore>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    butler::change_passphrase(&redb_store, &input.old_password, &input.new_password)
+    butler::change_passphrase(butler.store(), &input.old_password, &input.new_password)
         .map_err(|e| e.to_string())?;
 
     info!("Passphrase changed successfully");
@@ -139,32 +126,20 @@ pub async fn handle_change_passphrase(
 #[tauri::command]
 #[instrument(skip_all)]
 pub async fn handle_logout(
-    user_state: State<'_, UserState>,
-    permit_service: State<'_, Arc<RwLock<PermitService>>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    user_state.clear().await;
-
-    let mut permit_guard = permit_service.write().await;
-    permit_guard.clear_keys();
-
+    butler.clear_identity().await;
     Ok(BaseCryptoResponse::Success)
 }
 
 #[tauri::command]
 #[instrument(skip_all)]
 pub async fn get_one_time_permit(
-    permit_service: State<'_, Arc<RwLock<PermitService>>>,
+    butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let permit_guard = permit_service.read().await;
-
-    let (permit, _cid) = permit_guard
-        .issue_one_time("owner")
+    let (permit, permit_pub_key) = butler.issue_one_time_permit("owner")
         .await
-        .map_err(|e| format!("Failed to generate token: {:?}", e))?;
-
-    let permit_pub_key = permit_guard
-        .get_public_key()
-        .map_err(|e| format!("Failed to get public key: {:?}", e))?;
+        .map_err(|e| format!("Failed to generate token: {}", e))?;
 
     Ok(BaseCryptoResponse::OneTimePermit(OneTimePermitOut {
         permit,

@@ -102,6 +102,34 @@ pub enum Message {
         pages: Vec<u8>,
     },
 
+    // ==================== Publishing (Owner → Node) ====================
+
+    /// Owner publishes a space to node (send first)
+    ///
+    /// **Context**: Owner manually triggers publish
+    /// **Flow**: Send PublishSpace first, then PublishPage for each page
+    PublishSpace {
+        request_id: String,
+        /// Space metadata
+        space: PublishedSpace,
+        /// Node's folder permit (issued from FOLDER_TEMPLATE.delegation.node)
+        space_permit: String,
+    },
+
+    /// Owner publishes a page to node (send one by one after space)
+    ///
+    /// **Context**: Pages sent separately (can be large)
+    /// **Layers**: Decrypted by owner, node re-encrypts with own key
+    PublishPage {
+        request_id: String,
+        /// Page metadata
+        page: PublishedPageMeta,
+        /// Node's resource permit (issued from RESOURCE_TEMPLATE.delegation.node)
+        page_permit: String,
+        /// Decrypted layer data: layer_name → raw bytes
+        layers: std::collections::HashMap<String, Vec<u8>>,
+    },
+
     // ==================== Live Data (Future) ====================
 
     /// Continuous data stream (games, video, audio)
@@ -121,6 +149,33 @@ pub enum Message {
         /// Human-readable message
         message: String,
     },
+}
+
+// ==================== Publishing Types ====================
+
+/// Space metadata for publishing (transport-layer representation)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishedSpace {
+    pub id: String,
+    pub name: String,
+    pub parent_space_id: Option<String>,
+    pub owner_did: String,
+    pub description: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// Page metadata for publishing (without encrypted_key - that's local)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishedPageMeta {
+    pub id: String,
+    pub space_id: String,
+    pub name: String,
+    pub page_type: String,
+    pub owner_did: String,
+    pub is_private: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 /// Error codes for protocol errors

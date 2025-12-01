@@ -10,6 +10,18 @@ pub struct KnownUserResponse {
     pub public_key: String,
 }
 
+/// Sovereign node response (for publishing, node selection)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SovereignNodeResponse {
+    pub node_id: String,
+    pub username: String,
+    pub user_public_key: String,
+    pub device_public_key: String,
+    pub is_connected: bool,
+    pub last_connected_at: Option<i64>,
+}
+
 /// Base response type used by shared handlers
 /// Projects can extend this with additional variants
 #[derive(Serialize)]
@@ -79,6 +91,7 @@ pub enum BaseCryptoResponse {
     ResourceUpdated(ResourceMetadata),
     SelectedResourceResponse(ResourceResponse),
     GetKnownUsers(Vec<KnownUserResponse>),
+    GetSovereignNodes(Vec<SovereignNodeResponse>),
     UserDetailsForShare(String),
     OneTimePermit(OneTimePermitOut),
     Users(Vec<KnownUserResponse>),
