@@ -22,8 +22,7 @@ pub struct SovereignNodeResponse {
     pub last_connected_at: Option<i64>,
 }
 
-/// Base response type used by shared handlers
-/// Projects can extend this with additional variants
+/// Base response type for all handlers
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum BaseCryptoResponse {
@@ -75,31 +74,26 @@ pub enum BaseCryptoResponse {
     UserId(String),
     ChangedPassphrase(String),
     ExportedCertificate(String),
-    /// Seed phrase (mnemonic) for account recovery
     SeedPhrase {
         mnemonic: String,
     },
-    Folders(Vec<FolderResponse>),
+    // Space responses
     Spaces(Vec<SpaceResponse>),
-    ResourcesMetadata(Vec<ResourceMetadata>),
-    SearchedResourceIds(Vec<String>),
-    FolderCreated(Space),
     SpaceCreated(Space),
+    // Page responses
+    PagesMetadata(Vec<PageMetadata>),
+    PageCreated(PageMetadata),
+    PageOpened(PageResponse),
     Success,
-    UpdateResources,
-    ResourceCreated(ResourceMetadata),
-    ResourceUpdated(ResourceMetadata),
-    SelectedResourceResponse(ResourceResponse),
     GetKnownUsers(Vec<KnownUserResponse>),
     GetSovereignNodes(Vec<SovereignNodeResponse>),
     UserDetailsForShare(String),
     OneTimePermit(OneTimePermitOut),
     Users(Vec<KnownUserResponse>),
-    // Node-related responses
-    NodeRegistered(crate::handlers::node::NodeInfoResponse),
+    // NodeRegistered removed - node identity stored in IDENTITY table
 }
 
-// ========== Input Types (all shared) ==========
+// ========== Auth Input Types ==========
 
 #[derive(Deserialize)]
 pub struct SavePassphraseInput {
@@ -113,56 +107,9 @@ pub struct OneTimePermitOut {
     pub permit_pub_key: String,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ResourcePreview {
-    pub id: String,
-    pub preview: String,
-    pub title: String,
-    pub folder_id: String,
-    pub favourite: bool,
-    pub last_modified: i64,
-    pub last_accessed: i64,
-}
-
 #[derive(Deserialize)]
 pub struct LoadPvtKeyInput {
     pub passphrase: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AddResourceInput {
-    pub resource_payload: String,
-    pub folder_id: String,
-    pub resource_type: String,
-    pub permit_template_json: String,
-    pub metadata_json: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateResourceInput {
-    pub id: String,
-    pub data: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeleteResourceInput {
-    pub resource_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ToggleFavInput {
-    pub resource_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateLastAccessedInput {
-    pub resource_id: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -185,68 +132,25 @@ pub struct PasswordChangeInput {
     pub new_password: String,
 }
 
+// ========== Space Types ==========
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AddFolderInput {
+pub struct CreateSpaceInput {
     pub name: String,
     pub description: String,
-    pub folder_template_json: String,
+    pub space_template_json: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SoftDeleteFolder {
-    pub folder_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FolderShareUsersInput {
-    pub folder_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShareFolder {
-    pub folder_id: String,
-    pub user_id: String,
-    pub recipient_role: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FolderResponse {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub default: bool,
-}
-
-// ========== Space Types (new terminology) ==========
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AddSpaceInput {
-    pub name: String,
-    pub description: String,
-    pub folder_template_json: String, // Still using folder template for compatibility
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SoftDeleteSpace {
+pub struct DeleteSpaceInput {
     pub space_id: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SpaceShareUsersInput {
-    pub space_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShareSpace {
+pub struct ShareSpaceInput {
     pub space_id: String,
     pub user_id: String,
     pub recipient_role: String,
@@ -258,74 +162,68 @@ pub struct SpaceResponse {
     pub id: String,
     pub name: String,
     pub description: String,
-    pub default: bool,
+    pub is_default: bool,
+}
+
+// ========== Page Types ==========
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePageInput {
+    pub space_id: String,
+    pub page_type: String,
+    pub permit_template_json: String,
+    pub metadata_json: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenPageInput {
+    pub page_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClosePageInput {
+    pub page_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyUpdateInput {
+    pub page_id: String,
+    pub layer_name: String,
+    pub update: Vec<u8>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ResourceMetadata {
+pub struct PageMetadata {
     pub id: String,
     pub title: String,
-    pub resource_type: String,
-    pub folder_id: String,
+    pub page_type: String,
+    pub space_id: String,
     pub last_modified: i64,
     pub favourite: bool,
     pub preview: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetResourceForFolderInput {
-    pub folder_id: String,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ResourceResponse {
+pub struct PageResponse {
     pub id: String,
     pub data: serde_json::Value,
     pub favourite: bool,
     pub last_accessed: i64,
-    pub folder_id: String,
+    pub space_id: String,
 }
 
-#[derive(Deserialize, Clone)]
-pub struct UpdateResources {
-    pub id: String,
-    pub data: String,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct GetResource {
-    pub resource_id: String,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct ShareResource {
-    pub user_id: String,
-    pub resource_id: String,
-    pub permissions: Vec<(String, String)>,
-}
+// ========== User Types ==========
 
 #[derive(Serialize, Deserialize)]
 pub struct UserDetails {
     pub user_public_key: String,
     pub device_public_key: String,
     pub username: String,
-    /// The permit (UCAN token) for authorization
     pub permit: String,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncResourceInput {
-    pub resource_id: String,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct RequestFolderResourcesInput {
-    pub folder_id: String,
 }

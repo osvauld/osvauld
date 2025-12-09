@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { dataState } from "../state";
-	import { sendMessage } from "../utils/helper";
+	import { sendMessage } from '../utils/api';
 	import { Sync, Tick } from "@osvauld/icons";
 
 	let isSyncing = $state(false);

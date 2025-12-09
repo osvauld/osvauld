@@ -12,8 +12,8 @@ pub mod layer;
 
 pub use identity::*;
 pub use node::*;
-pub use contact::{ContactData, ShareInfo};
+pub use contact::{ContactData, ContactType, DeviceInfo};
 pub use device::*;
 pub use space::*;
-pub use page::*;
+pub use page::{PageType, PageMeta, PageData, Page, PreparedPage, DecryptedPage};
 pub use layer::*;

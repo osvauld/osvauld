@@ -7,14 +7,18 @@
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 
-/// UserInfo - Minimal user info for UI display
+/// UserInfo - Minimal user info for UI display and handshakes
 ///
 /// Derived from Identity when needed, not stored.
+/// Contains both signing (public_key) and encryption keys.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserInfo {
     pub did: String,
     pub username: String,
+    /// Ed25519 signing public key (32 bytes)
     pub public_key: Vec<u8>,
+    /// X25519 encryption public key (32 bytes)
+    pub encryption_key: Vec<u8>,
 }
 
 /// IdentityData - Our own user identity (public info)

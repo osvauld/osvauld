@@ -12,6 +12,10 @@ const SIGNING_CONTEXT: &[u8] = b"herald-ed25519-signing-v1";
 const ENCRYPTION_CONTEXT: &[u8] = b"herald-x25519-encryption-v1";
 const DEVICE_CONTEXT: &[u8] = b"herald-ed25519-device-v1";
 
+/// Multicodec prefix for Ed25519 public keys (0xed01 in varint encoding)
+/// This is required for proper did:key encoding per the did:key spec
+const ED25519_MAGIC_BYTES: &[u8] = &[0xed, 0x01];
+
 /// Inner identity data (not directly exposed)
 struct IdentityInner {
     signing_key: SigningKey,
@@ -99,9 +103,10 @@ impl Identity {
         hk.expand(DEVICE_CONTEXT, &mut device_bytes)
             .map_err(|e| HeraldError::KeyDerivation(e.to_string()))?;
 
-        // Generate DID from public signing key
+        // Generate DID from public signing key with multicodec prefix
         let verifying_key = signing_key.verifying_key();
-        let did = format!("did:key:z{}", bs58::encode(verifying_key.as_bytes()).into_string());
+        let did_bytes = [ED25519_MAGIC_BYTES, verifying_key.as_bytes()].concat();
+        let did = format!("did:key:z{}", bs58::encode(&did_bytes).into_string());
 
         Ok(Self {
             inner: Arc::new(IdentityInner {
@@ -124,9 +129,10 @@ impl Identity {
         let signing_key = SigningKey::from_bytes(&signing_secret);
         let encryption_secret = X25519Secret::from(encryption_secret);
 
-        // Generate DID from public signing key
+        // Generate DID from public signing key with multicodec prefix
         let verifying_key = signing_key.verifying_key();
-        let did = format!("did:key:z{}", bs58::encode(verifying_key.as_bytes()).into_string());
+        let did_bytes = [ED25519_MAGIC_BYTES, verifying_key.as_bytes()].concat();
+        let did = format!("did:key:z{}", bs58::encode(&did_bytes).into_string());
 
         Ok(Self {
             inner: Arc::new(IdentityInner {

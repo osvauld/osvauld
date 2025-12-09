@@ -80,4 +80,11 @@ pub use identity::Identity;
 pub use keystore::EncryptedKeys;
 
 // Re-export commonly used crypto functions
-pub use crypto::{encrypt, decrypt, generate_aes_key, encrypt_symmetric, decrypt_symmetric};
+pub use crypto::{
+    encrypt, decrypt,
+    generate_aes_key, encrypt_symmetric, decrypt_symmetric,
+    // Key exchange and derivation
+    ecdh, derive_key, generate_ephemeral_keypair,
+    // Transit encryption (peer-to-peer)
+    encrypt_for_transfer, decrypt_from_transfer,
+};

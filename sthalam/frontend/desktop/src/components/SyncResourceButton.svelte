@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { dataState } from "../state";
-	import { sendMessage } from "../utils/helper";
+	import { sendMessage } from '../utils/api';
 	import { Sync, Tick } from "@osvauld/icons";
 
 	let isSyncing = $state(false);
@@ -21,9 +21,7 @@
 		try {
 			console.log("🔄 Syncing resource:", resourceId);
 
-			// IMPORTANT: Save before syncing to ensure latest changes are persisted
-			await dataState.saveCurrentResource(resourceId);
-			console.log("✅ Resource saved before sync");
+			// No need to save - SyncManager auto-syncs Loro changes to backend
 
 			// Call backend to sync resource to P2P network
 			await sendMessage("syncResource", {

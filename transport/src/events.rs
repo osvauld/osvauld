@@ -1,47 +1,40 @@
-//! Transport events emitted to Courier
+//! Transport events emitted to the protocol layer
 //!
-//! Transport emits these events via a channel. Courier receives and processes them.
-//! ConnectionHandle is included so Courier can send responses directly.
+//! Transport emits these events via a channel. The protocol layer (courier2)
+//! receives and processes them.
+//!
+//! Transport is a **dumb byte pipe** - it has no knowledge of message types
+//! or serialization. It only handles raw bytes.
 
 use crate::pool::ConnectionHandle;
-use crate::protocol::Message;
 use iroh::NodeId;
 
 /// Events emitted by Transport layer
 ///
-/// These are sent through a tokio mpsc channel to the Courier layer.
-/// Each event includes enough context for Courier to respond.
+/// These are sent through a tokio mpsc channel to the protocol layer.
+/// Transport only deals with raw bytes - deserialization happens upstream.
 #[derive(Debug)]
 pub enum TransportEvent {
     /// New peer connected
     ///
-    /// Includes ConnectionHandle so Courier can send messages back.
+    /// Includes ConnectionHandle so protocol layer can send responses.
     Connected {
         /// Peer's iroh NodeId
         node_id: NodeId,
-        /// Handle for sending messages to this peer
+        /// Handle for sending bytes to this peer
         conn: ConnectionHandle,
     },
 
     /// Peer disconnected
-    Disconnected {
-        node_id: NodeId,
-    },
+    Disconnected { node_id: NodeId },
 
-    /// Message received from peer
+    /// Raw bytes received from peer
     ///
-    /// Courier processes this and may respond via the peer registry.
-    Message {
+    /// Protocol layer is responsible for deserializing these bytes.
+    Bytes {
         /// Source peer
         node_id: NodeId,
-        /// The message
-        message: Message,
-    },
-
-    /// Live data received on persistent stream
-    LiveData {
-        node_id: NodeId,
-        stream_id: String,
+        /// Raw message bytes (length-prefix already stripped)
         data: Vec<u8>,
     },
 

@@ -3,7 +3,7 @@
 	import { fly } from "svelte/transition";
 	import { uiState } from "../state/ui.svelte";
 	import { dataState } from "../state/data.svelte";
-	import { sendMessage } from "../utils/helper";
+	import { sendMessage } from '../utils/api';
 
 	let dialogElement: HTMLDialogElement;
 	let connectionString = $state("");

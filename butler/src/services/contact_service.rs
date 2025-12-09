@@ -1,12 +1,13 @@
-//! ContactService - Stateless functions for managing contacts and shares
+//! ContactService - Stateless functions for managing contacts
 //!
 //! All functions take store as first parameter - Butler injects this.
 //!
-//! Used by Node to track viewers and their permits.
+//! Note: Share tracking moved to SPACE_SUBSCRIPTIONS and PERMIT_CIDS tables.
+//! Contacts now just store identity info (did, encryption_key, username, devices).
 
 use crate::error::Result;
 use crate::storage::RedbStore;
-use crate::models::{ContactData, ShareInfo};
+use crate::models::{ContactData, ContactType};
 
 // ==================== CONTACT CRUD ====================
 
@@ -30,39 +31,37 @@ pub fn delete_contact(store: &RedbStore, user_did: &str) -> Result<bool> {
     store.delete_contact(user_did)
 }
 
-// ==================== SHARE OPERATIONS ====================
+// Note: Share operations removed - access tracking moved to SPACE_SUBSCRIPTIONS table
 
-/// Add a share to a contact (updates shares_by_page index)
+// ==================== NODE CONTACTS (viewer → node) ====================
+
+/// Create or update a node contact (viewer → node relationship)
 ///
-/// Contact must already exist. Call upsert_contact first if needed.
-pub fn add_share_to_contact(
+/// Used when viewer connects to a node - stores node info for future reconnection.
+pub fn upsert_node_contact(
     store: &RedbStore,
-    user_did: &str,
-    page_id: &str,
-    share: ShareInfo,
-) -> Result<()> {
-    store.add_share_to_contact(user_did, page_id, share)
+    did: &str,
+    encryption_key: &str,
+    name: &str,
+    node_id: &str,
+    permit: &str,
+) -> Result<ContactData> {
+    let contact = ContactData::new_node(
+        did.to_string(),
+        encryption_key.to_string(),
+        name.to_string(),
+        node_id.to_string(),
+        permit.to_string(),
+    );
+    store.put_contact(&contact)?;
+    Ok(contact)
 }
 
-/// Get all user DIDs who have a share for a given page
-///
-/// Used by Node to push updates to all viewers of a page.
-pub fn get_users_for_page(store: &RedbStore, page_id: &str) -> Result<Vec<String>> {
-    store.get_users_for_page(page_id)
-}
-
-/// Get contacts with their shares for a page (combines index lookup + contact fetch)
-///
-/// Returns contacts who have access to the given page.
-pub fn get_contacts_for_page(store: &RedbStore, page_id: &str) -> Result<Vec<ContactData>> {
-    let user_dids = store.get_users_for_page(page_id)?;
-    let mut contacts = Vec::new();
-
-    for user_did in user_dids {
-        if let Some(contact) = store.get_contact(&user_did)? {
-            contacts.push(contact);
-        }
-    }
-
-    Ok(contacts)
+/// List node contacts only (filter by ContactType::Node)
+pub fn list_node_contacts(store: &RedbStore) -> Result<Vec<ContactData>> {
+    let all = store.list_contacts()?;
+    Ok(all
+        .into_iter()
+        .filter(|c| c.contact_type == ContactType::Node)
+        .collect())
 }

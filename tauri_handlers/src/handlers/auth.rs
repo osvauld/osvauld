@@ -137,7 +137,8 @@ pub async fn handle_logout(
 pub async fn get_one_time_permit(
     butler: State<'_, Arc<Butler>>,
 ) -> Result<BaseCryptoResponse, String> {
-    let (permit, permit_pub_key) = butler.issue_one_time_permit("owner")
+    // Relationship is "node_owner" = node issuing permit TO owner
+    let (permit, permit_pub_key) = butler.issue_one_time_permit("node_owner")
         .await
         .map_err(|e| format!("Failed to generate token: {}", e))?;
 

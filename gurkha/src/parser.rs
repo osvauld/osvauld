@@ -129,6 +129,30 @@ impl PermitCore {
     pub fn relationship(&self) -> Option<&str> {
         self.get_fact_string("relationship")
     }
+
+    /// Get token_type from facts
+    ///
+    /// **Context**: Identifying what kind of permit this is
+    /// **We read**: `token_type` fact (e.g., "node_to_owner", "viewer_auth")
+    pub fn token_type(&self) -> Option<&str> {
+        self.get_fact_string("token_type")
+    }
+
+    /// Get audience DID from parsed UCAN
+    ///
+    /// **Context**: Verifying permit is meant for us
+    /// **We read**: UCAN audience field
+    pub fn audience(&self) -> Option<&str> {
+        Some(self.parsed.audience())
+    }
+
+    /// Get issuer DID from parsed UCAN
+    ///
+    /// **Context**: Verifying permit came from expected party
+    /// **We read**: UCAN issuer field
+    pub fn issuer(&self) -> Option<&str> {
+        Some(self.parsed.issuer())
+    }
 }
 
 /// Delegation template for a specific role
@@ -213,24 +237,24 @@ impl DelegationTemplate {
             }
         }
 
-        // Add documents map (combines capabilities and doc_types)
-        // Format: { doc_name: { capability: "collaborator"|"viewer", type: "crdt"|"asset" } }
+        // Add layers map (combines capabilities and doc_types)
+        // Format: { layer_name: { capability: "collaborator"|"viewer", type: "crdt"|"asset" } }
         if !self.capabilities.is_empty() {
-            let mut documents_json = serde_json::Map::new();
-            for (doc_name, capability) in &self.capabilities {
-                let mut doc_info = serde_json::Map::new();
-                doc_info.insert("capability".to_string(), serde_json::Value::String(capability.clone()));
+            let mut layers_json = serde_json::Map::new();
+            for (layer_name, capability) in &self.capabilities {
+                let mut layer_info = serde_json::Map::new();
+                layer_info.insert("capability".to_string(), serde_json::Value::String(capability.clone()));
 
                 // Add type if available from doc_types
                 if let Some(doc_types) = &self.doc_types {
-                    if let Some(doc_type) = doc_types.get(doc_name) {
-                        doc_info.insert("type".to_string(), serde_json::Value::String(doc_type.clone()));
+                    if let Some(doc_type) = doc_types.get(layer_name) {
+                        layer_info.insert("type".to_string(), serde_json::Value::String(doc_type.clone()));
                     }
                 }
 
-                documents_json.insert(doc_name.clone(), serde_json::Value::Object(doc_info));
+                layers_json.insert(layer_name.clone(), serde_json::Value::Object(layer_info));
             }
-            facts.insert("documents".to_string(), serde_json::Value::Object(documents_json));
+            facts.insert("layers".to_string(), serde_json::Value::Object(layers_json));
         }
 
         // Add CEL-based authorization capabilities (v3)
@@ -436,14 +460,14 @@ impl Permit {
                         .map(String::from)
                         .unwrap_or_else(|| format!("resource_{}", role_key)); // Fallback for backward compatibility
 
-                    // Extract capabilities map from "documents" field
-                    // Frontend generates: { documents: { doc_name: { capability: "collaborator", type: "crdt" } } }
+                    // Extract capabilities map from "layers" field
+                    // Template format: { layers: { layer_name: { capability: "collaborator", type: "crdt" } } }
                     let mut capabilities_map = HashMap::new();
-                    if let Some(docs_obj) = template_obj.get("documents").and_then(|v| v.as_object()) {
-                        for (doc_name, doc_val) in docs_obj {
-                            if let Some(doc_obj) = doc_val.as_object() {
-                                if let Some(cap_str) = doc_obj.get("capability").and_then(|v| v.as_str()) {
-                                    capabilities_map.insert(doc_name.clone(), cap_str.to_string());
+                    if let Some(layers_obj) = template_obj.get("layers").and_then(|v| v.as_object()) {
+                        for (layer_name, layer_val) in layers_obj {
+                            if let Some(layer_obj) = layer_val.as_object() {
+                                if let Some(cap_str) = layer_obj.get("capability").and_then(|v| v.as_str()) {
+                                    capabilities_map.insert(layer_name.clone(), cap_str.to_string());
                                 }
                             }
                         }
@@ -478,14 +502,14 @@ impl Permit {
                         None
                     };
 
-                    // Extract doc_types from "documents" field (same source as capabilities)
-                    // Frontend generates: { documents: { doc_name: { capability: "collaborator", type: "crdt" } } }
-                    let doc_types = if let Some(docs_obj) = template_obj.get("documents").and_then(|v| v.as_object()) {
+                    // Extract doc_types from "layers" field (same source as capabilities)
+                    // Template format: { layers: { layer_name: { capability: "collaborator", type: "crdt" } } }
+                    let doc_types = if let Some(layers_obj) = template_obj.get("layers").and_then(|v| v.as_object()) {
                         let mut types_map = HashMap::new();
-                        for (doc_name, doc_val) in docs_obj {
-                            if let Some(doc_obj) = doc_val.as_object() {
-                                if let Some(type_str) = doc_obj.get("type").and_then(|v| v.as_str()) {
-                                    types_map.insert(doc_name.clone(), type_str.to_string());
+                        for (layer_name, layer_val) in layers_obj {
+                            if let Some(layer_obj) = layer_val.as_object() {
+                                if let Some(type_str) = layer_obj.get("type").and_then(|v| v.as_str()) {
+                                    types_map.insert(layer_name.clone(), type_str.to_string());
                                 }
                             }
                         }
@@ -578,6 +602,11 @@ impl Permit {
 
     pub fn parsed(&self) -> &Ucan {
         self.core.parsed()
+    }
+
+    /// Get the core permit data for handshake decisions
+    pub fn core(&self) -> &PermitCore {
+        &self.core
     }
 
     pub fn proof_chain(&self) -> &[String] {
@@ -695,10 +724,10 @@ impl Permit {
         self.resource_actions.as_ref()
     }
 
-    // Folder-level actions
+    // Space-level actions
     /// Check if the token has get_share_link operation (v3 facts-based)
     /// Checks operations.get_share_link == "allow" in facts
-    pub fn can_get_folder_share_link(&self) -> bool {
+    pub fn can_get_space_share_link(&self) -> bool {
         self.get_fact("operations")
             .and_then(|ops| ops.as_object())
             .and_then(|obj| obj.get("get_share_link"))
@@ -710,18 +739,18 @@ impl Permit {
     // ==================== ID Extraction (V3: Facts-Only) ====================
     // V3 Migration: These methods now read from facts instead of parsing URIs
 
-    /// Extract resource_id from token facts
+    /// Extract page_id from token facts
     ///
-    /// V3: Reads from facts.resource_id (facts-only architecture)
-    pub fn resource_id(&self) -> Option<String> {
-        self.get_fact_string("resource_id").map(String::from)
+    /// V3: Reads from facts.page_id (facts-only architecture)
+    pub fn page_id(&self) -> Option<String> {
+        self.get_fact_string("page_id").map(String::from)
     }
 
-    /// Extract folder_id from token facts
+    /// Extract space_id from token facts
     ///
-    /// V3: Reads from facts.folder_id (facts-only architecture)
-    pub fn folder_id(&self) -> Option<String> {
-        self.get_fact_string("folder_id").map(String::from)
+    /// V3: Reads from facts.space_id (facts-only architecture)
+    pub fn space_id(&self) -> Option<String> {
+        self.get_fact_string("space_id").map(String::from)
     }
 
 

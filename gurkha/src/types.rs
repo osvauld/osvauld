@@ -83,7 +83,7 @@ impl DocType {
 // ConnectionTokenType and ResourceTokenType enums removed in v3 migration
 // Token types now stored as strings in facts.token_type field:
 // - Connection: "one_time_connection", "owner_connection", "node_connection", "viewer_auth", "viewer_connection"
-// - Resource/Folder: "resource_owner", "resource_share", "resource_viewer", "folder_owner", "folder_share", "folder_viewer"
+// - Resource/Space: "resource_owner", "resource_share", "resource_viewer", "space_owner", "space_share", "space_viewer"
 
 /// Sync decision for a document (domain concept)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

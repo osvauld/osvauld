@@ -259,6 +259,73 @@ pub fn decrypt(recipient_secret: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>
     Ok(plaintext)
 }
 
+// =============================================================================
+// Transit Encryption (Ephemeral ECDH for peer-to-peer transfer)
+// =============================================================================
+
+/// Context for transit encryption key derivation
+const TRANSIT_CONTEXT: &[u8] = b"herald-transit-v1";
+
+/// Encrypt data for peer-to-peer transfer using ephemeral ECDH
+///
+/// Generates an ephemeral keypair, performs ECDH with recipient's public key,
+/// derives a transit key, and encrypts the data.
+///
+/// Returns: (ephemeral_public, encrypted_data)
+/// where encrypted_data = nonce (12) || ciphertext || tag (16)
+///
+/// **Use case**: Transferring page layers between Owner and Node with forward secrecy.
+/// The ephemeral_public must be sent alongside the encrypted data.
+pub fn encrypt_for_transfer(
+    recipient_public: &[u8; 32],
+    plaintext: &[u8],
+) -> Result<([u8; 32], Vec<u8>)> {
+    // Generate ephemeral keypair for this transfer
+    let (ephemeral_secret, ephemeral_public) = generate_ephemeral_keypair();
+
+    // ECDH to get shared secret
+    let shared_secret = ecdh(&ephemeral_secret, recipient_public);
+
+    // Derive transit encryption key
+    let mut transit_key = derive_key(&shared_secret, None, TRANSIT_CONTEXT);
+
+    // Encrypt with transit key
+    let encrypted = encrypt_symmetric(&transit_key, plaintext)?;
+
+    // Zeroize sensitive material
+    transit_key.zeroize();
+
+    Ok((ephemeral_public, encrypted))
+}
+
+/// Decrypt data received via ephemeral ECDH transfer
+///
+/// Takes the ephemeral public key from the sender and our secret key,
+/// reconstructs the shared secret, derives the transit key, and decrypts.
+///
+/// Expects: ciphertext = nonce (12) || ciphertext || tag (16)
+///
+/// **Use case**: Node receiving page layers from Owner.
+pub fn decrypt_from_transfer(
+    our_secret: &[u8; 32],
+    ephemeral_public: &[u8; 32],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>> {
+    // ECDH to recover shared secret
+    let shared_secret = ecdh(our_secret, ephemeral_public);
+
+    // Derive transit encryption key
+    let mut transit_key = derive_key(&shared_secret, None, TRANSIT_CONTEXT);
+
+    // Decrypt
+    let plaintext = decrypt_symmetric(&transit_key, ciphertext)?;
+
+    // Zeroize
+    transit_key.zeroize();
+
+    Ok(plaintext)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,5 +462,47 @@ mod tests {
 
         // ephemeral_public (32) + nonce (12) + plaintext (5) + tag (16) = 65
         assert_eq!(sealed.len(), EPHEMERAL_KEY_SIZE + NONCE_SIZE + plaintext.len() + TAG_SIZE);
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_for_transfer() {
+        // Simulate Owner → Node transfer
+        let (node_secret, node_public) = generate_ephemeral_keypair();
+        let plaintext = b"layer data to transfer";
+
+        // Owner encrypts for Node
+        let (ephemeral_public, encrypted) = encrypt_for_transfer(&node_public, plaintext).unwrap();
+
+        // Node decrypts using ephemeral public and its secret
+        let decrypted = decrypt_from_transfer(&node_secret, &ephemeral_public, &encrypted).unwrap();
+
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_transfer_different_each_time() {
+        let (_, node_public) = generate_ephemeral_keypair();
+        let plaintext = b"layer data";
+
+        // Each encryption generates new ephemeral key
+        let (eph1, enc1) = encrypt_for_transfer(&node_public, plaintext).unwrap();
+        let (eph2, enc2) = encrypt_for_transfer(&node_public, plaintext).unwrap();
+
+        // Different ephemeral keys and ciphertexts (forward secrecy)
+        assert_ne!(eph1, eph2);
+        assert_ne!(enc1, enc2);
+    }
+
+    #[test]
+    fn test_transfer_wrong_secret_fails() {
+        let (_, node_public) = generate_ephemeral_keypair();
+        let (wrong_secret, _) = generate_ephemeral_keypair();
+        let plaintext = b"secret layer";
+
+        let (ephemeral_public, encrypted) = encrypt_for_transfer(&node_public, plaintext).unwrap();
+
+        // Using wrong secret key should fail
+        let result = decrypt_from_transfer(&wrong_secret, &ephemeral_public, &encrypted);
+        assert!(result.is_err());
     }
 }

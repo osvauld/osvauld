@@ -1,36 +1,15 @@
 //! NodeService - Stateless functions for managing nodes
 //!
 //! All functions take store as first parameter - Butler injects this.
+//!
+//! Note: The old NodeInfo type is removed. Identity info is stored in IDENTITY table.
+//! This service now focuses on:
+//! - SovereignNode: External nodes the owner connects to
+//! - OwnerInfo: Owner info stored on node side
 
 use crate::error::Result;
 use crate::storage::RedbStore;
-use crate::models::{NodeInfo, OwnerInfo, SovereignNode, ConnectionString};
-
-// ==================== MY NODE ====================
-
-/// Register my sovereign node
-pub fn register_my_node(
-    store: &RedbStore,
-    user_did: String,
-    node_did: String,
-    device_id: String,
-    iroh_node_id: String,
-    node_addr: Option<String>,
-) -> Result<NodeInfo> {
-    let mut node = NodeInfo::new(user_did, node_did, device_id, iroh_node_id);
-    if let Some(addr) = node_addr {
-        node = node.with_node_addr(addr);
-    }
-    node.set_online(true);
-
-    store.put_node(&node)?;
-    Ok(node)
-}
-
-/// Get my node info
-pub fn get_my_node(store: &RedbStore, my_did: &str) -> Result<Option<NodeInfo>> {
-    store.get_node(my_did)
-}
+use crate::models::{OwnerInfo, SovereignNode, ConnectionString, ConnectionType};
 
 // ==================== SOVEREIGN NODES (external) ====================
 
@@ -38,12 +17,16 @@ pub fn get_my_node(store: &RedbStore, my_did: &str) -> Result<Option<NodeInfo>> 
 ///
 /// Parses the connection string and stores the sovereign node info.
 /// Returns the SovereignNode for use in establishing connection.
-pub fn add_sovereign_node(store: &RedbStore, connection_string: &str) -> std::result::Result<SovereignNode, String> {
+pub fn add_sovereign_node(
+    store: &RedbStore,
+    connection_string: &str,
+    connection_type: ConnectionType,
+) -> std::result::Result<SovereignNode, String> {
     // Parse connection string
     let conn = ConnectionString::parse(connection_string)?;
 
     // Create and store sovereign node
-    let node = SovereignNode::from_connection_string(&conn);
+    let node = SovereignNode::from_connection_string(&conn, connection_type);
     store.put_sovereign_node(&node)
         .map_err(|e| format!("Failed to store sovereign node: {}", e))?;
 
@@ -70,14 +53,9 @@ pub fn set_sovereign_node_connected(store: &RedbStore, node_id: &str, connected:
     store.set_sovereign_node_connected(node_id, connected)
 }
 
-/// Store the long-lived permit we received from sovereign node (our_permit)
+/// Store the permit for owner<->node relationship
 pub fn set_sovereign_node_permit(store: &RedbStore, node_id: &str, permit: String) -> Result<bool> {
     store.set_sovereign_node_permit(node_id, permit)
-}
-
-/// Store the permit we issued TO sovereign node (permit_for_them)
-pub fn set_sovereign_node_permit_for_them(store: &RedbStore, node_id: &str, permit: String) -> Result<bool> {
-    store.set_sovereign_node_permit_for_them(node_id, permit)
 }
 
 /// Delete a sovereign node
@@ -102,14 +80,9 @@ pub fn has_owner(store: &RedbStore) -> Result<bool> {
     store.has_owner()
 }
 
-/// Store the permit we issued TO the owner (Node side)
-pub fn set_owner_permit_for_owner(store: &RedbStore, permit: String) -> Result<bool> {
-    store.set_owner_permit_for_owner(permit)
-}
-
-/// Store the permit we received FROM the owner (Node side)
-pub fn set_owner_permit_from_owner(store: &RedbStore, permit: String) -> Result<bool> {
-    store.set_owner_permit_from_owner(permit)
+/// Store the permit for owner<->node relationship (Node side)
+pub fn set_owner_permit(store: &RedbStore, permit: String) -> Result<bool> {
+    store.set_owner_permit(permit)
 }
 
 /// Update owner's last connected timestamp (Node side)

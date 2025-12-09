@@ -185,6 +185,24 @@ impl From<PageData> for Page {
     }
 }
 
+/// Prepared page for publishing to Node
+///
+/// Contains transit-encrypted layers and ephemeral ECDH public key.
+/// Used by Courier to send PublishPage message to Node.
+#[derive(Debug, Clone)]
+pub struct PreparedPage {
+    /// Page metadata
+    pub meta: PageMeta,
+    /// Delegated permit for Node
+    pub permit: String,
+    /// Ephemeral X25519 public key for ECDH (sender's ephemeral key)
+    pub ephemeral_public: [u8; 32],
+    /// Transit-encrypted layers: layer_name → encrypted bytes
+    /// Each layer: nonce (12) || ciphertext || tag (16)
+    /// Note: local_only layers are filtered out
+    pub layers: Vec<(String, Vec<u8>)>,
+}
+
 /// A fully decrypted Page with all layer data
 ///
 /// This is the domain object returned by Butler after decryption.

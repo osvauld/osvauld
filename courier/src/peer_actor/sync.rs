@@ -1,0 +1,1035 @@
+//! Unified sync handlers - permit determines role (owner/node/viewer)
+//!
+//! Key insight: Sync mechanics are identical regardless of who is syncing.
+//! The ONLY difference is the permit - gurkha handles authorization.
+//!
+//! Flows:
+//! 1. Viewer requests space: SpaceRequest → SpaceData → SpaceDataAck → ViewerPage (x N)
+//! 2. Live sync: SyncPush (fire-and-forget CRDT updates)
+//!
+//! Future:
+//! - SyncRequest/SyncResponse for pull-based sync
+
+use tracing::{debug, error, info, warn, instrument};
+
+use crate::coordinator::CoordinatorMessage;
+use crate::message::Message;
+
+use super::guards::{
+    require_user_mode, require_node_mode, require_auth, parse_permit,
+    to_published_space, from_published_space, from_published_page_meta,
+};
+use super::{PeerActor, PeerActorState, PendingViewerSync};
+
+// ==================== Default Consent Templates ====================
+// Used for automatic consent issuance when viewer receives space/pages.
+// In production, these could be configurable.
+
+/// Default space consent template - viewer consents to receive space sync + new pages
+const DEFAULT_SPACE_CONSENT_TEMPLATE: &str = r#"{
+  "consent_template": {
+    "token_type": "sync_space_consent",
+    "operations": { "receive_pages": "allow", "receive_updates": "allow" },
+    "auth_capabilities": { "accept_sync": true, "accept_new_pages": true },
+    "relationship": "sync_consent"
+  }
+}"#;
+
+/// Default page consent template - viewer consents to receive page layer updates
+const DEFAULT_PAGE_CONSENT_TEMPLATE: &str = r#"{
+  "consent_template": {
+    "token_type": "sync_page_consent",
+    "operations": { "receive_layer_updates": "allow" },
+    "auth_capabilities": { "accept_sync": true },
+    "relationship": "sync_consent"
+  }
+}"#;
+
+impl PeerActor {
+    // ==================== Viewer Space Request ====================
+
+    /// Initiate request for space content as viewer (User mode)
+    ///
+    /// **Context**: Viewer has aud:* permit from shareable link
+    /// **We send**: SpaceRequest to node with our identity and the permit
+    /// **Next**: Wait for SpaceData with delegated permit and content
+    #[instrument(skip(self, state, viewer_permit), fields(space_id = %space_id))]
+    pub(super) async fn initiate_request_space_as_viewer(
+        &self,
+        space_id: &str,
+        viewer_permit: &str,
+        state: &mut PeerActorState,
+    ) {
+        if require_user_mode(state.mode, "initiate_request_space_as_viewer").is_some() {
+            return;
+        }
+
+        // Get our identity
+        let identity = match state.butler.get_identity().await {
+            Ok(id) => id,
+            Err(e) => {
+                error!("Failed to get identity for SpaceRequest: {}", e);
+                return;
+            }
+        };
+
+        let request_id = uuid::Uuid::new_v4().to_string();
+
+        info!("Requesting space {} as viewer from node {}", space_id, self.node_id);
+
+        let viewer_public_key: [u8; 32] = identity.public_signing_key().try_into()
+            .expect("public_signing_key should be 32 bytes");
+        let viewer_encryption_key: [u8; 32] = identity.public_encryption_key().try_into()
+            .expect("public_encryption_key should be 32 bytes");
+
+        let msg = Message::SpaceRequest {
+            request_id,
+            space_id: space_id.to_string(),
+            viewer_did: identity.did().to_string(),
+            viewer_public_key,
+            viewer_encryption_key,
+            viewer_permit: viewer_permit.to_string(),
+        };
+
+        self.send_message(&msg, state).await;
+    }
+
+    /// Handle SpaceRequest from viewer (Node mode)
+    ///
+    /// **Context**: Viewer connects with aud:* permit from shareable link
+    /// **Viewer sends**: SpaceRequest with aud:* permit
+    /// **We verify**: Permit is valid aud:* viewer_auth token
+    /// **We delegate**: Real viewer permit from space permit
+    /// **We store**: Viewer permit in VIEWER_PERMITS table
+    /// **We send**: SpaceData with delegated permit and content
+    #[instrument(skip(self, state, viewer_public_key, viewer_encryption_key, viewer_permit), fields(request_id = %request_id, space_id = %space_id, viewer_did = %viewer_did))]
+    pub(super) async fn on_space_request(
+        &self,
+        request_id: &str,
+        space_id: &str,
+        viewer_did: &str,
+        viewer_public_key: &[u8],
+        viewer_encryption_key: &[u8; 32],
+        viewer_permit: &str,
+        state: &mut PeerActorState,
+    ) {
+        if require_node_mode(state.mode, "on_space_request").is_some() {
+            return;
+        }
+
+        info!("SpaceRequest: space={} viewer={}", space_id, viewer_did);
+
+        // Validate viewer_permit
+        let permit = match parse_permit(viewer_permit) {
+            Ok(p) => p,
+            Err(e) => {
+                self.send_space_request_error(request_id, &e, state).await;
+                return;
+            }
+        };
+
+        // Verify it's an aud:* token (wildcard audience)
+        if permit.parsed().audience() != "*" {
+            self.send_space_request_error(request_id, "Viewer permit must have wildcard audience (aud:*)", state).await;
+            return;
+        }
+
+        // Verify token_type is viewer_auth
+        let token_type = permit.get_fact("token_type")
+            .and_then(|v| v.as_str());
+        if token_type != Some("viewer_auth") {
+            self.send_space_request_error(request_id, "Viewer permit must be viewer_auth type", state).await;
+            return;
+        }
+
+        // Verify space_id in permit matches requested space_id
+        let permit_space_id = permit.get_fact("space_id")
+            .and_then(|v| v.as_str());
+        if permit_space_id != Some(space_id) {
+            self.send_space_request_error(request_id, "Viewer permit space_id does not match requested space", state).await;
+            return;
+        }
+
+        // Verify space exists on this node
+        let space = match state.butler.get_space(space_id) {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                self.send_space_request_error(request_id, &format!("Space not found: {}", space_id), state).await;
+                return;
+            }
+            Err(e) => {
+                self.send_space_request_error(request_id, &format!("Failed to get space: {}", e), state).await;
+                return;
+            }
+        };
+
+        // Convert viewer_public_key to base64 for permit audience
+        let viewer_pubkey_b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            viewer_public_key,
+        );
+
+        // Delegate real viewer permit from space permit
+        let delegated_space_permit = match state.butler.delegate_space_to_viewer(space_id, &viewer_pubkey_b64).await {
+            Ok(p) => p,
+            Err(e) => {
+                self.send_space_request_error(request_id, &format!("Failed to delegate permit: {}", e), state).await;
+                return;
+            }
+        };
+
+        info!("Delegated space permit to viewer {} (permit len: {})", viewer_did, delegated_space_permit.len());
+
+        // Get page IDs in the space
+        let pages = match state.butler.list_pages(space_id) {
+            Ok(p) => p,
+            Err(e) => {
+                self.send_space_request_error(request_id, &format!("Failed to list pages: {}", e), state).await;
+                return;
+            }
+        };
+
+        let page_ids: Vec<String> = pages.iter().map(|p| p.id.clone()).collect();
+        info!("Space {} has {} pages for viewer {}", space_id, page_ids.len(), viewer_did);
+
+        // Store viewer context for streaming pages after ack
+        state.pending_viewer_syncs.insert(
+            request_id.to_string(),
+            PendingViewerSync {
+                viewer_did: viewer_did.to_string(),
+                viewer_pubkey_b64: viewer_pubkey_b64.clone(),
+                viewer_encryption_key: *viewer_encryption_key,
+                page_ids: page_ids.clone(),
+            },
+        );
+
+        // Send SpaceData
+        let msg = Message::SpaceData {
+            request_id: request_id.to_string(),
+            space_id: space_id.to_string(),
+            delegated_permit: delegated_space_permit,
+            space: to_published_space(&space),
+            page_ids,
+        };
+
+        self.send_message(&msg, state).await;
+        info!("Sent SpaceData for space {} to viewer {} (waiting for ack)", space_id, viewer_did);
+    }
+
+    /// Handle SpaceDataAck from viewer (Node mode)
+    ///
+    /// **Context**: Viewer acknowledged SpaceData, now stream pages
+    /// **Viewer sent**: SpaceDataAck with delegated permit
+    /// **We verify**: Permit matches what we delegated
+    /// **We stream**: ViewerPage messages one by one
+    #[instrument(skip(self, state, _delegated_permit), fields(request_id = %request_id, space_id = %space_id))]
+    pub(super) async fn on_space_data_ack(
+        &self,
+        request_id: &str,
+        space_id: &str,
+        _delegated_permit: &str,
+        state: &mut PeerActorState,
+    ) {
+        if require_node_mode(state.mode, "on_space_data_ack").is_some() {
+            return;
+        }
+
+        info!("SpaceDataAck: space={} request={}", space_id, request_id);
+
+        // Get and remove pending viewer sync context
+        let pending = match state.pending_viewer_syncs.remove(request_id) {
+            Some(p) => p,
+            None => {
+                error!("No pending viewer sync for request {}", request_id);
+                return;
+            }
+        };
+
+        // Stream pages one by one
+        let total_pages = pending.page_ids.len();
+        for (idx, page_id) in pending.page_ids.iter().enumerate() {
+            let is_last = idx == total_pages - 1;
+
+            // Prepare page for viewer
+            let prepared = match state.butler.prepare_page_for_viewer(
+                page_id,
+                &pending.viewer_pubkey_b64,
+                &pending.viewer_encryption_key,
+            ).await {
+                Ok(p) => p,
+                Err(e) => {
+                    error!("Failed to prepare page {} for viewer: {}", page_id, e);
+                    continue;
+                }
+            };
+
+            // Store permit CID for revocation tracking
+            // Note: Using permit string as CID for now - proper CID computation can be added later
+            if let Err(e) = state.butler.put_permit_cid(page_id, &pending.viewer_did, &prepared.permit) {
+                warn!("Failed to store permit CID for page {}: {}", page_id, e);
+            }
+
+            // Send ViewerPage message
+            let msg = Message::ViewerPage {
+                request_id: request_id.to_string(),
+                space_id: space_id.to_string(),
+                meta: crate::message::PublishedPageMeta {
+                    id: prepared.meta.id,
+                    space_id: prepared.meta.space_id,
+                    name: prepared.meta.name,
+                    page_type: format!("{:?}", prepared.meta.page_type),
+                    owner_did: prepared.meta.owner_did,
+                    is_private: prepared.meta.is_private,
+                    created_at: prepared.meta.created_at,
+                    updated_at: prepared.meta.updated_at,
+                },
+                permit: prepared.permit,
+                ephemeral_public: prepared.ephemeral_public,
+                layers: prepared.layers,
+                is_last,
+            };
+
+            self.send_message(&msg, state).await;
+            debug!("Sent ViewerPage {}/{} ({}) to viewer {}", idx + 1, total_pages, page_id, pending.viewer_did);
+        }
+
+        info!("Streamed {} pages to viewer {} for space {}", total_pages, pending.viewer_did, space_id);
+    }
+
+    /// Handle SpaceData from node (Viewer mode)
+    ///
+    /// **Context**: Node responded to our SpaceRequest with space metadata
+    /// **Node sent**: SpaceData with delegated permit and page_ids (no layers)
+    /// **We store**: Space with delegated permit
+    /// **We send**: SpaceDataAck to trigger page streaming
+    #[instrument(skip(self, state, space, delegated_permit), fields(request_id = %request_id, space_id = %space_id))]
+    pub(super) async fn on_space_data(
+        &self,
+        request_id: &str,
+        space_id: &str,
+        delegated_permit: &str,
+        space: &crate::message::PublishedSpace,
+        page_ids: &[String],
+        state: &mut PeerActorState,
+    ) {
+        if require_user_mode(state.mode, "on_space_data").is_some() {
+            return;
+        }
+
+        info!("SpaceData: space={} pages={}", space_id, page_ids.len());
+
+        // Store the space with the delegated permit AND source node
+        // The source_node_id enables viewers to know which node to sync edits back to
+        let butler_space = from_published_space(space);
+        let source_node_id = self.node_id.to_string();
+        if let Err(e) = state.butler.store_published_space_with_source(
+            &butler_space,
+            delegated_permit,
+            Some(&source_node_id),
+        ) {
+            error!("Failed to store space: {}", e);
+            return;
+        }
+
+        info!("Stored space {} with delegated permit and source_node={}, expecting {} pages", space_id, source_node_id, page_ids.len());
+
+        // Emit ViewerSpaceReceived to app
+        let _ = state.coordinator.cast(CoordinatorMessage::ViewerSpaceReceived {
+            node_id: self.node_id,
+            space: butler_space.clone(),
+            page_count: page_ids.len(),
+        });
+
+        // Issue space consent permit immediately after receiving space
+        self.issue_space_consent(space_id, delegated_permit, DEFAULT_SPACE_CONSENT_TEMPLATE, state).await;
+
+        // Send SpaceDataAck to trigger page streaming
+        let msg = Message::SpaceDataAck {
+            request_id: request_id.to_string(),
+            space_id: space_id.to_string(),
+            delegated_permit: delegated_permit.to_string(),
+        };
+
+        self.send_message(&msg, state).await;
+        info!("Sent SpaceDataAck for space {}, waiting for {} pages", space_id, page_ids.len());
+    }
+
+    /// Handle ViewerPage from node (Viewer mode)
+    ///
+    /// **Context**: Node is streaming pages after we acknowledged SpaceData
+    /// **Node sent**: ViewerPage with page metadata, permit, and encrypted layers
+    /// **We store**: Page with source_node_did for future sync (viewer→node reconnection)
+    /// **If is_last**: Notify coordinator of successful viewer sync
+    #[instrument(skip(self, state, meta, permit, ephemeral_public, layers), fields(request_id = %request_id, space_id = %space_id, page_id = %meta.id))]
+    pub(super) async fn on_viewer_page(
+        &self,
+        request_id: &str,
+        space_id: &str,
+        meta: &crate::message::PublishedPageMeta,
+        permit: &str,
+        ephemeral_public: &[u8; 32],
+        layers: &[(String, Vec<u8>)],
+        is_last: bool,
+        state: &mut PeerActorState,
+    ) {
+        if require_user_mode(state.mode, "on_viewer_page").is_some() {
+            return;
+        }
+
+        // Get node DID from authenticated state (viewer authenticated with node during handshake)
+        let node_did = match require_auth(&state.state) {
+            Ok((did, _)) => Some(did.to_string()),
+            Err(_) => {
+                warn!("ViewerPage received without authentication - cannot track source node");
+                None
+            }
+        };
+
+        info!("ViewerPage: page={} space={} is_last={} from_node={:?}", meta.id, space_id, is_last, node_did);
+
+        // Convert and store with source node DID for viewer→node reconnection
+        let page_meta = from_published_page_meta(meta);
+        let butler_page: butler::Page = page_meta.clone().into();
+        let transit_layers: Vec<(String, Vec<u8>)> = layers.to_vec();
+        match state.butler.store_published_page(page_meta, permit, ephemeral_public, transit_layers, node_did.as_deref()).await {
+            Ok(_) => {
+                info!("Stored page {} from space {} (source_node={:?})", meta.id, space_id, node_did);
+            }
+            Err(e) => {
+                error!("Failed to store page {}: {}", meta.id, e);
+            }
+        }
+
+        // Emit ViewerPageReceived to app
+        let _ = state.coordinator.cast(CoordinatorMessage::ViewerPageReceived {
+            node_id: self.node_id,
+            page: butler_page,
+            is_last,
+        });
+
+        // Issue page consent permit for this page
+        self.issue_page_consent(&meta.id, permit, DEFAULT_PAGE_CONSENT_TEMPLATE, state).await;
+
+        // If this is the last page, notify coordinator
+        if is_last {
+            info!("ViewerPage stream complete for space {}", space_id);
+            let _ = state.coordinator.cast(CoordinatorMessage::ViewerSyncComplete {
+                node_id: self.node_id,
+                space_id: space_id.to_string(),
+                pages_synced: 1, // TODO: track total pages received
+            });
+        }
+    }
+
+    // ==================== Live Sync: SyncPush ====================
+
+    /// Handle incoming SyncPush from peer
+    ///
+    /// **Context**: Peer has a layer update to send us
+    /// **Peer sends**: SyncPush with page_id, layer_name, transit-encrypted update, consent permit
+    /// **We verify**: Consent permit is valid (issued by us, audience is node)
+    /// **We decrypt**: ECDH with ephemeral_public + our encryption key
+    /// **We apply**: Via Scribe.ApplyUpdate (handles merge + broadcast)
+    #[instrument(skip(self, state, update, ephemeral_public, consent_permit), fields(page_id = %page_id, layer_name = %layer_name))]
+    pub(super) async fn on_sync_push(
+        &self,
+        page_id: &str,
+        layer_name: &str,
+        update: &[u8],
+        ephemeral_public: &[u8; 32],
+        consent_permit: &str,
+        state: &mut PeerActorState,
+    ) {
+        let (peer_did, _) = match require_auth(&state.state) {
+            Ok(info) => (info.0.to_string(), info.1.to_string()),
+            Err(_) => {
+                warn!("SyncPush from unauthenticated peer: {}", self.node_id);
+                return;
+            }
+        };
+
+        let peer_device_id = self.node_id.to_string();
+
+        // Verify consent permit
+        // The consent permit should be:
+        // - Issued by us (iss = our DID)
+        // - Audience is the sender (aud = peer_did / node DID)
+        // - Token type is sync_page_consent
+        // - Page ID matches
+        debug!(
+            "SyncPush: page={} layer={} has consent permit (verification pending)",
+            page_id, layer_name
+        );
+        // TODO: gurkha::verify_sync_consent(consent_permit, our_did, peer_did, page_id)
+        let _ = consent_permit; // suppress unused warning until verification is implemented
+
+        info!(
+            "SyncPush: page={} layer={} ({} bytes) from {}",
+            page_id, layer_name, update.len(), peer_did
+        );
+
+        // Decrypt transit-encrypted update using ECDH
+        let our_secret = match state.butler.encryption_key().await {
+            Ok(key) => key,
+            Err(e) => {
+                error!("Failed to get encryption key for SyncPush decryption: {}", e);
+                return;
+            }
+        };
+        let decrypted_update = match herald::decrypt_from_transfer(&our_secret, ephemeral_public, update) {
+            Ok(data) => data,
+            Err(e) => {
+                error!("Failed to decrypt SyncPush from {}: {}", peer_did, e);
+                return;
+            }
+        };
+
+        // Get Scribe via Butler and apply update
+        let scribe = match state.butler.open_page(page_id).await {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to open page {}: {}", page_id, e);
+                return;
+            }
+        };
+
+        if let Err(e) = scribe.cast(butler::ScribeMessage::ApplyUpdate {
+            layer_name: layer_name.to_string(),
+            update: decrypted_update,
+            from_peer: Some((peer_did, peer_device_id)),
+        }) {
+            error!("Failed to send ApplyUpdate to Scribe: {}", e);
+        }
+    }
+
+    // ==================== Page Subscription ====================
+
+    /// Subscribe to a page's Scribe for live sync broadcasts
+    ///
+    /// **Context**: After handshake, we subscribe to pages we want updates from
+    /// **We do**: Open page, subscribe to Scribe, spawn listener task
+    /// **Listener**: Forwards broadcasts as PeerMessage::BroadcastReceived
+    #[instrument(skip(self, myself, state, permit), fields(page_id = %page_id))]
+    pub(super) async fn subscribe_to_page(
+        &self,
+        myself: ractor::ActorRef<super::PeerMessage>,
+        page_id: &str,
+        permit: &str,
+        state: &mut PeerActorState,
+    ) {
+        let (peer_did, _) = match require_auth(&state.state) {
+            Ok(info) => (info.0.to_string(), info.1.to_string()),
+            Err(_) => {
+                warn!("Cannot subscribe to page before authentication");
+                return;
+            }
+        };
+
+        // Check if already subscribed
+        if state.page_subscriptions.contains_key(page_id) {
+            debug!("Already subscribed to page {}", page_id);
+            return;
+        }
+
+        // Open the page (activates Scribe)
+        let scribe = match state.butler.open_page(page_id).await {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to open page {} for subscription: {}", page_id, e);
+                return;
+            }
+        };
+
+        // Create broadcast channel
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<butler::BroadcastPayload>(32);
+
+        // Subscribe to Scribe
+        let device_id = self.node_id.to_string();
+        if let Err(e) = scribe.cast(butler::ScribeMessage::Subscribe {
+            user_did: peer_did.clone(),
+            device_id: device_id.clone(),
+            broadcast_tx: tx,
+            permit: permit.to_string(),
+        }) {
+            error!("Failed to subscribe to Scribe for page {}: {}", page_id, e);
+            return;
+        }
+
+        info!("Subscribed to page {} for peer {}", page_id, peer_did);
+
+        // Spawn listener task that forwards broadcasts to this actor
+        let actor_ref = myself.clone();
+        let page_id_clone = page_id.to_string();
+        let handle = tokio::spawn(async move {
+            while let Some(payload) = rx.recv().await {
+                if let Err(_) = actor_ref.cast(super::PeerMessage::BroadcastReceived(payload)) {
+                    // Actor stopped, exit loop
+                    break;
+                }
+            }
+            debug!("Broadcast listener stopped for page {}", page_id_clone);
+        });
+
+        state.page_subscriptions.insert(page_id.to_string(), handle);
+    }
+
+    /// Handle broadcast received from Scribe - encrypt and send as SyncPush
+    ///
+    /// **Context**: Scribe sent us an update to forward to this peer
+    /// **We do**: Look up consent permit, ECDH encrypt with peer's key, send as SyncPush
+    #[instrument(skip(self, state, payload), fields(page_id = %payload.page_id, layer_name = %payload.layer_name))]
+    pub(super) async fn handle_broadcast_received(
+        &self,
+        payload: butler::BroadcastPayload,
+        state: &mut PeerActorState,
+    ) {
+        // Need peer's encryption key
+        let peer_encryption_key = match state.peer_encryption_key {
+            Some(key) => key,
+            None => {
+                warn!("Cannot send SyncPush: peer encryption key not set");
+                return;
+            }
+        };
+
+        // Get peer DID for consent permit lookup
+        let peer_did = match require_auth(&state.state) {
+            Ok((did, _)) => did.to_string(),
+            Err(_) => {
+                warn!("Cannot send SyncPush: peer not authenticated");
+                return;
+            }
+        };
+
+        // Look up viewer's consent permit for this page (required)
+        let consent_permit = match state.butler.get_viewer_page_consent(&peer_did, &payload.page_id) {
+            Ok(Some(permit)) => permit,
+            Ok(None) => {
+                warn!("Cannot send SyncPush: no consent permit for peer {} page {}", peer_did, payload.page_id);
+                return;
+            }
+            Err(e) => {
+                warn!("Cannot send SyncPush: failed to get consent permit for peer {} page {}: {}", peer_did, payload.page_id, e);
+                return;
+            }
+        };
+
+        // Encrypt update using ECDH
+        let (ephemeral_public, encrypted_update) = match herald::encrypt_for_transfer(
+            &peer_encryption_key,
+            &payload.update,
+        ) {
+            Ok(result) => result,
+            Err(e) => {
+                error!("Failed to encrypt update for SyncPush: {}", e);
+                return;
+            }
+        };
+
+        // Send SyncPush with consent permit
+        let msg = Message::SyncPush {
+            page_id: payload.page_id,
+            layer_name: payload.layer_name,
+            update: encrypted_update,
+            ephemeral_public,
+            consent_permit,
+        };
+
+        self.send_message(&msg, state).await;
+        debug!("Sent SyncPush to peer {}", self.node_id);
+    }
+
+    // ==================== Helpers ====================
+
+    /// Send a SpaceRequestError message
+    async fn send_space_request_error(&self, request_id: &str, error: &str, state: &PeerActorState) {
+        error!("SpaceRequest error: {}", error);
+        let msg = Message::SpaceRequestError {
+            request_id: request_id.to_string(),
+            error: error.to_string(),
+        };
+        self.send_message(&msg, state).await;
+    }
+
+    // ==================== Issue Sync Consent (Viewer → Node) ====================
+
+    /// Issue sync consent permits and send to node (User/Viewer mode)
+    ///
+    /// **Context**: Viewer received space + pages, now issues consent permits
+    /// **We do**: Issue consent permits via gurkha, send SyncConsentGrant to node
+    /// **Node stores**: These permits to attach to future SyncPush messages
+    #[instrument(skip(self, state, space_template, page_template), fields(space_id = %space_id))]
+    pub(super) async fn issue_sync_consent(
+        &self,
+        space_id: &str,
+        space_template: &str,
+        page_template: &str,
+        state: &mut PeerActorState,
+    ) {
+        if require_user_mode(state.mode, "issue_sync_consent").is_some() {
+            return;
+        }
+
+        // Get node's public key from authenticated state (this is who we're issuing permits to)
+        let node_pubkey = match require_auth(&state.state) {
+            Ok((did, _)) => did.to_string(),
+            Err(_) => {
+                warn!("Cannot issue sync consent: not authenticated with node");
+                return;
+            }
+        };
+
+        // Get viewer's signing key
+        let signing_key = match state.butler.signing_key().await {
+            Ok(key) => key,
+            Err(e) => {
+                error!("Failed to get signing key for consent permits: {}", e);
+                return;
+            }
+        };
+
+        // Get space data with permit (node's viewer permit for space)
+        let space_data = match state.butler.get_space_data(space_id) {
+            Ok(Some(space)) => space,
+            Ok(None) => {
+                error!("Space {} not found for consent issuance", space_id);
+                return;
+            }
+            Err(e) => {
+                error!("Failed to get space {}: {}", space_id, e);
+                return;
+            }
+        };
+
+        let node_space_permit = match space_data.get_permit() {
+            Some(permit) => permit.clone(),
+            None => {
+                error!("No permit found for space {} - cannot issue consent", space_id);
+                return;
+            }
+        };
+
+        // Issue space consent permit
+        let (space_consent_permit, _cid) = match gurkha::issue_sync_space_consent(
+            &signing_key,
+            &node_pubkey,
+            space_id,
+            &node_space_permit,
+            space_template,
+        ).await {
+            Ok(result) => result,
+            Err(e) => {
+                error!("Failed to issue space consent permit: {}", e);
+                return;
+            }
+        };
+
+        info!("Issued space consent permit for space {}", space_id);
+
+        // Get all pages in space and issue page consent permits
+        let pages = match state.butler.list_pages(space_id) {
+            Ok(pages) => pages,
+            Err(e) => {
+                error!("Failed to list pages in space {}: {}", space_id, e);
+                return;
+            }
+        };
+
+        let mut page_consent_permits: Vec<(String, String)> = Vec::with_capacity(pages.len());
+
+        for page in pages {
+            // Get page data with permit
+            let page_data = match state.butler.get_page(&page.id) {
+                Ok(Some(data)) => data,
+                Ok(None) => {
+                    warn!("Page {} not found - skipping consent", page.id);
+                    continue;
+                }
+                Err(e) => {
+                    warn!("Failed to get page {}: {} - skipping consent", page.id, e);
+                    continue;
+                }
+            };
+
+            let node_page_permit = match page_data.get_permit() {
+                Some(permit) => permit.clone(),
+                None => {
+                    warn!("No permit found for page {} - skipping consent", page.id);
+                    continue;
+                }
+            };
+
+            // Issue page consent permit
+            let (page_consent_permit, _cid) = match gurkha::issue_sync_page_consent(
+                &signing_key,
+                &node_pubkey,
+                &page.id,
+                &node_page_permit,
+                page_template,
+            ).await {
+                Ok(result) => result,
+                Err(e) => {
+                    warn!("Failed to issue page consent permit for {}: {}", page.id, e);
+                    continue;
+                }
+            };
+
+            page_consent_permits.push((page.id.clone(), page_consent_permit));
+        }
+
+        info!(
+            "Issued {} page consent permits for space {}",
+            page_consent_permits.len(),
+            space_id
+        );
+
+        // Send SyncConsentGrant to node
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let msg = Message::SyncConsentGrant {
+            request_id,
+            space_id: space_id.to_string(),
+            space_consent_permit,
+            page_consent_permits,
+        };
+
+        self.send_message(&msg, state).await;
+        info!("Sent SyncConsentGrant for space {} to node", space_id);
+    }
+
+    /// Issue space consent permit only (when space is received)
+    ///
+    /// **Context**: Viewer received space, issues consent immediately
+    /// **We do**: Issue space consent permit via gurkha, send SyncConsentGrant
+    #[instrument(skip(self, state, node_space_permit, space_template), fields(space_id = %space_id))]
+    async fn issue_space_consent(
+        &self,
+        space_id: &str,
+        node_space_permit: &str,
+        space_template: &str,
+        state: &mut PeerActorState,
+    ) {
+        if require_user_mode(state.mode, "issue_space_consent").is_some() {
+            return;
+        }
+
+        // Extract node's DID from the permit (iss field)
+        // This works for both handshake and SpaceRequest flows
+        let node_pubkey = match parse_permit(node_space_permit) {
+            Ok(permit) => permit.parsed().issuer().to_string(),
+            Err(e) => {
+                error!("Cannot issue space consent: failed to parse permit: {}", e);
+                return;
+            }
+        };
+
+        let signing_key = match state.butler.signing_key().await {
+            Ok(key) => key,
+            Err(e) => {
+                error!("Failed to get signing key for space consent: {}", e);
+                return;
+            }
+        };
+
+        let (space_consent_permit, _cid) = match gurkha::issue_sync_space_consent(
+            &signing_key,
+            &node_pubkey,
+            space_id,
+            node_space_permit,
+            space_template,
+        ).await {
+            Ok(result) => result,
+            Err(e) => {
+                error!("Failed to issue space consent permit: {}", e);
+                return;
+            }
+        };
+
+        info!("Issued space consent permit for space {}", space_id);
+
+        // Send SyncConsentGrant with only space consent (no page consents yet)
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let msg = Message::SyncConsentGrant {
+            request_id,
+            space_id: space_id.to_string(),
+            space_consent_permit,
+            page_consent_permits: vec![],
+        };
+
+        self.send_message(&msg, state).await;
+        info!("Sent space consent for space {} to node", space_id);
+    }
+
+    /// Issue page consent permit (when each page is received)
+    ///
+    /// **Context**: Viewer received a page, issues consent for that page
+    /// **We do**: Issue page consent permit via gurkha, send SyncConsentGrant
+    #[instrument(skip(self, state, node_page_permit, page_template), fields(page_id = %page_id))]
+    async fn issue_page_consent(
+        &self,
+        page_id: &str,
+        node_page_permit: &str,
+        page_template: &str,
+        state: &mut PeerActorState,
+    ) {
+        if require_user_mode(state.mode, "issue_page_consent").is_some() {
+            return;
+        }
+
+        // Extract node's DID from the permit (iss field)
+        // This works for both handshake and SpaceRequest flows
+        let node_pubkey = match parse_permit(node_page_permit) {
+            Ok(permit) => permit.parsed().issuer().to_string(),
+            Err(e) => {
+                error!("Cannot issue page consent: failed to parse permit: {}", e);
+                return;
+            }
+        };
+
+        let signing_key = match state.butler.signing_key().await {
+            Ok(key) => key,
+            Err(e) => {
+                error!("Failed to get signing key for page consent: {}", e);
+                return;
+            }
+        };
+
+        // Get space_id from page for the message
+        let space_id = match state.butler.get_page(page_id) {
+            Ok(Some(page_data)) => page_data.meta.space_id,
+            Ok(None) => {
+                error!("Page {} not found - cannot issue consent", page_id);
+                return;
+            }
+            Err(e) => {
+                error!("Failed to get page {}: {}", page_id, e);
+                return;
+            }
+        };
+
+        let (page_consent_permit, _cid) = match gurkha::issue_sync_page_consent(
+            &signing_key,
+            &node_pubkey,
+            page_id,
+            node_page_permit,
+            page_template,
+        ).await {
+            Ok(result) => result,
+            Err(e) => {
+                error!("Failed to issue page consent permit for {}: {}", page_id, e);
+                return;
+            }
+        };
+
+        info!("Issued page consent permit for page {}", page_id);
+
+        // Send SyncConsentGrant with only this page consent (empty space consent)
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let msg = Message::SyncConsentGrant {
+            request_id,
+            space_id,
+            space_consent_permit: String::new(), // Empty for page-only consent
+            page_consent_permits: vec![(page_id.to_string(), page_consent_permit)],
+        };
+
+        self.send_message(&msg, state).await;
+        info!("Sent page consent for page {} to node", page_id);
+    }
+
+    // ==================== Receive Sync Consent (Node receives from Viewer) ====================
+
+    /// Handle incoming SyncConsentGrant from viewer (Node mode)
+    ///
+    /// **Context**: Viewer issued consent permits after receiving space content
+    /// **We store**: Viewer's consent permits keyed by (viewer_did, space_id/page_id)
+    /// **We send**: SyncConsentAck to confirm receipt
+    #[instrument(skip(self, state, space_consent_permit, page_consent_permits), fields(space_id = %space_id))]
+    pub(super) async fn on_sync_consent_grant(
+        &self,
+        request_id: &str,
+        space_id: &str,
+        space_consent_permit: &str,
+        page_consent_permits: &[(String, String)],
+        state: &mut PeerActorState,
+    ) {
+        // Extract viewer's DID from the consent permit (iss field)
+        // The viewer issues consent permits, so `iss` contains viewer's DID
+        // This works for SpaceRequest flow where viewer isn't handshake-authenticated
+        let viewer_did = if !space_consent_permit.is_empty() {
+            match parse_permit(space_consent_permit) {
+                Ok(permit) => permit.parsed().issuer().to_string(),
+                Err(e) => {
+                    error!("Cannot process SyncConsentGrant: failed to parse space consent permit: {}", e);
+                    return;
+                }
+            }
+        } else if let Some((_, permit)) = page_consent_permits.first() {
+            match parse_permit(permit) {
+                Ok(permit) => permit.parsed().issuer().to_string(),
+                Err(e) => {
+                    error!("Cannot process SyncConsentGrant: failed to parse page consent permit: {}", e);
+                    return;
+                }
+            }
+        } else {
+            error!("SyncConsentGrant has no permits to extract viewer DID from");
+            return;
+        };
+
+        info!(
+            "SyncConsentGrant: space={} from viewer={} ({} page consents)",
+            space_id, viewer_did, page_consent_permits.len()
+        );
+
+        // Store viewer consent permits via Butler
+        if let Err(e) = state.butler.store_viewer_consent(
+            &viewer_did,
+            space_id,
+            space_consent_permit,
+            page_consent_permits,
+        ).await {
+            error!("Failed to store viewer consent permits: {}", e);
+            return;
+        }
+
+        info!("Stored viewer consent permits for {} space={}", viewer_did, space_id);
+
+        // Send acknowledgment
+        let msg = Message::SyncConsentAck {
+            request_id: request_id.to_string(),
+            space_id: space_id.to_string(),
+        };
+        self.send_message(&msg, state).await;
+    }
+
+    /// Handle incoming SyncConsentAck from node (Viewer-side handler)
+    ///
+    /// **Context**: Node has acknowledged our consent permits
+    /// **Node sends**: SyncConsentAck confirming storage
+    /// **We know**: Node can now send us sync updates with our consent permits attached
+    #[instrument(skip(self, state), fields(space_id = %space_id))]
+    pub(super) async fn on_sync_consent_ack(
+        &self,
+        request_id: &str,
+        space_id: &str,
+        state: &mut PeerActorState,
+    ) {
+        let (node_did, _) = match require_auth(&state.state) {
+            Ok(info) => (info.0.to_string(), info.1.to_string()),
+            Err(_) => {
+                warn!("SyncConsentAck from unauthenticated peer: {}", self.node_id);
+                return;
+            }
+        };
+
+        info!(
+            "SyncConsentAck: space={} from node={} request={}",
+            space_id, node_did, request_id
+        );
+
+        // Notify coordinator that consent handshake is complete
+        let _ = state.coordinator.cast(CoordinatorMessage::SyncConsentComplete {
+            node_id: self.node_id,
+            space_id: space_id.to_string(),
+        });
+    }
+}

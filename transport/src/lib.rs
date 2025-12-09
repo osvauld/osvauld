@@ -1,24 +1,23 @@
 //! Transport Layer for Osvauld P2P Network
 //!
-//! This crate provides the pure P2P transport layer using iroh.
-//! It handles connections, streams, and message framing.
-//! Business logic lives in the Courier layer.
+//! This crate provides a **dumb byte pipe** for P2P networking using iroh.
+//! It handles connections, streams, and length-prefixed byte framing.
+//!
+//! **Transport has NO protocol knowledge.** It only sends/receives raw bytes.
+//! Message types and serialization live in the protocol layer (courier2).
 //!
 //! # Architecture
 //!
 //! - **Transport**: Main API, owns endpoint and connection pool
 //! - **ConnectionPool**: Manages active connections
-//! - **ConnectionHandle**: Lightweight reference for sending messages
-//! - **TransportEvent**: Events emitted to Courier via channel
-//! - **Message**: Protocol messages for P2P communication
+//! - **ConnectionHandle**: Lightweight reference for sending bytes
+//! - **TransportEvent**: Events emitted to protocol layer via channel
 
 pub mod events;
 pub mod pool;
-pub mod protocol;
 
 pub use events::TransportEvent;
-pub use pool::{ConnectionHandle, ConnectionPool};
-pub use protocol::{ConnectionString, ErrorCode, Message, PublishedPageMeta, PublishedSpace};
+pub use pool::{ConnectionHandle, ConnectionPool, MockSender, MockSendEvent};
 
 // Re-export iroh types so consumers don't need direct iroh dependency
 pub use iroh::NodeId;
@@ -155,10 +154,10 @@ impl Transport {
             })
             .await;
 
-        // Start reading messages
+        // Start reading bytes
         let event_tx = self.event_tx.clone();
         let pool = self.pool.clone();
-        tokio::spawn(read_message_loop(conn, node_id, event_tx, pool));
+        tokio::spawn(read_bytes_loop(conn, node_id, event_tx, pool));
 
         Ok(handle)
     }
@@ -202,10 +201,10 @@ impl Transport {
             })
             .await;
 
-        // Start reading messages
+        // Start reading bytes
         let event_tx = self.event_tx.clone();
         let pool = self.pool.clone();
-        tokio::spawn(read_message_loop(conn, node_id, event_tx, pool));
+        tokio::spawn(read_bytes_loop(conn, node_id, event_tx, pool));
 
         Ok(handle)
     }
@@ -241,16 +240,16 @@ impl Transport {
         &self.pool
     }
 
-    /// Broadcast a message to multiple peers
+    /// Broadcast raw bytes to multiple peers
     ///
     /// Fire-and-forget: spawns tasks for each send, doesn't wait for completion.
-    pub async fn broadcast(&self, node_ids: &[NodeId], msg: &Message) {
+    pub async fn broadcast_bytes(&self, node_ids: &[NodeId], data: &[u8]) {
         for node_id in node_ids {
             if let Some(handle) = self.pool.get(node_id).await {
                 let handle = handle.clone();
-                let msg = msg.clone();
+                let data = data.to_vec();
                 tokio::spawn(async move {
-                    if let Err(e) = handle.send(&msg).await {
+                    if let Err(e) = handle.send_bytes(&data).await {
                         error!("Broadcast to {} failed: {}", handle.node_id(), e);
                     }
                 });
@@ -258,10 +257,10 @@ impl Transport {
         }
     }
 
-    /// Broadcast to all connected peers
-    pub async fn broadcast_all(&self, msg: &Message) {
+    /// Broadcast raw bytes to all connected peers
+    pub async fn broadcast_bytes_all(&self, data: &[u8]) {
         let peers = self.pool.peers().await;
-        self.broadcast(&peers, msg).await;
+        self.broadcast_bytes(&peers, data).await;
     }
 }
 
@@ -330,23 +329,23 @@ async fn setup_accepted_connection(
         })
         .await;
 
-    tokio::spawn(read_message_loop(conn, node_id, event_tx, pool));
+    tokio::spawn(read_bytes_loop(conn, node_id, event_tx, pool));
 }
 
 // ============================================================================
 // Message Reading - Flattened Helper Functions
 // ============================================================================
 
-/// Read messages from a connection until it closes
-async fn read_message_loop(
+/// Read bytes from a connection until it closes
+async fn read_bytes_loop(
     conn: Connection,
     node_id: NodeId,
     event_tx: mpsc::Sender<TransportEvent>,
     pool: Arc<ConnectionPool>,
 ) {
     loop {
-        match accept_and_read_message(&conn, node_id, &event_tx).await {
-            Ok(true) => continue, // Message processed, continue loop
+        match accept_and_read_bytes(&conn, node_id, &event_tx).await {
+            Ok(true) => continue, // Bytes received, continue loop
             Ok(false) => break,   // Connection closed gracefully
             Err(_) => break,      // Fatal error, exit loop
         }
@@ -360,11 +359,11 @@ async fn read_message_loop(
     info!("Disconnected from: {}", node_id);
 }
 
-/// Accept a stream and read one message. Returns:
-/// - Ok(true): message processed, continue loop
+/// Accept a stream and read raw bytes. Returns:
+/// - Ok(true): bytes received, continue loop
 /// - Ok(false): connection closed gracefully
 /// - Err: fatal error
-async fn accept_and_read_message(
+async fn accept_and_read_bytes(
     conn: &Connection,
     node_id: NodeId,
     event_tx: &mpsc::Sender<TransportEvent>,
@@ -400,35 +399,22 @@ async fn accept_and_read_message(
 
     let len = u32::from_be_bytes(len_buf) as usize;
     if len > 10 * 1024 * 1024 {
-        warn!("Message too large from {}: {} bytes", node_id, len);
-        return Ok(true); // Skip this message
+        warn!("Data too large from {}: {} bytes", node_id, len);
+        return Ok(true); // Skip this data
     }
 
-    // Read message data
+    // Read raw bytes
     let mut data = vec![0u8; len];
     if let Err(e) = recv.read_exact(&mut data).await {
-        error!("Failed to read message data: {}", e);
+        error!("Failed to read data: {}", e);
         return Ok(true); // Try next stream
     }
 
-    // Deserialize and emit
-    match bincode::deserialize::<Message>(&data) {
-        Ok(message) => {
-            trace!("←─ RECV ({} bytes) from {}: {:?}", len, node_id, message);
-            let _ = event_tx
-                .send(TransportEvent::Message { node_id, message })
-                .await;
-        }
-        Err(e) => {
-            error!("Failed to deserialize message: {}", e);
-            let _ = event_tx
-                .send(TransportEvent::Error {
-                    node_id: Some(node_id),
-                    error: format!("Deserialization error: {}", e),
-                })
-                .await;
-        }
-    }
+    // Emit raw bytes - protocol layer will deserialize
+    trace!("←─ RECV ({} bytes) from {}", len, node_id);
+    let _ = event_tx
+        .send(TransportEvent::Bytes { node_id, data })
+        .await;
 
     Ok(true) // Continue reading
 }

@@ -256,7 +256,127 @@ export const PAGE_TEMPLATE = {
   },
 };
 
+// ========== SYNC CONSENT TEMPLATES ==========
+//
+// Viewer-issued permits that express consent to receive sync updates.
+// These permits are issued by the viewer back to the node after receiving
+// initial space/page data.
+//
+// Flow:
+// 1. Node sends SpaceSync with space + pages to viewer
+// 2. Viewer stores space/pages locally
+// 3. Viewer issues consent permits using these templates:
+//    - 1 space consent permit (allows node to add new pages)
+//    - N page consent permits (allows node to send layer updates)
+// 4. Viewer sends permits back to node
+// 5. Node stores permits keyed by (viewer_did, resource_id)
+// 6. When syncing updates, node attaches the viewer-issued permit
+// 7. Viewer verifies "this is a permit I issued" before accepting update
+//
+// Note: These permits use the node's original viewer permit as `prf` (proof)
+// to derive permissions from the delegation chain.
+
+// Viewer consent to sync a space + accept new pages
+// Issued by: Viewer
+// Audience: Node
+// Proof: Node's original space_viewer permit
+export const SYNC_SPACE_CONSENT_TEMPLATE = {
+  consent_template: {
+    token_type: "sync_space_consent",
+    // Operations the viewer consents to receive
+    operations: {
+      "receive_pages": "allow",    // Consent to receive new pages in this space
+      "receive_updates": "allow",  // Consent to receive updates for this space
+    },
+    // Authorization capabilities for sync
+    auth_capabilities: {
+      accept_sync: true,           // Viewer consents to accept sync updates
+      accept_new_pages: true,      // Viewer consents to receive new pages
+    },
+    relationship: "sync_consent",
+    // CEL rules for validation
+    cel_rules: {
+      // Is this a valid sync consent permit?
+      is_sync_consent: "token_type == 'sync_space_consent' && relationship == 'sync_consent'",
+      // Can accept sync updates?
+      can_accept_sync: "auth_capabilities.accept_sync == true",
+      // Can accept new pages?
+      can_accept_pages: "auth_capabilities.accept_new_pages == true",
+    },
+    // Two-permit functions for node to use when syncing
+    functions: {
+      // Node uses this to verify it can send sync to this viewer
+      can_send_sync: "self.token_type == 'sync_space_consent' && self.space_id == context.space_id",
+      // Node uses this to verify it can send new pages to this viewer
+      can_send_new_page: "self.auth_capabilities.accept_new_pages == true && self.space_id == context.space_id",
+    },
+  },
+};
+
+// Viewer consent to sync a specific page's layers
+// Issued by: Viewer
+// Audience: Node
+// Proof: Node's original page_viewer permit
+export const SYNC_PAGE_CONSENT_TEMPLATE = {
+  consent_template: {
+    token_type: "sync_page_consent",
+    // Operations the viewer consents to receive
+    operations: {
+      "receive_layer_updates": "allow",  // Consent to receive layer updates for this page
+    },
+    // Layers the viewer consents to receive updates for
+    // This mirrors the layers from the original viewer permit
+    layers: {
+      "template_doc": {
+        capability: "receive",
+        type: "crdt",
+      },
+      "content_doc": {
+        capability: "receive",
+        type: "crdt",
+      },
+      "collaborative_doc": {
+        capability: "receive",
+        type: "crdt",
+      },
+      "submissions_doc": {
+        capability: "receive",
+        type: "crdt",
+      },
+      "static_assets": {
+        capability: "receive",
+        type: "asset",
+      },
+    },
+    // Sync rules for which layers to accept updates
+    sync: {
+      no_incoming_updates: ["submissions_doc"],  // Viewer doesn't accept incoming for submissions
+    },
+    // Authorization capabilities
+    auth_capabilities: {
+      accept_sync: true,
+    },
+    relationship: "sync_consent",
+    // CEL rules for validation
+    cel_rules: {
+      // Is this a valid page sync consent permit?
+      is_sync_consent: "token_type == 'sync_page_consent' && relationship == 'sync_consent'",
+      // Can accept layer updates?
+      can_accept_layer: "has(layers[context.layer]) && layers[context.layer].capability == 'receive'",
+    },
+    // Two-permit functions for node to use when syncing
+    functions: {
+      // Node uses this to verify it can send layer update to this viewer
+      can_send_layer: "self.token_type == 'sync_page_consent' && self.page_id == context.page_id && has(self.layers[context.layer])",
+      // Viewer uses this to verify the permit is one they issued
+      is_my_consent: "self.iss == context.our_pubkey && self.aud == context.their_pubkey",
+    },
+  },
+};
+
 // ========== TYPE EXPORTS ==========
 
 export type SpaceTemplate = typeof SPACE_TEMPLATE;
 export type PageTemplate = typeof PAGE_TEMPLATE;
+export type SyncSpaceConsentTemplate = typeof SYNC_SPACE_CONSENT_TEMPLATE;
+export type SyncPageConsentTemplate = typeof SYNC_PAGE_CONSENT_TEMPLATE;

@@ -1,43 +1,72 @@
 //! RedbStore - Main persistent storage for Osvauld using redb
 //!
-//! Hierarchical key design:
-//! - identity: "self" → IdentityData, "keystore" → EncryptedKeyStore
-//! - spaces: {space_id} → SpaceData
-//! - space_children: {parent_id}/{child_id} → () (index)
-//! - pages: {space_id}/{page_id} → PageData
-//! - layers: {page_id}/{layer_name} → encrypted bytes (hierarchical!)
-//! - devices: {device_id} → DeviceData
-//! - contacts: {user_did} → ContactData
-//! - nodes: {user_did} → NodeInfo
+//! ## Schema (v2 - Live Sync)
 //!
-//! ## Layer Storage
-//! Layers use hierarchical keys: `{page_id}/{layer_name}`
-//! - Layer names come from permit template (e.g., "content", "comments")
-//! - All layers for a page are encrypted with the same AES key
-//! - AES key stored (encrypted) in PageMeta.encrypted_key
+//! ### Core Tables
+//! - IDENTITY: "self" → IdentityData, "keystore" → EncryptedKeyStore
+//! - SPACES: {space_id} → SpaceData
+//! - PAGES: {page_id} → PageData (note: key is just page_id, not space_id/page_id)
+//! - LAYERS: {page_id}/{layer_name} → encrypted bytes
+//!
+//! ### Index Tables
+//! - SPACE_PAGES: {space_id}/{page_id} → () (list pages in a space)
+//!
+//! ### Access Control Tables
+//! - CONTACTS: {user_did} → ContactData (includes devices)
+//! - SPACE_SUBSCRIPTIONS: {space_id}/{user_did} → SubscriptionData (user access to space)
+//! - PERMIT_CIDS: {page_id}/{user_did} → cid string (issued permit record for revocation)
+//!
+//! ### Sync Tables
+//! - VECTORS: {page_id}/{user_did}/{device_id} → HashMap<layer_name, state_vector_bytes>
+//!
+//! ### Node Tables
+//! - SOVEREIGN_NODES: {node_id} → SovereignNode (external nodes owner connects to)
+//! - OWNER_INFO: "owner" → OwnerInfo (owner info stored on node side)
 
 use crate::error::{ButlerError, Result};
 use crate::models::{
-    ContactData, DeviceData, EncryptedKeyStore, SpaceData, IdentityData, NodeInfo, OwnerInfo,
+    ContactData, DeviceData, EncryptedKeyStore, SpaceData, IdentityData, OwnerInfo,
     PageData, SovereignNode,
 };
 use redb::{Database, ReadableTable, TableDefinition, ReadableDatabase};
 use std::path::Path;
 use std::sync::Arc;
 
-// Table definitions with typed keys and values
+// ==================== Table Definitions ====================
+
+// Core tables
 const IDENTITY: TableDefinition<&str, &[u8]> = TableDefinition::new("identity");
 const SPACES: TableDefinition<&str, &[u8]> = TableDefinition::new("spaces");
-const SPACE_CHILDREN: TableDefinition<&str, &str> = TableDefinition::new("space_children");
 const PAGES: TableDefinition<&str, &[u8]> = TableDefinition::new("pages");
 const LAYERS: TableDefinition<&str, &[u8]> = TableDefinition::new("layers");
-const DEVICES: TableDefinition<&str, &[u8]> = TableDefinition::new("devices");
+
+// Index tables
+/// SPACE_PAGES: {space_id}/{page_id} → () - List all pages in a space
+const SPACE_PAGES: TableDefinition<&str, &[u8]> = TableDefinition::new("space_pages");
+
+// Access control tables
 const CONTACTS: TableDefinition<&str, &[u8]> = TableDefinition::new("contacts");
-const NODES: TableDefinition<&str, &[u8]> = TableDefinition::new("nodes");
+/// SPACE_SUBSCRIPTIONS: {space_id}/{user_did} → SubscriptionData - User access to space
+const SPACE_SUBSCRIPTIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("space_subscriptions");
+/// PERMIT_CIDS: {page_id}/{user_did} → cid string - Record of issued permits
+const PERMIT_CIDS: TableDefinition<&str, &str> = TableDefinition::new("permit_cids");
+
+// Sync tables
+/// VECTORS: {page_id}/{user_did}/{device_id} → HashMap<layer_name, state_vector_bytes>
+const VECTORS: TableDefinition<&str, &[u8]> = TableDefinition::new("vectors");
+
+// Node tables
 const SOVEREIGN_NODES: TableDefinition<&str, &[u8]> = TableDefinition::new("sovereign_nodes");
 const OWNER_INFO: TableDefinition<&str, &[u8]> = TableDefinition::new("owner_info");
-// Index: shares_by_page/{page_id}/{user_did} → user_did (for "who has page X" queries)
-const SHARES_BY_PAGE: TableDefinition<&str, &str> = TableDefinition::new("shares_by_page");
+
+// Viewer consent tables (viewer-issued permits stored by node)
+/// VIEWER_CONSENT_SPACE: {viewer_did}/{space_id} → consent permit string
+const VIEWER_CONSENT_SPACE: TableDefinition<&str, &str> = TableDefinition::new("viewer_consent_space");
+/// VIEWER_CONSENT_PAGE: {viewer_did}/{page_id} → consent permit string
+const VIEWER_CONSENT_PAGE: TableDefinition<&str, &str> = TableDefinition::new("viewer_consent_page");
+
+// Legacy tables (kept for migration, will be removed)
+const DEVICES: TableDefinition<&str, &[u8]> = TableDefinition::new("devices");
 
 /// RedbStore - Main persistent storage using redb
 pub struct RedbStore {
@@ -52,17 +81,33 @@ impl RedbStore {
         // Initialize tables by opening them once
         let write_txn = db.begin_write()?;
         {
+            // Core tables
             let _ = write_txn.open_table(IDENTITY)?;
             let _ = write_txn.open_table(SPACES)?;
-            let _ = write_txn.open_table(SPACE_CHILDREN)?;
             let _ = write_txn.open_table(PAGES)?;
             let _ = write_txn.open_table(LAYERS)?;
-            let _ = write_txn.open_table(DEVICES)?;
+
+            // Index tables
+            let _ = write_txn.open_table(SPACE_PAGES)?;
+
+            // Access control tables
             let _ = write_txn.open_table(CONTACTS)?;
-            let _ = write_txn.open_table(NODES)?;
+            let _ = write_txn.open_table(SPACE_SUBSCRIPTIONS)?;
+            let _ = write_txn.open_table(PERMIT_CIDS)?;
+
+            // Sync tables
+            let _ = write_txn.open_table(VECTORS)?;
+
+            // Node tables
             let _ = write_txn.open_table(SOVEREIGN_NODES)?;
             let _ = write_txn.open_table(OWNER_INFO)?;
-            let _ = write_txn.open_table(SHARES_BY_PAGE)?;
+
+            // Viewer consent tables
+            let _ = write_txn.open_table(VIEWER_CONSENT_SPACE)?;
+            let _ = write_txn.open_table(VIEWER_CONSENT_PAGE)?;
+
+            // Legacy tables (kept for migration)
+            let _ = write_txn.open_table(DEVICES)?;
         }
         write_txn.commit()?;
 
@@ -158,13 +203,6 @@ impl RedbStore {
         {
             let mut spaces = write_txn.open_table(SPACES)?;
             spaces.insert(key.as_str(), value.as_slice())?;
-
-            // Update parent-child index if has parent
-            if let Some(ref parent_id) = space.meta.parent_space_id {
-                let mut children = write_txn.open_table(SPACE_CHILDREN)?;
-                let child_key = format!("{}/{}", parent_id, key);
-                children.insert(child_key.as_str(), key.as_str())?;
-            }
         }
         write_txn.commit()?;
         Ok(())
@@ -189,20 +227,6 @@ impl RedbStore {
         let write_txn = self.db.begin_write()?;
         let removed = {
             let mut spaces = write_txn.open_table(SPACES)?;
-
-            // Get space to check parent
-            if let Some(guard) = spaces.get(space_id)? {
-                let space: SpaceData = bincode::deserialize(guard.value())
-                    .map_err(|e| ButlerError::Serialization(e.to_string()))?;
-
-                // Remove from parent-child index
-                if let Some(ref parent_id) = space.meta.parent_space_id {
-                    let mut children = write_txn.open_table(SPACE_CHILDREN)?;
-                    let child_key = format!("{}/{}", parent_id, space_id);
-                    children.remove(child_key.as_str())?;
-                }
-            }
-
             let result = spaces.remove(space_id)?.is_some();
             result
         };
@@ -226,25 +250,14 @@ impl RedbStore {
 
     pub fn list_child_spaces(&self, parent_id: &str) -> Result<Vec<SpaceData>> {
         let read_txn = self.db.begin_read()?;
-        let children_table = read_txn.open_table(SPACE_CHILDREN)?;
-        let spaces_table = read_txn.open_table(SPACES)?;
+        let table = read_txn.open_table(SPACES)?;
 
-        let prefix = format!("{}/", parent_id);
         let mut spaces = Vec::new();
-
-        for result in children_table.range(prefix.as_str()..)? {
-            let (key, value) = result?;
-            let key_str = key.value();
-
-            // Stop if we've passed the prefix
-            if !key_str.starts_with(&prefix) {
-                break;
-            }
-
-            let space_id = value.value();
-            if let Some(space_guard) = spaces_table.get(space_id)? {
-                let space: SpaceData = bincode::deserialize(space_guard.value())
-                    .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        for result in table.iter()? {
+            let (_, value) = result?;
+            let space: SpaceData = bincode::deserialize(value.value())
+                .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+            if space.meta.parent_space_id.as_deref() == Some(parent_id) {
                 spaces.push(space);
             }
         }
@@ -269,29 +282,35 @@ impl RedbStore {
 
     // =========================================================================
     // Page Operations
-    // Key: {space_id}/{page_id}
+    // Key: {page_id} (v2 schema - page_id is globally unique)
+    // Also maintains SPACE_PAGES index: {space_id}/{page_id} → ()
     // =========================================================================
 
     pub fn put_page(&self, page: &PageData) -> Result<()> {
-        let key = format!("{}/{}", page.meta.space_id, page.meta.id);
         let value = bincode::serialize(page)
             .map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {
-            let mut table = write_txn.open_table(PAGES)?;
-            table.insert(key.as_str(), value.as_slice())?;
+            // Store page by page_id
+            let mut pages_table = write_txn.open_table(PAGES)?;
+            pages_table.insert(page.meta.id.as_str(), value.as_slice())?;
+
+            // Update SPACE_PAGES index
+            let mut index_table = write_txn.open_table(SPACE_PAGES)?;
+            let index_key = format!("{}/{}", page.meta.space_id, page.meta.id);
+            index_table.insert(index_key.as_str(), &[] as &[u8])?;
         }
         write_txn.commit()?;
         Ok(())
     }
 
-    pub fn get_page(&self, space_id: &str, page_id: &str) -> Result<Option<PageData>> {
-        let key = format!("{}/{}", space_id, page_id);
+    /// Get page by page_id (v2 - no space_id needed)
+    pub fn get_page_by_id(&self, page_id: &str) -> Result<Option<PageData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(PAGES)?;
 
-        match table.get(key.as_str())? {
+        match table.get(page_id)? {
             Some(guard) => {
                 let bytes = guard.value();
                 let page: PageData = bincode::deserialize(bytes)
@@ -302,26 +321,40 @@ impl RedbStore {
         }
     }
 
+    /// Get page (legacy API - space_id ignored, uses page_id only)
+    pub fn get_page(&self, _space_id: &str, page_id: &str) -> Result<Option<PageData>> {
+        self.get_page_by_id(page_id)
+    }
+
     pub fn delete_page(&self, space_id: &str, page_id: &str) -> Result<bool> {
-        let key = format!("{}/{}", space_id, page_id);
         let write_txn = self.db.begin_write()?;
         let removed = {
-            let mut table = write_txn.open_table(PAGES)?;
-            let result = table.remove(key.as_str())?.is_some(); result
+            // Remove from PAGES table
+            let mut pages_table = write_txn.open_table(PAGES)?;
+            let result = pages_table.remove(page_id)?.is_some();
+
+            // Remove from SPACE_PAGES index
+            let mut index_table = write_txn.open_table(SPACE_PAGES)?;
+            let index_key = format!("{}/{}", space_id, page_id);
+            let _ = index_table.remove(index_key.as_str())?;
+
+            result
         };
         write_txn.commit()?;
         Ok(removed)
     }
 
+    /// List pages in space using SPACE_PAGES index
     pub fn list_pages_in_space(&self, space_id: &str) -> Result<Vec<PageData>> {
         let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(PAGES)?;
+        let index_table = read_txn.open_table(SPACE_PAGES)?;
+        let pages_table = read_txn.open_table(PAGES)?;
 
         let prefix = format!("{}/", space_id);
         let mut pages = Vec::new();
 
-        for result in table.range(prefix.as_str()..)? {
-            let (key, value) = result?;
+        for result in index_table.range(prefix.as_str()..)? {
+            let (key, _) = result?;
             let key_str = key.value();
 
             // Stop if we've passed the prefix
@@ -329,11 +362,39 @@ impl RedbStore {
                 break;
             }
 
-            let page: PageData = bincode::deserialize(value.value())
-                .map_err(|e| ButlerError::Serialization(e.to_string()))?;
-            pages.push(page);
+            // Extract page_id from index key
+            if let Some(page_id) = key_str.strip_prefix(&prefix) {
+                if let Some(page_guard) = pages_table.get(page_id)? {
+                    let page: PageData = bincode::deserialize(page_guard.value())
+                        .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+                    pages.push(page);
+                }
+            }
         }
         Ok(pages)
+    }
+
+    /// List page IDs in space (without loading full PageData)
+    pub fn list_page_ids_in_space(&self, space_id: &str) -> Result<Vec<String>> {
+        let read_txn = self.db.begin_read()?;
+        let index_table = read_txn.open_table(SPACE_PAGES)?;
+
+        let prefix = format!("{}/", space_id);
+        let mut page_ids = Vec::new();
+
+        for result in index_table.range(prefix.as_str()..)? {
+            let (key, _) = result?;
+            let key_str = key.value();
+
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+
+            if let Some(page_id) = key_str.strip_prefix(&prefix) {
+                page_ids.push(page_id.to_string());
+            }
+        }
+        Ok(page_ids)
     }
 
     pub fn list_all_pages(&self) -> Result<Vec<PageData>> {
@@ -350,20 +411,9 @@ impl RedbStore {
         Ok(pages)
     }
 
-    /// Find a page by ID without knowing the space_id (scans all pages)
+    /// Find a page by ID (v2 - direct lookup, no scan needed)
     pub fn find_page_by_id(&self, page_id: &str) -> Result<Option<PageData>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(PAGES)?;
-
-        for result in table.iter()? {
-            let (_, value) = result?;
-            let page: PageData = bincode::deserialize(value.value())
-                .map_err(|e| ButlerError::Serialization(e.to_string()))?;
-            if page.meta.id == page_id {
-                return Ok(Some(page));
-            }
-        }
-        Ok(None)
+        self.get_page_by_id(page_id)
     }
 
     /// Get all layers for a page (returns encrypted bytes mapped by layer name)
@@ -635,145 +685,9 @@ impl RedbStore {
         Ok(contacts)
     }
 
-    /// Add a share to a contact and update the shares_by_page index
-    pub fn add_share_to_contact(
-        &self,
-        user_did: &str,
-        page_id: &str,
-        share: crate::models::ShareInfo,
-    ) -> Result<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut contacts_table = write_txn.open_table(CONTACTS)?;
-            let mut index_table = write_txn.open_table(SHARES_BY_PAGE)?;
-
-            // Get existing contact
-            let mut contact: ContactData = match contacts_table.get(user_did)? {
-                Some(guard) => bincode::deserialize(guard.value())
-                    .map_err(|e| ButlerError::Serialization(e.to_string()))?,
-                None => return Err(ButlerError::NotFound(format!("Contact not found: {}", user_did))),
-            };
-
-            // Add share to contact
-            contact.add_share(page_id.to_string(), share);
-
-            // Save contact
-            let value = bincode::serialize(&contact)
-                .map_err(|e| ButlerError::Serialization(e.to_string()))?;
-            contacts_table.insert(user_did, value.as_slice())?;
-
-            // Update index: shares_by_page/{page_id}/{user_did} → user_did
-            let index_key = format!("{}/{}", page_id, user_did);
-            index_table.insert(index_key.as_str(), user_did)?;
-        }
-        write_txn.commit()?;
-        Ok(())
-    }
-
-    /// Get all user DIDs who have a share for a given page
-    pub fn get_users_for_page(&self, page_id: &str) -> Result<Vec<String>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(SHARES_BY_PAGE)?;
-
-        let prefix = format!("{}/", page_id);
-        let mut user_dids = Vec::new();
-
-        for result in table.range(prefix.as_str()..)? {
-            let (key, value) = result?;
-            let key_str = key.value();
-
-            // Stop if we've passed the prefix
-            if !key_str.starts_with(&prefix) {
-                break;
-            }
-
-            user_dids.push(value.value().to_string());
-        }
-        Ok(user_dids)
-    }
-
-    // =========================================================================
-    // Node Registry Operations
-    // Key: {user_did}
-    // =========================================================================
-
-    pub fn put_node(&self, node: &NodeInfo) -> Result<()> {
-        let value = bincode::serialize(node)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
-
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(NODES)?;
-            table.insert(node.user_did.as_str(), value.as_slice())?;
-        }
-        write_txn.commit()?;
-        Ok(())
-    }
-
-    pub fn get_node(&self, user_did: &str) -> Result<Option<NodeInfo>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(NODES)?;
-
-        match table.get(user_did)? {
-            Some(guard) => {
-                let bytes = guard.value();
-                let node: NodeInfo = bincode::deserialize(bytes)
-                    .map_err(|e| ButlerError::Serialization(e.to_string()))?;
-                Ok(Some(node))
-            }
-            None => Ok(None),
-        }
-    }
-
-    pub fn delete_node(&self, user_did: &str) -> Result<bool> {
-        let write_txn = self.db.begin_write()?;
-        let removed = {
-            let mut table = write_txn.open_table(NODES)?;
-            let result = table.remove(user_did)?.is_some(); result
-        };
-        write_txn.commit()?;
-        Ok(removed)
-    }
-
-    pub fn list_nodes(&self) -> Result<Vec<NodeInfo>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(NODES)?;
-
-        let mut nodes = Vec::new();
-        for result in table.iter()? {
-            let (_, value) = result?;
-            let node: NodeInfo = bincode::deserialize(value.value())
-                .map_err(|e| ButlerError::Serialization(e.to_string()))?;
-            nodes.push(node);
-        }
-        Ok(nodes)
-    }
-
-    pub fn list_online_nodes(&self) -> Result<Vec<NodeInfo>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(NODES)?;
-
-        let mut nodes = Vec::new();
-        for result in table.iter()? {
-            let (_, value) = result?;
-            let node: NodeInfo = bincode::deserialize(value.value())
-                .map_err(|e| ButlerError::Serialization(e.to_string()))?;
-            if node.is_online {
-                nodes.push(node);
-            }
-        }
-        Ok(nodes)
-    }
-
-    pub fn set_node_online(&self, user_did: &str, online: bool) -> Result<bool> {
-        if let Some(mut node) = self.get_node(user_did)? {
-            node.set_online(online);
-            self.put_node(&node)?;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
+    // Note: add_share_to_contact removed - share tracking moved to SPACE_SUBSCRIPTIONS
+    // Note: get_users_for_page removed - use SPACE_SUBSCRIPTIONS instead
+    // Note: Node Registry Operations (NODES table) removed - identity stored in IDENTITY table
 
     // =========================================================================
     // Sovereign Node Operations (external nodes we connect to)
@@ -825,10 +739,18 @@ impl RedbStore {
 
         let mut nodes = Vec::new();
         for result in table.iter()? {
-            let (_, value) = result?;
-            let node: SovereignNode = bincode::deserialize(value.value())
-                .map_err(|e| ButlerError::Serialization(e.to_string()))?;
-            nodes.push(node);
+            let (key, value) = result?;
+            match bincode::deserialize::<SovereignNode>(value.value()) {
+                Ok(node) => nodes.push(node),
+                Err(e) => {
+                    // Skip records that fail to deserialize (likely schema mismatch from old version)
+                    tracing::warn!(
+                        "Skipping corrupt sovereign node record '{}': {}",
+                        key.value(),
+                        e
+                    );
+                }
+            }
         }
         Ok(nodes)
     }
@@ -839,11 +761,20 @@ impl RedbStore {
 
         let mut nodes = Vec::new();
         for result in table.iter()? {
-            let (_, value) = result?;
-            let node: SovereignNode = bincode::deserialize(value.value())
-                .map_err(|e| ButlerError::Serialization(e.to_string()))?;
-            if node.is_connected {
-                nodes.push(node);
+            let (key, value) = result?;
+            match bincode::deserialize::<SovereignNode>(value.value()) {
+                Ok(node) => {
+                    if node.is_connected {
+                        nodes.push(node);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Skipping corrupt sovereign node record '{}': {}",
+                        key.value(),
+                        e
+                    );
+                }
             }
         }
         Ok(nodes)
@@ -859,21 +790,10 @@ impl RedbStore {
         }
     }
 
-    /// Store the permit we received FROM the node (our_permit - for reconnection)
+    /// Store the permit for this sovereign node (single permit for owner<->node)
     pub fn set_sovereign_node_permit(&self, node_id: &str, permit: String) -> Result<bool> {
         if let Some(mut node) = self.get_sovereign_node(node_id)? {
-            node.set_our_permit(permit);
-            self.put_sovereign_node(&node)?;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    /// Store the permit we issued TO the node (permit_for_them)
-    pub fn set_sovereign_node_permit_for_them(&self, node_id: &str, permit: String) -> Result<bool> {
-        if let Some(mut node) = self.get_sovereign_node(node_id)? {
-            node.set_permit_for_them(permit);
+            node.set_permit(permit);
             self.put_sovereign_node(&node)?;
             Ok(true)
         } else {
@@ -916,21 +836,10 @@ impl RedbStore {
         Ok(())
     }
 
-    /// Update the permit we issued TO the owner
-    pub fn set_owner_permit_for_owner(&self, permit: String) -> Result<bool> {
+    /// Update the permit for owner<->node relationship
+    pub fn set_owner_permit(&self, permit: String) -> Result<bool> {
         if let Some(mut owner) = self.get_owner()? {
-            owner.set_permit_for_owner(permit);
-            self.set_owner(&owner)?;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    /// Update the permit we received FROM the owner
-    pub fn set_owner_permit_from_owner(&self, permit: String) -> Result<bool> {
-        if let Some(mut owner) = self.get_owner()? {
-            owner.set_permit_from_owner(permit);
+            owner.set_permit(permit);
             self.set_owner(&owner)?;
             Ok(true)
         } else {
@@ -952,5 +861,540 @@ impl RedbStore {
     /// Check if this node has an owner
     pub fn has_owner(&self) -> Result<bool> {
         Ok(self.get_owner()?.is_some())
+    }
+
+    // =========================================================================
+    // Peer Vector Operations (for CRDT sync state tracking)
+    // Key: {page_id}/{user_did}/{device_id}
+    // Value: HashMap<layer_name, state_vector_bytes>
+    // =========================================================================
+
+    /// Get peer vectors for a specific peer on a page.
+    ///
+    /// **Context**: Used during sync to determine what updates a peer needs.
+    /// Returns None if we haven't synced with this peer before.
+    pub fn get_peer_vectors(
+        &self,
+        page_id: &str,
+        user_did: &str,
+        device_id: &str,
+    ) -> Result<Option<std::collections::HashMap<String, Vec<u8>>>> {
+        let key = format!("{}/{}/{}", page_id, user_did, device_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(VECTORS)?;
+
+        match table.get(key.as_str())? {
+            Some(guard) => {
+                let bytes = guard.value();
+                let vectors: std::collections::HashMap<String, Vec<u8>> =
+                    bincode::deserialize(bytes)
+                        .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+                Ok(Some(vectors))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Store peer vectors for a specific peer on a page.
+    ///
+    /// **Context**: Called after successful sync to record the peer's state.
+    /// Enables efficient delta sync on next connection.
+    pub fn put_peer_vectors(
+        &self,
+        page_id: &str,
+        user_did: &str,
+        device_id: &str,
+        vectors: &std::collections::HashMap<String, Vec<u8>>,
+    ) -> Result<()> {
+        let key = format!("{}/{}/{}", page_id, user_did, device_id);
+        let value = bincode::serialize(vectors)
+            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(VECTORS)?;
+            table.insert(key.as_str(), value.as_slice())?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Get a single layer's peer vector.
+    ///
+    /// **Context**: Convenience method for single-layer sync operations.
+    pub fn get_peer_vector_for_layer(
+        &self,
+        page_id: &str,
+        user_did: &str,
+        device_id: &str,
+        layer_name: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        if let Some(vectors) = self.get_peer_vectors(page_id, user_did, device_id)? {
+            Ok(vectors.get(layer_name).cloned())
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Update a single layer's peer vector.
+    ///
+    /// **Context**: Called after syncing a specific layer.
+    /// Preserves other layer vectors in the map.
+    pub fn put_peer_vector_for_layer(
+        &self,
+        page_id: &str,
+        user_did: &str,
+        device_id: &str,
+        layer_name: &str,
+        vector: Vec<u8>,
+    ) -> Result<()> {
+        let mut vectors = self
+            .get_peer_vectors(page_id, user_did, device_id)?
+            .unwrap_or_default();
+        vectors.insert(layer_name.to_string(), vector);
+        self.put_peer_vectors(page_id, user_did, device_id, &vectors)
+    }
+
+    /// Delete all peer vectors for a specific peer on a page.
+    ///
+    /// **Context**: Called when a peer's access is revoked.
+    pub fn delete_peer_vectors(
+        &self,
+        page_id: &str,
+        user_did: &str,
+        device_id: &str,
+    ) -> Result<bool> {
+        let key = format!("{}/{}/{}", page_id, user_did, device_id);
+        let write_txn = self.db.begin_write()?;
+        let removed = {
+            let mut table = write_txn.open_table(VECTORS)?;
+            let result = table.remove(key.as_str())?.is_some();
+            result
+        };
+        write_txn.commit()?;
+        Ok(removed)
+    }
+
+    /// Delete all peer vectors for a page (all peers).
+    ///
+    /// **Context**: Called when a page is deleted.
+    pub fn delete_all_peer_vectors_for_page(&self, page_id: &str) -> Result<usize> {
+        let prefix = format!("{}/", page_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(VECTORS)?;
+
+        // Collect keys to delete
+        let mut keys_to_delete = Vec::new();
+        for result in table.range(prefix.as_str()..)? {
+            let (key, _) = result?;
+            let key_str = key.value();
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+            keys_to_delete.push(key_str.to_string());
+        }
+        drop(table);
+        drop(read_txn);
+
+        let count = keys_to_delete.len();
+        if count > 0 {
+            let write_txn = self.db.begin_write()?;
+            {
+                let mut table = write_txn.open_table(VECTORS)?;
+                for key in &keys_to_delete {
+                    table.remove(key.as_str())?;
+                }
+            }
+            write_txn.commit()?;
+        }
+        Ok(count)
+    }
+
+    /// List all peers with vectors for a given page.
+    ///
+    /// **Context**: Used to iterate over all known peers for a page.
+    /// Returns tuples of (user_did, device_id).
+    pub fn list_peers_for_page(&self, page_id: &str) -> Result<Vec<(String, String)>> {
+        let prefix = format!("{}/", page_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(VECTORS)?;
+
+        let mut peers = Vec::new();
+        for result in table.range(prefix.as_str()..)? {
+            let (key, _) = result?;
+            let key_str = key.value();
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+
+            // Parse {page_id}/{user_did}/{device_id}
+            let rest = key_str.strip_prefix(&prefix).unwrap_or("");
+            if let Some((user_did, device_id)) = rest.split_once('/') {
+                peers.push((user_did.to_string(), device_id.to_string()));
+            }
+        }
+        Ok(peers)
+    }
+
+    // =========================================================================
+    // Permit CID Operations (for revocation tracking)
+    // Key: {page_id}/{user_did} → cid string (content-addressed permit hash)
+    // Used to track issued permits for revocation
+    // =========================================================================
+
+    /// Store a permit CID for a specific page and user.
+    ///
+    /// **Context**: Called when issuing a permit to track it for potential revocation.
+    pub fn put_permit_cid(
+        &self,
+        page_id: &str,
+        user_did: &str,
+        cid: &str,
+    ) -> Result<()> {
+        let key = format!("{}/{}", page_id, user_did);
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(PERMIT_CIDS)?;
+            table.insert(key.as_str(), cid)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Get a permit CID for a specific page and user.
+    ///
+    /// **Context**: Used to check if a permit has been issued and get its CID.
+    pub fn get_permit_cid(
+        &self,
+        page_id: &str,
+        user_did: &str,
+    ) -> Result<Option<String>> {
+        let key = format!("{}/{}", page_id, user_did);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(PERMIT_CIDS)?;
+
+        match table.get(key.as_str())? {
+            Some(guard) => Ok(Some(guard.value().to_string())),
+            None => Ok(None),
+        }
+    }
+
+    /// Delete a permit CID for a specific page and user.
+    ///
+    /// **Context**: Called when revoking access - marks the permit as revoked.
+    pub fn delete_permit_cid(
+        &self,
+        page_id: &str,
+        user_did: &str,
+    ) -> Result<bool> {
+        let key = format!("{}/{}", page_id, user_did);
+        let write_txn = self.db.begin_write()?;
+        let removed = {
+            let mut table = write_txn.open_table(PERMIT_CIDS)?;
+            let result = table.remove(key.as_str())?.is_some();
+            result
+        };
+        write_txn.commit()?;
+        Ok(removed)
+    }
+
+    /// List all permit CIDs for a given page.
+    ///
+    /// **Context**: Used to enumerate all issued permits for a page.
+    pub fn list_permit_cids_for_page(&self, page_id: &str) -> Result<Vec<(String, String)>> {
+        let prefix = format!("{}/", page_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(PERMIT_CIDS)?;
+
+        let mut cids = Vec::new();
+        for result in table.range(prefix.as_str()..)? {
+            let (key, value) = result?;
+            let key_str = key.value();
+
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+
+            // Extract user_did from key
+            if let Some(user_did) = key_str.strip_prefix(&prefix) {
+                cids.push((user_did.to_string(), value.value().to_string()));
+            }
+        }
+        Ok(cids)
+    }
+
+    /// Delete all permit CIDs for a page.
+    ///
+    /// **Context**: Called when a page is deleted.
+    pub fn delete_all_permit_cids_for_page(&self, page_id: &str) -> Result<usize> {
+        let prefix = format!("{}/", page_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(PERMIT_CIDS)?;
+
+        // Collect keys to delete
+        let mut keys_to_delete = Vec::new();
+        for result in table.range(prefix.as_str()..)? {
+            let (key, _) = result?;
+            let key_str = key.value();
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+            keys_to_delete.push(key_str.to_string());
+        }
+        drop(table);
+        drop(read_txn);
+
+        let count = keys_to_delete.len();
+        if count > 0 {
+            let write_txn = self.db.begin_write()?;
+            {
+                let mut table = write_txn.open_table(PERMIT_CIDS)?;
+                for key in &keys_to_delete {
+                    table.remove(key.as_str())?;
+                }
+            }
+            write_txn.commit()?;
+        }
+        Ok(count)
+    }
+
+    /// Check if a permit CID exists for a page and user.
+    ///
+    /// **Context**: Quick check for whether a permit has been issued.
+    pub fn has_permit_cid(&self, page_id: &str, user_did: &str) -> Result<bool> {
+        let key = format!("{}/{}", page_id, user_did);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(PERMIT_CIDS)?;
+        Ok(table.get(key.as_str())?.is_some())
+    }
+
+    // =========================================================================
+    // Space Subscription Operations (user access to spaces)
+    // Key: {space_id}/{user_did} → SubscriptionData (serialized)
+    // Tracks which users have access to which spaces
+    // =========================================================================
+
+    /// Store a space subscription.
+    ///
+    /// **Context**: Called when granting a user access to a space.
+    pub fn put_space_subscription(
+        &self,
+        space_id: &str,
+        user_did: &str,
+        data: &[u8],
+    ) -> Result<()> {
+        let key = format!("{}/{}", space_id, user_did);
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(SPACE_SUBSCRIPTIONS)?;
+            table.insert(key.as_str(), data)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Get a space subscription.
+    ///
+    /// **Context**: Check if a user has access to a space.
+    pub fn get_space_subscription(
+        &self,
+        space_id: &str,
+        user_did: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        let key = format!("{}/{}", space_id, user_did);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(SPACE_SUBSCRIPTIONS)?;
+
+        match table.get(key.as_str())? {
+            Some(guard) => Ok(Some(guard.value().to_vec())),
+            None => Ok(None),
+        }
+    }
+
+    /// Delete a space subscription.
+    ///
+    /// **Context**: Called when revoking a user's access to a space.
+    pub fn delete_space_subscription(
+        &self,
+        space_id: &str,
+        user_did: &str,
+    ) -> Result<bool> {
+        let key = format!("{}/{}", space_id, user_did);
+        let write_txn = self.db.begin_write()?;
+        let removed = {
+            let mut table = write_txn.open_table(SPACE_SUBSCRIPTIONS)?;
+            let result = table.remove(key.as_str())?.is_some();
+            result
+        };
+        write_txn.commit()?;
+        Ok(removed)
+    }
+
+    /// List all user DIDs subscribed to a space.
+    ///
+    /// **Context**: Used to enumerate all users with access to a space.
+    pub fn list_space_subscribers(&self, space_id: &str) -> Result<Vec<String>> {
+        let prefix = format!("{}/", space_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(SPACE_SUBSCRIPTIONS)?;
+
+        let mut subscribers = Vec::new();
+        for result in table.range(prefix.as_str()..)? {
+            let (key, _) = result?;
+            let key_str = key.value();
+
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+
+            // Extract user_did from key
+            if let Some(user_did) = key_str.strip_prefix(&prefix) {
+                subscribers.push(user_did.to_string());
+            }
+        }
+        Ok(subscribers)
+    }
+
+    /// Check if a user is subscribed to a space.
+    ///
+    /// **Context**: Quick check for space access.
+    pub fn has_space_subscription(&self, space_id: &str, user_did: &str) -> Result<bool> {
+        let key = format!("{}/{}", space_id, user_did);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(SPACE_SUBSCRIPTIONS)?;
+        Ok(table.get(key.as_str())?.is_some())
+    }
+
+    /// Delete all subscriptions for a space.
+    ///
+    /// **Context**: Called when a space is deleted.
+    pub fn delete_all_space_subscriptions(&self, space_id: &str) -> Result<usize> {
+        let prefix = format!("{}/", space_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(SPACE_SUBSCRIPTIONS)?;
+
+        // Collect keys to delete
+        let mut keys_to_delete = Vec::new();
+        for result in table.range(prefix.as_str()..)? {
+            let (key, _) = result?;
+            let key_str = key.value();
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+            keys_to_delete.push(key_str.to_string());
+        }
+        drop(table);
+        drop(read_txn);
+
+        let count = keys_to_delete.len();
+        if count > 0 {
+            let write_txn = self.db.begin_write()?;
+            {
+                let mut table = write_txn.open_table(SPACE_SUBSCRIPTIONS)?;
+                for key in &keys_to_delete {
+                    table.remove(key.as_str())?;
+                }
+            }
+            write_txn.commit()?;
+        }
+        Ok(count)
+    }
+
+    // =========================================================================
+    // Viewer Consent Operations (viewer-issued permits stored by node)
+    // Key: {viewer_did}/{resource_id} → consent permit string
+    // Tracks viewer consent for receiving sync updates
+    // =========================================================================
+
+    /// Store a viewer's space consent permit.
+    ///
+    /// **Context**: Node receives SyncConsentGrant from viewer.
+    /// The permit is viewer-issued, expressing consent for sync updates.
+    pub fn put_viewer_space_consent(
+        &self,
+        viewer_did: &str,
+        space_id: &str,
+        consent_permit: &str,
+    ) -> Result<()> {
+        let key = format!("{}/{}", viewer_did, space_id);
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(VIEWER_CONSENT_SPACE)?;
+            table.insert(key.as_str(), consent_permit)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Get a viewer's space consent permit.
+    ///
+    /// **Context**: Node needs consent permit to send sync updates.
+    pub fn get_viewer_space_consent(
+        &self,
+        viewer_did: &str,
+        space_id: &str,
+    ) -> Result<Option<String>> {
+        let key = format!("{}/{}", viewer_did, space_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(VIEWER_CONSENT_SPACE)?;
+
+        match table.get(key.as_str())? {
+            Some(guard) => Ok(Some(guard.value().to_string())),
+            None => Ok(None),
+        }
+    }
+
+    /// Store a viewer's page consent permit.
+    ///
+    /// **Context**: Node receives SyncConsentGrant from viewer.
+    /// The permit is viewer-issued, expressing consent for page layer updates.
+    pub fn put_viewer_page_consent(
+        &self,
+        viewer_did: &str,
+        page_id: &str,
+        consent_permit: &str,
+    ) -> Result<()> {
+        let key = format!("{}/{}", viewer_did, page_id);
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(VIEWER_CONSENT_PAGE)?;
+            table.insert(key.as_str(), consent_permit)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Get a viewer's page consent permit.
+    ///
+    /// **Context**: Node needs consent permit to send layer updates.
+    pub fn get_viewer_page_consent(
+        &self,
+        viewer_did: &str,
+        page_id: &str,
+    ) -> Result<Option<String>> {
+        let key = format!("{}/{}", viewer_did, page_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(VIEWER_CONSENT_PAGE)?;
+
+        match table.get(key.as_str())? {
+            Some(guard) => Ok(Some(guard.value().to_string())),
+            None => Ok(None),
+        }
+    }
+
+    /// Check if viewer has space consent.
+    pub fn has_viewer_space_consent(&self, viewer_did: &str, space_id: &str) -> Result<bool> {
+        let key = format!("{}/{}", viewer_did, space_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(VIEWER_CONSENT_SPACE)?;
+        Ok(table.get(key.as_str())?.is_some())
+    }
+
+    /// Check if viewer has page consent.
+    pub fn has_viewer_page_consent(&self, viewer_did: &str, page_id: &str) -> Result<bool> {
+        let key = format!("{}/{}", viewer_did, page_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(VIEWER_CONSENT_PAGE)?;
+        Ok(table.get(key.as_str())?.is_some())
     }
 }

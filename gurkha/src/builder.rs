@@ -89,19 +89,18 @@ impl GurkhaPermitBuilder {
 mod tests {
     use super::*;
     use crate::decision::TokenDecision;
-    use serde_json::Map;
 
     #[tokio::test]
     async fn test_builder_creates_token() {
+        use serde_json::json;
+
         // Create test keys
         let signing_key_bytes = [1u8; 32];
 
-        // Create simple decision
-        let decision = TokenDecision::new(
-            "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK".to_string(),
-            vec![("sthalam:folder:test_id:read".to_string(), "read".to_string())],
-            Map::new(),
-        );
+        // Create simple decision using facts-only architecture (v3)
+        let mut decision = TokenDecision::new("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK");
+        decision.add_fact("token_type".to_string(), json!("test_token"));
+        decision.add_fact("operations".to_string(), json!({"read": "allow"}));
 
         // Build token
         let builder = GurkhaPermitBuilder::from_bytes(&signing_key_bytes);

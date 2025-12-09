@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { CopyIcon, Tick } from "@osvauld/icons";
-	import { writeToClipboard } from "../utils/helper";
+	import { writeToClipboard } from '../utils/scribe';
 
 	let { onLogin, collectedRecoveryString = $bindable() } = $props<{
 		onLogin: (isLoggedin: boolean) => void;

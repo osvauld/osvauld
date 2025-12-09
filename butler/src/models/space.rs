@@ -60,6 +60,7 @@ impl SpaceMeta {
 /// Key design:
 /// - `permit` stores MY permit for this space (context-dependent: owner's, node's, or viewer's)
 /// - `shares` tracks WHO I've shared with (just pub keys for UI/tracking)
+/// - `source_node_id` tracks which node gave us this space (for viewers to sync back)
 /// - Actual permits issued to others are stored in Contact.shares (Node-side)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpaceData {
@@ -68,6 +69,10 @@ pub struct SpaceData {
     pub permit: Option<String>,
     /// Pub keys of users this space is shared with (tracking only)
     pub shares: Vec<String>,
+    /// Node that gave us this space (for viewers to sync back)
+    /// None for owner-created spaces, Some(node_id) for received spaces
+    #[serde(default)]
+    pub source_node_id: Option<String>,
 }
 
 impl SpaceData {
@@ -76,7 +81,23 @@ impl SpaceData {
             meta,
             permit: None,
             shares: Vec::new(),
+            source_node_id: None,
         }
+    }
+
+    /// Create SpaceData with a source node (for received spaces)
+    pub fn with_source(meta: SpaceMeta, source_node_id: String) -> Self {
+        Self {
+            meta,
+            permit: None,
+            shares: Vec::new(),
+            source_node_id: Some(source_node_id),
+        }
+    }
+
+    /// Set the source node for this space
+    pub fn set_source_node(&mut self, node_id: String) {
+        self.source_node_id = Some(node_id);
     }
 
     /// Set my permit for this space

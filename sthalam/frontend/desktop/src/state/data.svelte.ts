@@ -1,21 +1,58 @@
-import { sendMessage } from '../utils/helper';
-import { loroCoordinator } from '../shared/loro/loroCoordinator';
-import type { Website, Resource, UserDetails, SovereignNode } from '../types';
-import { listen } from '@tauri-apps/api/event';
-import { SPACE_TEMPLATE, PAGE_TEMPLATE } from '../config/permissions';
+import {
+  listSpaces,
+  listPages,
+  createSpace,
+  createPage,
+  openPage,
+  closePage,
+  getUserDetails,
+  getSovereignNodes,
+  listenForSpaceSync,
+  listenForPageSync,
+  listenForPageUpdates,
+  type SpaceResponse,
+  type PageMetadata,
+  type PageResponse,
+  type SovereignNode,
+  type UserDetails,
+  type LayerUpdate,
+} from "../utils/scribe";
+import { loroCoordinator } from "../shared/loro/loroCoordinator";
+import { syncManager } from "../shared/loro/syncManager";
+import { SPACE_TEMPLATE, PAGE_TEMPLATE } from "../config/permissions";
 
 /**
- * Clean Data State Management for Sthalam
- * Uses Loro CRDT for document management
+ * Data State Management for Sthalam
+ *
+ * Uses new terminology: Space (folder), Page (resource)
+ * Auto-syncs Loro changes to backend via SyncManager - no manual save needed
  */
-class DataState {
-  // Websites (folders)
-  websites = $state<Website[]>([{ id: "all", name: "All Websites" }]);
-  currentWebsite = $state<Website>({ id: "all", name: "All Websites" });
 
-  // Resources
-  resources = $state<Resource[]>([]);
-  currentResourceId = $state<string | null>(null);
+export interface Space {
+  id: string;
+  name: string;
+  description?: string;
+  isDefault?: boolean;
+}
+
+export interface Page {
+  id: string;
+  title: string;
+  pageType: string;
+  spaceId: string;
+  lastModified: number;
+  favourite?: boolean;
+  preview?: string;
+}
+
+class DataState {
+  // Spaces
+  spaces = $state<Space[]>([{ id: "all", name: "All Spaces" }]);
+  currentSpace = $state<Space>({ id: "all", name: "All Spaces" });
+
+  // Pages
+  pages = $state<Page[]>([]);
+  currentPageId = $state<string | null>(null);
 
   // User data
   userDetails = $state<UserDetails | null>(null);
@@ -45,11 +82,11 @@ class DataState {
         bytes[i] = decoded.charCodeAt(i);
       }
       const hex = Array.from(bytes.slice(0, 4))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
       return parseInt(hex, 16);
     } catch (error) {
-      console.error('Failed to generate client ID:', error);
+      console.error("Failed to generate client ID:", error);
       return Math.floor(Math.random() * 1000000);
     }
   }
@@ -58,38 +95,37 @@ class DataState {
    * Initialize state - called by App.svelte on auth
    */
   async initializeState() {
-    console.log('🔧 [DataState] initializeState() called');
+    console.log("[DataState] initializeState() called");
     this.isDataLoading = true;
 
-    // Clean up event listeners (but don't clear data)
-    this.cleanupReactiveUpdates();
+    // Clean up event listeners
+    this.cleanupEventListeners();
 
     try {
-      console.log('🔄 [DataState] Getting user details and setting up...');
+      console.log("[DataState] Getting user details and setting up...");
 
       // Get user details first
-      this.userDetails = await sendMessage("getUserDetails", {});
+      this.userDetails = await getUserDetails();
       this.clientId = this.getClientId();
 
-      console.log('✅ [DataState] User details loaded, clientId:', this.clientId);
+      console.log("[DataState] User details loaded, clientId:", this.clientId);
 
-      // Setup event listeners and load websites in parallel
+      // Setup event listeners and load spaces in parallel
       await Promise.all([
         this.setupEventListeners(),
-        this.fetchWebsites(),
-        this.fetchSovereignNodes()
+        this.fetchSpaces(),
+        this.fetchSovereignNodes(),
       ]);
 
-      console.log('✅ [DataState] Setup ready');
+      console.log("[DataState] Setup ready");
 
-      // Fetch all resources (via events)
-      await this.fetchAllResources();
-
+      // Fetch all pages
+      await this.fetchAllPages();
     } catch (error) {
-      console.error('❌ [DataState] Initialization failed:', error);
+      console.error("[DataState] Initialization failed:", error);
     } finally {
       this.isDataLoading = false;
-      console.log('✅ [DataState] Initialization complete');
+      console.log("[DataState] Initialization complete");
     }
   }
 
@@ -98,82 +134,88 @@ class DataState {
    */
   private async setupEventListeners() {
     try {
-      // Listen for folder sync events
-      const folderSyncUnlisten = await listen('folder-synced', (event: any) => {
-        const { folderId, folderName } = event.payload;
-        console.log('📁 [DataState] Folder synced:', folderId, folderName);
-
-        // Refresh websites list to show new folder
-        this.fetchWebsites();
+      // Listen for space sync events
+      const spaceSyncUnlisten = await listenForSpaceSync(({ spaceId, spaceName }) => {
+        console.log("[DataState] Space synced:", spaceId, spaceName);
+        this.fetchSpaces();
       });
-      this._unlisteners.push(folderSyncUnlisten);
+      this._unlisteners.push(spaceSyncUnlisten);
 
-      // Listen for resource sync events
-      const resourceSyncUnlisten = await listen('resource-synced', (event: any) => {
-        const metadata = event.payload;
-        console.log('📄 [DataState] Resource synced:', metadata.id, metadata.title);
+      // Listen for page sync events
+      const pageSyncUnlisten = await listenForPageSync((metadata) => {
+        console.log("[DataState] Page synced:", metadata.id, metadata.title);
 
-        // Add resource to local list if not already present
-        const exists = this.resources.some((r: any) => r.id === metadata.id);
+        const exists = this.pages.some((p) => p.id === metadata.id);
         if (!exists) {
-          this.resources = [...this.resources, {
-            id: metadata.id,
-            title: metadata.title,
-            websiteId: metadata.folderId,
-            resourceType: metadata.resourceType,
-            lastModified: metadata.lastModified,
-          }];
+          this.pages = [
+            ...this.pages,
+            {
+              id: metadata.id,
+              title: metadata.title,
+              spaceId: metadata.spaceId,
+              pageType: metadata.pageType,
+              lastModified: metadata.lastModified,
+            },
+          ];
         }
       });
-      this._unlisteners.push(resourceSyncUnlisten);
+      this._unlisteners.push(pageSyncUnlisten);
 
-      // Listen for resource update events (real-time CRDT merging)
-      const resourceUpdateUnlisten = await listen('resource-updated', (event: any) => {
-        const { resourceId, updates, metadata } = event.payload;
-        console.log('🔄 [DataState] Resource updated:', resourceId, metadata);
+      // Listen for page update events (real-time CRDT updates from P2P peers via Scribe)
+      const pageUpdateUnlisten = await listenForPageUpdates((update) => {
+        console.log("[DataState] Page update from P2P:", update.pageId, update.layerName);
 
-        // Check if this is the currently active resource
-        if (this.currentResourceId === resourceId) {
-          console.log('✨ [DataState] Merging updates for currently active resource:', resourceId);
-
-          // Merge updates into current Loro documents
-          this.mergeIncomingUpdates(updates).catch((error) => {
-            console.error('❌ [DataState] Failed to merge incoming updates:', error);
-          });
-        } else {
-          console.log('ℹ️ [DataState] Updated resource is not currently active, skipping merge');
-        }
-
-        // Update lastModified in resources list if metadata includes timestamp
-        if (metadata.timestamp) {
-          this.updateResourceLastModified(resourceId, metadata.timestamp);
+        if (this.currentPageId === update.pageId) {
+          console.log("[DataState] Applying remote update for active page");
+          this.applyRemoteUpdate(update);
         }
       });
-      this._unlisteners.push(resourceUpdateUnlisten);
+      this._unlisteners.push(pageUpdateUnlisten);
 
-      console.log('✅ [DataState] Event listeners setup complete');
+      console.log("[DataState] Event listeners setup complete");
     } catch (error) {
-      console.error('❌ [DataState] Failed to setup listeners:', error);
+      console.error("[DataState] Failed to setup listeners:", error);
     }
   }
 
   /**
-   * Fetch websites from backend
+   * Apply remote update from P2P peer via SyncManager
+   * SyncManager handles echo prevention - won't re-send to backend
    */
-  async fetchWebsites() {
+  private applyRemoteUpdate(update: LayerUpdate) {
     try {
-      const resp = await sendMessage("getFolder", {});
-      const websites: Website[] = resp.map((item: any) => ({
-        id: item.id || "",
-        name: item.name || "",
-        description: item.description,
-        default: item.default
-      }));
-      this.websites = [{ id: "all", name: "All Websites" }, ...websites];
-      console.log('📁 [DataState] Fetched websites:', websites.length);
+      const docName = syncManager.layerNameToDocName(update.layerName);
+      const docs = loroCoordinator.getDocuments();
+      const doc = docs[docName as keyof typeof docs];
+
+      if (doc) {
+        syncManager.applyRemoteUpdate(update.layerName, update.update, doc);
+        console.log("[DataState] Remote update applied:", update.layerName);
+      } else {
+        console.warn("[DataState] Unknown layer for remote update:", update.layerName);
+      }
     } catch (error) {
-      console.error('❌ [DataState] Failed to fetch websites:', error);
-      this.websites = [{ id: "all", name: "All Websites" }];
+      console.error("[DataState] Failed to apply remote update:", error);
+    }
+  }
+
+  /**
+   * Fetch spaces from backend
+   */
+  async fetchSpaces() {
+    try {
+      const resp = await listSpaces();
+      const spaces: Space[] = resp.map((item) => ({
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        isDefault: item.isDefault,
+      }));
+      this.spaces = [{ id: "all", name: "All Spaces" }, ...spaces];
+      console.log("[DataState] Fetched spaces:", spaces.length);
+    } catch (error) {
+      console.error("[DataState] Failed to fetch spaces:", error);
+      this.spaces = [{ id: "all", name: "All Spaces" }];
     }
   }
 
@@ -182,227 +224,149 @@ class DataState {
    */
   async fetchSovereignNodes() {
     try {
-      const nodes = await sendMessage("getSovereignNodes", {});
+      const nodes = await getSovereignNodes();
       this.sovereignNodes = nodes || [];
 
-      // Set the first node as the default sovereign node
       if (this.sovereignNodes.length > 0) {
         this.sovereignNodeId = this.sovereignNodes[0].nodeId;
       }
 
-      console.log('🌐 [DataState] Fetched sovereign nodes:', this.sovereignNodes.length);
-      console.log('🌐 [DataState] Sovereign node ID:', this.sovereignNodeId);
+      console.log("[DataState] Fetched sovereign nodes:", this.sovereignNodes.length);
     } catch (error) {
-      console.error('❌ [DataState] Failed to fetch sovereign nodes:', error);
+      console.error("[DataState] Failed to fetch sovereign nodes:", error);
       this.sovereignNodes = [];
       this.sovereignNodeId = null;
     }
   }
 
   /**
-   * Fetch all resources metadata from backend
+   * Fetch all pages metadata from backend
    */
-  async fetchAllResources() {
+  async fetchAllPages() {
     this.isDataLoading = true;
     try {
-      console.log('📥 [DataState] Fetching all resources metadata...');
-      const resourcesMetadata = await sendMessage("getAllResourcesMetadata", {});
+      console.log("[DataState] Fetching all pages metadata...");
+      const pagesMetadata = await listPages();
 
-      // Map to Resource type
-      this.resources = resourcesMetadata.map((r: any) => ({
-        id: r.id,
-        title: r.title || 'Untitled',
-        resourceType: r.resourceType || 'website',
-        websiteId: r.folderId,
-        lastModified: r.lastModified || Date.now(),
+      this.pages = pagesMetadata.map((p) => ({
+        id: p.id,
+        title: p.title || "Untitled",
+        pageType: p.pageType || "content",
+        spaceId: p.spaceId,
+        lastModified: p.lastModified || Date.now(),
       }));
 
-      console.log('✅ [DataState] Loaded', this.resources.length, 'resources');
+      console.log("[DataState] Loaded", this.pages.length, "pages");
     } catch (error) {
-      console.error('❌ [DataState] Failed to fetch resources:', error);
+      console.error("[DataState] Failed to fetch pages:", error);
     } finally {
       this.isDataLoading = false;
     }
   }
 
   /**
-   * Switch to a different website
+   * Switch to a different space
    */
-  async switchWebsite(website: Website) {
-    this.currentWebsite = website;
-    this.currentResourceId = null;
-    // Resources are already loaded via events, just filter by website
+  async switchSpace(space: Space) {
+    this.currentSpace = space;
+    this.currentPageId = null;
+    syncManager.stopSync();
   }
 
   /**
-   * Create a new website
+   * Create a new space
    */
-  async addWebsite(name: string) {
+  async addSpace(name: string) {
     try {
-      const website = await sendMessage("addFolder", {
-        name,
-        description: "",
-        folderTemplateJson: JSON.stringify(SPACE_TEMPLATE)
-      });
-      this.websites = [...this.websites, website];
-      console.log('✅ [DataState] Website created:', name);
-      return website;
+      const space = await createSpace(name, "", JSON.stringify(SPACE_TEMPLATE));
+      this.spaces = [...this.spaces, { id: space.id, name: space.name }];
+      console.log("[DataState] Space created:", name);
+      return space;
     } catch (error) {
-      console.error('❌ [DataState] Failed to create website:', error);
+      console.error("[DataState] Failed to create space:", error);
       throw error;
     }
   }
 
   /**
-   * Create a new resource with empty Loro document
+   * Create a new page with empty Loro document
    */
-  async addResource(websiteId: string, title: string = "Untitled", resourceType: string = "website") {
+  async addPage(spaceId: string, title: string = "Untitled", pageType: string = "content") {
     try {
-      console.log('📝 [DataState] Creating resource:', { websiteId, title, resourceType });
+      console.log("[DataState] Creating page:", { spaceId, title, pageType });
 
-      // Create empty document snapshots (doesn't mutate coordinator state)
-      const snapshots = loroCoordinator.createEmptyDocumentSnapshots(title);
-
-      // Create content structure for backend (ONLY Loro document arrays)
-      const loroContent = {
-        template_doc: Array.from(snapshots.template),
-        content_doc: Array.from(snapshots.content),
-        user_content_doc: Array.from(snapshots.userContent),
-        collaborative_doc: Array.from(snapshots.collaborative),
-        submissions_doc: Array.from(snapshots.submissions),
-        static_assets: {} // Empty map for new resources
-      };
-
-      console.log('✅ [DataState] Loro content created');
-      console.log('📦 [DataState] loroContent.static_assets (addResource):', loroContent.static_assets);
-
-      // Create metadata (unencrypted) - includes title, timestamps, client info
+      // Create metadata
       const metadata = {
         title: title,
-        type: resourceType,
+        type: pageType,
         client_id: this.clientId.toString(),
         last_modified: Date.now(),
-        search: {
-          docs: ["content_doc", "collaborative_doc"]
-        }
       };
 
-      // Send to backend - returns ResourceMetadata
-      const resourceMetadata = await sendMessage("addCredential", {
-        resourcePayload: JSON.stringify(loroContent),
-        folderId: websiteId,
-        resourceType: resourceType,
-        permitTemplateJson: JSON.stringify(PAGE_TEMPLATE),
-        metadataJson: JSON.stringify(metadata)
-      });
-      console.log("response we got back", resourceMetadata);
+      // Create page via backend
+      // Send full PAGE_TEMPLATE - gurkha needs owner_template.delegation for permit chains
+      const pageMetadata = await createPage(
+        spaceId,
+        pageType,
+        JSON.stringify(PAGE_TEMPLATE),
+        JSON.stringify(metadata)
+      );
 
-      console.log('✅ [DataState] Resource created:', resourceMetadata.id);
+      console.log("[DataState] Page created:", pageMetadata.id);
 
-      // Add to resources list
-      const newResource = {
-        id: resourceMetadata.id,
-        title: resourceMetadata.title,
-        resourceType: resourceMetadata.resourceType,
-        websiteId: resourceMetadata.folderId,
-        lastModified: resourceMetadata.lastModified,
-        favourite: resourceMetadata.favourite,
-        preview: resourceMetadata.preview || ''
+      // Add to pages list
+      const newPage: Page = {
+        id: pageMetadata.id,
+        title: pageMetadata.title,
+        pageType: pageMetadata.pageType,
+        spaceId: pageMetadata.spaceId,
+        lastModified: pageMetadata.lastModified,
+        favourite: pageMetadata.favourite,
+        preview: pageMetadata.preview,
       };
-      this.resources = [...this.resources, newResource];
+      this.pages = [...this.pages, newPage];
 
-      // Switch to the new resource (this loads the document into coordinator)
-      await this.switchResource(resourceMetadata.id);
+      // Switch to the new page
+      await this.switchPage(pageMetadata.id);
 
-      return newResource;
+      return newPage;
     } catch (error) {
-      console.error('❌ [DataState] Failed to create resource:', error);
+      console.error("[DataState] Failed to create page:", error);
       throw error;
     }
   }
 
   /**
-   * Switch to a resource and load its Loro documents
+   * Switch to a page and load its Loro documents
+   * Auto-sync starts immediately after loading
    */
-  async switchResource(resourceId: string) {
+  async switchPage(pageId: string) {
     try {
-      console.log('📂 [DataState] Switching to resource:', resourceId);
+      console.log("[DataState] Switching to page:", pageId);
 
-      // Capture current resource's snapshots BEFORE loading new resource
-      // This prevents race condition where coordinator data gets overwritten
-      const currentResourceId = this.currentResourceId;
-      if (currentResourceId && currentResourceId !== resourceId) {
-        // Get snapshots synchronously from current coordinator state
-        const snapshots = loroCoordinator.exportSnapshots();
-        const contentMap = loroCoordinator.getContentMap();
-        const title = contentMap.get('title') as string || 'Untitled';
-
-        // Convert staticAssets to map format (asset_id -> base64_string)
-        const staticAssetsMap: Record<string, string> = {};
-        for (const [key, value] of Object.entries(snapshots.staticAssets || {})) {
-          // Convert Uint8Array to base64 string in chunks to avoid stack overflow
-          const uint8Array = value instanceof Uint8Array ? value : new Uint8Array(value);
-          const chunkSize = 8192; // Process 8KB at a time
-          let binaryString = '';
-
-          for (let i = 0; i < uint8Array.length; i += chunkSize) {
-            const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
-            binaryString += String.fromCharCode(...Array.from(chunk));
-          }
-
-          const base64 = btoa(binaryString);
-          staticAssetsMap[key] = base64;
-        }
-
-        console.log('🔍 [DataState] staticAssets from snapshots:', {
-          keys: Object.keys(snapshots.staticAssets || {}),
-          count: Object.keys(snapshots.staticAssets || {}).length,
-          mapSize: Object.keys(staticAssetsMap).length
-        });
-
-        // Create Loro content structure
-        const loroContent = {
-          template_doc: Array.from(snapshots.template),
-          content_doc: Array.from(snapshots.content),
-          user_content_doc: Array.from(snapshots.userContent),
-          collaborative_doc: Array.from(snapshots.collaborative),
-          submissions_doc: Array.from(snapshots.submissions),
-          static_assets: staticAssetsMap,
-        };
-
-        console.log('📦 [DataState] Captured snapshots for previous resource:', currentResourceId);
-        console.log('📦 [DataState] loroContent.static_assets:', loroContent.static_assets);
-
-        // Fire and forget - save in background
-        sendMessage("updateCredential", {
-          id: currentResourceId,
-          data: JSON.stringify(loroContent)
-        }).then(() => {
-          console.log('✅ [DataState] Background save completed:', currentResourceId);
-        }).catch(error => {
-          console.error('❌ [DataState] Background save failed:', error);
-        });
+      // Stop syncing previous page
+      if (this.currentPageId && this.currentPageId !== pageId) {
+        syncManager.stopSync();
+        await closePage(this.currentPageId);
       }
 
-      // Fetch full resource data from backend
-      const resource = await sendMessage("getCredential", { resourceId });
+      // Open page and get content
+      const page = await openPage(pageId);
 
-      console.log('✅ [DataState] Resource fetched:', { id: resource.id, hasData: resource.data });
+      console.log("[DataState] Page opened:", { id: page.id, hasData: !!page.data });
 
-      // resource.data is already an object, no need to JSON.parse
-      if (!resource.data) {
-        console.error('❌ [DataState] No data in resource');
+      if (!page.data) {
+        console.error("[DataState] No data in page");
         return;
       }
 
-      const loroData = resource.data;
+      const loroData = page.data;
 
-      // Convert staticAssets map (base64 strings) back to Uint8Array object
+      // Convert staticAssets from base64 strings to Uint8Array
       const staticAssetsObj: Record<string, Uint8Array> = {};
-      if (loroData.static_assets && typeof loroData.static_assets === 'object') {
+      if (loroData.static_assets && typeof loroData.static_assets === "object") {
         for (const [assetId, base64Data] of Object.entries(loroData.static_assets)) {
-          if (typeof base64Data === 'string') {
-            // Convert base64 string back to Uint8Array
+          if (typeof base64Data === "string") {
             const binaryString = atob(base64Data);
             const bytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
@@ -411,12 +375,10 @@ class DataState {
             staticAssetsObj[assetId] = bytes;
           }
         }
-        console.log('📦 [DataState] Loaded', Object.keys(loroData.static_assets).length, 'static assets');
+        console.log("[DataState] Loaded", Object.keys(loroData.static_assets).length, "static assets");
       }
 
       // Load Loro documents from snapshots
-      // Note: Documents may be missing for viewers (per Permit permission filtering)
-      // Create empty snapshots for missing documents to avoid Loro import errors
       const snapshots = {
         template: loroData.template_doc
           ? new Uint8Array(loroData.template_doc)
@@ -433,161 +395,121 @@ class DataState {
         submissions: loroData.submissions_doc
           ? new Uint8Array(loroData.submissions_doc)
           : loroCoordinator.createEmptyDocumentSnapshots().submissions,
-        staticAssets: staticAssetsObj
+        staticAssets: staticAssetsObj,
       };
 
       loroCoordinator.loadDocument(snapshots);
 
-      console.log('✅ [DataState] Documents loaded into coordinator');
+      console.log("[DataState] Documents loaded into coordinator");
 
-      // Debug: Check what's in contentMap
-      const contentMap = loroCoordinator.getContentMap();
-      const humlSource = contentMap.get('huml_source');
-      console.log('🔍 [DataState] ContentMap keys:', Array.from(contentMap.keys()));
-      console.log('🔍 [DataState] HUML source length:', typeof humlSource === 'string' ? humlSource.length : 'not found');
+      // Set currentPageId AFTER loading documents
+      this.currentPageId = pageId;
 
-      // IMPORTANT: Set currentResourceId AFTER loading documents
-      // This ensures effects in BuilderApp see the fresh documents
-      this.currentResourceId = resourceId;
+      // Start auto-sync for this page
+      // Every Loro change will now be sent to backend automatically
+      syncManager.startSync(pageId, loroCoordinator.getDocuments());
 
-      console.log('✅ [DataState] Resource switched successfully:', resourceId);
+      console.log("[DataState] Page switched and auto-sync started:", pageId);
     } catch (error) {
-      console.error('❌ [DataState] Failed to switch resource:', error);
-      throw error;
-    }
-  }
-
-
-  /**
-   * Merge incoming CRDT updates into currently active Loro documents
-   * Called when resource-updated event is received for the active resource
-   */
-  async mergeIncomingUpdates(updates: Record<string, number[]>) {
-    try {
-      console.log('🔄 [DataState] Merging incoming updates...');
-
-      // Convert number arrays back to Uint8Array
-      const updatesMap: Record<string, Uint8Array> = {};
-      for (const [docName, updateArray] of Object.entries(updates)) {
-        updatesMap[docName] = new Uint8Array(updateArray);
-      }
-
-      // Delegate to loroCoordinator to merge updates
-      loroCoordinator.mergeIncomingUpdates(updatesMap);
-
-      console.log('✅ [DataState] Updates merged successfully');
-    } catch (error) {
-      console.error('❌ [DataState] Failed to merge updates:', error);
+      console.error("[DataState] Failed to switch page:", error);
       throw error;
     }
   }
 
   /**
-   * Save the currently active resource
-   * Gets Loro snapshots from coordinator and saves to backend
+   * Update page's lastModified timestamp
    */
-  async saveCurrentResource(resourceId: string) {
-    try {
-      console.log('💾 [DataState] Saving resource:', resourceId);
-
-      // Export current state from Loro coordinator
-      const snapshots = loroCoordinator.exportSnapshots();
-
-      // Get current title from contentDoc
-      const contentMap = loroCoordinator.getContentMap();
-      const title = contentMap.get('title') as string || 'Untitled';
-
-      // Convert staticAssets to map format (asset_id -> base64_string)
-      const staticAssetsMap: Record<string, string> = {};
-      for (const [key, value] of Object.entries(snapshots.staticAssets || {})) {
-        // Convert Uint8Array to base64 string in chunks to avoid stack overflow
-        const uint8Array = value instanceof Uint8Array ? value : new Uint8Array(value);
-        const chunkSize = 8192; // Process 8KB at a time
-        let binaryString = '';
-
-        for (let i = 0; i < uint8Array.length; i += chunkSize) {
-          const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
-          binaryString += String.fromCharCode(...Array.from(chunk));
-        }
-
-        const base64 = btoa(binaryString);
-        staticAssetsMap[key] = base64;
-      }
-
-      console.log('🔍 [DataState] staticAssets from snapshots (save):', {
-        keys: Object.keys(snapshots.staticAssets || {}),
-        count: Object.keys(snapshots.staticAssets || {}).length,
-        mapSize: Object.keys(staticAssetsMap).length
-      });
-
-      // Create Loro content structure for backend (documents only, no metadata)
-      const loroContent = {
-        template_doc: Array.from(snapshots.template),
-        content_doc: Array.from(snapshots.content),
-        user_content_doc: Array.from(snapshots.userContent),
-        collaborative_doc: Array.from(snapshots.collaborative),
-        submissions_doc: Array.from(snapshots.submissions),
-        static_assets: staticAssetsMap
-      };
-
-      console.log('📦 [DataState] Loro content prepared:', {
-        title,
-        hasTemplateDoc: !!loroContent.template_doc,
-        hasContentDoc: !!loroContent.content_doc,
-        templateSize: loroContent.template_doc.length,
-        contentSize: loroContent.content_doc.length,
-        staticAssetsCount: Object.keys(loroContent.static_assets).length
-      });
-      console.log('📦 [DataState] loroContent.static_assets (save):', loroContent.static_assets);
-
-      // Update lastModified timestamp locally
-      const timestamp = Date.now();
-      this.updateResourceLastModified(resourceId, timestamp);
-
-      // Send to backend
-      await sendMessage("updateCredential", {
-        id: resourceId,
-        data: JSON.stringify(loroContent)
-      });
-
-      console.log('✅ [DataState] Resource saved:', resourceId);
-    } catch (error) {
-      console.error('❌ [DataState] Failed to save resource:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Update resource's lastModified timestamp in the resources array
-   */
-  private updateResourceLastModified(resourceId: string, timestamp: number) {
-    const index = this.resources.findIndex(r => r.id === resourceId);
+  private updatePageLastModified(pageId: string, timestamp: number) {
+    const index = this.pages.findIndex((p) => p.id === pageId);
     if (index !== -1) {
-      this.resources[index].lastModified = timestamp;
+      this.pages[index].lastModified = timestamp;
     }
   }
 
   /**
-   * Cleanup reactive updates (event listeners)
+   * Cleanup event listeners and stop sync
    */
-  cleanupReactiveUpdates() {
-    console.log('🧹 [DataState] Cleaning up event listeners');
-    this._unlisteners.forEach(fn => fn());
+  cleanupEventListeners() {
+    console.log("[DataState] Cleaning up event listeners");
+    syncManager.stopSync();
+    this._unlisteners.forEach((fn) => fn());
     this._unlisteners = [];
   }
 
   /**
-   * Cleanup (alias for cleanupReactiveUpdates)
+   * Alias for cleanupEventListeners (used by App.svelte)
    */
-  destroy() {
-    this.cleanupReactiveUpdates();
+  cleanupReactiveUpdates() {
+    this.cleanupEventListeners();
   }
 
   /**
-   * Get the Loro coordinator (alias for compatibility with SubmissionsViewer)
+   * Cleanup
+   */
+  destroy() {
+    this.cleanupEventListeners();
+  }
+
+  /**
+   * Get the Loro coordinator
    */
   getBlocksuiteCoordinator() {
     return loroCoordinator;
+  }
+
+  // ===== Compatibility aliases =====
+  // These maintain backwards compatibility with old component code
+  // TODO: Migrate components to new terminology and remove these
+
+  get websites() {
+    return this.spaces;
+  }
+
+  get currentWebsite() {
+    return this.currentSpace;
+  }
+
+  get resources() {
+    return this.pages.map((p) => ({
+      id: p.id,
+      title: p.title,
+      resourceType: p.pageType,
+      websiteId: p.spaceId,
+      lastModified: p.lastModified,
+      favourite: p.favourite,
+      preview: p.preview,
+    }));
+  }
+
+  get currentResourceId() {
+    return this.currentPageId;
+  }
+
+  get isResourceLoading() {
+    return this.isDataLoading;
+  }
+
+  async addResource(spaceId: string, title?: string, pageType?: string) {
+    return this.addPage(spaceId, title || "Untitled", pageType || "content");
+  }
+
+  async switchResource(resourceId: string) {
+    return this.switchPage(resourceId);
+  }
+
+  async addWebsite(name: string) {
+    return this.addSpace(name);
+  }
+
+  switchWebsite(space: Space | string) {
+    if (typeof space === "string") {
+      const found = this.spaces.find((s) => s.id === space);
+      if (found) {
+        this.switchSpace(found);
+      }
+    } else {
+      this.switchSpace(space);
+    }
   }
 }
 

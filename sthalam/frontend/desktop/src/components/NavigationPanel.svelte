@@ -8,7 +8,6 @@
 	import SyncResourceButton from "./SyncResourceButton.svelte";
 	import SyncFolderButton from "./SyncFolderButton.svelte";
 	import ModeSwitcher from "./ModeSwitcher.svelte";
-	import SaveButton from "./SaveButton.svelte";
 	import NavigationToggle from "./NavigationToggle.svelte";
 	import { Add } from "@osvauld/icons";
 
@@ -55,8 +54,7 @@
 				</div>
 				<NavigationToggle />
 			</div>
-			<!-- Save Button -->
-			<SaveButton />
+			<!-- Auto-sync enabled - no manual save button needed -->
 			<!-- Sync Resource Button -->
 			<SyncResourceButton />
 			<!-- Sync Folder Button -->

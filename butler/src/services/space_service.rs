@@ -13,7 +13,7 @@ use crate::storage::{RedbStore, LayerCache};
 use crate::models::{
     SpaceData, SpaceMeta, Space,
     PageData, PageMeta, Page, PageType,
-    Layer, DecryptedPage,
+    Layer, DecryptedPage, PreparedPage,
 };
 use herald::{generate_aes_key, encrypt, encrypt_symmetric};
 use std::collections::HashMap;
@@ -146,6 +146,61 @@ pub fn set_space_permit(store: &RedbStore, space_id: &str, permit: String) -> Re
     Ok(())
 }
 
+/// Store a space received from owner via publish (Node mode)
+///
+/// **Context**: Node received PublishSpace from owner
+/// **We do**: Store space metadata with the delegated permit
+pub fn store_published_space(store: &RedbStore, space: &Space, permit: &str) -> Result<()> {
+    store_published_space_with_source(store, space, permit, None)
+}
+
+/// Store a space received from another peer with source tracking
+///
+/// **Context**: Viewer received SpaceData from node, or Node received PublishSpace from owner
+/// **We do**: Store space metadata with the delegated permit and source node
+/// **Note**: source_node_id is set for viewers to know which node to sync back to
+pub fn store_published_space_with_source(
+    store: &RedbStore,
+    space: &Space,
+    permit: &str,
+    source_node_id: Option<&str>,
+) -> Result<()> {
+    let meta = SpaceMeta {
+        id: space.id.clone(),
+        name: space.name.clone(),
+        parent_space_id: space.parent_space_id.clone(),
+        owner_did: space.owner_did.clone(),
+        is_default: space.is_default,
+        description: space.description.clone(),
+        created_at: space.created_at,
+        updated_at: space.updated_at,
+    };
+
+    let mut data = if let Some(node_id) = source_node_id {
+        SpaceData::with_source(meta, node_id.to_string())
+    } else {
+        SpaceData::new(meta)
+    };
+    data.set_permit(permit.to_string());
+    store.put_space(&data)?;
+    Ok(())
+}
+
+/// Mark a space as published to a specific node
+///
+/// **Context**: Owner received ack that space was published
+/// **We do**: Update space metadata to track which nodes have it
+pub fn mark_space_published(store: &RedbStore, space_id: &str, node_id: &str) -> Result<()> {
+    let mut space = store.get_space(space_id)?
+        .ok_or_else(|| ButlerError::SpaceNotFound(space_id.to_string()))?;
+
+    // Add node_id to published_to list (using shares for now - could add separate field)
+    // For simplicity, store as "published:{node_id}" in shares
+    space.add_share(format!("published:{}", node_id));
+    store.put_space(&space)?;
+    Ok(())
+}
+
 // =========================================================================
 // Page Operations
 // =========================================================================
@@ -158,22 +213,27 @@ pub fn set_space_permit(store: &RedbStore, space_id: &str, permit: String) -> Re
 /// * `name` - Page name
 /// * `owner_did` - Owner's DID
 /// * `owner_public_key` - Owner's X25519 public key for encrypting AES key
+/// * `signing_key` - Owner's Ed25519 signing key for permit issuance
 /// * `page_type` - Type of page
 /// * `layer_names` - List of layer names from permit template (e.g., ["content", "comments"])
+/// * `permit_template_json` - JSON template for the page permit (PAGE_TEMPLATE)
 ///
-/// # Encryption Flow
+/// # Flow
 /// 1. Generate random AES-256 key
 /// 2. For each layer_name: create empty Layer, encrypt with AES, store at {page_id}/{layer_name}
 /// 3. Encrypt AES key for owner using X25519 ECIES
-/// 4. Store page with encrypted_key
+/// 4. Issue page owner permit via gurkha
+/// 5. Store page with encrypted_key and owner permit
 pub async fn create_page(
     store: &RedbStore,
     space_id: String,
     name: String,
     owner_did: String,
     owner_public_key: &[u8; 32],
+    signing_key: &[u8; 32],
     page_type: PageType,
     layer_names: Vec<String>,
+    permit_template_json: &str,
 ) -> Result<Page> {
     // Verify space exists
     if store.get_space(&space_id)?.is_none() {
@@ -203,13 +263,22 @@ pub async fn create_page(
     let encrypted_key = encrypt(owner_public_key, &aes_key)
         .map_err(|e| ButlerError::Encryption(e.to_string()))?;
 
+    // Issue page owner permit via gurkha
+    let (owner_permit, _cid) = gurkha::issue_page_owner_token(
+        signing_key,
+        &page_id,
+        permit_template_json,
+    ).await.map_err(|e| ButlerError::Permit(e.to_string()))?;
+
     // Create page metadata with encrypted key
     let mut meta = PageMeta::new(name, space_id, owner_did)
         .with_type(page_type)
         .with_encrypted_key(encrypted_key);
     meta.id = page_id; // Use the ID we generated earlier
 
-    let data = PageData::new(meta.clone());
+    // Store page with owner's permit
+    let mut data = PageData::new(meta.clone());
+    data.set_permit(owner_permit);
     store.put_page(&data)?;
 
     Ok(Page::from(meta))
@@ -342,6 +411,30 @@ pub fn set_page_permit(
 }
 
 // =========================================================================
+// Source Node Queries (for lazy sync)
+// =========================================================================
+
+/// Get the source node for a page (looks up space's source_node_id)
+///
+/// **Context**: Scribe needs to know which node to sync to for lazy subscription
+/// **We do**: Find page → get space_id → get space → return source_node_id
+pub fn get_source_node_for_page(store: &RedbStore, page_id: &str) -> Result<Option<String>> {
+    // Find the page to get its space_id
+    let page = match store.find_page_by_id(page_id)? {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+
+    // Get the space to get source_node_id
+    let space = match store.get_space(&page.meta.space_id)? {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    Ok(space.source_node_id)
+}
+
+// =========================================================================
 // Access Queries
 // =========================================================================
 
@@ -355,14 +448,13 @@ pub fn get_accessible_spaces(store: &RedbStore, user_did: &str) -> Result<Vec<Sp
         .collect())
 }
 
-/// Get all pages a user has access to
-pub fn get_accessible_pages(store: &RedbStore, user_did: &str) -> Result<Vec<Page>> {
+/// Get all pages (no filtering - if stored, user has access)
+///
+/// On viewer side: if page is in DB, viewer received it from an authorized node
+/// On owner side: if page is in DB, owner created it or has permit for it
+pub fn get_pages(store: &RedbStore) -> Result<Vec<Page>> {
     let all_pages = store.list_all_pages()?;
-    Ok(all_pages
-        .into_iter()
-        .filter(|p| p.meta.owner_did == user_did || p.has_share(user_did))
-        .map(Page::from)
-        .collect())
+    Ok(all_pages.into_iter().map(Page::from).collect())
 }
 
 /// Check if a user has access to a space
@@ -463,13 +555,13 @@ pub fn get_page_metadata(store: &RedbStore, page_id: &str) -> Result<Option<Page
 /// * `private_key` - User's X25519 secret key for decryption
 ///
 /// # Returns
-/// `DecryptedPage` containing metadata and decrypted layer bytes
+/// `(DecryptedPage, [u8; 32])` - page data and the decrypted AES key for re-encryption
 pub async fn get_decrypted_page(
     store: &RedbStore,
     page_id: &str,
     _user_did: &str,
     private_key: &[u8; 32],
-) -> Result<DecryptedPage> {
+) -> Result<(DecryptedPage, [u8; 32])> {
     // 1. Find the page
     let page_data = store.find_page_by_id(page_id)?
         .ok_or_else(|| ButlerError::PageNotFound(page_id.to_string()))?;
@@ -513,9 +605,9 @@ pub async fn get_decrypted_page(
         docs.insert(name, bytes);
     }
 
-    // 7. Build and return DecryptedPage
+    // 7. Build and return DecryptedPage with AES key
     let page = Page::from(page_data);
-    Ok(DecryptedPage::new(page, permit, docs))
+    Ok((DecryptedPage::new(page, permit, docs), aes_key_arr))
 }
 
 // =========================================================================
@@ -565,14 +657,21 @@ pub async fn prepare_space_for_publish(
 /// Prepare page for publishing to node
 ///
 /// **Context**: Owner wants to publish page to their node
-/// **We do**: Get page, get owner's permit, issue node permit, decrypt layers
-/// **We return**: (PageMeta, permit, decrypted_layers) - Courier transforms and sends
+/// **We do**:
+///   1. Get page and owner's permit
+///   2. Delegate permit to node
+///   3. Parse permit to get local_only layers
+///   4. Decrypt all layers with AES key
+///   5. Filter out local_only layers
+///   6. Re-encrypt for transit using ephemeral ECDH
+/// **We return**: PreparedPage with transit-encrypted layers
 ///
 /// # Arguments
 /// * `store` - RedbStore reference
 /// * `page_id` - Page to publish
 /// * `_owner_did` - Owner's DID (unused, permit is on page directly)
-/// * `node_public_key` - Node's public key for permit audience
+/// * `node_public_key` - Node's Ed25519 signing public key (for permit audience)
+/// * `node_encryption_key` - Node's X25519 encryption public key (for transit encryption)
 /// * `owner_signing_key` - Owner's Ed25519 signing key
 /// * `owner_secret_key` - Owner's X25519 secret key for decrypting AES key
 pub async fn prepare_page_for_publish(
@@ -580,9 +679,10 @@ pub async fn prepare_page_for_publish(
     page_id: &str,
     _owner_did: &str,
     node_public_key: &str,
+    node_encryption_key: &[u8; 32],
     owner_signing_key: &[u8; 32],
     owner_secret_key: &[u8; 32],
-) -> Result<(PageMeta, String, HashMap<String, Vec<u8>>)> {
+) -> Result<PreparedPage> {
     // 1. Find the page
     let page_data = store.find_page_by_id(page_id)?
         .ok_or_else(|| ButlerError::PageNotFound(page_id.to_string()))?;
@@ -593,7 +693,12 @@ pub async fn prepare_page_for_publish(
             format!("Owner permit not found for page {}", page_id)
         ))?;
 
-    // 3. Issue page permit for node via gurkha
+    // 3. Parse permit to get local_only layers (for filtering)
+    let permit = gurkha::Permit::from_token(owner_permit)
+        .map_err(|e| ButlerError::Permit(format!("Failed to parse permit: {:?}", e)))?;
+    let local_only_layers: Vec<&String> = permit.sync_facts().local_only.iter().collect();
+
+    // 4. Issue page permit for node via gurkha
     let (node_permit, _cid) = gurkha::delegate_page(
         owner_signing_key,
         owner_permit,
@@ -601,26 +706,242 @@ pub async fn prepare_page_for_publish(
         node_public_key,
     ).await.map_err(|e| ButlerError::Permit(format!("Failed to issue page permit: {}", e)))?;
 
-    // 4. Decrypt AES key using owner's secret key
+    // 5. Decrypt AES key using owner's secret key
     let aes_key = herald::decrypt(owner_secret_key, &page_data.meta.encrypted_key)
         .map_err(|e| ButlerError::Encryption(format!("Failed to decrypt AES key: {}", e)))?;
 
     let aes_key_arr: [u8; 32] = aes_key.try_into()
         .map_err(|_| ButlerError::Encryption("Invalid AES key length".to_string()))?;
 
-    // 5. Get and decrypt all layers
+    // 6. Get and decrypt all layers, filtering out local_only
     let encrypted_layers = store.get_all_layers(page_id)?;
-    let mut decrypted_layers = HashMap::new();
+    let mut decrypted_layers = Vec::new();
 
     for (layer_name, encrypted_bytes) in encrypted_layers {
+        // Skip local_only layers (e.g., user_content_doc)
+        if local_only_layers.iter().any(|l| *l == &layer_name) {
+            // Skip local_only layers (e.g., user_content_doc) - not synced to node
+            continue;
+        }
+
         let decrypted_bytes = herald::decrypt_symmetric(&aes_key_arr, &encrypted_bytes)
             .map_err(|e| ButlerError::Encryption(
                 format!("Failed to decrypt layer {}: {}", layer_name, e)
             ))?;
-        decrypted_layers.insert(layer_name, decrypted_bytes);
+        decrypted_layers.push((layer_name, decrypted_bytes));
     }
 
-    Ok((page_data.meta, node_permit, decrypted_layers))
+    // 7. Generate ephemeral keypair and encrypt layers for transit
+    let (ephemeral_secret, ephemeral_public) = herald::generate_ephemeral_keypair();
+
+    // Derive transit key from ECDH
+    let shared_secret = herald::ecdh(&ephemeral_secret, node_encryption_key);
+    let transit_key = herald::derive_key(&shared_secret, None, b"herald-transit-v1");
+
+    // Encrypt each layer with transit key
+    let mut transit_layers = Vec::with_capacity(decrypted_layers.len());
+    for (layer_name, plaintext) in decrypted_layers {
+        let encrypted = herald::encrypt_symmetric(&transit_key, &plaintext)
+            .map_err(|e| ButlerError::Encryption(
+                format!("Failed to transit-encrypt layer {}: {}", layer_name, e)
+            ))?;
+        transit_layers.push((layer_name, encrypted));
+    }
+
+    Ok(PreparedPage {
+        meta: page_data.meta,
+        permit: node_permit,
+        ephemeral_public,
+        layers: transit_layers,
+    })
+}
+
+/// Store a page received via publish (Node mode)
+///
+/// **Context**: Node received PublishPage from owner
+/// **We do**:
+///   1. Decrypt layers using ECDH (ephemeral_public + our secret key)
+///   2. Generate new AES key for storage
+///   3. Re-encrypt layers with new AES key
+///   4. Encrypt AES key with Node's encryption public key (ECIES)
+///   5. Store page metadata with encrypted_key and permit
+///   6. Store all layers
+///
+/// # Arguments
+/// * `store` - RedbStore reference
+/// * `page_meta` - Page metadata from owner
+/// * `permit` - Node's permit for this page
+/// * `ephemeral_public` - Owner's ephemeral X25519 public key
+/// * `transit_layers` - Transit-encrypted layers
+/// * `node_secret_key` - Node's X25519 secret key for decryption
+/// * `node_public_key` - Node's X25519 public key for AES key encryption
+/// * `source_node_did` - Optional: DID of node that sent this page (for viewer tracking)
+pub fn store_published_page(
+    store: &RedbStore,
+    page_meta: PageMeta,
+    permit: &str,
+    ephemeral_public: &[u8; 32],
+    transit_layers: Vec<(String, Vec<u8>)>,
+    node_secret_key: &[u8; 32],
+    node_public_key: &[u8; 32],
+    source_node_did: Option<&str>,
+) -> Result<Page> {
+    // 1. Derive transit key from ECDH to decrypt
+    let shared_secret = herald::ecdh(node_secret_key, ephemeral_public);
+    let transit_key = herald::derive_key(&shared_secret, None, b"herald-transit-v1");
+
+    // 2. Decrypt all transit layers
+    let mut decrypted_layers = Vec::with_capacity(transit_layers.len());
+    for (layer_name, encrypted) in transit_layers {
+        let decrypted = herald::decrypt_symmetric(&transit_key, &encrypted)
+            .map_err(|e| ButlerError::Encryption(
+                format!("Failed to decrypt transit layer {}: {}", layer_name, e)
+            ))?;
+        decrypted_layers.push((layer_name, decrypted));
+    }
+
+    // 3. Generate new AES key for storage on Node
+    let aes_key = herald::generate_aes_key();
+
+    // 4. Re-encrypt layers with new AES key
+    for (layer_name, plaintext) in &decrypted_layers {
+        let encrypted = herald::encrypt_symmetric(&aes_key, plaintext)
+            .map_err(|e| ButlerError::Encryption(
+                format!("Failed to encrypt layer {}: {}", layer_name, e)
+            ))?;
+        store.put_layer(&page_meta.id, layer_name, &encrypted)?;
+    }
+
+    // 5. Encrypt AES key with Node's encryption public key (ECIES)
+    let encrypted_key = herald::encrypt(node_public_key, &aes_key)
+        .map_err(|e| ButlerError::Encryption(format!("Failed to encrypt AES key: {}", e)))?;
+
+    // 6. Create page metadata with encrypted key
+    let mut meta = page_meta;
+    meta.encrypted_key = encrypted_key;
+
+    // 7. Store page with permit
+    let mut data = PageData::new(meta.clone());
+    data.set_permit(permit.to_string());
+
+    // Track source node in shares (viewer uses this to know where to get updates)
+    if let Some(node_did) = source_node_did {
+        data.add_share(node_did.to_string());
+    }
+
+    store.put_page(&data)?;
+
+    Ok(Page::from(meta))
+}
+
+/// Prepare page for viewer (Node mode)
+///
+/// **Context**: Node is responding to viewer's SpaceRequest
+/// **We do**:
+///   1. Get page and node's permit
+///   2. Delegate permit to viewer using "viewer" template
+///   3. Filter out local_only layers
+///   4. Encrypt layers for transit using ephemeral ECDH
+///
+/// # Arguments
+/// * `store` - RedbStore reference
+/// * `page_id` - Page to prepare
+/// * `viewer_public_key` - Viewer's Ed25519 signing public key (for permit audience)
+/// * `viewer_encryption_key` - Viewer's X25519 encryption public key (for transit encryption)
+/// * `node_signing_key` - Node's Ed25519 signing key
+/// * `node_secret_key` - Node's X25519 secret key for decrypting AES key
+pub async fn prepare_page_for_viewer(
+    store: &RedbStore,
+    page_id: &str,
+    viewer_public_key: &str,
+    viewer_encryption_key: &[u8; 32],
+    node_signing_key: &[u8; 32],
+    node_secret_key: &[u8; 32],
+) -> Result<PreparedPage> {
+    // 1. Find the page
+    let page_data = store.find_page_by_id(page_id)?
+        .ok_or_else(|| ButlerError::PageNotFound(page_id.to_string()))?;
+
+    // 2. Get node's permit from the page
+    let node_permit = page_data.get_permit()
+        .ok_or_else(|| ButlerError::PermitNotFound(
+            format!("Node permit not found for page {}", page_id)
+        ))?;
+
+    // 3. Parse permit to get local_only layers (for filtering)
+    let permit = gurkha::Permit::from_token(node_permit)
+        .map_err(|e| ButlerError::Permit(format!("Failed to parse permit: {:?}", e)))?;
+    let local_only_layers: Vec<&String> = permit.sync_facts().local_only.iter().collect();
+
+    // 4. Issue page permit for viewer via gurkha
+    let (viewer_permit, _cid) = gurkha::delegate_page(
+        node_signing_key,
+        node_permit,
+        "viewer",  // template_key from PAGE_TEMPLATE.delegation.viewer
+        viewer_public_key,
+    ).await.map_err(|e| ButlerError::Permit(format!("Failed to issue viewer permit: {}", e)))?;
+
+    // 5. Decrypt AES key using node's secret key
+    let aes_key = herald::decrypt(node_secret_key, &page_data.meta.encrypted_key)
+        .map_err(|e| ButlerError::Encryption(format!("Failed to decrypt AES key: {}", e)))?;
+
+    let aes_key_arr: [u8; 32] = aes_key.try_into()
+        .map_err(|_| ButlerError::Encryption("Invalid AES key length".to_string()))?;
+
+    // 6. Get and decrypt all layers, filtering out local_only
+    let encrypted_layers = store.get_all_layers(page_id)?;
+    let mut decrypted_layers = Vec::new();
+
+    for (layer_name, encrypted_bytes) in encrypted_layers {
+        // Skip local_only layers (e.g., user_content_doc) - not synced to viewer
+        if local_only_layers.iter().any(|l| *l == &layer_name) {
+            continue;
+        }
+
+        let decrypted_bytes = herald::decrypt_symmetric(&aes_key_arr, &encrypted_bytes)
+            .map_err(|e| ButlerError::Encryption(
+                format!("Failed to decrypt layer {}: {}", layer_name, e)
+            ))?;
+        decrypted_layers.push((layer_name, decrypted_bytes));
+    }
+
+    // 7. Generate ephemeral keypair and encrypt layers for transit
+    let (ephemeral_secret, ephemeral_public) = herald::generate_ephemeral_keypair();
+
+    // Derive transit key from ECDH
+    let shared_secret = herald::ecdh(&ephemeral_secret, viewer_encryption_key);
+    let transit_key = herald::derive_key(&shared_secret, None, b"herald-transit-v1");
+
+    // Encrypt each layer with transit key
+    let mut transit_layers = Vec::with_capacity(decrypted_layers.len());
+    for (layer_name, plaintext) in decrypted_layers {
+        let encrypted = herald::encrypt_symmetric(&transit_key, &plaintext)
+            .map_err(|e| ButlerError::Encryption(
+                format!("Failed to transit-encrypt layer {}: {}", layer_name, e)
+            ))?;
+        transit_layers.push((layer_name, encrypted));
+    }
+
+    Ok(PreparedPage {
+        meta: page_data.meta,
+        permit: viewer_permit,
+        ephemeral_public,
+        layers: transit_layers,
+    })
+}
+
+/// Mark a page as published to a specific node
+///
+/// **Context**: Owner received ack that page was published
+/// **We do**: Update page metadata to track which nodes have it
+pub fn mark_page_published(store: &RedbStore, page_id: &str, node_id: &str) -> Result<()> {
+    let mut page = store.find_page_by_id(page_id)?
+        .ok_or_else(|| ButlerError::PageNotFound(page_id.to_string()))?;
+
+    // Add node_id to shares list to track publishing (using "published:{node_id}" prefix)
+    page.add_share(format!("published:{}", node_id));
+    store.put_page(&page)?;
+    Ok(())
 }
 
 /// Update a page's layers with new snapshot data

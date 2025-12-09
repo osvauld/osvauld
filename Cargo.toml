@@ -10,6 +10,7 @@ members = [
   "herald",
   "transport",
   "courier",
+  "integration_tests",
 ]
 
 # Speed up dev builds

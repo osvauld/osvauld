@@ -74,60 +74,91 @@ pub async fn issue_peer_connection(
     Ok(token)
 }
 
-/// Issue a viewer authentication token
+/// Issue a page viewer authentication token
 ///
 /// Facts-only approach - no domain needed.
 ///
 /// # Arguments
 /// * `signing_key_bytes` - 32-byte Ed25519 secret key
-/// * `resource_id` - Resource identifier
-#[instrument(skip(signing_key_bytes), fields(resource_id = %resource_id, token_type = "viewer_auth"))]
-pub async fn issue_viewer_auth(
+/// * `page_id` - Page identifier
+#[instrument(skip(signing_key_bytes), fields(page_id = %page_id, token_type = "viewer_auth"))]
+pub async fn issue_page_viewer_auth(
     signing_key_bytes: &[u8; 32],
-    resource_id: &str,
+    page_id: &str,
 ) -> ServiceResult<String> {
-    debug!("Issuing viewer authentication token");
+    debug!("Issuing page viewer authentication token");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
 
-    let decision = decision::decide_viewer_auth(&verifying_key, resource_id)?;
+    let decision = decision::decide_page_viewer_auth(&verifying_key, page_id)?;
 
     let (token, _cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
 
-    info!("Viewer auth token generated");
+    info!("Page viewer auth token generated");
     Ok(token)
 }
 
-/// Issue a folder viewer authentication token (for shareable links)
+/// Issue a space viewer authentication token (for shareable links)
 ///
 /// This is a one-time token with wildcard audience that viewers use to connect.
-/// Used in the FolderTokenRequest flow to generate shareable connection strings.
+/// Used in the SpaceTokenRequest flow to generate shareable connection strings.
 /// Facts-only approach - no domain needed.
 ///
 /// # Arguments
 /// * `signing_key_bytes` - 32-byte Ed25519 secret key
-/// * `folder_id` - Folder identifier
-#[instrument(skip(signing_key_bytes), fields(folder_id = %folder_id, token_type = "folder_viewer_auth"))]
-pub async fn issue_folder_viewer_auth(
+/// * `space_id` - Space identifier
+#[instrument(skip(signing_key_bytes), fields(space_id = %space_id, token_type = "space_viewer_auth"))]
+pub async fn issue_space_viewer_auth(
     signing_key_bytes: &[u8; 32],
-    folder_id: &str,
+    space_id: &str,
 ) -> ServiceResult<(String, String)> {
-    debug!("Issuing folder viewer authentication token");
+    debug!("Issuing space viewer authentication token");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
 
-    let decision = decision::decide_folder_viewer_auth(&verifying_key, folder_id)?;
+    let decision = decision::decide_space_viewer_auth(&verifying_key, space_id)?;
     debug!("Token decision created");
 
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
 
-    info!("Folder viewer auth token generated: cid={}", cid);
+    info!("Space viewer auth token generated: cid={}", cid);
     Ok((token, cid))
 }
 
 // ==================== PAGE TOKENS ====================
+
+/// Issue page owner token
+///
+/// Creates a self-signed permit for the page owner with full permissions.
+/// Facts-only approach - all permissions stored in token facts.
+///
+/// # Arguments
+/// * `signing_key_bytes` - 32-byte Ed25519 secret key
+/// * `page_id` - Page identifier
+/// * `permit_template_json` - JSON template for the permit (PAGE_TEMPLATE)
+#[instrument(skip(signing_key_bytes, permit_template_json), fields(page_id = %page_id, token_type = "page_owner"))]
+pub async fn issue_page_owner_token(
+    signing_key_bytes: &[u8; 32],
+    page_id: &str,
+    permit_template_json: &str,
+) -> ServiceResult<(String, String)> {
+    debug!("Issuing page owner token");
+
+    let signing_key = SigningKey::from_bytes(signing_key_bytes);
+    let verifying_key = signing_key.verifying_key();
+
+    debug!("Parsing page template");
+    let decision =
+        decision::decide_page_owner_token(&verifying_key, page_id, permit_template_json)?;
+    debug!("Token decision created");
+
+    let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
+
+    info!("Page owner token generated: cid={}", cid);
+    Ok((token, cid))
+}
 
 /// Unified page delegation
 ///
@@ -383,4 +414,96 @@ impl From<crate::decision::DelegationDecision> for crate::decision::TokenDecisio
             proof_tokens: dd.proof_tokens,
         }
     }
+}
+
+// ==================== SYNC CONSENT TOKENS ====================
+
+/// Issue a space sync consent permit
+///
+/// **Context**: Viewer issues this permit back to the node after receiving SpaceSync.
+/// It expresses the viewer's consent to receive sync updates and new pages for this space.
+///
+/// **Issued by**: Viewer
+/// **Audience**: Node (specific node pubkey/DID)
+/// **Proof**: Node's original viewer permit (establishes delegation chain)
+///
+/// # Arguments
+/// * `signing_key_bytes` - Viewer's 32-byte Ed25519 secret key
+/// * `node_pubkey` - Node's public key (audience of the consent permit)
+/// * `space_id` - Space identifier
+/// * `node_viewer_permit` - Node's original permit issued to the viewer (used as proof)
+/// * `template_json` - JSON template for the consent permit (SYNC_SPACE_CONSENT_TEMPLATE)
+///
+/// # Returns
+/// * `Ok((token, cid))` - The consent permit token and its CID
+#[instrument(skip(signing_key_bytes, node_viewer_permit, template_json), fields(space_id = %space_id, token_type = "sync_space_consent"))]
+pub async fn issue_sync_space_consent(
+    signing_key_bytes: &[u8; 32],
+    node_pubkey: &str,
+    space_id: &str,
+    node_viewer_permit: &str,
+    template_json: &str,
+) -> ServiceResult<(String, String)> {
+    debug!("Issuing space sync consent permit");
+
+    let signing_key = SigningKey::from_bytes(signing_key_bytes);
+    let verifying_key = signing_key.verifying_key();
+
+    let token_decision = decision::decide_sync_space_consent(
+        &verifying_key,
+        node_pubkey,
+        space_id,
+        node_viewer_permit,
+        template_json,
+    )?;
+
+    let (token, cid) = crypto::sign_permit(signing_key_bytes, &token_decision).await?;
+
+    info!("Space sync consent permit issued: cid={}", cid);
+    Ok((token, cid))
+}
+
+/// Issue a page sync consent permit
+///
+/// **Context**: Viewer issues this permit back to the node after receiving PageSync.
+/// It expresses the viewer's consent to receive layer updates for this specific page.
+///
+/// **Issued by**: Viewer
+/// **Audience**: Node (specific node pubkey/DID)
+/// **Proof**: Node's original page_viewer permit (establishes delegation chain)
+///
+/// # Arguments
+/// * `signing_key_bytes` - Viewer's 32-byte Ed25519 secret key
+/// * `node_pubkey` - Node's public key (audience of the consent permit)
+/// * `page_id` - Page identifier
+/// * `node_viewer_permit` - Node's original permit issued to the viewer (used as proof)
+/// * `template_json` - JSON template for the consent permit (SYNC_PAGE_CONSENT_TEMPLATE)
+///
+/// # Returns
+/// * `Ok((token, cid))` - The consent permit token and its CID
+#[instrument(skip(signing_key_bytes, node_viewer_permit, template_json), fields(page_id = %page_id, token_type = "sync_page_consent"))]
+pub async fn issue_sync_page_consent(
+    signing_key_bytes: &[u8; 32],
+    node_pubkey: &str,
+    page_id: &str,
+    node_viewer_permit: &str,
+    template_json: &str,
+) -> ServiceResult<(String, String)> {
+    debug!("Issuing page sync consent permit");
+
+    let signing_key = SigningKey::from_bytes(signing_key_bytes);
+    let verifying_key = signing_key.verifying_key();
+
+    let token_decision = decision::decide_sync_page_consent(
+        &verifying_key,
+        node_pubkey,
+        page_id,
+        node_viewer_permit,
+        template_json,
+    )?;
+
+    let (token, cid) = crypto::sign_permit(signing_key_bytes, &token_decision).await?;
+
+    info!("Page sync consent permit issued: cid={}", cid);
+    Ok((token, cid))
 }

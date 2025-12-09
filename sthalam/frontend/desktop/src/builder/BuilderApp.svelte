@@ -76,6 +76,7 @@
 
   /**
    * Save content to Loro contentDoc
+   * Note: SyncManager handles sending changes to backend automatically
    */
   async function saveContent() {
     if (!dataState.currentResourceId || !isDirty || isSaving) {
@@ -101,19 +102,18 @@
       const templateMap = loroCoordinator.getTemplateMap();
       templateMap.set('huml_source', humlContent);
 
-      // Commit all documents
+      // Commit all documents - SyncManager will auto-sync to backend
       loroCoordinator.getDocuments().contentDoc.commit();
       loroCoordinator.getDocuments().templateDoc.commit();
       loroCoordinator.getDocuments().userContentDoc.commit();
       loroCoordinator.getDocuments().uiStateDoc.commit();
 
-      // Save to backend
-      await dataState.saveCurrentResource(dataState.currentResourceId);
+      // No need to call saveCurrentResource - SyncManager handles it
 
       originalContent = humlContent;
       lastSavedTime = new Date();
 
-      console.log('💾 [BuilderApp] Saved HUML content');
+      console.log('💾 [BuilderApp] Content committed, auto-sync will send to backend');
     } catch (error) {
       console.error('❌ [BuilderApp] Failed to save:', error);
       alert(`Failed to save: ${error}`);
@@ -179,14 +179,13 @@
       // This stores raw HUML in templateDoc and extracts state to contentDoc
       await templateImporter.importFromHUML(fileContent);
 
-      // Commit all document changes
+      // Commit all document changes - SyncManager will auto-sync to backend
       loroCoordinator.getDocuments().contentDoc.commit();
       loroCoordinator.getDocuments().templateDoc.commit();
       loroCoordinator.getDocuments().userContentDoc.commit();
       loroCoordinator.getDocuments().uiStateDoc.commit();
 
-      // Save to backend
-      await dataState.saveCurrentResource(dataState.currentResourceId);
+      // No need to call saveCurrentResource - SyncManager handles it
 
       // Update editor
       humlContent = fileContent;

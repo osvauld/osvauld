@@ -396,8 +396,10 @@ impl MergeService {
 
         // Check relationship fact to determine if we have full history
         // Viewers get state frontiers only, others get full oplog
+        // node_viewer = node issued permit TO viewer (viewer holds this)
+        // viewer_node = viewer issued permit TO node (node holds this, viewer is the issuer)
         let relationship = our_permit.relationship();
-        let is_viewer = relationship.map(|r| r == "viewer").unwrap_or(false);
+        let is_viewer = relationship.map(|r| r == "node_viewer" || r == "viewer_node").unwrap_or(false);
 
         let state_vector = if is_viewer {
             // Viewers use state frontiers (no history)

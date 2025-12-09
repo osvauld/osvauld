@@ -8,7 +8,7 @@
 	import Signup from "./common/Signup.svelte";
 	import Welcome from "./common/Welcome.svelte";
 	import Loader from "./common/Loader.svelte";
-	import { sendMessage } from "./utils/helper";
+	import { sendMessage } from './utils/api';
 	import { loadCELEvaluator } from "./lib/services/celEvaluator";
 	import { loadHUMLParser } from "./lib/services/humlParser";
 

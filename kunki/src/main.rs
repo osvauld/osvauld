@@ -169,10 +169,6 @@ async fn handle_start(
     let butler = Arc::new(Butler::new(redb_store.clone(), layer_cache));
     butler.set_identity(identity.clone()).await;
 
-    // Generate one-time permit for connection string using Butler
-    let (token, _pub_key) = butler.issue_one_time_permit("owner")
-        .await
-        .map_err(|e| format!("Failed to create permit: {:?}", e))?;
 
     // Initialize Transport layer using the device key from Butler
     info!("Initializing transport layer...");
@@ -218,77 +214,72 @@ async fn handle_start(
     tokio::spawn(async move {
         while let Some(event) = courier_events.recv().await {
             match event {
-                CourierEvent::HelloReceived {
-                    node_id,
-                    did,
-                    username,
-                    permit,
-                } => {
-                    info!(
-                        "👋 Hello received from {} ({}) with permit len={}",
-                        username, node_id, permit.len()
-                    );
-                    // TODO: Verify permit, send Welcome back
-                }
-                CourierEvent::WelcomeReceived {
-                    node_id,
-                    permit_for_us,
-                } => {
-                    info!(
-                        "🤝 Welcome received from {} with permit len={}",
-                        node_id, permit_for_us.len()
-                    );
-                    // TODO: Store permit, send PermitGrant if first connection
-                }
                 CourierEvent::PeerAuthenticated {
-                    node_id: _,
-                    peer_type,
-                    username,
+                    node_id,
                     did,
+                    username,
                 } => {
                     info!(
-                        "📱 Peer authenticated: {} ({}) - {:?}",
-                        username, did, peer_type
+                        "📱 Peer authenticated: {} ({}) - node={}",
+                        username, did, node_id
                     );
                 }
                 CourierEvent::PeerDisconnected { node_id } => {
                     info!("📴 Peer disconnected: {}", node_id);
                 }
-                CourierEvent::SyncRequest {
+                CourierEvent::SpacePublished { node_id, space_id } => {
+                    info!("📤 Space published to {}: {}", node_id, space_id);
+                }
+                CourierEvent::PublishFailed {
                     node_id,
-                    request_id,
-                    resource_id,
-                    ..
+                    space_id,
+                    error,
+                } => {
+                    warn!("⚠️ Publish failed to {}: {} - {}", node_id, space_id, error);
+                }
+                CourierEvent::ViewerSyncComplete {
+                    node_id,
+                    space_id,
+                    pages_synced,
                 } => {
                     info!(
-                        "🔄 Sync request from {}: {} (id={})",
-                        node_id, resource_id, request_id
+                        "📥 Viewer sync complete from {}: {} ({} pages)",
+                        node_id, space_id, pages_synced
                     );
                 }
-                CourierEvent::SyncPush {
+                CourierEvent::ShareableLinkReceived {
                     node_id,
-                    resource_id,
-                    updates,
+                    space_id,
+                    permit,
                 } => {
                     info!(
-                        "📥 Sync push from {}: {} ({} bytes)",
-                        node_id,
-                        resource_id,
-                        updates.len()
+                        "🔗 Shareable link generated for {}: {} (permit: {}...)",
+                        node_id, space_id, &permit[..permit.len().min(20)]
                     );
                 }
-                CourierEvent::FolderRequest {
-                    node_id,
-                    request_id,
-                    folder_id,
-                } => {
+                CourierEvent::ConnectRequested { node_id, permit } => {
                     info!(
-                        "📁 Folder request from {}: {} (id={})",
-                        node_id, folder_id, request_id
+                        "🔌 Connection requested to {}: permit={}...",
+                        node_id, &permit[..permit.len().min(20)]
                     );
                 }
-                CourierEvent::Error { message } => {
-                    warn!("⚠️  Error: {}", message);
+                CourierEvent::ViewerSpaceReceived { node_id, space, page_count } => {
+                    info!(
+                        "📂 Viewer received space {} ({}) from {} ({} pages)",
+                        space.id, space.name, node_id, page_count
+                    );
+                }
+                CourierEvent::ViewerPageReceived { node_id, page, is_last } => {
+                    info!(
+                        "📄 Viewer received page {} ({}) from {} for space {} (last: {})",
+                        page.id, page.name, node_id, page.space_id, is_last
+                    );
+                }
+                CourierEvent::SyncConsentComplete { node_id, space_id } => {
+                    info!(
+                        "✅ Sync consent complete for space {} with node {}",
+                        space_id, node_id
+                    );
                 }
             }
         }
@@ -299,22 +290,10 @@ async fn handle_start(
     println!("║     CONNECTION STRING                    ║");
     println!("╚══════════════════════════════════════════╝");
 
-    // Create connection string with Ed25519 keys
-    let user_pub_key = general_purpose::STANDARD.encode(identity.public_signing_key());
-    let device_pub_key = general_purpose::STANDARD.encode(identity.public_device_key());
-
-    let connection_details = json!({
-        "user_public_key": user_pub_key,
-        "device_public_key": device_pub_key,
-        "node_id": node_id.to_string(),
-        "username": identity_data.username,
-        "permit": token,
-        "relay": relay_urls.first(),
-    });
-
-    // Convert to string and base64 encode
-    let connection_json = connection_details.to_string();
-    let encoded_connection = general_purpose::STANDARD.encode(connection_json.as_bytes());
+    // Generate connection string using Butler
+    let encoded_connection = butler.generate_connection_string(
+        relay_urls.first().map(|s| s.as_str()),
+    ).await.map_err(|e| format!("Failed to generate connection string: {:?}", e))?;
 
     println!("{}", encoded_connection);
     println!("╚══════════════════════════════════════════╝");
@@ -365,11 +344,11 @@ async fn handle_folder_token(
 
     info!("Generating folder share token for folder: {}", folder_id);
 
-    // Generate folder share token using gurkha's stateless function
+    // Generate space share token using gurkha's stateless function
     let signing_key_bytes = identity.secret_signing_key();
-    let (token, _cid) = gurkha::issue_folder_viewer_auth(&signing_key_bytes, folder_id)
+    let (token, _cid) = gurkha::issue_space_viewer_auth(&signing_key_bytes, folder_id)
         .await
-        .map_err(|e| format!("Failed to create folder permit: {:?}", e))?;
+        .map_err(|e| format!("Failed to create space permit: {:?}", e))?;
     let pub_key = gurkha::get_public_key(&signing_key_bytes);
 
     println!("\n╔══════════════════════════════════════════╗");

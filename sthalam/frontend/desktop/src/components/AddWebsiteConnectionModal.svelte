@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import { fly } from "svelte/transition";
 	import { ClosePanel, InfoIcon } from "@osvauld/icons";
+	import { sendMessage } from "../utils/api";
 
 	interface Props {
 		onClose: () => void;
@@ -36,7 +37,6 @@
 	const handleAddWebsite = async (connString: string) => {
 		try {
 			console.log("Connecting to website with:", connString);
-			const { sendMessage } = await import("../utils/helper");
 			await sendMessage("connectToWebsite", { connectionString: connString });
 			console.log("Website connection initiated successfully");
 			// uiState.showToast("Website connected successfully", true);

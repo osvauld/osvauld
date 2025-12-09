@@ -5,8 +5,9 @@
 //! - CourierHandle for sending P2P commands
 //! - Transport for P2P connectivity
 
+use crate::events::spawn_event_bridge;
 use crate::types::BaseCryptoResponse;
-use butler::Butler;
+use butler::{Butler, ConnectionType};
 use courier::{Courier, CourierHandle, CourierMode, HandshakeServices};
 use tracing::{info, instrument};
 use std::sync::Arc;
@@ -55,6 +56,7 @@ impl Default for P2PState {
 pub async fn start_p2p_listener(
     butler: State<'_, Arc<Butler>>,
     p2p_state: State<'_, P2PState>,
+    app: tauri::AppHandle,
 ) -> Result<BaseCryptoResponse, String> {
     // Check if already initialized
     if p2p_state.handle.read().await.is_some() {
@@ -81,10 +83,10 @@ pub async fn start_p2p_listener(
     info!("Transport initialized with node ID: {}", node_id);
 
     // Create HandshakeServices with Butler (owns identity and all services)
-    let handshake_services = Arc::new(HandshakeServices::new(butler.inner().clone()));
+    let handshake_services = Arc::new(HandshakeServices::new((*butler).clone()));
 
     // Initialize Courier with services for auto-processing
-    let (handle, mut event_rx, courier) = Courier::init_with_services(
+    let (handle, event_rx, courier) = Courier::init_with_services(
         CourierMode::User,
         transport,
         Some(handshake_services),
@@ -95,12 +97,8 @@ pub async fn start_p2p_listener(
         courier.run(transport_rx).await;
     });
 
-    // Spawn event consumer (events are auto-processed, but we still need to drain the channel)
-    tokio::spawn(async move {
-        while let Some(event) = event_rx.recv().await {
-            info!("P2P event: {:?}", event);
-        }
-    });
+    // Spawn event bridge - translates CourierEvent to Tauri events
+    spawn_event_bridge(event_rx, app);
 
     // Store handle in state (clone for auto-reconnect)
     let handle_for_reconnect = handle.clone();
@@ -108,39 +106,35 @@ pub async fn start_p2p_listener(
 
     info!("P2P listener started successfully");
 
-    // Auto-reconnect to known nodes with stored permits
-    let user_info = butler.user_info().await;
-    if let Ok(user) = user_info {
-        if let Ok(nodes) = butler.list_sovereign_nodes() {
-            info!("Found {} sovereign nodes for potential reconnection", nodes.len());
-            for node in nodes {
-                if let Some(our_permit) = &node.our_permit {
-                    info!(
-                        "Auto-reconnecting to {} (node_id={}, permit_preview={}...)",
-                        node.username,
-                        node.node_id,
-                        &our_permit[..our_permit.len().min(30)]
-                    );
-                    let result = handle_for_reconnect
-                        .reconnect(
-                            &node.node_id,
-                            &user.did,
-                            &user.username,
-                            &user.public_key,
-                            our_permit,
-                        )
-                        .await;
+    // Auto-reconnect to known OWNER nodes with stored permits
+    // Viewer connections don't auto-reconnect
+    if let Ok(nodes) = butler.list_sovereign_nodes() {
+        let owner_nodes: Vec<_> = nodes.iter()
+            .filter(|n| n.connection_type == ConnectionType::Owner)
+            .collect();
+        info!("Found {} owner nodes for potential reconnection (skipping {} viewer nodes)",
+            owner_nodes.len(),
+            nodes.len() - owner_nodes.len()
+        );
+        for node in owner_nodes {
+            if let Some(permit) = &node.permit {
+                info!(
+                    "Auto-reconnecting to {} (node_id={})",
+                    node.name,
+                    node.node_id,
+                );
+                // Use connect_and_wait_for_auth with the stored permit
+                let result = handle_for_reconnect.connect_and_wait_for_auth(&node.node_id, permit).await;
 
-                    match result {
-                        Ok(_) => info!("Reconnection initiated to {}", node.username),
-                        Err(e) => info!("Failed to reconnect to {}: {}", node.username, e),
-                    }
-                } else {
-                    info!(
-                        "Skipping {} - no our_permit stored (first connection incomplete?)",
-                        node.username
-                    );
+                match result {
+                    Ok(_) => info!("Reconnection successful to {}", node.name),
+                    Err(e) => info!("Failed to reconnect to {}: {}", node.name, e),
                 }
+            } else {
+                info!(
+                    "Skipping {} - no permit stored (first connection incomplete?)",
+                    node.name
+                );
             }
         }
     }
@@ -172,38 +166,32 @@ pub async fn handle_add_sovereign_node(
         .map_err(|e| format!("Failed to add sovereign node: {}", e))?;
 
     info!(
-        username = %sovereign_node.username,
+        name = %sovereign_node.name,
         node_id = %sovereign_node.node_id,
         "Sovereign node saved"
     );
 
-    // 2. Get our identity info for the Hello message via Butler
-    let user = butler.user_info().await
-        .map_err(|e| format!("Failed to get user info: {}", e))?;
+    // 2. Connect and initiate handshake with the permit
+    let permit = sovereign_node.permit.clone()
+        .ok_or("SovereignNode missing permit")?;
 
-    // 3. Connect via Courier (sends Hello with permit)
-    // Courier handles node_id parsing internally
     courier_handle
-        .connect(
-            &sovereign_node.node_id,
-            &user.did,
-            &user.username,
-            &user.public_key,
-            &sovereign_node.their_permit,
-        )
+        .connect_and_wait_for_auth(&sovereign_node.node_id, &permit)
         .await
         .map_err(|e| format!("Failed to connect: {}", e))?;
 
-    info!("Connection initiated to sovereign node");
+    info!("Connection and handshake completed with sovereign node");
     Ok(BaseCryptoResponse::Success)
 }
 
 /// Handle viewer connecting to a website/node
 ///
 /// Flow:
-/// 1. Parse connection string via Butler
-/// 2. Store node info
-/// 3. Initiate connection
+/// 1. Parse connection string
+/// 2. Extract space_id from permit
+/// 3. Connect and wait for authentication
+/// 4. Store node as Contact (type=Node) for future reconnection
+/// 5. Request space as viewer (triggers space + page sync)
 #[tauri::command]
 #[instrument(skip_all)]
 pub async fn handle_connect_to_website(
@@ -213,33 +201,53 @@ pub async fn handle_connect_to_website(
 ) -> Result<BaseCryptoResponse, String> {
     info!("Viewer connecting to website");
 
-    // Get CourierHandle (must be initialized)
     let courier_handle = p2p_state.get_handle().await?;
 
-    // 1. Parse and store node via Butler (reuse sovereign node storage)
-    let node = butler
-        .add_sovereign_node(&input)
-        .map_err(|e| format!("Failed to add node: {}", e))?;
+    // 1. Parse connection string
+    let conn = butler
+        .parse_connection_string(&input)
+        .map_err(|e| format!("Failed to parse connection string: {}", e))?;
 
-    info!(username = %node.username, "Node saved for viewer connection");
+    let node_id = conn.node_id();
+    let permit = conn.permit.clone();
 
-    // 2. Get our identity via Butler
-    let user = butler.user_info().await
-        .map_err(|e| format!("Failed to get user info: {}", e))?;
+    info!(name = %conn.name, node_id = %node_id, "Viewer connecting to node");
 
-    // 3. Connect via Courier (handles node_id parsing internally)
-    courier_handle
-        .connect(
-            &node.node_id,
-            &user.did,
-            &user.username,
-            &user.public_key,
-            &node.their_permit,
-        )
+    // 2. Extract space_id from permit
+    let parsed_permit = gurkha::Permit::from_token(&permit)
+        .map_err(|e| format!("Invalid permit: {}", e))?;
+    let space_id = parsed_permit.space_id()
+        .ok_or("Permit missing space_id")?;
+
+    // 3. Connect and wait for authentication
+    let peer_id = courier_handle
+        .connect_and_wait_for_auth(&node_id, &permit)
         .await
-        .map_err(|e| format!("Failed to connect: {}", e))?;
+        .map_err(|e| format!("Connection failed: {}", e))?;
 
-    info!("Viewer connection initiated");
+    info!("Viewer authenticated with node {}", peer_id);
+
+    // 4. Store node as Contact (type=Node) for future reconnection
+    // This allows viewer to reconnect later for updates
+    butler
+        .add_node_contact(
+            &conn.node_public_key,      // Node's DID (verifying key)
+            &conn.node_encryption_key,  // Node's encryption key (for ECDH)
+            &conn.name,                 // Node name
+            &node_id,                   // Iroh NodeId
+            &permit,                    // Viewer permit
+        )
+        .map_err(|e| format!("Failed to store node contact: {}", e))?;
+
+    info!("Stored node {} as contact for future reconnection", conn.name);
+
+    // 5. Request space as viewer (triggers space + page sync)
+    courier_handle
+        .request_space_as_viewer(&space_id, &node_id, &permit)
+        .await
+        .map_err(|e| format!("Failed to request space: {}", e))?;
+
+    info!("Space request sent for {}", space_id);
     Ok(BaseCryptoResponse::Success)
 }
 
@@ -266,5 +274,32 @@ pub async fn handle_publish_space(
         .map_err(|e| format!("Failed to publish space: {}", e))?;
 
     info!("Space published successfully");
+    Ok(BaseCryptoResponse::Success)
+}
+
+/// Get shareable link for a space from a specific node
+///
+/// **Flow**: Request node to generate a viewer permit with aud:* (wildcard audience)
+/// Response comes asynchronously via folder-token-received event
+#[tauri::command]
+#[instrument(skip_all, fields(space_id = %space_id, node_id = %node_id))]
+pub async fn handle_get_share_link(
+    space_id: String,
+    node_id: String,
+    p2p_state: State<'_, P2PState>,
+) -> Result<BaseCryptoResponse, String> {
+    info!("Requesting shareable link for space {} from node {}", space_id, node_id);
+
+    // Get CourierHandle (must be initialized)
+    let courier_handle = p2p_state.get_handle().await?;
+
+    // Request shareable link via Courier
+    // Response will come via ShareableLinkReceived -> folder-token-received event
+    courier_handle
+        .get_shareable_link(&space_id, &node_id)
+        .await
+        .map_err(|e| format!("Failed to request shareable link: {}", e))?;
+
+    info!("Share link request sent");
     Ok(BaseCryptoResponse::Success)
 }

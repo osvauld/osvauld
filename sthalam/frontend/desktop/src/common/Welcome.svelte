@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Loader from "./Loader.svelte";
 	import { ClosedEye, Eye, Locked } from "@osvauld/icons";
-	import { sendMessage } from "../utils/helper";
+	import { sendMessage } from '../utils/api';
 
 	let { authenticated } = $props();
 	let passphrase = $state("");

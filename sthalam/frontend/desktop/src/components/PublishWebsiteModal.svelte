@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { dataState } from "../state/data.svelte";
-	import { sendMessage } from "../utils/helper";
+	import { sendMessage } from "../utils/api";
 	import { onMount, onDestroy } from "svelte";
 	import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 	import Dropdown from "./Dropdown.svelte";
@@ -27,33 +27,17 @@
 	let isCopied = $state(false);
 	let unlisten: UnlistenFn | null = null;
 
-	async function fetchUsers() {
-		try {
-			const rawUsers = await sendMessage("getKnownUsers");
-			// Map backend response (userId) to frontend User interface (id)
-			availableUsers = (rawUsers || []).map((u: any) => ({
-				id: u.userId,
-				username: u.username,
-			}));
+	function loadSovereignNodes() {
+		// Use sovereign nodes as the available publish targets
+		// Sovereign nodes are Kunki nodes we've paired with
+		availableUsers = dataState.sovereignNodes.map((node) => ({
+			id: node.nodeId,
+			username: node.username || `Node ${node.nodeId.slice(0, 8)}...`,
+		}));
 
-			console.log("📋 Available users:", availableUsers);
-			console.log("🌐 Sovereign node ID:", dataState.sovereignNodeId);
-
-			// Fetch users this folder is already shared with
-			if (dataState.currentWebsite && dataState.currentWebsite.id !== "all") {
-				const rawSharedUsers = await sendMessage("getSharedFolderUsers", {
-					folderId: dataState.currentWebsite.id,
-				});
-				// Map backend response to frontend User interface
-				existingUsers = (rawSharedUsers || []).map((u: any) => ({
-					id: u.userId || u.id,
-					username: u.username,
-				}));
-				console.log("✅ Existing users for folder:", existingUsers);
-			}
-		} catch (error) {
-			console.error("Error fetching users:", error);
-		}
+		// For now, existingUsers is empty - we'd need to track which nodes
+		// a space has been published to (could check space.shares for "published:{nodeId}")
+		existingUsers = [];
 	}
 
 	const handleGenerateLink = async () => {
@@ -69,8 +53,8 @@
 			return;
 		}
 
-		// First, get the device_id for the selected user
-		const selectedUser = existingUsers.find(
+		// First, get the node info for the selected sovereign node
+		const selectedUser = availableUsers.find(
 			(u) => u.id === selectedSovereignNodeId,
 		);
 		if (!selectedUser) {
@@ -83,16 +67,16 @@
 		generatedConnectionString = null; // Reset previous string
 		isCopied = false;
 		try {
-			// Emit event to backend with the device_id (which is the same as user.id in this context)
-			await emit("request-folder-token", {
-				folderId: currentWebsite.id,
-				deviceId: selectedUser.id, // This is actually the device_id from the User object
-				domain: "sthalam",
+			// Request shareable link via Tauri command
+			// Response comes async via folder-token-received event
+			await sendMessage("getShareLink", {
+				spaceId: currentWebsite.id,
+				nodeId: selectedUser.id,
 			});
 
-			console.log("✅ Folder token request event emitted");
+			console.log("✅ Share link request sent");
 		} catch (error) {
-			console.error("❌ Failed to emit folder token request:", error);
+			console.error("❌ Failed to request share link:", error);
 			// TODO: Show error toast
 			isGeneratingLink = false;
 		}
@@ -142,8 +126,8 @@
 			console.log("✅ Space published to node successfully!");
 			// TODO: Show success toast
 
-			// Refresh shared folder users
-			await fetchUsers();
+			// Refresh sovereign nodes list
+			loadSovereignNodes();
 
 			// Close modal
 			selectedUserId = null;
@@ -158,7 +142,7 @@
 
 	$effect(() => {
 		if (show) {
-			fetchUsers();
+			loadSovereignNodes();
 			selectedUserId = null;
 		}
 	});
@@ -185,7 +169,7 @@
 		}
 	});
 
-	// Dropdown options for sovereign node selection
+	// Dropdown options for sovereign node selection (use availableUsers - all sovereign nodes)
 	const nodeOptions = $derived(() => {
 		const options = [
 			{
@@ -195,7 +179,7 @@
 			},
 		];
 
-		existingUsers.forEach((user) => {
+		availableUsers.forEach((user) => {
 			options.push({
 				value: user.id,
 				label: user.username,
@@ -354,12 +338,11 @@
 			</div>
 
 			<!-- Generate Shareable Link Section -->
-			{#if existingUsers.length > 0}
+			{#if availableUsers.length > 0}
 				<div class="mt-6 pt-4 border-t border-osvauld-borderColor">
 					<h3 class="text-sm text-textActive mb-3">Generate Shareable Link:</h3>
 					<p class="text-xs text-textActive mb-3">
-						Select a published node to generate a shareable connection string
-						for viewers.
+						Select a node to generate a shareable connection string for viewers.
 					</p>
 
 					<!-- Select Sovereign Node -->

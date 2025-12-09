@@ -13,11 +13,11 @@ mod types;
 
 // Import shared handlers from tauri_handlers crate
 use tauri_handlers::handlers::auth::*;
-use tauri_handlers::handlers::folder::*;
 use tauri_handlers::handlers::p2p::*;
-use tauri_handlers::handlers::resource::*;
 use tauri_handlers::handlers::user::*;
 use tauri_handlers::handlers::node::*;
+use tauri_handlers::handlers::page::*;
+use tauri_handlers::handlers::space::*;
 use tauri_handlers::P2PState;
 
 use butler::{Butler, RedbStore, LayerCache};
@@ -74,8 +74,10 @@ pub fn run() {
                 }
             }
 
-            // Initialize Butler's RedbStore
-            let redb_path = app_dir.join("redb.db");
+            // Initialize Butler's RedbStore with db_name from CLI args
+            let db_filename = format!("{}.db", args.db_name);
+            let redb_path = app_dir.join(&db_filename);
+            info!("Using database: {}", db_filename);
             let redb_store = match RedbStore::open(&redb_path) {
                 Ok(store) => {
                     info!("Butler RedbStore initialized at {:?}", redb_path);
@@ -120,31 +122,29 @@ pub fn run() {
             handle_change_passphrase,
             handle_logout,
             get_one_time_permit,
-            // Folder handlers
-            handle_add_folder,
-            handle_get_folders,
-            handle_soft_delete_folder,
-            handle_get_shared_folder_users,
-            handle_share_folder,
-            handle_request_folder_resources,
+            // Space handlers (new terminology)
+            handle_create_space,
+            handle_list_spaces,
+            handle_delete_space,
+            handle_share_space,
+            // Page handlers (new terminology)
+            handle_create_page,
+            handle_open_page,
+            handle_close_page,
+            handle_apply_update,
+            handle_list_pages,
             // User handlers
             handle_add_user,
             handle_get_known_users,
             handle_get_sovereign_nodes,
             get_system_locale,
-            // Resource handlers
-            handle_add_resource,
-            handle_get_resource,
-            handle_get_all_resources_metadata,
-            handle_update_resource,
-            handle_sync_resource,
             // P2P handlers
             start_p2p_listener,
             handle_add_sovereign_node,
             handle_connect_to_website,
             handle_publish_space,
-            // Node handlers
-            handle_register_my_node,
+            handle_get_share_link,
+            // Node handlers removed - identity stored in IDENTITY table
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

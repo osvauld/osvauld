@@ -100,9 +100,10 @@ pub fn decide_one_time_token(
     decision.add_fact("user_id".into(), json!(pub_key_b64));
 
     // Add CEL rules and operations based on relationship
+    // Bidirectional naming: {issuer}_{recipient}
     match relationship {
-        "owner" => {
-            // Owner: full admin capabilities
+        "node_owner" => {
+            // Node issuing to owner: full admin capabilities
             decision.add_fact("auth_capabilities".into(), json!({
                 "can_connect": true,
                 "persist_share": true,
@@ -115,14 +116,14 @@ pub fn decide_one_time_token(
                 "write": "allow"
             }));
             decision.add_fact("cel_rules".into(), json!({
-                "persist_share": "auth_capabilities.persist_share == true && relationship == 'owner'",
+                "persist_share": "auth_capabilities.persist_share == true && relationship == 'node_owner'",
                 "can_connect": "auth_capabilities.can_connect == true",
                 "can_delegate": "auth_capabilities.can_delegate == true && operations.own == 'allow'",
                 "sync_enabled": "auth_capabilities.sync_enabled == true && operations.read == 'allow'"
             }));
         }
-        "viewer" => {
-            // Viewer: restricted capabilities
+        "node_viewer" => {
+            // Node issuing to viewer: restricted capabilities
             decision.add_fact("auth_capabilities".into(), json!({
                 "can_connect": true,
                 "persist_share": false,
@@ -135,7 +136,7 @@ pub fn decide_one_time_token(
                 "write": "deny"
             }));
             decision.add_fact("cel_rules".into(), json!({
-                "persist_share": "auth_capabilities.persist_share == true && relationship == 'node'",
+                "persist_share": "auth_capabilities.persist_share == true && relationship == 'owner_node'",
                 "can_connect": "auth_capabilities.can_connect == true",
                 "can_delegate": "auth_capabilities.can_delegate == true && operations.own == 'allow'",
                 "sync_enabled": "auth_capabilities.sync_enabled == true && operations.read == 'allow'"
@@ -171,8 +172,10 @@ pub fn decide_peer_connection(
     decision.add_fact("user_id".into(), json!(pub_key_b64));
 
     // Add relationship-based permissions
+    // Bidirectional naming: {issuer}_{recipient}
     match relationship {
-        "owner" => {
+        "node_owner" => {
+            // Node issuing to owner: full admin capabilities
             decision.add_fact("auth_capabilities".into(), json!({
                 "can_connect": true,
                 "persist_share": true,
@@ -186,7 +189,22 @@ pub fn decide_peer_connection(
                 "admin": "allow"
             }));
         }
-        "node" => {
+        "node_viewer" => {
+            // Node issuing to viewer: restricted capabilities
+            decision.add_fact("auth_capabilities".into(), json!({
+                "can_connect": true,
+                "persist_share": false,
+                "can_delegate": false,
+                "sync_enabled": false
+            }));
+            decision.add_fact("operations".into(), json!({
+                "own": "deny",
+                "read": "allow",
+                "write": "deny"
+            }));
+        }
+        "owner_node" => {
+            // Owner issuing to node: node capabilities
             decision.add_fact("auth_capabilities".into(), json!({
                 "can_connect": true,
                 "persist_share": true,
@@ -201,17 +219,19 @@ pub fn decide_peer_connection(
                 "sync": "allow"
             }));
         }
-        "user" | "viewer" => {
+        "viewer_node" => {
+            // Viewer issuing to node: limited node capabilities
             decision.add_fact("auth_capabilities".into(), json!({
                 "can_connect": true,
                 "persist_share": false,
                 "can_delegate": false,
-                "sync_enabled": false
+                "sync_enabled": true
             }));
             decision.add_fact("operations".into(), json!({
                 "own": "deny",
                 "read": "allow",
-                "write": "deny"
+                "write": "deny",
+                "sync": "allow"
             }));
         }
         _ => return Err(GurkhaError::ValidationError(format!("Unknown relationship: {}", relationship))),
@@ -220,10 +240,10 @@ pub fn decide_peer_connection(
     Ok(decision)
 }
 
-/// Decide what should be in a viewer authentication token
-pub fn decide_viewer_auth(
+/// Decide what should be in a page viewer authentication token
+pub fn decide_page_viewer_auth(
     verifying_key: &VerifyingKey,
-    resource_id: &str,
+    page_id: &str,
 ) -> DecisionResult<TokenDecision> {
     let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
 
@@ -232,7 +252,7 @@ pub fn decide_viewer_auth(
     // No URI capabilities - all authorization in facts
     decision.add_fact("token_type".into(), json!("viewer_auth"));
     decision.add_fact("relationship".into(), json!("viewer"));
-    decision.add_fact("resource_id".into(), json!(resource_id));
+    decision.add_fact("page_id".into(), json!(page_id));
     decision.add_fact("user_id".into(), json!(pub_key_b64));
 
     // Viewer capabilities
@@ -251,19 +271,19 @@ pub fn decide_viewer_auth(
     Ok(decision)
 }
 
-/// Decide what should be in a folder viewer authentication token
+/// Decide what should be in a space viewer authentication token
 ///
 /// This is for shareable links - one-time use, wildcard audience.
 /// The viewer uses this token to initiate connection to the node.
 ///
-/// Folder viewer auth tokens have:
+/// Space viewer auth tokens have:
 /// - Wildcard audience (for one-time shareable link)
 /// - Facts-based authorization (no URI capabilities)
-/// - Folder context and viewer relationship
+/// - Space context and viewer relationship
 /// - 30 day expiry
-pub fn decide_folder_viewer_auth(
+pub fn decide_space_viewer_auth(
     verifying_key: &VerifyingKey,
-    folder_id: &str,
+    space_id: &str,
 ) -> DecisionResult<TokenDecision> {
     let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
 
@@ -271,12 +291,13 @@ pub fn decide_folder_viewer_auth(
 
     // No URI capabilities - all authorization in facts
     decision.add_fact("token_type".into(), json!("viewer_auth"));
-    decision.add_fact("first_connection".into(), json!(true));
-    decision.add_fact("relationship".into(), json!("viewer"));
-    decision.add_fact("folder_id".into(), json!(folder_id));
+    decision.add_fact("first_connection".into(), json!(false)); // Viewers never do first_connection
+    // Relationship is "node_viewer" = node issuing permit TO viewer (bidirectional naming)
+    decision.add_fact("relationship".into(), json!("node_viewer"));
+    decision.add_fact("space_id".into(), json!(space_id));
     decision.add_fact("user_id".into(), json!(pub_key_b64));
 
-    // Viewer capabilities for folder access
+    // Viewer capabilities for space access
     decision.add_fact("auth_capabilities".into(), json!({
         "can_connect": true,
         "persist_share": false,
@@ -287,7 +308,7 @@ pub fn decide_folder_viewer_auth(
         "own": "deny",
         "read": "allow",
         "write": "deny",
-        "folder_access": "allow"
+        "space_access": "allow"
     }));
     decision.add_fact("cel_rules".into(), json!({
         "persist_share": "auth_capabilities.persist_share == true && relationship == 'node'",
@@ -313,7 +334,7 @@ pub fn decide_folder_viewer_auth(
 /// # Arguments
 /// * `template` - Delegation template defining capabilities and facts
 /// * `resource_id` - ID of the resource being delegated
-/// * `resource_type` - Type of resource ("resource" or "folder")
+/// * `resource_type` - Type of resource ("resource" or "space")
 /// * `audience_pubkey` - Public key of the delegatee (DID or base64)
 ///
 /// # Returns
@@ -336,14 +357,14 @@ pub fn decide_delegation(
         resource_type, resource_id, audience_pubkey
     );
 
-    // Get facts from template (includes documents, operations, CEL rules, etc.)
+    // Get facts from template (includes layers, operations, CEL rules, etc.)
     let mut facts = template.to_facts();
 
     debug!("📋 Template converted to facts:");
-    if let Some(documents) = facts.get("documents") {
-        debug!("  Documents in facts: {:?}", documents);
+    if let Some(layers) = facts.get("layers") {
+        debug!("  Layers in facts: {:?}", layers);
     } else {
-        debug!("  ⚠️ NO documents in facts!");
+        debug!("  ⚠️ NO layers in facts!");
     }
 
     // Add ID based on type (space or page only)
@@ -419,6 +440,60 @@ pub fn decide_space_owner_token(
     decision.add_fact("user_id".into(), json!(pub_key_b64));
     // Keep operations as strings ("allow"/"deny") instead of converting to booleans
     decision.add_fact("operations".into(), json!(ops));
+
+    // Copy sync facts if present
+    if let Some(sync) = owner_template.get("sync") {
+        decision.add_fact("sync".into(), sync.clone());
+    }
+
+    // Copy delegation templates
+    if let Some(delegation) = owner_template.get("delegation") {
+        decision.add_fact("delegation".into(), delegation.clone());
+    }
+
+    Ok(decision)
+}
+
+// ==================== PAGE TOKEN DECISIONS ====================
+
+/// Decide what should be in a page owner token
+///
+/// Parses template JSON and decides which operations, layers, and delegation templates to include.
+pub fn decide_page_owner_token(
+    verifying_key: &VerifyingKey,
+    page_id: &str,
+    template_json: &str,
+) -> DecisionResult<TokenDecision> {
+    let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
+
+    let mut decision = TokenDecision::new(&pub_key_b64); // Self-signed
+
+    // Parse template
+    let template_data: Value = serde_json::from_str(template_json)
+        .map_err(|e| GurkhaError::InvalidTemplate(format!("Invalid template JSON: {}", e)))?;
+
+    let owner_template = template_data
+        .get("owner_template")
+        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing owner_template".to_string()))?;
+
+    // Extract operations from template
+    let ops = owner_template
+        .get("operations")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string()))?;
+
+    // Build facts from template (no URI capabilities)
+    decision.add_fact("token_type".into(), json!("page_owner"));
+    decision.add_fact("relationship".into(), json!("owner"));
+    decision.add_fact("page_id".into(), json!(page_id));
+    decision.add_fact("user_id".into(), json!(pub_key_b64));
+    // Keep operations as strings ("allow"/"deny") instead of converting to booleans
+    decision.add_fact("operations".into(), json!(ops));
+
+    // Copy layers if present
+    if let Some(layers) = owner_template.get("layers") {
+        decision.add_fact("layers".into(), layers.clone());
+    }
 
     // Copy sync facts if present
     if let Some(sync) = owner_template.get("sync") {
@@ -615,4 +690,153 @@ pub fn should_request_updates(context: &SyncContext, layer_name: &str) -> SyncDe
             SyncDecision::DontSend
         }
     }
+}
+
+// ==================== SYNC CONSENT DECISIONS ====================
+
+/// Decide what should be in a space sync consent permit
+///
+/// **Context**: Viewer issues this permit back to the node after receiving SpaceSync.
+/// It expresses the viewer's consent to receive sync updates for the space.
+///
+/// **Issued by**: Viewer
+/// **Audience**: Node (the specific node DID)
+/// **Proof**: Node's original viewer permit (establishes delegation chain)
+///
+/// Space consent permits have:
+/// - Specific node pubkey as audience (not wildcard)
+/// - Facts expressing consent to receive updates and new pages
+/// - Proof chain to node's original permit
+/// - Same space_id as the original permit
+pub fn decide_sync_space_consent(
+    viewer_verifying_key: &VerifyingKey,
+    node_pubkey: &str,
+    space_id: &str,
+    node_viewer_permit: &str,
+    template_json: &str,
+) -> DecisionResult<TokenDecision> {
+    let viewer_pub_key_b64 = general_purpose::STANDARD.encode(viewer_verifying_key.as_bytes());
+
+    let mut decision = TokenDecision::new(node_pubkey); // Specific node as audience
+
+    // Parse consent template
+    let template_data: Value = serde_json::from_str(template_json)
+        .map_err(|e| GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e)))?;
+
+    let consent_template = template_data
+        .get("consent_template")
+        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing consent_template".to_string()))?;
+
+    // Core consent facts
+    decision.add_fact("token_type".into(), json!("sync_space_consent"));
+    decision.add_fact("relationship".into(), json!("sync_consent"));
+    decision.add_fact("space_id".into(), json!(space_id));
+    decision.add_fact("user_id".into(), json!(viewer_pub_key_b64));
+
+    // Operations from template
+    if let Some(operations) = consent_template.get("operations") {
+        decision.add_fact("operations".into(), operations.clone());
+    }
+
+    // Auth capabilities from template
+    if let Some(auth_caps) = consent_template.get("auth_capabilities") {
+        decision.add_fact("auth_capabilities".into(), auth_caps.clone());
+    }
+
+    // CEL rules from template
+    if let Some(cel_rules) = consent_template.get("cel_rules") {
+        decision.add_fact("cel_rules".into(), cel_rules.clone());
+    }
+
+    // CEL functions from template
+    if let Some(functions) = consent_template.get("functions") {
+        decision.add_fact("functions".into(), functions.clone());
+    }
+
+    // Calculate CID of the proof token and add to proof chain
+    let proof_cid = crate::crypto::get_permit_cid(node_viewer_permit)?;
+    decision.proofs.push(proof_cid.clone());
+    decision.proof_tokens.insert(proof_cid, node_viewer_permit.to_string());
+
+    debug!("Space sync consent decision created for space {} -> node {}", space_id, node_pubkey);
+    Ok(decision)
+}
+
+/// Decide what should be in a page sync consent permit
+///
+/// **Context**: Viewer issues this permit back to the node after receiving PageSync.
+/// It expresses the viewer's consent to receive layer updates for a specific page.
+///
+/// **Issued by**: Viewer
+/// **Audience**: Node (the specific node DID)
+/// **Proof**: Node's original page_viewer permit (establishes delegation chain)
+///
+/// Page consent permits have:
+/// - Specific node pubkey as audience
+/// - Facts expressing consent to receive layer updates
+/// - Layers with "receive" capability (mirroring original viewer layers)
+/// - Proof chain to node's original permit
+/// - Same page_id as the original permit
+pub fn decide_sync_page_consent(
+    viewer_verifying_key: &VerifyingKey,
+    node_pubkey: &str,
+    page_id: &str,
+    node_viewer_permit: &str,
+    template_json: &str,
+) -> DecisionResult<TokenDecision> {
+    let viewer_pub_key_b64 = general_purpose::STANDARD.encode(viewer_verifying_key.as_bytes());
+
+    let mut decision = TokenDecision::new(node_pubkey); // Specific node as audience
+
+    // Parse consent template
+    let template_data: Value = serde_json::from_str(template_json)
+        .map_err(|e| GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e)))?;
+
+    let consent_template = template_data
+        .get("consent_template")
+        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing consent_template".to_string()))?;
+
+    // Core consent facts
+    decision.add_fact("token_type".into(), json!("sync_page_consent"));
+    decision.add_fact("relationship".into(), json!("sync_consent"));
+    decision.add_fact("page_id".into(), json!(page_id));
+    decision.add_fact("user_id".into(), json!(viewer_pub_key_b64));
+
+    // Operations from template
+    if let Some(operations) = consent_template.get("operations") {
+        decision.add_fact("operations".into(), operations.clone());
+    }
+
+    // Layers from template (with "receive" capability)
+    if let Some(layers) = consent_template.get("layers") {
+        decision.add_fact("layers".into(), layers.clone());
+    }
+
+    // Sync rules from template
+    if let Some(sync) = consent_template.get("sync") {
+        decision.add_fact("sync".into(), sync.clone());
+    }
+
+    // Auth capabilities from template
+    if let Some(auth_caps) = consent_template.get("auth_capabilities") {
+        decision.add_fact("auth_capabilities".into(), auth_caps.clone());
+    }
+
+    // CEL rules from template
+    if let Some(cel_rules) = consent_template.get("cel_rules") {
+        decision.add_fact("cel_rules".into(), cel_rules.clone());
+    }
+
+    // CEL functions from template
+    if let Some(functions) = consent_template.get("functions") {
+        decision.add_fact("functions".into(), functions.clone());
+    }
+
+    // Calculate CID of the proof token and add to proof chain
+    let proof_cid = crate::crypto::get_permit_cid(node_viewer_permit)?;
+    decision.proofs.push(proof_cid.clone());
+    decision.proof_tokens.insert(proof_cid, node_viewer_permit.to_string());
+
+    debug!("Page sync consent decision created for page {} -> node {}", page_id, node_pubkey);
+    Ok(decision)
 }

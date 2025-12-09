@@ -48,4 +48,4 @@ pub type PermitTokenResult<T> = StdResult<T, PermitTokenError>;
 // Example usage:
 //   let our_permit = Permit::from_token(&token)?;
 //   if our_permit.is_owner() { ... }
-//   if their_permit.resource_id() == Some("xyz") { ... }
+//   if their_permit.page_id() == Some("xyz") { ... }

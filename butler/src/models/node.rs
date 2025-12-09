@@ -1,70 +1,22 @@
-//! Node - Node registry (which users have Kunki nodes)
+//! Node models
 //!
-//! Stored in redb as: nodes/{user_did} → NodeInfo
-//! Sovereign nodes: sovereign_nodes/{node_id} → SovereignNode
+//! - SovereignNode: External nodes the owner connects to (stored in SOVEREIGN_NODES)
+//! - OwnerInfo: Owner info stored on the node (stored in OWNER_INFO)
+//! - ConnectionString: Parsed from base64-encoded JSON for first connection
 
 use base64::{engine::general_purpose, Engine as _};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 
-/// NodeInfo - Information about a user's Kunki node
-///
-/// Stored in Sled nodes tree under key "{user_did}".
-/// Used for P2P routing and discovering available nodes.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NodeInfo {
-    /// The user who owns this node
-    pub user_did: String,
-    /// The node's own DID (nodes have separate identity from user)
-    pub node_did: String,
-    /// Which device is the node
-    pub device_id: String,
-    /// Iroh network node ID for P2P connections
-    pub iroh_node_id: String,
-    /// Serialized NodeAddr for direct connection (optional)
-    pub node_addr: Option<String>,
-    /// Is the node currently online?
-    pub is_online: bool,
-    /// Last time we saw this node
-    pub last_seen_at: Option<i64>,
-    /// When this node was registered
-    pub registered_at: i64,
-}
+// ==================== CONNECTION TYPE ====================
 
-impl NodeInfo {
-    pub fn new(
-        user_did: String,
-        node_did: String,
-        device_id: String,
-        iroh_node_id: String,
-    ) -> Self {
-        Self {
-            user_did,
-            node_did,
-            device_id,
-            iroh_node_id,
-            node_addr: None,
-            is_online: false,
-            last_seen_at: None,
-            registered_at: Local::now().timestamp_millis(),
-        }
-    }
-
-    pub fn with_node_addr(mut self, addr: String) -> Self {
-        self.node_addr = Some(addr);
-        self
-    }
-
-    pub fn set_online(&mut self, online: bool) {
-        self.is_online = online;
-        if online {
-            self.last_seen_at = Some(Local::now().timestamp_millis());
-        }
-    }
-
-    pub fn update_last_seen(&mut self) {
-        self.last_seen_at = Some(Local::now().timestamp_millis());
-    }
+/// Type of connection to a node
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ConnectionType {
+    /// Owner connecting to their own node (should auto-reconnect)
+    Owner,
+    /// Viewer connecting to view content (should NOT auto-reconnect)
+    Viewer,
 }
 
 // ==================== CONNECTION STRING ====================
@@ -72,16 +24,18 @@ impl NodeInfo {
 /// Connection string data (parsed from base64-encoded JSON)
 ///
 /// This is what kunki generates and sthalam parses when adding a sovereign node.
+/// Node is a special trusted user - has verifying key (ID) + encryption key.
+/// Note: node_id is derived from device_public_key (base64 -> hex).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionString {
-    /// User's Ed25519 public signing key (base64)
-    pub user_public_key: String,
-    /// Device's X25519 public key (base64)
+    /// Node's Ed25519 verifying key (base64) = ID
+    pub node_public_key: String,
+    /// Node's X25519 encryption key (base64) - for ECDH
+    pub node_encryption_key: String,
+    /// Iroh device key for P2P (base64) - node_id is derived from this
     pub device_public_key: String,
-    /// Iroh NodeId (hex string)
-    pub node_id: String,
-    /// Username
-    pub username: String,
+    /// Node name
+    pub name: String,
     /// One-time permit (UCAN token)
     pub permit: String,
     /// Optional relay URL
@@ -103,29 +57,39 @@ impl ConnectionString {
         serde_json::from_str(&json_str)
             .map_err(|e| format!("Invalid JSON: {}", e))
     }
+
+    /// Get the iroh node_id derived from device_public_key
+    pub fn node_id(&self) -> String {
+        general_purpose::STANDARD
+            .decode(&self.device_public_key)
+            .map(|bytes| bytes.iter().map(|b| format!("{:02x}", b)).collect())
+            .unwrap_or_else(|_| String::new())
+    }
 }
 
 // ==================== SOVEREIGN NODE ====================
 
-/// SovereignNode - An external node we connect to (from sthalam's perspective)
+/// SovereignNode - An external node we connect to (from owner's perspective)
 ///
-/// Stored in redb sovereign_nodes table under key "{node_id}".
+/// Node is a special trusted user with:
+/// - did = verifying key (ID)
+/// - encryption_key = X25519 for ECDH
+///
+/// Stored in SOVEREIGN_NODES table under key "{node_id}".
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SovereignNode {
-    /// Iroh NodeId (primary key)
+    /// Node's verifying key = ID
+    pub did: String,
+    /// Node's X25519 encryption key (for ECDH)
+    pub encryption_key: String,
+    /// Node name
+    pub name: String,
+    /// Iroh NodeId (for P2P connection)
     pub node_id: String,
-    /// Username of the node owner
-    pub username: String,
-    /// User's Ed25519 public signing key (base64)
-    pub user_public_key: String,
-    /// Device's X25519 public key (base64)
+    /// Iroh device key (base64)
     pub device_public_key: String,
-    /// The permit we received from them (for first connection)
-    pub their_permit: String,
-    /// The permit they gave us (long-lived, after handshake) - for reconnecting TO them
-    pub our_permit: Option<String>,
-    /// The permit we issued TO them (long-lived) - they use this to reconnect to us
-    pub permit_for_them: Option<String>,
+    /// The permit for owner<->node auth (single permit)
+    pub permit: Option<String>,
     /// Relay URL for connection
     pub relay_url: Option<String>,
     /// Is currently connected?
@@ -134,23 +98,41 @@ pub struct SovereignNode {
     pub last_connected_at: Option<i64>,
     /// When we first added this node
     pub added_at: i64,
+    /// Type of connection (Owner or Viewer)
+    /// Owner connections auto-reconnect, Viewer connections don't
+    #[serde(default = "default_connection_type")]
+    pub connection_type: ConnectionType,
+}
+
+/// Default to Owner for backwards compatibility with existing stored nodes
+fn default_connection_type() -> ConnectionType {
+    ConnectionType::Owner
 }
 
 impl SovereignNode {
     /// Create a new SovereignNode from a connection string
-    pub fn from_connection_string(conn: &ConnectionString) -> Self {
+    ///
+    /// Derives node_id from device_public_key (base64 -> hex)
+    pub fn from_connection_string(conn: &ConnectionString, connection_type: ConnectionType) -> Self {
+        // Derive node_id from device_public_key (base64 -> bytes -> hex)
+        // This matches iroh's NodeId format: lowercase hex of the Ed25519 public key
+        let node_id = general_purpose::STANDARD
+            .decode(&conn.device_public_key)
+            .map(|bytes| bytes.iter().map(|b| format!("{:02x}", b)).collect())
+            .unwrap_or_else(|_| String::new());
+
         Self {
-            node_id: conn.node_id.clone(),
-            username: conn.username.clone(),
-            user_public_key: conn.user_public_key.clone(),
+            did: conn.node_public_key.clone(),
+            encryption_key: conn.node_encryption_key.clone(),
+            name: conn.name.clone(),
+            node_id,
             device_public_key: conn.device_public_key.clone(),
-            their_permit: conn.permit.clone(),
-            our_permit: None,
-            permit_for_them: None,
+            permit: Some(conn.permit.clone()),
             relay_url: conn.relay.clone(),
             is_connected: false,
             last_connected_at: None,
             added_at: Local::now().timestamp_millis(),
+            connection_type,
         }
     }
 
@@ -162,14 +144,9 @@ impl SovereignNode {
         }
     }
 
-    /// Store the long-lived permit we received after handshake
-    pub fn set_our_permit(&mut self, permit: String) {
-        self.our_permit = Some(permit);
-    }
-
-    /// Set the permit we issued TO them
-    pub fn set_permit_for_them(&mut self, permit: String) {
-        self.permit_for_them = Some(permit);
+    /// Set the permit
+    pub fn set_permit(&mut self, permit: String) {
+        self.permit = Some(permit);
     }
 }
 
@@ -177,24 +154,22 @@ impl SovereignNode {
 
 /// OwnerInfo - Information about the owner stored on the Node
 ///
-/// Stored in redb owner_info table under key "owner" (only one owner per node).
+/// Owner is a user with:
+/// - did = verifying key (ID)
+/// - encryption_key = X25519 for ECDH
+///
+/// Stored in OWNER_INFO table under key "owner" (only one owner per node).
 /// Created during first_connection handshake when owner pairs with node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnerInfo {
-    /// The owner's DID
-    pub owner_did: String,
-    /// The owner's username
+    /// Owner's verifying key = ID
+    pub did: String,
+    /// Owner's X25519 encryption key (for ECDH)
+    pub encryption_key: String,
+    /// Owner's username
     pub username: String,
-    /// The owner's Ed25519 signing public key
-    pub signing_public_key: Vec<u8>,
-    /// The owner's X25519 encryption public key (optional)
-    pub encryption_public_key: Option<Vec<u8>>,
-    /// The owner's iroh device public key
-    pub device_public_key: Vec<u8>,
-    /// The permit we issued TO the owner
-    pub permit_for_owner: Option<String>,
-    /// The permit we received FROM the owner
-    pub permit_from_owner: Option<String>,
+    /// The permit for owner<->node auth (single permit)
+    pub permit: Option<String>,
     /// When the owner first paired with this node
     pub paired_at: i64,
     /// Last time owner connected
@@ -203,33 +178,20 @@ pub struct OwnerInfo {
 
 impl OwnerInfo {
     /// Create new OwnerInfo during first connection
-    pub fn new(
-        owner_did: String,
-        username: String,
-        signing_public_key: Vec<u8>,
-        device_public_key: Vec<u8>,
-    ) -> Self {
+    pub fn new(did: String, encryption_key: String, username: String) -> Self {
         Self {
-            owner_did,
+            did,
+            encryption_key,
             username,
-            signing_public_key,
-            encryption_public_key: None,
-            device_public_key,
-            permit_for_owner: None,
-            permit_from_owner: None,
+            permit: None,
             paired_at: Local::now().timestamp_millis(),
             last_connected_at: None,
         }
     }
 
-    /// Store the permit we issued TO the owner
-    pub fn set_permit_for_owner(&mut self, permit: String) {
-        self.permit_for_owner = Some(permit);
-    }
-
-    /// Store the permit we received FROM the owner
-    pub fn set_permit_from_owner(&mut self, permit: String) {
-        self.permit_from_owner = Some(permit);
+    /// Set the permit
+    pub fn set_permit(&mut self, permit: String) {
+        self.permit = Some(permit);
     }
 
     /// Update last connected timestamp

@@ -19,19 +19,35 @@ pub mod error;
 pub mod models;
 pub mod storage;
 pub mod services;
+pub mod scribe;
 
 pub use error::{ButlerError, Result};
 pub use models::*;
 pub use storage::{RedbStore, LayerCache, CachedLayer, LayerCacheStats, AssetStore};
 // Auth functions are standalone (don't need Butler instance)
 pub use services::{signup, login, is_signed_up, recover, change_passphrase, SignupResult, get_identity_data};
+// Scribe actor exports
+pub use scribe::{
+    Scribe, ScribeMessage, ScribeArgs, ScribeState, ScribeEvent,
+    BroadcastPayload, LayerCapability, SyncPolicy, SyncConfig,
+    SaveLayerFn, LoadPeerVectorFn, SavePeerVectorFn,
+};
 
 // Stateless service modules
 use services::{space_service, node_service, contact_service};
 
 use herald::Identity;
+use ractor::ActorRef;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
+
+/// Scribe entry with last access time for LRU eviction
+struct ScribeEntry {
+    actor: ActorRef<ScribeMessage>,
+    last_accessed: Instant,
+}
 
 /// Butler - Main entry point for storage and services
 ///
@@ -41,7 +57,16 @@ pub struct Butler {
     store: Arc<RedbStore>,
     layer_cache: Arc<RwLock<LayerCache>>,
     identity: Arc<RwLock<Option<Identity>>>,
+    /// Active Scribe actors (page_id → ScribeEntry)
+    scribes: RwLock<HashMap<String, ScribeEntry>>,
+    /// Per-page locks for serializing open_page calls
+    page_locks: RwLock<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Maximum number of open pages
+    max_open_pages: usize,
 }
+
+/// Default maximum number of open pages
+const DEFAULT_MAX_OPEN_PAGES: usize = 50;
 
 impl Butler {
     /// Create a new Butler instance
@@ -50,6 +75,21 @@ impl Butler {
             store,
             layer_cache,
             identity: Arc::new(RwLock::new(None)),
+            scribes: RwLock::new(HashMap::new()),
+            page_locks: RwLock::new(HashMap::new()),
+            max_open_pages: DEFAULT_MAX_OPEN_PAGES,
+        }
+    }
+
+    /// Create a new Butler instance with custom max open pages
+    pub fn with_max_pages(store: Arc<RedbStore>, layer_cache: Arc<RwLock<LayerCache>>, max_open_pages: usize) -> Self {
+        Self {
+            store,
+            layer_cache,
+            identity: Arc::new(RwLock::new(None)),
+            scribes: RwLock::new(HashMap::new()),
+            page_locks: RwLock::new(HashMap::new()),
+            max_open_pages,
         }
     }
 
@@ -110,6 +150,7 @@ impl Butler {
             did: identity.did().to_string(),
             username: identity_data.username,
             public_key: identity.public_signing_key().to_vec(),
+            encryption_key: identity.public_encryption_key().to_vec(),
         })
     }
 
@@ -125,10 +166,10 @@ impl Butler {
         Ok((permit, pub_key))
     }
 
-    /// Issue folder viewer permit
-    pub async fn issue_folder_viewer_permit(&self, folder_id: &str) -> Result<(String, String)> {
+    /// Issue space viewer permit
+    pub async fn issue_space_viewer_permit(&self, space_id: &str) -> Result<(String, String)> {
         let signing_key = self.signing_key().await?;
-        let (permit, _cid) = gurkha::issue_folder_viewer_auth(&signing_key, folder_id)
+        let (permit, _cid) = gurkha::issue_space_viewer_auth(&signing_key, space_id)
             .await
             .map_err(|e| ButlerError::PermitError(format!("{:?}", e)))?;
         let pub_key = gurkha::get_public_key(&signing_key);
@@ -156,6 +197,11 @@ impl Butler {
         space_service::get_space(&self.store, space_id)
     }
 
+    /// Get space data with permit and shares
+    pub fn get_space_data(&self, space_id: &str) -> Result<Option<SpaceData>> {
+        space_service::get_space_with_shares(&self.store, space_id)
+    }
+
     pub fn list_spaces(&self) -> Result<Vec<Space>> {
         space_service::list_all_spaces(&self.store)
     }
@@ -178,31 +224,98 @@ impl Butler {
         space_service::set_space_permit(&self.store, space_id, permit)
     }
 
+    /// Delegate space permit to node for publishing
+    ///
+    /// Creates a delegated permit with relationship="node" for the given node pubkey.
+    pub async fn delegate_space_to_node(&self, space_id: &str, node_pubkey: &str) -> Result<String> {
+        let signing_key = self.signing_key().await?;
+
+        // Get the space with permit data
+        let space_data = self.store.get_space(space_id)?
+            .ok_or_else(|| ButlerError::NotFound(format!("Space {} not found", space_id)))?;
+
+        let space_permit = space_data.permit
+            .ok_or_else(|| ButlerError::PermitError("Space has no permit".to_string()))?;
+
+        // Delegate to node using the "node" template from SPACE_TEMPLATE.delegation.node
+        let (delegated, _cid) = gurkha::delegate_space(&signing_key, &space_permit, "node", node_pubkey)
+            .await
+            .map_err(|e| ButlerError::PermitError(format!("Failed to delegate: {:?}", e)))?;
+
+        Ok(delegated)
+    }
+
+    /// Store a space received via publish (Node mode)
+    ///
+    /// Called by Node when it receives PublishSpace from owner.
+    /// The space and permit come from the owner - we just store them.
+    pub fn store_published_space(&self, space: &Space, permit: &str) -> Result<()> {
+        space_service::store_published_space(&self.store, space, permit)
+    }
+
+    /// Store a space received from another peer with source tracking
+    ///
+    /// Called by Viewer when receiving SpaceData from node.
+    /// The source_node_id is stored so viewer knows which node to sync back to.
+    pub fn store_published_space_with_source(
+        &self,
+        space: &Space,
+        permit: &str,
+        source_node_id: Option<&str>,
+    ) -> Result<()> {
+        space_service::store_published_space_with_source(&self.store, space, permit, source_node_id)
+    }
+
+    /// Get the source node for a page (for lazy sync)
+    ///
+    /// Returns the node_id that gave us this page's space, if any.
+    /// Used by Scribe to know which node to sync edits back to.
+    pub fn get_source_node_for_page(&self, page_id: &str) -> Result<Option<String>> {
+        space_service::get_source_node_for_page(&self.store, page_id)
+    }
+
+    /// Get sovereign node for owner sync
+    ///
+    /// Returns the first connected sovereign node, if any.
+    /// Used for owner role lazy sync - owner syncs edits to their sovereign node.
+    pub fn get_sovereign_node_for_sync(&self) -> Result<Option<String>> {
+        let nodes = self.list_connected_sovereign_nodes()?;
+        Ok(nodes.into_iter().next().map(|n| n.node_id))
+    }
+
+    /// List page IDs for a space (for sync)
+    pub fn list_page_ids_for_space(&self, space_id: &str) -> Result<Vec<String>> {
+        let pages = self.list_pages(space_id)?;
+        Ok(pages.into_iter().map(|p| p.id).collect())
+    }
+
+    /// Mark space as published on a specific node
+    pub fn mark_space_published(&self, space_id: &str, node_id: &str) -> Result<()> {
+        space_service::mark_space_published(&self.store, space_id, node_id)
+    }
+
     // ==================== Page Operations ====================
 
     /// Extract layer names from a permit template JSON
     ///
-    /// Looks for `layers` field and returns names of CRDT layers.
+    /// Looks for `owner_template.layers` field (matching gurkha's expected structure).
+    /// Returns all layer names (both CRDT and asset types need storage).
     pub fn extract_layer_names_from_template(permit_template_json: &str) -> Vec<String> {
         let Ok(template) = serde_json::from_str::<serde_json::Value>(permit_template_json) else {
             return Vec::new();
         };
 
-        let Some(layers) = template.get("layers").and_then(|d| d.as_object()) else {
+        // Extract layers from owner_template (matches gurkha structure)
+        let Some(layers) = template
+            .get("owner_template")
+            .and_then(|ot| ot.get("layers"))
+            .and_then(|l| l.as_object())
+        else {
             return Vec::new();
         };
 
-        layers
-            .iter()
-            .filter_map(|(name, config)| {
-                let layer_type = config.get("type").and_then(|t| t.as_str()).unwrap_or("crdt");
-                if layer_type == "crdt" {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
+        // Return all layer names (both crdt and asset types need storage)
+        layers.keys().cloned().collect()
     }
 
     pub async fn create_page(
@@ -211,18 +324,22 @@ impl Butler {
         name: &str,
         page_type: PageType,
         layer_names: Vec<String>,
+        permit_template_json: &str,
     ) -> Result<Page> {
         let identity = self.get_identity().await?;
         let owner_did = identity.did().to_string();
         let owner_public_key = identity.public_encryption_key();
+        let signing_key = identity.secret_signing_key();
         space_service::create_page(
             &self.store,
             space_id.to_string(),
             name.to_string(),
             owner_did,
             &owner_public_key,
+            &signing_key,
             page_type,
             layer_names,
+            permit_template_json,
         ).await
     }
 
@@ -238,16 +355,14 @@ impl Butler {
         space_service::delete_page(&self.store, space_id, page_id)
     }
 
-    /// Get all pages accessible by the logged-in user
-    pub async fn get_accessible_pages(&self) -> Result<Vec<Page>> {
-        let identity = self.get_identity().await?;
-        let user_did = identity.did().to_string();
-        space_service::get_accessible_pages(&self.store, &user_did)
+    /// Get all pages (no filtering - if stored, user has access)
+    pub fn get_pages(&self) -> Result<Vec<Page>> {
+        space_service::get_pages(&self.store)
     }
 
     // ==================== Encrypted Page Operations (need identity) ====================
 
-    pub async fn get_decrypted_page(&self, page_id: &str) -> Result<DecryptedPage> {
+    pub async fn get_decrypted_page(&self, page_id: &str) -> Result<(DecryptedPage, [u8; 32])> {
         let identity = self.get_identity().await?;
         let user_did = identity.did().to_string();
         let secret_key = identity.secret_encryption_key();
@@ -289,11 +404,21 @@ impl Butler {
         ).await
     }
 
+    /// Prepare page for publishing to node
+    ///
+    /// **Context**: Owner wants to publish page to their node
+    /// **We do**:
+    ///   1. Get page and owner's permit
+    ///   2. Delegate permit to node
+    ///   3. Filter out local_only layers
+    ///   4. Encrypt layers for transit using ephemeral ECDH
+    /// **We return**: PreparedPage with transit-encrypted layers
     pub async fn prepare_page_for_publish(
         &self,
         page_id: &str,
         node_public_key: &str,
-    ) -> Result<(PageMeta, String, std::collections::HashMap<String, Vec<u8>>)> {
+        node_encryption_key: &[u8; 32],
+    ) -> Result<PreparedPage> {
         let identity = self.get_identity().await?;
         let owner_did = identity.did().to_string();
         space_service::prepare_page_for_publish(
@@ -301,40 +426,194 @@ impl Butler {
             page_id,
             &owner_did,
             node_public_key,
+            node_encryption_key,
             &identity.secret_signing_key(),
             &identity.secret_encryption_key(),
         ).await
     }
 
-    // ==================== Node Operations ====================
-
-    pub fn register_my_node(
+    /// Store a page received via publish (Node/Viewer mode)
+    ///
+    /// **Context**: Node received PublishPage from owner, or Viewer received ViewerPage from node
+    /// **We do**: Decrypt transit layers, re-encrypt with new AES key, store
+    /// **source_node_did**: For viewer side, tracks which node sent this page (for reconnection)
+    pub async fn store_published_page(
         &self,
-        node_did: String,
-        device_id: String,
-        iroh_node_id: String,
-        node_addr: Option<String>,
-    ) -> Result<NodeInfo> {
-        let identity_data = get_identity_data(&self.store)?
-            .ok_or(ButlerError::NotLoggedIn)?;
-        node_service::register_my_node(
+        page_meta: PageMeta,
+        permit: &str,
+        ephemeral_public: &[u8; 32],
+        transit_layers: Vec<(String, Vec<u8>)>,
+        source_node_did: Option<&str>,
+    ) -> Result<Page> {
+        let identity = self.get_identity().await?;
+        space_service::store_published_page(
             &self.store,
-            identity_data.did,
-            node_did,
-            device_id,
-            iroh_node_id,
-            node_addr,
+            page_meta,
+            permit,
+            ephemeral_public,
+            transit_layers,
+            &identity.secret_encryption_key(),
+            &identity.public_encryption_key(),
+            source_node_did,
         )
     }
 
-    pub fn get_my_node(&self) -> Result<Option<NodeInfo>> {
-        let identity_data = get_identity_data(&self.store)?
-            .ok_or(ButlerError::NotLoggedIn)?;
-        node_service::get_my_node(&self.store, &identity_data.did)
+    /// Mark a page as published to a specific node
+    pub fn mark_page_published(&self, page_id: &str, node_id: &str) -> Result<()> {
+        space_service::mark_page_published(&self.store, page_id, node_id)
     }
 
+    /// Prepare page for viewer (Node mode)
+    ///
+    /// **Context**: Node is responding to viewer's SpaceRequest
+    /// **We do**:
+    ///   1. Get page and node's permit
+    ///   2. Delegate permit to viewer using "viewer" template
+    ///   3. Filter out local_only layers
+    ///   4. Encrypt layers for transit using ephemeral ECDH
+    /// **We return**: PreparedPage with transit-encrypted layers for viewer
+    pub async fn prepare_page_for_viewer(
+        &self,
+        page_id: &str,
+        viewer_public_key: &str,
+        viewer_encryption_key: &[u8; 32],
+    ) -> Result<PreparedPage> {
+        let identity = self.get_identity().await?;
+        space_service::prepare_page_for_viewer(
+            &self.store,
+            page_id,
+            viewer_public_key,
+            viewer_encryption_key,
+            &identity.secret_signing_key(),
+            &identity.secret_encryption_key(),
+        ).await
+    }
+
+    /// Delegate space permit to viewer (Node mode)
+    ///
+    /// **Context**: Node delegates its space permit to viewer
+    /// **We do**: Use "viewer" template from space permit delegation
+    /// **We return**: Delegated viewer permit
+    pub async fn delegate_space_to_viewer(&self, space_id: &str, viewer_pubkey: &str) -> Result<String> {
+        let signing_key = self.signing_key().await?;
+
+        // Get the space with permit data
+        let space_data = self.store.get_space(space_id)?
+            .ok_or_else(|| ButlerError::NotFound(format!("Space {} not found", space_id)))?;
+
+        let space_permit = space_data.permit
+            .ok_or_else(|| ButlerError::PermitError("Space has no permit".to_string()))?;
+
+        // Delegate to viewer using the "viewer" template from SPACE_TEMPLATE.delegation.viewer
+        let (delegated, _cid) = gurkha::delegate_space(&signing_key, &space_permit, "viewer", viewer_pubkey)
+            .await
+            .map_err(|e| ButlerError::PermitError(format!("Failed to delegate to viewer: {:?}", e)))?;
+
+        Ok(delegated)
+    }
+
+    // ==================== Node Operations ====================
+
+    /// Add a sovereign node from a connection string (owner connection)
     pub fn add_sovereign_node(&self, connection_string: &str) -> std::result::Result<SovereignNode, String> {
-        node_service::add_sovereign_node(&self.store, connection_string)
+        node_service::add_sovereign_node(&self.store, connection_string, ConnectionType::Owner)
+    }
+
+    /// Parse a connection string without storing (for viewer connections)
+    ///
+    /// Returns the parsed connection details for immediate use.
+    /// Viewer connections are not persisted - they connect, get data, and that's it.
+    pub fn parse_connection_string(&self, connection_string: &str) -> std::result::Result<ConnectionString, String> {
+        ConnectionString::parse(connection_string)
+    }
+
+    /// Generate a connection string for this node (Node mode)
+    ///
+    /// **Context**: Node generates connection string for owner to scan/enter
+    /// **We return**: Base64-encoded JSON containing keys, permit, etc.
+    /// Note: node_id is derived from device_public_key when parsing
+    ///
+    /// # Arguments
+    /// * `relay_url` - Optional relay URL for connection
+    pub async fn generate_connection_string(
+        &self,
+        relay_url: Option<&str>,
+    ) -> Result<String> {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+        let identity = self.get_identity().await?;
+        let user_info = self.user_info().await?;
+
+        // Issue one-time permit for owner connection
+        // Relationship is "node_owner" = node issuing permit TO owner
+        let (permit, _pub_key) = self.issue_one_time_permit("node_owner").await?;
+
+        // Encode keys as base64
+        let user_pub_key = STANDARD.encode(identity.public_signing_key());
+        let device_pub_key = STANDARD.encode(identity.public_device_key());
+        let encryption_pub_key = STANDARD.encode(identity.public_encryption_key());
+
+        // Build connection string JSON (matches ConnectionString struct)
+        // node_id is derived from device_public_key when parsing
+        let connection_details = serde_json::json!({
+            "node_public_key": user_pub_key,
+            "node_encryption_key": encryption_pub_key,
+            "device_public_key": device_pub_key,
+            "name": user_info.username,
+            "permit": permit,
+            "relay": relay_url,
+        });
+
+        // Base64 encode the JSON
+        let connection_json = connection_details.to_string();
+        let encoded = STANDARD.encode(connection_json.as_bytes());
+
+        Ok(encoded)
+    }
+
+    /// Generate a viewer connection string for a space (Node mode)
+    ///
+    /// **Context**: Node generates shareable link for viewers
+    /// **We return**: Base64-encoded JSON with keys and viewer permit
+    /// Note: node_id is derived from device_public_key when parsing
+    ///
+    /// # Arguments
+    /// * `space_id` - The space to generate viewer permit for
+    /// * `relay_url` - Optional relay URL for connection
+    pub async fn generate_viewer_connection_string(
+        &self,
+        space_id: &str,
+        relay_url: Option<&str>,
+    ) -> Result<String> {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+        let identity = self.get_identity().await?;
+        let user_info = self.user_info().await?;
+
+        // Generate viewer permit for this space (aud:* wildcard)
+        let (permit, _cid) = self.issue_space_viewer_permit(space_id).await?;
+
+        // Encode keys as base64
+        let user_pub_key = STANDARD.encode(identity.public_signing_key());
+        let device_pub_key = STANDARD.encode(identity.public_device_key());
+        let encryption_pub_key = STANDARD.encode(identity.public_encryption_key());
+
+        // Build connection string JSON
+        // node_id is derived from device_public_key when parsing (SovereignNode::from_connection_string)
+        let connection_details = serde_json::json!({
+            "node_public_key": user_pub_key,
+            "node_encryption_key": encryption_pub_key,
+            "device_public_key": device_pub_key,
+            "name": user_info.username,
+            "permit": permit,
+            "relay": relay_url,
+        });
+
+        // Base64 encode the JSON
+        let connection_json = connection_details.to_string();
+        let encoded = STANDARD.encode(connection_json.as_bytes());
+
+        Ok(encoded)
     }
 
     pub fn get_sovereign_node(&self, node_id: &str) -> Result<Option<SovereignNode>> {
@@ -361,11 +640,6 @@ impl Butler {
         node_service::delete_sovereign_node(&self.store, node_id)
     }
 
-    /// Store the permit we issued to a sovereign node
-    pub fn set_sovereign_node_permit_for_them(&self, node_id: &str, permit: String) -> Result<bool> {
-        node_service::set_sovereign_node_permit_for_them(&self.store, node_id, permit)
-    }
-
     // ==================== Owner Operations (for Node mode) ====================
 
     pub fn get_owner(&self) -> Result<Option<OwnerInfo>> {
@@ -380,19 +654,60 @@ impl Butler {
         node_service::has_owner(&self.store)
     }
 
-    /// Store the permit we issued to owner (for Node mode handshake)
-    pub fn set_owner_permit_for_owner(&self, permit: String) -> Result<bool> {
-        node_service::set_owner_permit_for_owner(&self.store, permit)
-    }
-
-    /// Store the permit owner issued to us (for Node mode handshake)
-    pub fn set_owner_permit_from_owner(&self, permit: String) -> Result<bool> {
-        node_service::set_owner_permit_from_owner(&self.store, permit)
+    /// Store the permit for owner<->node relationship (Node mode)
+    pub fn set_owner_permit(&self, permit: String) -> Result<bool> {
+        node_service::set_owner_permit(&self.store, permit)
     }
 
     /// Update owner's last connected timestamp
     pub fn update_owner_last_connected(&self) -> Result<bool> {
         node_service::update_owner_last_connected(&self.store)
+    }
+
+    // ==================== Viewer Consent Operations (Node-side) ====================
+
+    /// Store viewer-issued consent permits.
+    ///
+    /// **Context**: Node receives SyncConsentGrant from viewer.
+    /// The permits are viewer-issued, expressing consent for receiving sync updates.
+    ///
+    /// # Arguments
+    /// * `viewer_did` - The viewer's DID
+    /// * `space_id` - The space ID
+    /// * `space_consent_permit` - Viewer-issued space consent permit
+    /// * `page_consent_permits` - Viewer-issued page consent permits (page_id, permit)
+    pub async fn store_viewer_consent(
+        &self,
+        viewer_did: &str,
+        space_id: &str,
+        space_consent_permit: &str,
+        page_consent_permits: &[(String, String)],
+    ) -> Result<()> {
+        // Store space consent (only if not empty)
+        if !space_consent_permit.is_empty() {
+            self.store.put_viewer_space_consent(viewer_did, space_id, space_consent_permit)?;
+        }
+
+        // Store page consents
+        for (page_id, permit) in page_consent_permits {
+            self.store.put_viewer_page_consent(viewer_did, page_id, permit)?;
+        }
+
+        Ok(())
+    }
+
+    /// Get viewer's space consent permit.
+    ///
+    /// **Context**: Node needs consent permit to send sync updates.
+    pub fn get_viewer_space_consent(&self, viewer_did: &str, space_id: &str) -> Result<Option<String>> {
+        self.store.get_viewer_space_consent(viewer_did, space_id)
+    }
+
+    /// Get viewer's page consent permit.
+    ///
+    /// **Context**: Node needs consent permit to send layer updates.
+    pub fn get_viewer_page_consent(&self, viewer_did: &str, page_id: &str) -> Result<Option<String>> {
+        self.store.get_viewer_page_consent(viewer_did, page_id)
     }
 
     // ==================== Contact Operations (Node-side for viewer shares) ====================
@@ -412,24 +727,299 @@ impl Butler {
         contact_service::list_contacts(&self.store)
     }
 
-    /// Add a share to a contact (also updates shares_by_page index)
-    pub fn add_share_to_contact(
+    /// Store a node as contact (viewer side - for tracking nodes viewer is subscribed to)
+    pub fn add_node_contact(
         &self,
-        user_did: &str,
-        page_id: &str,
-        share: ShareInfo,
-    ) -> Result<()> {
-        contact_service::add_share_to_contact(&self.store, user_did, page_id, share)
+        did: &str,
+        encryption_key: &str,
+        name: &str,
+        node_id: &str,
+        permit: &str,
+    ) -> Result<ContactData> {
+        contact_service::upsert_node_contact(&self.store, did, encryption_key, name, node_id, permit)
     }
 
-    /// Get all user DIDs who have a share for a given page
-    pub fn get_users_for_page(&self, page_id: &str) -> Result<Vec<String>> {
-        contact_service::get_users_for_page(&self.store, page_id)
+    /// List node contacts only (viewer side)
+    pub fn list_node_contacts(&self) -> Result<Vec<ContactData>> {
+        contact_service::list_node_contacts(&self.store)
     }
 
-    /// Get contacts with their shares for a page
-    pub fn get_contacts_for_page(&self, page_id: &str) -> Result<Vec<ContactData>> {
-        contact_service::get_contacts_for_page(&self.store, page_id)
+    // Note: add_share_to_contact, get_users_for_page, get_contacts_for_page removed
+    // Access tracking moved to SPACE_SUBSCRIPTIONS table
+
+    // ==================== Permit CID Operations (for revocation tracking) ====================
+
+    /// Store a permit CID for a specific page and user.
+    ///
+    /// **Context**: Called when issuing a permit to track it for potential revocation.
+    pub fn put_permit_cid(&self, page_id: &str, user_did: &str, cid: &str) -> Result<()> {
+        self.store.put_permit_cid(page_id, user_did, cid)
+    }
+
+    /// Get a permit CID for a specific page and user.
+    ///
+    /// **Context**: Used to check if a permit has been issued and get its CID.
+    pub fn get_permit_cid(&self, page_id: &str, user_did: &str) -> Result<Option<String>> {
+        self.store.get_permit_cid(page_id, user_did)
+    }
+
+    /// Delete a permit CID for a specific page and user.
+    ///
+    /// **Context**: Called when revoking access - marks the permit as revoked.
+    pub fn delete_permit_cid(&self, page_id: &str, user_did: &str) -> Result<bool> {
+        self.store.delete_permit_cid(page_id, user_did)
+    }
+
+    /// List all permit CIDs for a given page.
+    ///
+    /// **Context**: Used to enumerate all issued permits for a page.
+    /// Returns list of (user_did, cid) tuples.
+    pub fn list_permit_cids_for_page(&self, page_id: &str) -> Result<Vec<(String, String)>> {
+        self.store.list_permit_cids_for_page(page_id)
+    }
+
+    /// Delete all permit CIDs for a page.
+    ///
+    /// **Context**: Called when a page is deleted.
+    pub fn delete_all_permit_cids_for_page(&self, page_id: &str) -> Result<usize> {
+        self.store.delete_all_permit_cids_for_page(page_id)
+    }
+
+    /// Check if a permit CID exists for a page and user.
+    ///
+    /// **Context**: Quick check for whether a permit has been issued.
+    pub fn has_permit_cid(&self, page_id: &str, user_did: &str) -> Result<bool> {
+        self.store.has_permit_cid(page_id, user_did)
+    }
+
+    // ==================== Scribe Operations ====================
+
+    /// Open a page and get its Scribe actor
+    ///
+    /// **Context**: UI or PeerActor wants to interact with a page
+    /// **We do**: Spawn Scribe if not exists, return ActorRef
+    /// **We return**: ActorRef<ScribeMessage> for sending messages
+    ///
+    /// Actor naming: `scribe-{user_did_hash}-{page_id}` for deterministic querying
+    pub async fn open_page(&self, page_id: &str) -> Result<ActorRef<ScribeMessage>> {
+        // Quick check if already open (no lock needed for read)
+        {
+            let mut scribes = self.scribes.write().await;
+            if let Some(entry) = scribes.get_mut(page_id) {
+                entry.last_accessed = Instant::now();
+                return Ok(entry.actor.clone());
+            }
+        }
+
+        // Get or create per-page lock to serialize concurrent open_page calls
+        let page_lock = {
+            let mut locks = self.page_locks.write().await;
+            locks.entry(page_id.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+
+        // Acquire per-page lock - this serializes concurrent calls for the same page
+        let _guard = page_lock.lock().await;
+
+        // Re-check after acquiring lock (another call may have created it)
+        {
+            let mut scribes = self.scribes.write().await;
+            if let Some(entry) = scribes.get_mut(page_id) {
+                entry.last_accessed = Instant::now();
+                return Ok(entry.actor.clone());
+            }
+        }
+
+        // Get user DID for actor naming (use hash to keep name shorter)
+        let user_info = self.user_info().await?;
+        let user_did_hash = &user_info.did[user_info.did.len().saturating_sub(8)..];
+        let actor_name = format!("scribe-{}-{}", user_did_hash, page_id);
+
+        // Check if actor already exists in ractor registry (handles edge cases)
+        if let Some(actor) = ractor::registry::where_is(actor_name.clone()) {
+            log::debug!("Found existing Scribe actor in registry: {}", actor_name);
+            let actor_ref: ActorRef<ScribeMessage> = actor.into();
+            // Re-add to our map
+            {
+                let mut scribes = self.scribes.write().await;
+                scribes.insert(page_id.to_string(), ScribeEntry {
+                    actor: actor_ref.clone(),
+                    last_accessed: Instant::now(),
+                });
+            }
+            return Ok(actor_ref);
+        }
+
+        // Evict LRU if at capacity
+        self.maybe_evict_lru().await;
+
+        // Load page data and decrypt layers (also get AES key for save_layer)
+        let page_id_str = page_id.to_string();
+        let (decrypted, aes_key) = self.get_decrypted_page(page_id).await?;
+
+        // Convert DecryptedPage docs to Layer type
+        let mut layers = HashMap::new();
+        for (name, doc_bytes) in decrypted.docs {
+            // doc_bytes is the raw decrypted LoroDoc snapshot
+            let layer = if doc_bytes.is_empty() {
+                Layer::new()
+            } else {
+                // Create layer from snapshot bytes
+                Layer::from_snapshot(&doc_bytes)
+                    .unwrap_or_else(|_| Layer::new())
+            };
+            layers.insert(name, layer);
+        }
+
+        // Create injected functions scoped to this page
+        let store_for_save = self.store.clone();
+        let page_id_for_save = page_id_str.clone();
+        let save_layer: SaveLayerFn = Arc::new(move |layer_name: &str, data: &[u8]| {
+            // Encrypt layer with the page's AES key
+            let encrypted = herald::encrypt_symmetric(&aes_key, data)
+                .map_err(|e| ButlerError::Encryption(e.to_string()))?;
+
+            // Save to store
+            store_for_save.put_layer(&page_id_for_save, layer_name, &encrypted)?;
+
+            log::info!("Saved layer {} for page {} ({} bytes)", layer_name, page_id_for_save, encrypted.len());
+            Ok(())
+        });
+
+        let store_for_load_vec = self.store.clone();
+        let page_id_for_load = page_id_str.clone();
+        let load_peer_vector: LoadPeerVectorFn = Arc::new(move |user_did: &str, device_id: &str| {
+            log::debug!("Loading peer vector for {}/{} on page {}", user_did, device_id, page_id_for_load);
+            store_for_load_vec.get_peer_vectors(&page_id_for_load, user_did, device_id)
+        });
+
+        let store_for_save_vec = self.store.clone();
+        let page_id_for_save_vec = page_id_str.clone();
+        let save_peer_vector: SavePeerVectorFn = Arc::new(move |user_did: &str, device_id: &str, vectors: &HashMap<String, Vec<u8>>| {
+            log::debug!("Saving peer vector for {}/{} on page {} ({} layers)", user_did, device_id, page_id_for_save_vec, vectors.len());
+            store_for_save_vec.put_peer_vectors(&page_id_for_save_vec, user_did, device_id, vectors)
+        });
+
+        // Resolve SyncConfig from page permit
+        //
+        // **Context**: Parse permit to extract relationship, then resolve sync_target:
+        // - Owner: sync_target = first connected sovereign node
+        // - Node: sync_target = None (broadcast only)
+        // - Viewer: sync_target = source_node_id
+        let sync_config = self.resolve_sync_config(page_id).await;
+
+        // Spawn Scribe actor
+        let args = ScribeArgs {
+            page_id: page_id_str.clone(),
+            layers,
+            save_layer,
+            load_peer_vector,
+            save_peer_vector,
+            sync_config,
+        };
+
+        let (actor, _handle) = ractor::Actor::spawn(
+            Some(actor_name),
+            Scribe::new(),
+            args,
+        ).await.map_err(|e| ButlerError::Storage(format!("Failed to spawn Scribe: {:?}", e)))?;
+
+        // Store in map
+        {
+            let mut scribes = self.scribes.write().await;
+            scribes.insert(page_id_str, ScribeEntry {
+                actor: actor.clone(),
+                last_accessed: Instant::now(),
+            });
+        }
+
+        Ok(actor)
+    }
+
+    /// Close a page and stop its Scribe actor
+    ///
+    /// **Context**: Page no longer needed, release resources
+    /// **We do**: Flush and stop the Scribe actor
+    pub async fn close_page(&self, page_id: &str) -> Result<()> {
+        let entry = {
+            let mut scribes = self.scribes.write().await;
+            scribes.remove(page_id)
+        };
+
+        if let Some(entry) = entry {
+            // Send shutdown message - Scribe will flush before stopping
+            let _ = entry.actor.cast(ScribeMessage::Shutdown);
+        }
+
+        Ok(())
+    }
+
+    /// Get active Scribe count
+    pub async fn active_scribe_count(&self) -> usize {
+        self.scribes.read().await.len()
+    }
+
+    /// Evict least recently used Scribe if at capacity
+    async fn maybe_evict_lru(&self) {
+        let mut scribes = self.scribes.write().await;
+
+        if scribes.len() < self.max_open_pages {
+            return;
+        }
+
+        // Find LRU entry
+        let lru_page_id = scribes
+            .iter()
+            .min_by_key(|(_, entry)| entry.last_accessed)
+            .map(|(id, _)| id.clone());
+
+        if let Some(page_id) = lru_page_id {
+            if let Some(entry) = scribes.remove(&page_id) {
+                log::info!("Evicting LRU Scribe for page {}", page_id);
+                let _ = entry.actor.cast(ScribeMessage::Shutdown);
+            }
+        }
+    }
+
+    /// Resolve sync configuration from page permit
+    ///
+    /// **Context**: Parse permit to determine role-based sync behavior
+    /// **Returns**: SyncConfig with relationship and resolved sync_target
+    async fn resolve_sync_config(&self, page_id: &str) -> Option<SyncConfig> {
+        // Get page data with permit
+        let page_data = self.get_page(page_id).ok()??;
+        let permit_str = page_data.permit.as_ref()?;
+
+        // Parse permit to get relationship
+        let parsed = gurkha::Permit::from_token(permit_str).ok()?;
+        let relationship = parsed.relationship()?.to_string();
+
+        // Resolve sync_target based on role
+        let sync_target = match relationship.as_str() {
+            "owner" => {
+                // Owner syncs to their sovereign node
+                self.get_sovereign_node_for_sync().ok().flatten()
+            }
+            "viewer" => {
+                // Viewer syncs to source node (where they got the space from)
+                self.get_source_node_for_page(page_id).ok().flatten()
+            }
+            "node" | _ => {
+                // Node broadcasts only - no outbound sync target
+                None
+            }
+        };
+
+        log::info!(
+            "Resolved SyncConfig for page {}: role={}, target={:?}",
+            page_id, relationship, sync_target
+        );
+
+        Some(SyncConfig {
+            relationship,
+            sync_target,
+        })
     }
 
     // ==================== Internal Accessors (rarely needed) ====================

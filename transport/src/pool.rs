@@ -1,16 +1,18 @@
 //! Connection pool and handles for peer connections
 //!
-//! Transport owns the ConnectionPool. Courier gets ConnectionHandle references
-//! to send messages directly to peers.
+//! Transport owns the ConnectionPool. The protocol layer gets ConnectionHandle
+//! references to send raw bytes to peers.
+//!
+//! Transport is a **dumb byte pipe** - it has no knowledge of message types.
+//! Serialization/deserialization happens in the protocol layer (courier2).
 
-use crate::protocol::Message;
 use anyhow::Result;
 use iroh::endpoint::Connection;
 use iroh::NodeId;
 use iroh_quinn::{RecvStream, SendStream, VarInt};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{info, trace, warn};
 
 /// Internal connection state for a peer
@@ -29,29 +31,30 @@ impl PeerConnection {
         }
     }
 
-    /// Send a message on an ephemeral stream (opens, sends, closes)
-    pub async fn send(&self, msg: &Message) -> Result<()> {
-        let serialized = bincode::serialize(msg)?;
-        let len = serialized.len();
+    /// Send raw bytes on an ephemeral stream (opens, sends, closes)
+    ///
+    /// Adds length prefix automatically.
+    pub async fn send_bytes(&self, data: &[u8]) -> Result<()> {
+        let len = data.len();
 
-        trace!("─→ SEND ({} bytes): {:?}", len, msg);
+        trace!("─→ SEND ({} bytes)", len);
 
         let (mut send, _recv) = self.connection.open_bi().await?;
 
         // Write length prefix then data
         send.write_all(&(len as u32).to_be_bytes()).await?;
-        send.write_all(&serialized).await?;
+        send.write_all(data).await?;
         send.finish()?;
 
         Ok(())
     }
 
-    /// Send a message on the persistent live stream
+    /// Send raw bytes on the persistent live stream
     ///
     /// Creates the stream if it doesn't exist yet.
-    pub async fn send_live(&self, msg: &Message) -> Result<()> {
-        let serialized = bincode::serialize(msg)?;
-        let len = serialized.len();
+    /// Adds length prefix automatically.
+    pub async fn send_bytes_live(&self, data: &[u8]) -> Result<()> {
+        let len = data.len();
 
         let mut live_guard = self.live_stream.lock().await;
 
@@ -62,13 +65,13 @@ impl PeerConnection {
             trace!("Created persistent live stream");
         }
 
-        trace!("─→ SEND live ({} bytes): {:?}", len, msg);
+        trace!("─→ SEND live ({} bytes)", len);
 
         let (send, _recv) = live_guard.as_mut().unwrap();
 
         // Write length prefix then data
         send.write_all(&(len as u32).to_be_bytes()).await?;
-        send.write_all(&serialized).await?;
+        send.write_all(data).await?;
 
         Ok(())
     }
@@ -84,13 +87,57 @@ impl PeerConnection {
     }
 }
 
+/// Backend for ConnectionHandle - either real QUIC or mock channel
+enum ConnectionBackend {
+    /// Real iroh QUIC connection
+    Real(Arc<PeerConnection>),
+    /// Mock channel for testing (sends bytes through mpsc)
+    Mock(MockSender),
+}
+
+/// Mock sender for testing - wraps channel sender
+#[derive(Clone)]
+pub struct MockSender {
+    /// Channel to send bytes through
+    sender: mpsc::UnboundedSender<MockSendEvent>,
+    /// Our node ID
+    our_node_id: NodeId,
+    /// Peer's node ID
+    peer_node_id: NodeId,
+}
+
+/// Event sent through mock sender
+#[derive(Debug)]
+pub struct MockSendEvent {
+    pub from: NodeId,
+    pub to: NodeId,
+    pub data: Vec<u8>,
+}
+
+impl MockSender {
+    pub fn new(
+        sender: mpsc::UnboundedSender<MockSendEvent>,
+        our_node_id: NodeId,
+        peer_node_id: NodeId,
+    ) -> Self {
+        Self {
+            sender,
+            our_node_id,
+            peer_node_id,
+        }
+    }
+}
+
 /// Handle to a peer connection
 ///
-/// This is a lightweight reference that Courier can store and use to send messages.
+/// This is a lightweight reference that the protocol layer can store and use
+/// to send raw bytes to peers.
 /// The actual connection is owned by Transport's ConnectionPool.
+///
+/// Supports both real QUIC connections and mock channels for testing.
 #[derive(Clone)]
 pub struct ConnectionHandle {
-    inner: Arc<PeerConnection>,
+    backend: Arc<ConnectionBackend>,
     node_id: NodeId,
 }
 
@@ -103,21 +150,60 @@ impl std::fmt::Debug for ConnectionHandle {
 }
 
 impl ConnectionHandle {
+    /// Create a new connection handle for a real QUIC connection
     pub fn new(connection: Connection, node_id: NodeId) -> Self {
         Self {
-            inner: Arc::new(PeerConnection::new(connection)),
+            backend: Arc::new(ConnectionBackend::Real(Arc::new(PeerConnection::new(connection)))),
             node_id,
         }
     }
 
-    /// Send message on ephemeral stream
-    pub async fn send(&self, msg: &Message) -> Result<()> {
-        self.inner.send(msg).await
+    /// Create a mock connection handle for testing
+    pub fn from_mock_sender(sender: MockSender) -> Self {
+        let node_id = sender.peer_node_id;
+        Self {
+            backend: Arc::new(ConnectionBackend::Mock(sender)),
+            node_id,
+        }
     }
 
-    /// Send message on persistent live stream
-    pub async fn send_live(&self, msg: &Message) -> Result<()> {
-        self.inner.send_live(msg).await
+    /// Send raw bytes on ephemeral stream
+    ///
+    /// Length prefix is added automatically.
+    pub async fn send_bytes(&self, data: &[u8]) -> Result<()> {
+        match self.backend.as_ref() {
+            ConnectionBackend::Real(inner) => inner.send_bytes(data).await,
+            ConnectionBackend::Mock(sender) => {
+                sender
+                    .sender
+                    .send(MockSendEvent {
+                        from: sender.our_node_id,
+                        to: sender.peer_node_id,
+                        data: data.to_vec(),
+                    })
+                    .map_err(|e| anyhow::anyhow!("Mock send failed: {}", e))
+            }
+        }
+    }
+
+    /// Send raw bytes on persistent live stream
+    ///
+    /// Length prefix is added automatically.
+    pub async fn send_bytes_live(&self, data: &[u8]) -> Result<()> {
+        match self.backend.as_ref() {
+            ConnectionBackend::Real(inner) => inner.send_bytes_live(data).await,
+            ConnectionBackend::Mock(sender) => {
+                // Mock doesn't distinguish ephemeral vs live
+                sender
+                    .sender
+                    .send(MockSendEvent {
+                        from: sender.our_node_id,
+                        to: sender.peer_node_id,
+                        data: data.to_vec(),
+                    })
+                    .map_err(|e| anyhow::anyhow!("Mock send failed: {}", e))
+            }
+        }
     }
 
     /// Get the peer's NodeId
@@ -127,12 +213,18 @@ impl ConnectionHandle {
 
     /// Close the connection
     pub fn close(&self) {
-        self.inner.close()
+        if let ConnectionBackend::Real(inner) = self.backend.as_ref() {
+            inner.close();
+        }
+        // Mock connections don't need closing
     }
 
-    /// Get reference to inner connection for accepting streams
-    pub(crate) fn inner(&self) -> &Arc<PeerConnection> {
-        &self.inner
+    /// Get reference to inner connection for accepting streams (real connections only)
+    pub(crate) fn inner(&self) -> Option<&Arc<PeerConnection>> {
+        match self.backend.as_ref() {
+            ConnectionBackend::Real(inner) => Some(inner),
+            ConnectionBackend::Mock(_) => None,
+        }
     }
 }
 

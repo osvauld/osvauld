@@ -6,7 +6,7 @@
 	import ProvidePrivateKey from "./ProvidePrivateKey.svelte";
 	import FlowContainer from "./FlowContainer.svelte";
 	import InitiationScreen from "./InitiationScreen.svelte";
-	import { sendMessage } from "../utils/helper";
+	import { sendMessage } from '../utils/api';
 
 	let { onSignedUp }: { onSignedUp?: () => void } = $props();
 

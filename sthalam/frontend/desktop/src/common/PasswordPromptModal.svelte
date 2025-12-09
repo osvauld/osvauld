@@ -1,9 +1,9 @@
 <script lang="ts">
 	// This Modal component can be used during exporting certificate or changing passphrase
 	import { onMount } from "svelte";
-	import { sendMessage } from "../utils/helper";
+	import { sendMessage } from '../utils/api';
+	import { writeToClipboard } from '../utils/scribe';
 	import { fly } from "svelte/transition";
-	import { generateCertificatePDF } from "../utils/backupUtil";
 	import { ClosedEye, Eye } from "@osvauld/icons";
 	import SuccessView from "./SuccessView.svelte";
 	import NewPassword from "./NewPassword.svelte";
@@ -67,11 +67,13 @@
 
 			if (certificate) {
 				try {
-					// Generate and save PDF instead of copying to clipboard
-					await generateCertificatePDF(certificate);
+					// Copy mnemonic to clipboard
+					const exportText = `Username: ${certificate.username}\nRecovery Phrase: ${certificate.mnemonic}`;
+					await writeToClipboard(exportText);
+					console.log("Certificate exported to clipboard");
 					success = true;
-				} catch (pdfError) {
-					console.error("PDF generation error:", pdfError);
+				} catch (copyError) {
+					console.error("Clipboard error:", copyError);
 					errorView = true;
 				}
 			} else {

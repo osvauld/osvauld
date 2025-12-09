@@ -48,8 +48,8 @@ pub async fn handle_get_known_users(
         .into_iter()
         .map(|node| KnownUserResponse {
             user_id: node.node_id.clone(),
-            username: node.username,
-            public_key: node.user_public_key,
+            username: node.name,
+            public_key: node.did,
         })
         .collect();
 
@@ -78,8 +78,8 @@ pub async fn handle_get_sovereign_nodes(
         .into_iter()
         .map(|node| SovereignNodeResponse {
             node_id: node.node_id,
-            username: node.username,
-            user_public_key: node.user_public_key,
+            username: node.name,
+            user_public_key: node.did,
             device_public_key: node.device_public_key,
             is_connected: node.is_connected,
             last_connected_at: node.last_connected_at,

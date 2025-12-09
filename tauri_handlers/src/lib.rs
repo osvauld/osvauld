@@ -4,6 +4,7 @@
 // All handlers use Butler as the single entry point for storage and identity.
 
 pub mod config;
+pub mod events;
 pub mod handlers;
 pub mod types;
 
