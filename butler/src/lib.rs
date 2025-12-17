@@ -28,9 +28,9 @@ pub use storage::{RedbStore, LayerCache, CachedLayer, LayerCacheStats, AssetStor
 pub use services::{signup, login, is_signed_up, recover, change_passphrase, SignupResult, get_identity_data};
 // Scribe actor exports
 pub use scribe::{
-    Scribe, ScribeMessage, ScribeArgs, ScribeState, ScribeEvent,
+    Scribe, ScribeMessage, ScribeArgs, ScribeState, ScribeEvent, SyncEvent,
     BroadcastPayload, LayerCapability, SyncPolicy, SyncConfig,
-    SaveLayerFn, LoadPeerVectorFn, SavePeerVectorFn,
+    SaveLayerFn, LoadPeerVectorFn, SavePeerVectorFn, ListAuthorizedUsersFn, LoadUserPermitFn,
 };
 
 // Stateless service modules
@@ -63,6 +63,9 @@ pub struct Butler {
     page_locks: RwLock<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Maximum number of open pages
     max_open_pages: usize,
+    /// Channel to emit sync events (EnsureSync) from Scribes to Coordinator
+    /// Uses RwLock for interior mutability (allows setting after Arc wrapping)
+    sync_event_tx: RwLock<Option<tokio::sync::mpsc::Sender<SyncEvent>>>,
 }
 
 /// Default maximum number of open pages
@@ -78,6 +81,7 @@ impl Butler {
             scribes: RwLock::new(HashMap::new()),
             page_locks: RwLock::new(HashMap::new()),
             max_open_pages: DEFAULT_MAX_OPEN_PAGES,
+            sync_event_tx: RwLock::new(None),
         }
     }
 
@@ -90,7 +94,17 @@ impl Butler {
             scribes: RwLock::new(HashMap::new()),
             page_locks: RwLock::new(HashMap::new()),
             max_open_pages,
+            sync_event_tx: RwLock::new(None),
         }
+    }
+
+    /// Set the sync event channel for Scribe-to-Coordinator communication.
+    ///
+    /// **Context**: Called by the application after creating both Butler and Coordinator.
+    /// Uses interior mutability so this works on Arc<Butler>.
+    pub async fn set_sync_event_tx(&self, tx: tokio::sync::mpsc::Sender<SyncEvent>) {
+        let mut guard = self.sync_event_tx.write().await;
+        *guard = Some(tx);
     }
 
     // ==================== Identity Management ====================
@@ -280,7 +294,9 @@ impl Butler {
     /// Used for owner role lazy sync - owner syncs edits to their sovereign node.
     pub fn get_sovereign_node_for_sync(&self) -> Result<Option<String>> {
         let nodes = self.list_connected_sovereign_nodes()?;
-        Ok(nodes.into_iter().next().map(|n| n.node_id))
+        // Return DID (identity layer) not node_id (transport layer)
+        // EnsureSync uses DID to resolve device info
+        Ok(nodes.into_iter().next().map(|n| n.did))
     }
 
     /// List page IDs for a space (for sync)
@@ -437,6 +453,8 @@ impl Butler {
     /// **Context**: Node received PublishPage from owner, or Viewer received ViewerPage from node
     /// **We do**: Decrypt transit layers, re-encrypt with new AES key, store
     /// **source_node_did**: For viewer side, tracks which node sent this page (for reconnection)
+    /// **sender_did**: DID of the peer sending this page (for state vector storage)
+    /// **sender_device_id**: Device ID of the sender (for state vector storage)
     pub async fn store_published_page(
         &self,
         page_meta: PageMeta,
@@ -444,6 +462,8 @@ impl Butler {
         ephemeral_public: &[u8; 32],
         transit_layers: Vec<(String, Vec<u8>)>,
         source_node_did: Option<&str>,
+        sender_did: &str,
+        sender_device_id: &str,
     ) -> Result<Page> {
         let identity = self.get_identity().await?;
         space_service::store_published_page(
@@ -455,6 +475,8 @@ impl Butler {
             &identity.secret_encryption_key(),
             &identity.public_encryption_key(),
             source_node_did,
+            sender_did,
+            sender_device_id,
         )
     }
 
@@ -744,6 +766,36 @@ impl Butler {
         contact_service::list_node_contacts(&self.store)
     }
 
+    /// Resolve user_did to device connection info.
+    ///
+    /// **Context**: Called by Coordinator when handling EnsureSync.
+    /// **We query**: Contact info for user, then connection permit.
+    /// **We return**: ConnectionDeviceInfo with node_id and permit.
+    pub fn resolve_device_for_user(&self, user_did: &str) -> Result<Option<ConnectionDeviceInfo>> {
+        // 1. Try contacts first (for viewer → node connections)
+        if let Some(contact) = contact_service::get_contact(&self.store, user_did)? {
+            // Node type contacts have node_id and permit directly
+            if let (Some(node_id), Some(permit)) = (contact.node_id, contact.permit) {
+                return Ok(Some(ConnectionDeviceInfo { node_id, permit }));
+            }
+        }
+
+        // 2. Try sovereign nodes (for owner → node connections)
+        // Sovereign nodes are stored by node_id, but we need to find by DID
+        for node in self.list_sovereign_nodes()? {
+            if node.did == user_did {
+                if let Some(permit) = node.permit {
+                    return Ok(Some(ConnectionDeviceInfo {
+                        node_id: node.node_id,
+                        permit,
+                    }));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
     // Note: add_share_to_contact, get_users_for_page, get_contacts_for_page removed
     // Access tracking moved to SPACE_SUBSCRIPTIONS table
 
@@ -790,6 +842,24 @@ impl Butler {
     /// **Context**: Quick check for whether a permit has been issued.
     pub fn has_permit_cid(&self, page_id: &str, user_did: &str) -> Result<bool> {
         self.store.has_permit_cid(page_id, user_did)
+    }
+
+    // ==================== User Page Permits (for sync authorization) ====================
+
+    /// Store a user's permit for a page (Node mode - for sync authorization).
+    ///
+    /// **Context**: Node receives owner's/viewer's permit during publish.
+    /// This permit is used for sync authorization (layer permissions).
+    /// Replaces DID whitelist with permit-based authorization.
+    pub fn store_user_page_permit(&self, page_id: &str, user_did: &str, permit: &str) -> Result<()> {
+        self.store.put_user_page_permit(page_id, user_did, permit)
+    }
+
+    /// Get a user's permit for a page (Node mode - for sync authorization).
+    ///
+    /// **Context**: Node needs permit to authorize sync operations.
+    pub fn get_user_page_permit(&self, page_id: &str, user_did: &str) -> Result<Option<String>> {
+        self.store.get_user_page_permit(page_id, user_did)
     }
 
     // ==================== Scribe Operations ====================
@@ -909,6 +979,26 @@ impl Butler {
         // - Viewer: sync_target = source_node_id
         let sync_config = self.resolve_sync_config(page_id).await;
 
+        // Create callback for listing authorized users (node mode)
+        let store_for_list_users = self.store.clone();
+        let page_id_for_list_users = page_id_str.clone();
+        let list_authorized_users: ListAuthorizedUsersFn = Arc::new(move |_page_id: &str| {
+            // Use the page_id from closure, not the parameter (it's the same anyway)
+            store_for_list_users.list_authorized_users_for_page(&page_id_for_list_users)
+                .unwrap_or_default()
+        });
+
+        // Create callback for loading user's permit (node mode - permit-based sync auth)
+        let store_for_load_permit = self.store.clone();
+        let load_user_permit: LoadUserPermitFn = Arc::new(move |page_id: &str, user_did: &str| {
+            store_for_load_permit.get_user_page_permit(page_id, user_did)
+                .ok()
+                .flatten()
+        });
+
+        // Get sync_event_tx (clone the inner Option's Sender)
+        let sync_event_tx = self.sync_event_tx.read().await.clone();
+
         // Spawn Scribe actor
         let args = ScribeArgs {
             page_id: page_id_str.clone(),
@@ -917,6 +1007,9 @@ impl Butler {
             load_peer_vector,
             save_peer_vector,
             sync_config,
+            sync_event_tx,
+            list_authorized_users: Some(list_authorized_users),
+            load_user_permit: Some(load_user_permit),
         };
 
         let (actor, _handle) = ractor::Actor::spawn(
@@ -958,6 +1051,28 @@ impl Butler {
     /// Get active Scribe count
     pub async fn active_scribe_count(&self) -> usize {
         self.scribes.read().await.len()
+    }
+
+    /// List active Scribes with their permits for peer subscription
+    ///
+    /// **Context**: After handshake, PeerActor needs to subscribe to active Scribes
+    /// **We return**: (page_id, permit) for each page with an active Scribe and valid permit
+    ///
+    /// Note: peer_did parameter reserved for future access control filtering
+    pub async fn list_active_scribes_for_peer(&self, _peer_did: &str) -> Result<Vec<(String, String)>> {
+        let scribes = self.scribes.read().await;
+        let mut result = Vec::new();
+
+        for page_id in scribes.keys() {
+            // Get page data with permit
+            if let Ok(Some(page_data)) = self.get_page(page_id) {
+                if let Some(permit) = page_data.permit {
+                    result.push((page_id.clone(), permit));
+                }
+            }
+        }
+
+        Ok(result)
     }
 
     /// Evict least recently used Scribe if at capacity
@@ -1020,6 +1135,60 @@ impl Butler {
             relationship,
             sync_target,
         })
+    }
+
+    // ==================== Sync State Vector Operations ====================
+
+    /// Store a single peer state vector for a specific layer.
+    ///
+    /// **Context**: Called after 3-step sync completes to track peer's state.
+    /// **We store**: The peer's state vector so we can compute diffs later.
+    pub async fn store_peer_state_vector(
+        &self,
+        peer_did: &str,
+        peer_device_id: &str,
+        page_id: &str,
+        layer_name: &str,
+        state_vector: &[u8],
+    ) -> Result<()> {
+        self.store.put_peer_vector_for_layer(
+            page_id,
+            peer_did,
+            peer_device_id,
+            layer_name,
+            state_vector.to_vec(),
+        )
+    }
+
+    /// Store peer's state vectors after successful content transfer.
+    ///
+    /// **Context**: Called after publishing/receiving pages to track what the peer has.
+    /// **We store**: The state vector for each layer so incremental sync works later.
+    pub async fn store_peer_vectors_from_page(
+        &self,
+        page_id: &str,
+        peer_did: &str,
+        peer_device_id: &str,
+    ) -> Result<()> {
+        // Get decrypted page to access layer data
+        let (decrypted_page, _aes_key) = self.get_decrypted_page(page_id).await?;
+
+        // For each layer, extract state vector and store it
+        for (layer_name, layer_data) in decrypted_page.docs {
+            let temp_doc = loro::LoroDoc::new();
+            if temp_doc.import(&layer_data).is_ok() {
+                let vector = temp_doc.oplog_vv().encode();
+                let _ = self.store.put_peer_vector_for_layer(
+                    page_id,
+                    peer_did,
+                    peer_device_id,
+                    &layer_name,
+                    vector,
+                );
+            }
+        }
+
+        Ok(())
     }
 
     // ==================== Internal Accessors (rarely needed) ====================

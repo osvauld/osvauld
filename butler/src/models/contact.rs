@@ -116,3 +116,14 @@ impl DeviceInfo {
         Self { id, name }
     }
 }
+
+/// Device info for P2P connection.
+///
+/// **Context**: Returned by resolve_device_for_user for Coordinator to connect.
+#[derive(Debug, Clone)]
+pub struct ConnectionDeviceInfo {
+    /// Iroh NodeId for P2P connection
+    pub node_id: String,
+    /// Permit for authenticating to this node
+    pub permit: String,
+}

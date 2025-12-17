@@ -8,8 +8,9 @@
     - Time/date functions (5)
     - Math functions (22)
     - Geometry functions (8)
+    - Data flow functions (2)
 
-    Total: 58 functions
+    Total: 60 functions
 
     PERFORMANCE: Uses hash table for O(1) function lookups instead of O(n) list traversal.
     Critical for canvas rendering with 30,000+ function calls per frame.
@@ -26,6 +27,7 @@ let get_all_functions () : func list =
     Time_funcs.get_time_functions ();
     Math_funcs.get_math_functions ();
     Geometry_funcs.get_geometry_functions ();
+    Dataflow_funcs.get_dataflow_functions ();
   ]
 
 (** Hash table for O(1) function lookups - created once, reused forever *)

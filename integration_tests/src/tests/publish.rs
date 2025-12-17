@@ -481,6 +481,125 @@ async fn test_owner_publishes_space_and_pages_auto_sync() {
 
     info!("Space and pages auto-synced successfully");
 
+    // ========== State Vector Verification ==========
+    // Verify node stored owner's state vectors for each page (for incremental sync later)
+    let owner_node_id_str = harness.peer("owner").unwrap().node_id.to_string();
+
+    for page in [&page1, &page2] {
+        for layer_name in &layer_names {
+            // Skip local_only layers which aren't synced
+            if layer_name == "user_content_doc" {
+                continue;
+            }
+
+            let owner_vector = node_butler.store().get_peer_vector_for_layer(
+                &page.id,
+                &user_info.did,
+                &owner_node_id_str,
+                layer_name,
+            ).expect("Failed to get vector");
+
+            assert!(owner_vector.is_some(),
+                "Node should store owner's state vector for page {} layer {}",
+                page.id, layer_name);
+        }
+    }
+
+    // Verify owner stored node's state vectors (for receiving incremental updates)
+    let node_info = node_butler.user_info().await.expect("Failed to get node info");
+    let node_node_id_str = node_node_id.to_string();
+
+    for page in [&page1, &page2] {
+        for layer_name in &layer_names {
+            // Skip local_only layers
+            if layer_name == "user_content_doc" {
+                continue;
+            }
+
+            let node_vector = owner_butler.store().get_peer_vector_for_layer(
+                &page.id,
+                &node_info.did,
+                &node_node_id_str,
+                layer_name,
+            ).expect("Failed to get vector");
+
+            assert!(node_vector.is_some(),
+                "Owner should store node's state vector for page {} layer {}",
+                page.id, layer_name);
+        }
+    }
+
+    info!("State vectors stored correctly for incremental sync");
+
+    // ========== Permit Storage Verification ==========
+    // Fully permit-driven bidirectional sync:
+    // - Node has owner's permit → can verify incoming SyncOffer from owner
+    // - Owner has node's permit → can verify incoming SyncOffer from node
+    // Both sides use stored permits to authorize sync operations
+
+    let node_info = node_butler.user_info().await.expect("Failed to get node info");
+
+    for page in [&page1, &page2] {
+        // 1. Verify NODE has owner's permit stored (for accepting SyncOffer from owner)
+        let owner_permit_on_node = node_butler.get_user_page_permit(&page.id, &user_info.did)
+            .expect("Failed to get owner permit from node");
+        assert!(owner_permit_on_node.is_some(),
+            "Node should have stored owner's permit for page {} (sync authorization)",
+            page.id);
+
+        // Verify the stored owner permit has correct relationship
+        let owner_permit_str = owner_permit_on_node.unwrap();
+        let owner_permit = gurkha::Permit::from_token(&owner_permit_str)
+            .expect("Failed to parse owner's stored permit");
+        let owner_relationship = owner_permit.get_fact("relationship")
+            .and_then(|v| v.as_str())
+            .expect("Missing relationship in owner's permit");
+        assert_eq!(owner_relationship, "owner", "Owner's permit should have 'owner' relationship");
+
+        // 2. Verify OWNER has node's permit stored (for accepting SyncOffer from node)
+        let node_permit_on_owner = owner_butler.get_user_page_permit(&page.id, &node_info.did)
+            .expect("Failed to get node permit from owner");
+        assert!(node_permit_on_owner.is_some(),
+            "Owner should have stored node's permit for page {} (sync authorization)",
+            page.id);
+
+        // Verify the stored node permit has correct relationship
+        let node_permit_str = node_permit_on_owner.unwrap();
+        let node_permit = gurkha::Permit::from_token(&node_permit_str)
+            .expect("Failed to parse node's stored permit on owner side");
+        let node_relationship = node_permit.get_fact("relationship")
+            .and_then(|v| v.as_str())
+            .expect("Missing relationship in node's permit");
+        assert_eq!(node_relationship, "node", "Node's permit on owner should have 'node' relationship");
+
+        // 3. Verify local page permits are correct
+        // Owner's local page has owner's permit
+        let owner_page = owner_butler.get_page(&page.id)
+            .expect("Failed to get page from owner")
+            .expect("Owner should have page");
+        let local_owner_permit = gurkha::Permit::from_token(owner_page.permit.as_ref().unwrap())
+            .expect("Failed to parse owner's local permit");
+        assert_eq!(
+            local_owner_permit.get_fact("relationship").and_then(|v| v.as_str()),
+            Some("owner"),
+            "Owner's local page should have owner permit"
+        );
+
+        // Node's local page has node's permit
+        let node_page = node_butler.get_page(&page.id)
+            .expect("Failed to get page from node")
+            .expect("Node should have page");
+        let local_node_permit = gurkha::Permit::from_token(node_page.permit.as_ref().unwrap())
+            .expect("Failed to parse node's local permit");
+        assert_eq!(
+            local_node_permit.get_fact("relationship").and_then(|v| v.as_str()),
+            Some("node"),
+            "Node's local page should have node permit"
+        );
+    }
+
+    info!("Permit storage verified: bidirectional sync fully permit-driven");
+
     harness.shutdown().await;
 }
 
@@ -589,6 +708,27 @@ async fn test_incremental_page_sync() {
     assert!(node_page2.is_some(), "Node should have page 2 after incremental sync");
 
     info!("Incremental sync completed successfully");
+
+    // Verify bidirectional permit storage for both pages
+    let node_info = node_butler.user_info().await.expect("Failed to get node info");
+
+    for page in [&page1, &page2] {
+        // Node should have owner's permit stored for sync authorization
+        let owner_permit_on_node = node_butler.get_user_page_permit(&page.id, &user_info.did)
+            .expect("Failed to get owner permit from node");
+        assert!(owner_permit_on_node.is_some(),
+            "Node should have stored owner's permit for page {} after incremental sync",
+            page.id);
+
+        // Owner should have node's permit stored for sync authorization
+        let node_permit_on_owner = owner_butler.get_user_page_permit(&page.id, &node_info.did)
+            .expect("Failed to get node permit from owner");
+        assert!(node_permit_on_owner.is_some(),
+            "Owner should have stored node's permit for page {} after incremental sync",
+            page.id);
+    }
+
+    info!("Permit storage verified for incremental sync");
 
     harness.shutdown().await;
 }

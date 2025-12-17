@@ -92,7 +92,7 @@ pub enum PeerMessage {
     /// Internal: Broadcast payload received from Scribe
     ///
     /// **Context**: Scribe sent us an update to forward to peer
-    /// **We do**: Encrypt and send as SyncPush
+    /// **We do**: Encrypt and send as SyncOffer
     BroadcastReceived(BroadcastPayload),
 
     /// Internal: Issue sync consent permits and send to node (User/Viewer mode)
@@ -104,6 +104,12 @@ pub enum PeerMessage {
         space_template: String,
         page_template: String,
     },
+
+    /// Internal: Refresh subscriptions to active Scribes
+    ///
+    /// **Context**: Page opened after connection established
+    /// **We do**: Re-run subscribe_to_active_scribes to pick up new pages
+    RefreshSubscriptions,
 }
 
 /// Arguments for spawning PeerActor
@@ -127,6 +133,18 @@ pub struct PendingViewerSync {
     pub page_ids: Vec<String>,
 }
 
+/// Context for pending SyncOffer operations (waiting for SyncAccept)
+///
+/// When we send a SyncOffer, we track the context so that when we receive
+/// SyncAccept, we can compare state vectors and decide: SyncAck or resync.
+#[derive(Debug, Clone)]
+pub struct PendingSyncOffer {
+    /// Our state vector at time of sending SyncOffer
+    pub our_state_vector: Vec<u8>,
+    /// The consent permit we used
+    pub permit: String,
+}
+
 /// Actor state for PeerActor
 pub struct PeerActorState {
     /// Our node's mode (User or Node)
@@ -143,11 +161,14 @@ pub struct PeerActorState {
     /// Stored when we send SpaceData, used when we receive SpaceDataAck
     pending_viewer_syncs: std::collections::HashMap<String, PendingViewerSync>,
     /// Peer's encryption key (set after handshake)
-    /// Used for ECDH when sending SyncPush messages
+    /// Used for ECDH when sending SyncOffer messages
     peer_encryption_key: Option<[u8; 32]>,
     /// Active page subscriptions: page_id -> broadcast receiver handle
     /// When dropped, the Scribe will clean up the subscription
     page_subscriptions: std::collections::HashMap<String, tokio::task::JoinHandle<()>>,
+    /// Pending SyncOffer operations: (page_id, layer_name) -> context
+    /// Tracks outgoing SyncOffers waiting for SyncAccept response
+    pending_sync_offers: std::collections::HashMap<(String, String), PendingSyncOffer>,
 }
 
 /// PeerActor handles one P2P connection
@@ -224,6 +245,7 @@ impl Actor for PeerActor {
             pending_viewer_syncs: std::collections::HashMap::new(),
             peer_encryption_key: None,
             page_subscriptions: std::collections::HashMap::new(),
+            pending_sync_offers: std::collections::HashMap::new(),
         })
     }
 
@@ -269,6 +291,10 @@ impl Actor for PeerActor {
             PeerMessage::IssueSyncConsent { space_id, space_template, page_template } => {
                 self.issue_sync_consent(&space_id, &space_template, &page_template, state).await;
             }
+
+            PeerMessage::RefreshSubscriptions => {
+                self.subscribe_to_active_scribes(myself, state).await;
+            }
         }
 
         Ok(())
@@ -286,10 +312,10 @@ impl Actor for PeerActor {
 
 impl PeerActor {
     /// Handle protocol message
-    #[instrument(skip(self, _myself, state), fields(node_id = %self.node_id, peer_state = %state.state.name()))]
+    #[instrument(skip(self, myself, state), fields(node_id = %self.node_id, peer_state = %state.state.name()))]
     async fn handle_protocol_message(
         &self,
-        _myself: ActorRef<PeerMessage>,
+        myself: ActorRef<PeerMessage>,
         message: Message,
         state: &mut PeerActorState,
     ) {
@@ -316,16 +342,16 @@ impl PeerActor {
                 timestamp: _,
                 permit_for_peer,
             } => {
-                self.on_welcome(&permit_for_peer, &node_public_key, &node_encryption_key, state).await;
+                self.on_welcome(myself.clone(), &permit_for_peer, &node_public_key, &node_encryption_key, state).await;
             }
 
             Message::PermitGrant { permit_for_node } => {
-                self.on_permit_grant(&permit_for_node, state).await;
+                self.on_permit_grant(myself.clone(), &permit_for_node, state).await;
             }
 
             Message::Ack => {
                 debug!("Received Ack from {}", self.node_id);
-                self.on_ack(state).await;
+                self.on_ack(myself.clone(), state).await;
             }
 
             Message::Rejected { reason } => {
@@ -339,8 +365,8 @@ impl PeerActor {
                 self.on_publish_space(&request_id, &space, &space_permit, state).await;
             }
 
-            Message::PublishPage { request_id, page, page_permit, ephemeral_public, layers } => {
-                self.on_publish_page(&request_id, &page, &page_permit, &ephemeral_public, &layers, state).await;
+            Message::PublishPage { request_id, page, page_permit, owner_permit, ephemeral_public, layers } => {
+                self.on_publish_page(&request_id, &page, &page_permit, &owner_permit, &ephemeral_public, &layers, state).await;
             }
 
             Message::PublishPageAck { request_id, page_id, permit } => {
@@ -355,9 +381,17 @@ impl PeerActor {
                 self.on_publish_error(&request_id, &error, state).await;
             }
 
-            // Phase 2 sync messages
-            Message::SyncPush { page_id, layer_name, update, ephemeral_public, consent_permit } => {
-                self.on_sync_push(&page_id, &layer_name, &update, &ephemeral_public, &consent_permit, state).await;
+            // 3-Step Sync Protocol messages
+            Message::SyncOffer { page_id, layer_name, data, state_vector, ephemeral_public, permit } => {
+                self.on_sync_offer(&page_id, &layer_name, &data, &state_vector, &ephemeral_public, &permit, state).await;
+            }
+
+            Message::SyncAccept { page_id, layer_name, state_vector } => {
+                self.on_sync_accept(&page_id, &layer_name, &state_vector, state).await;
+            }
+
+            Message::SyncAck { page_id, layer_name, state_vector } => {
+                self.on_sync_ack(&page_id, &layer_name, &state_vector, state).await;
             }
 
             // Shareable link messages
@@ -397,13 +431,6 @@ impl PeerActor {
 
             Message::SyncConsentAck { request_id, space_id } => {
                 self.on_sync_consent_ack(&request_id, &space_id, state).await;
-            }
-
-            // Phase 2 messages - not implemented yet
-            Message::SyncRequest { .. }
-            | Message::SyncResponse { .. }
-            | Message::LiveData { .. } => {
-                debug!("Phase 2 message not yet implemented: {:?}", message);
             }
 
             Message::Error { id, code, message } => {

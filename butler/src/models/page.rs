@@ -193,8 +193,10 @@ impl From<PageData> for Page {
 pub struct PreparedPage {
     /// Page metadata
     pub meta: PageMeta,
-    /// Delegated permit for Node
+    /// Delegated permit for Node (node's permit)
     pub permit: String,
+    /// Owner's permit for this page (for node to store for sync authorization)
+    pub owner_permit: String,
     /// Ephemeral X25519 public key for ECDH (sender's ephemeral key)
     pub ephemeral_public: [u8; 32],
     /// Transit-encrypted layers: layer_name → encrypted bytes

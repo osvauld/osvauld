@@ -14,22 +14,32 @@ types::
     timestamp::
       type: "number"
 
-documents::
+queries::
+  # Messages are fetched from Scribe and updated via commit()
   messages::
-    type: "array"
-    items: "Message"
-    initial:: []
-    document: "collaborative_doc"
+    layer: "chat_layer"
+    path: "messages"
+    sort_by: "timestamp"
+    sort_order: "asc"
 
+documents::
+  # User identity (injected by system, defaults for testing)
+  userId::
+    type: "string"
+    initial: "user_123"
+
+  username::
+    type: "string"
+    initial: "TestUser"
+
+  # Local-only state (not synced to Scribe)
   currentUserId::
     type: "string"
     initial: "${ userId }"
-    document: "user_content_doc"
 
   newMessageText::
     type: "string"
     initial: ""
-    document: "user_content_doc"
 
 computed::
   totalMessages::
@@ -83,11 +93,10 @@ ui::
                       type: "container"
                       css: "max-width: 65%; min-width: 100px;"
                       blocks::
-                        # Sender name (only show for other users' messages)
+                        # Sender name (show for all messages for testing)
                         - ::
                           type: "text"
                           content: "{{message.username}}"
-                          when: "${ message.userId != currentUserId }"
                           css: "font-size: 0.75rem; color: #8696a0; margin-bottom: 0.25rem; margin-left: 0.75rem; font-weight: 500;"
 
                         # Message bubble
@@ -125,8 +134,8 @@ ui::
               content: "➤"
               action: "setState"
               stateUpdates::
-                messages: "${ messages + [{\"id\": generateId(), \"text\": newMessageText, \"userId\": currentUserId, \"username\": username, \"timestamp\": now()}] }"
-                newMessageText: ""
+                messages: "${ commit(messages + [{\"id\": generateId(), \"text\": newMessageText, \"userId\": currentUserId, \"username\": username, \"timestamp\": now()}]) }"
+                newMessageText: "${ local('') }"
               css: "width: 42px; height: 42px; padding: 0; background: #00a884; color: white; border: none; border-radius: 50%; cursor: pointer; font-size: 1.125rem; display: flex; align-items: center; justify-content: center; transition: background 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"
 
   viewer::
@@ -174,11 +183,10 @@ ui::
                       type: "container"
                       css: "max-width: 65%; min-width: 100px;"
                       blocks::
-                        # Sender name (only show for other users' messages)
+                        # Sender name (show for all messages for testing)
                         - ::
                           type: "text"
                           content: "{{message.username}}"
-                          when: "${ message.userId != currentUserId }"
                           css: "font-size: 0.75rem; color: #8696a0; margin-bottom: 0.25rem; margin-left: 0.75rem; font-weight: 500;"
 
                         # Message bubble
@@ -216,6 +224,6 @@ ui::
               content: "➤"
               action: "setState"
               stateUpdates::
-                messages: "${ messages + [{\"id\": generateId(), \"text\": newMessageText, \"userId\": currentUserId, \"username\": username, \"timestamp\": now()}] }"
-                newMessageText: ""
+                messages: "${ commit(messages + [{\"id\": generateId(), \"text\": newMessageText, \"userId\": currentUserId, \"username\": username, \"timestamp\": now()}]) }"
+                newMessageText: "${ local('') }"
               css: "width: 42px; height: 42px; padding: 0; background: #00a884; color: white; border: none; border-radius: 50%; cursor: pointer; font-size: 1.125rem; display: flex; align-items: center; justify-content: center; transition: background 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"

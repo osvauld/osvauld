@@ -175,6 +175,11 @@ async fn test_list_peers_for_page() {
 
     let store = peers.owner_butler.store();
 
+    // Get initial peer count (some vectors are auto-created during publish)
+    let initial_peers = store.list_peers_for_page(&page_id).expect("Failed to list peers");
+    let initial_count = initial_peers.len();
+    info!("Initial peer count after publish: {}", initial_count);
+
     // Add vectors for multiple peers
     let vectors = std::collections::HashMap::new();
 
@@ -185,7 +190,9 @@ async fn test_list_peers_for_page() {
     // List peers
     let peer_list = store.list_peers_for_page(&page_id).expect("Failed to list peers");
 
-    assert_eq!(peer_list.len(), 3);
+    // Should have 3 more than initial count
+    assert_eq!(peer_list.len(), initial_count + 3,
+        "Should have 3 more peers than initial count");
     assert!(peer_list.contains(&("did:key:peer1".to_string(), "device_a".to_string())));
     assert!(peer_list.contains(&("did:key:peer2".to_string(), "device_b".to_string())));
     assert!(peer_list.contains(&("did:key:peer1".to_string(), "device_c".to_string())));
@@ -195,69 +202,7 @@ async fn test_list_peers_for_page() {
     peers.shutdown().await;
 }
 
-/// Test delete peer vectors
-#[tokio::test]
-async fn test_delete_peer_vectors() {
-    init_tracing();
-
-    let (peers, _space_id, page_id) =
-        setup_with_published_page("del_owner", "del_node").await.expect("Setup failed");
-
-    let store = peers.owner_butler.store();
-
-    // Add vectors
-    let vectors = std::collections::HashMap::new();
-    store.put_peer_vectors(&page_id, "did:key:to_delete", "device1", &vectors).expect("Failed");
-
-    // Verify exists
-    let exists = store.get_peer_vectors(&page_id, "did:key:to_delete", "device1").expect("Failed");
-    assert!(exists.is_some());
-
-    // Delete
-    let deleted = store.delete_peer_vectors(&page_id, "did:key:to_delete", "device1").expect("Failed");
-    assert!(deleted, "Should have deleted vectors");
-
-    // Verify gone
-    let gone = store.get_peer_vectors(&page_id, "did:key:to_delete", "device1").expect("Failed");
-    assert!(gone.is_none(), "Vectors should be deleted");
-
-    info!("Delete peer vectors test passed");
-
-    peers.shutdown().await;
-}
-
-/// Test delete all peer vectors for a page
-#[tokio::test]
-async fn test_delete_all_peer_vectors_for_page() {
-    init_tracing();
-
-    let (peers, _space_id, page_id) =
-        setup_with_published_page("delall_owner", "delall_node").await.expect("Setup failed");
-
-    let store = peers.owner_butler.store();
-
-    // Add vectors for multiple peers
-    let vectors = std::collections::HashMap::new();
-    store.put_peer_vectors(&page_id, "did:key:peer1", "device1", &vectors).expect("Failed");
-    store.put_peer_vectors(&page_id, "did:key:peer2", "device2", &vectors).expect("Failed");
-    store.put_peer_vectors(&page_id, "did:key:peer3", "device3", &vectors).expect("Failed");
-
-    // Verify they exist
-    let peer_list = store.list_peers_for_page(&page_id).expect("Failed");
-    assert_eq!(peer_list.len(), 3);
-
-    // Delete all
-    let count = store.delete_all_peer_vectors_for_page(&page_id).expect("Failed");
-    assert_eq!(count, 3, "Should have deleted 3 entries");
-
-    // Verify all gone
-    let peers_after = store.list_peers_for_page(&page_id).expect("Failed");
-    assert!(peers_after.is_empty(), "All vectors should be deleted");
-
-    info!("Delete all peer vectors test passed");
-
-    peers.shutdown().await;
-}
+// NOTE: Delete peer vectors tests removed - not handling deletes now
 
 // =============================================================================
 // Loro CRDT Update Tests
@@ -544,6 +489,17 @@ async fn test_scribe_subscription_with_real_permit() {
     ).await.expect("Failed to subscribe");
 
     info!("Node subscribed using real permit");
+
+    // Drain any initial state messages sent on subscribe
+    // (New behavior: Scribe sends current state when peer subscribes)
+    let mut initial_msgs = 0;
+    while let Ok(Some(_)) = tokio::time::timeout(
+        std::time::Duration::from_millis(50),
+        broadcast_rx.recv()
+    ).await {
+        initial_msgs += 1;
+    }
+    info!("Drained {} initial state messages", initial_msgs);
 
     // Apply an update - it should broadcast to the subscribed node
     let update = create_loro_text_update(80001, "test", "Hello from owner");

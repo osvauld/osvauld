@@ -330,5 +330,48 @@ async fn test_viewer_space_request() {
 
     info!("Viewer successfully received space {} with page {}", space.id, page.id);
 
+    // ========== State Vector Verification ==========
+    // Verify node stored viewer's state vectors for incremental sync later
+    let viewer_info = viewer_butler.user_info().await.expect("Failed to get viewer info");
+    let viewer_node_id_str = harness.peer("viewer").unwrap().node_id.to_string();
+
+    for layer_name in &layer_names {
+        // Skip local_only layers which aren't synced
+        if layer_name == "user_content_doc" {
+            continue;
+        }
+
+        let viewer_vector = node_butler.store().get_peer_vector_for_layer(
+            &page.id,
+            &viewer_info.did,
+            &viewer_node_id_str,
+            layer_name,
+        ).expect("Failed to get vector");
+
+        assert!(viewer_vector.is_some(),
+            "Node should store viewer's state vector for page {} layer {}",
+            page.id, layer_name);
+    }
+
+    // TODO: Viewer-side state vector storage requires handshake with node to exchange DIDs.
+    // Currently viewer connects directly with shareable link permit without Hello/Welcome flow,
+    // so the viewer doesn't know the node's DID. This needs a viewer handshake flow.
+    // For now, we only verify node stored viewer's vectors (above assertions).
+    //
+    // Once viewer handshake is implemented:
+    // let node_info = node_butler.user_info().await.expect("Failed to get node info");
+    // let node_node_id_str = node_node_id.to_string();
+    // for layer_name in &layer_names {
+    //     if layer_name == "user_content_doc" { continue; }
+    //     let node_vector = viewer_butler.store().get_peer_vector_for_layer(
+    //         &page.id, &node_info.did, &node_node_id_str, layer_name,
+    //     ).expect("Failed to get vector");
+    //     assert!(node_vector.is_some(),
+    //         "Viewer should store node's state vector for page {} layer {}",
+    //         page.id, layer_name);
+    // }
+
+    info!("State vectors stored correctly for viewer incremental sync");
+
     harness.shutdown().await;
 }

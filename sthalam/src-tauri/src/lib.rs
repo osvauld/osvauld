@@ -6,10 +6,19 @@
 //! - Transport + Courier for P2P
 //! - Gurkha for Permit permissions (stateless functions)
 
-use tracing::{error, info};
-use tauri::Manager;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tracing::{debug, error, info, warn};
+use tauri::{AppHandle, Manager};
 pub mod asset_protocol;
 mod types;
+
+// HUML plugin for native Vello rendering
+use tauri_huml_plugin::AppHandleExt;
+use huml_renderer::ParsedTemplate;
+use cel_runtime::CelEvaluator;
+use huml_parser::HumlParser;
+use serde::Deserialize;
 
 // Import shared handlers from tauri_handlers crate
 use tauri_handlers::handlers::auth::*;
@@ -18,13 +27,14 @@ use tauri_handlers::handlers::user::*;
 use tauri_handlers::handlers::node::*;
 use tauri_handlers::handlers::page::*;
 use tauri_handlers::handlers::space::*;
+use tauri_handlers::handlers::window::*;
 use tauri_handlers::P2PState;
 
 use butler::{Butler, RedbStore, LayerCache};
+use query_bridge;
 
 use clap::Parser;
 use std::fs;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Parser)]
@@ -32,6 +42,210 @@ use tokio::sync::RwLock;
 struct Args {
     #[arg(short, long, default_value = "desktop")]
     db_name: String,
+}
+
+// ============================================================================
+// HUML Commands
+// ============================================================================
+
+/// Input for opening a HUML window with template content.
+#[derive(Debug, Deserialize)]
+pub struct OpenHumlInput {
+    pub huml_content: String,
+    pub title: Option<String>,
+    pub initial_values: Option<serde_json::Value>,
+    /// Optional page_id for Scribe persistence. If provided, messages persist to DB.
+    pub page_id: Option<String>,
+}
+
+/// Find the HUML parser executable in known locations.
+fn find_huml_parser() -> Option<PathBuf> {
+    let paths = [
+        // Development paths
+        "sthalam/template-transpiler/_build/default/parser-bin/huml_native.exe",
+        "../template-transpiler/_build/default/parser-bin/huml_native.exe",
+        "_build/default/parser-bin/huml_native.exe",
+    ];
+
+    for path in paths {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            debug!(path = %path.display(), "Found HUML parser");
+            return Some(path);
+        }
+    }
+
+    // Check environment variable
+    if let Ok(path) = std::env::var("HUML_PARSER") {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+/// Find the CEL evaluator executable in known locations.
+fn find_cel_evaluator() -> Option<PathBuf> {
+    let paths = [
+        // Development paths
+        "sthalam/template-transpiler/_build/default/eval-bin/cel_wasi.exe",
+        "../template-transpiler/_build/default/eval-bin/cel_wasi.exe",
+        "_build/default/eval-bin/cel_wasi.exe",
+    ];
+
+    for path in paths {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            debug!(path = %path.display(), "Found CEL evaluator");
+            return Some(path);
+        }
+    }
+
+    // Check environment variable
+    if let Ok(path) = std::env::var("CEL_EXECUTABLE") {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+/// Open a HUML preview window with the given template content.
+///
+/// Parses the HUML content using the native OCaml parser and opens
+/// a Vello-rendered window.
+///
+/// **Persistence**: If `page_id` is provided, connects to Scribe for data persistence.
+/// Messages will be saved to the database and reloaded on next open.
+#[tauri::command]
+async fn open_huml_with_template(
+    app: AppHandle,
+    input: OpenHumlInput,
+) -> Result<String, String> {
+    info!(
+        content_len = input.huml_content.len(),
+        page_id = ?input.page_id,
+        "Opening HUML window"
+    );
+
+    // Find parser executable
+    let parser_path = find_huml_parser()
+        .ok_or_else(|| "HUML parser not found. Build it with: cd template-transpiler && dune build".to_string())?;
+
+    // Find CEL evaluator
+    let cel_path = find_cel_evaluator()
+        .ok_or_else(|| "CEL evaluator not found. Build it with: cd template-transpiler && dune build".to_string())?;
+
+    // Parse HUML content
+    let parser = HumlParser::new(parser_path)
+        .map_err(|e| format!("Failed to create HUML parser: {}", e))?;
+
+    let template: ParsedTemplate = parser
+        .parse_as(&input.huml_content)
+        .map_err(|e| format!("Failed to parse HUML: {}", e))?;
+
+    info!(
+        name = %template.name,
+        screens = template.ui.publisher.len(),
+        "Parsed HUML template"
+    );
+
+    // Create CEL evaluator
+    let cel = Arc::new(
+        CelEvaluator::new(cel_path)
+            .map_err(|e| format!("Failed to create CEL evaluator: {}", e))?
+    );
+
+    // Generate window label
+    let label = format!("huml_preview_{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis());
+
+    let title = input.title.unwrap_or_else(|| template.name.clone());
+
+    // Set up QueryBridge and fetch initial data if page_id is provided
+    let (query_bridge, initial_query_data) = if let Some(page_id) = input.page_id {
+        info!(page_id = %page_id, "Connecting to Scribe for persistence");
+
+        // Get Butler from app state
+        let butler = app.state::<Arc<Butler>>();
+
+        // Open the page to get Scribe actor
+        let scribe_ref = butler.open_page(&page_id).await
+            .map_err(|e| format!("Failed to open page: {}", e))?;
+
+        // Fetch initial data for each query defined in template
+        let mut initial_data: std::collections::HashMap<String, Vec<serde_json::Value>> = std::collections::HashMap::new();
+
+        for (query_name, query_def) in &template.queries {
+            info!(query = %query_name, layer = %query_def.layer, path = %query_def.path, "Fetching initial query data");
+
+            // Create query spec - convert sort_order string to enum
+            let sort_order = query_def.sort_order.as_ref().map(|s| {
+                match s.to_lowercase().as_str() {
+                    "desc" => butler::models::SortOrder::Desc,
+                    _ => butler::models::SortOrder::Asc,
+                }
+            });
+            let spec = butler::models::QuerySpec {
+                query_id: query_name.clone(),
+                layer_name: query_def.layer.clone(),
+                path: query_def.path.clone(),
+                filter: query_def.filter.clone(),
+                sort_by: query_def.sort_by.clone(),
+                sort_order,
+                offset: 0,
+                limit: query_def.limit,
+            };
+
+            // Send query to Scribe
+            let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+            scribe_ref.cast(butler::scribe::ScribeMessage::Query {
+                spec,
+                reply: reply_tx,
+            }).map_err(|e| format!("Failed to send query to Scribe: {}", e))?;
+
+            // Wait for result
+            match reply_rx.await {
+                Ok(Ok(result)) => {
+                    info!(query = %query_name, items = result.items.len(), "Loaded initial data");
+                    initial_data.insert(query_name.clone(), result.items);
+                }
+                Ok(Err(e)) => {
+                    warn!(query = %query_name, error = %e, "Failed to fetch initial data");
+                    initial_data.insert(query_name.clone(), Vec::new());
+                }
+                Err(e) => {
+                    warn!(query = %query_name, error = %e, "Query channel closed");
+                    initial_data.insert(query_name.clone(), Vec::new());
+                }
+            }
+        }
+
+        // Spawn the Scribe bridge (converts ScribeRequest → ScribeMessage)
+        let (scribe_tx, delta_rx) = query_bridge::spawn_scribe_bridge(scribe_ref);
+
+        // Spawn QueryBridge actor
+        let (handle, _renderer_delta_rx) = query_bridge::spawn_query_bridge(scribe_tx, delta_rx);
+
+        info!(page_id = %page_id, "QueryBridge connected to Scribe");
+        (Some(handle), initial_data)
+    } else {
+        debug!("No page_id provided, running in local-only mode");
+        (None, std::collections::HashMap::new())
+    };
+
+    // Create the HUML window with optional Scribe connection and initial data
+    app.create_huml_window(&label, &title, 800, 600, template, cel, query_bridge, initial_query_data)
+        .map_err(|e| format!("Failed to create HUML window: {}", e))?;
+
+    info!(label = %label, "Created HUML window");
+    Ok(label)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -102,6 +316,10 @@ pub fn run() {
             app.manage(butler);
             app.manage(p2p_state);
 
+            // Initialize HUML plugin for native Vello-rendered windows
+            // This enables creating HUML windows via AppHandleExt::create_huml_window
+            tauri_huml_plugin::init(app.handle());
+
             #[cfg(debug_assertions)]
             {
                 let window = app.get_webview_window("main").unwrap();
@@ -144,7 +362,11 @@ pub fn run() {
             handle_connect_to_website,
             handle_publish_space,
             handle_get_share_link,
-            // Node handlers removed - identity stored in IDENTITY table
+            // Window handlers (HUML)
+            handle_open_huml_window,
+            handle_close_huml_window,
+            // HUML template preview
+            open_huml_with_template,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

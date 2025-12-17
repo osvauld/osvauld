@@ -104,48 +104,48 @@
   });
 
   /**
-   * Persist state changes to appropriate Loro documents automatically
+   * Extract dataflow metadata from a value.
+   * CEL functions like local() and commit() wrap values with __dataflow metadata.
+   * Returns { mode, value } where mode is 'local', 'commit', or null (no wrapper).
    */
-  $effect(() => {
-    // Watch for changes to publisherUIState
-    const stateToSave = publisherUIState;
+  function extractDataflow(rawValue: any): { mode: string | null, value: any } {
+    if (rawValue && typeof rawValue === 'object' && '__dataflow' in rawValue) {
+      return { mode: rawValue.__dataflow, value: rawValue.value };
+    }
+    return { mode: null, value: rawValue };
+  }
 
-    // Only save if we have state to persist
-    if (Object.keys(stateToSave).length === 0) return;
+  /**
+   * Persist a single field to its CRDT document.
+   * Called when commit() is used or by default for non-ui_state_doc fields.
+   */
+  function persistFieldToCRDT(key: string, value: any) {
     if (!templateDefinition?.documents) return;
 
-    // Track which documents were modified so we can commit them
-    const modifiedDocs = new Set<string>();
+    // Skip temporary fields
+    if (key.endsWith('_uploading') || key.endsWith('_error')) return;
+    if (key === 'submissions') return;
 
-    for (const [key, value] of Object.entries(stateToSave)) {
-      // Only persist non-temporary fields (exclude _uploading, _error)
-      if (key.endsWith('_uploading') || key.endsWith('_error')) continue;
+    try {
+      const docName = getDocumentNameForField(key, templateDefinition);
+      const loroMap = getMapForField(key, templateDefinition, loroCoordinator);
+      loroMap.set(key, value);
 
-      // Skip submissions - they're managed by SubmissionsStore
-      if (key === 'submissions') continue;
+      // Commit the document
+      const docs = loroCoordinator.getDocuments();
+      const docMap: Record<string, any> = {
+        'content_doc': docs.contentDoc,
+        'collaborative_doc': docs.collaborativeDoc,
+        'user_content_doc': docs.userContentDoc,
+        'submissions_doc': docs.submissionsDoc,
+      };
+      docMap[docName]?.commit();
 
-      try {
-        // Get the Permit document name from template metadata
-        const docName = getDocumentNameForField(key, templateDefinition);
-
-        // Get the Loro map for this document and set the value
-        const loroMap = getMapForField(key, templateDefinition, loroCoordinator);
-        loroMap.set(key, value);
-
-        // Track that this document was modified
-        modifiedDocs.add(docName);
-      } catch (error) {
-        console.warn(`[PublisherApp] Failed to persist field '${key}':`, error);
-      }
+      console.log(`💾 [PublisherApp] Persisted ${key} to ${docName}`);
+    } catch (error) {
+      console.warn(`[PublisherApp] Failed to persist field '${key}':`, error);
     }
-
-    // Commit all modified documents
-    const docs = loroCoordinator.getDocuments();
-    if (modifiedDocs.has('content_doc')) docs.contentDoc.commit();
-    if (modifiedDocs.has('collaborative_doc')) docs.collaborativeDoc.commit();
-    if (modifiedDocs.has('user_content_doc')) docs.userContentDoc.commit();
-    if (modifiedDocs.has('ui_state_doc')) docs.uiStateDoc.commit();
-  });
+  }
 
   /**
    * Initialize Publisher Mode
@@ -444,29 +444,52 @@
 
 
   /**
-   * Update UI state (generic)
+   * Update UI state with dataflow control.
+   * Interprets CEL dataflow functions (local, commit) to control persistence.
    */
   function handleSetState(params: any) {
     const { stateUpdates } = params;
 
     if (!stateUpdates) return;
 
-    // Update reactive state (triggers automatic reactive propagation!)
-    for (const [key, value] of Object.entries(stateUpdates)) {
-      updateReactiveState(key, value);
-      console.log(`⚛️ [PublisherApp] Reactive update: ${key} =`, value);
-    }
+    for (const [key, rawValue] of Object.entries(stateUpdates)) {
+      // Extract dataflow metadata from the value
+      const { mode, value } = extractDataflow(rawValue);
 
-    // Also update local UI state for non-reactive fields (like UI state, uploads, etc.)
-    publisherUIState = {
-      ...publisherUIState,
-      ...stateUpdates
-    };
+      // Update reactive state with unwrapped value
+      updateReactiveState(key, value);
+
+      // Update local UI state
+      publisherUIState = { ...publisherUIState, [key]: value };
+
+      // Execute dataflow action based on mode
+      switch (mode) {
+        case 'local':
+          // Keep in local state only - no CRDT persistence
+          console.log(`📍 [local] ${key} - staying local`);
+          break;
+
+        case 'commit':
+          // Explicit commit - persist to CRDT
+          persistFieldToCRDT(key, value);
+          console.log(`💾 [commit] ${key} - persisted to CRDT`);
+          break;
+
+        default:
+          // No wrapper - use default behavior based on document type
+          const docName = getDocumentNameForField(key, templateDefinition);
+          if (docName !== 'ui_state_doc') {
+            // Non-ui_state_doc fields default to commit
+            persistFieldToCRDT(key, value);
+            console.log(`💾 [default] ${key} - persisted to ${docName}`);
+          } else {
+            console.log(`📍 [default] ${key} - ui_state_doc, staying local`);
+          }
+      }
+    }
 
     // Increment version to trigger Svelte reactivity
     reactiveVersion++;
-
-    console.log('📝 [PublisherApp] State updated:', stateUpdates);
   }
 
   /**

@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{info, warn};
 use transport::NodeId;
 
-use butler::{Butler, LayerCache, RedbStore};
+use butler::{Butler, LayerCache, RedbStore, SyncEvent};
 use courier::coordinator::{Coordinator, CoordinatorMessage, CourierMode};
 use courier::Message;
 use ractor::{Actor, ActorRef};
@@ -86,6 +86,9 @@ impl TestPeer {
     /// identity's device key to match what generate_connection_string() produces.
     /// This ensures the node_id used in the test matches the node_id that
     /// add_sovereign_node() will derive from the connection string.
+    ///
+    /// Also wires up sync events to mirror production flow:
+    /// Scribe → SyncEvent → Coordinator (EnsureSync)
     pub async fn with_butler(
         name: &str,
         mode: CourierMode,
@@ -113,6 +116,28 @@ impl TestPeer {
             (node_id, mode, butler.clone(), None),
         )
         .await?;
+
+        // Wire sync events: Butler → Coordinator (mirrors production flow)
+        // This allows Scribe actors to trigger sync when updates happen
+        let (sync_event_tx, mut sync_event_rx) = tokio::sync::mpsc::channel::<SyncEvent>(64);
+        butler.set_sync_event_tx(sync_event_tx).await;
+
+        // Spawn sync event bridge - forwards SyncEvent to Coordinator
+        let coordinator_for_sync = coordinator.clone();
+        let name_for_sync = name.to_string();
+        tokio::spawn(async move {
+            while let Some(event) = sync_event_rx.recv().await {
+                match event {
+                    SyncEvent::EnsureSync { user_did } => {
+                        if let Err(e) = coordinator_for_sync.cast(CoordinatorMessage::EnsureSync {
+                            user_did: user_did.clone(),
+                        }) {
+                            warn!(peer = %name_for_sync, error = ?e, user_did = %user_did, "Failed to forward EnsureSync");
+                        }
+                    }
+                }
+            }
+        });
 
         mock_transport
             .register_peer(node_id, coordinator.clone())

@@ -17,9 +17,10 @@
 7. [UI Section](#ui-section)
 8. [Block Types Reference](#block-types-reference)
 9. [Actions Reference](#actions-reference)
-10. [CEL Expression Syntax](#cel-expression-syntax)
-11. [Best Practices](#best-practices)
-12. [Complete Example](#complete-example)
+10. [Data Flow Functions](#data-flow-functions)
+11. [CEL Expression Syntax](#cel-expression-syntax)
+12. [Best Practices](#best-practices)
+13. [Complete Example](#complete-example)
 
 ---
 
@@ -783,14 +784,16 @@ Update state fields (usually via button clicks).
   content: "Add Post"
   action: "setState"
   stateUpdates::
-    posts: "${ posts + [{\"id\": generateId(), \"title\": newPostTitle, \"content\": newPostContent, \"author\": currentUser, \"timestamp\": now(), \"upvotes\": 0}] }"
-    newPostTitle: ""
-    newPostContent: ""
+    posts: "${ commit(posts + [{\"id\": generateId(), \"title\": newPostTitle, \"content\": newPostContent, \"author\": currentUser, \"timestamp\": now(), \"upvotes\": 0}]) }"
+    newPostTitle: "${ local('') }"
+    newPostContent: "${ local('') }"
 ```
 
 **Available functions in setState expressions**:
 - `generateId()` - Generate unique ID
 - `now()` - Current timestamp (milliseconds)
+- `commit(value)` - Persist value to CRDT
+- `local(value)` - Keep value in local state only
 
 **Array operations**:
 - `array + [newItem]` - Append to array
@@ -807,6 +810,57 @@ Navigate to different screen.
   action: "navigate"
   targetScreen: "settings"
 ```
+
+---
+
+## Data Flow Functions
+
+Control how state updates are processed using data flow functions. These functions wrap values to specify whether they should be persisted to CRDT or kept local.
+
+### Available Functions
+
+| Function | Purpose | Example |
+|----------|---------|---------|
+| `local(value)` | Keep in local state only, no CRDT persistence | `local('')` |
+| `commit(value)` | Persist to CRDT layer | `commit(posts + [...])` |
+
+### Usage in stateUpdates
+
+```yaml
+stateUpdates::
+  # Persist the new post to CRDT
+  posts: "${ commit(posts + [{\"id\": generateId(), \"title\": newPostTitle, ...}]) }"
+
+  # Clear input fields - stays local only, no persistence
+  newPostTitle: "${ local('') }"
+  newPostContent: "${ local('') }"
+```
+
+### Why Use Data Flow Functions?
+
+Without explicit data flow control, every keystroke in input fields would trigger CRDT updates and sync. This is wasteful and slow.
+
+With data flow functions:
+- **Typing** updates local state only (fast, no sync)
+- **Button click** triggers `stateUpdates` with explicit `commit()` calls
+
+### Default Behavior
+
+If no function wrapper is used, the behavior depends on the document type:
+- `ui_state_doc` fields → local only (no persist)
+- Other documents (`content_doc`, `collaborative_doc`, etc.) → commit to CRDT
+
+### Future Functions (Coming Soon)
+
+The architecture is designed to be extensible. Future functions include:
+
+| Function | Purpose |
+|----------|---------|
+| `stream(value)` | Real-time streaming to peers |
+| `broadcast(value)` | One-time broadcast to all peers |
+| `sign(value)` | Cryptographically sign data |
+| `encrypt(value, key)` | Encrypt for specific peer |
+| `backend(endpoint, value)` | Send to backend for processing |
 
 ---
 
@@ -1184,9 +1238,9 @@ ui::
               content: "Post"
               action: "setState"
               stateUpdates::
-                posts: "${ posts + [{\"id\": generateId(), \"title\": newPostTitle, \"content\": newPostContent, \"author\": currentUser, \"timestamp\": now(), \"upvotes\": 0}] }"
-                newPostTitle: ""
-                newPostContent: ""
+                posts: "${ commit(posts + [{\"id\": generateId(), \"title\": newPostTitle, \"content\": newPostContent, \"author\": currentUser, \"timestamp\": now(), \"upvotes\": 0}]) }"
+                newPostTitle: "${ local('') }"
+                newPostContent: "${ local('') }"
               css: "padding: 0.75rem 2rem; background: #ff4500; color: white;"
 
         - ::
@@ -1265,8 +1319,8 @@ ui::
                               content: "Comment"
                               action: "setState"
                               stateUpdates::
-                                comments: "${ comments + [{\"id\": generateId(), \"postId\": post.id, \"text\": newCommentText, \"author\": currentUser, \"timestamp\": now(), \"upvotes\": 0, \"parentCommentId\": \"\"}] }"
-                                newCommentText: ""
+                                comments: "${ commit(comments + [{\"id\": generateId(), \"postId\": post.id, \"text\": newCommentText, \"author\": currentUser, \"timestamp\": now(), \"upvotes\": 0, \"parentCommentId\": \"\"}]) }"
+                                newCommentText: "${ local('') }"
                               css: "padding: 0.5rem 1.25rem; background: #0079d3; color: white;"
 ```
 

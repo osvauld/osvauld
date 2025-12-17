@@ -1,7 +1,7 @@
+; Native HUML parser for Rust/egui integration
+; Reads HUML from stdin, outputs JSON to stdout
 (executable
- (name parser_wasm)
- (modules parser_wasm)
- (libraries huml js_of_ocaml js_of_ocaml-ppx)
- (preprocess
-  (pps js_of_ocaml-ppx))
- (modes wasm))
+ (name huml_native)
+ (modules huml_native)
+ (libraries huml yojson)
+ (modes exe))

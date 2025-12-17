@@ -11,7 +11,7 @@
 //! 2. Node generates aud:* viewer permit → sends GetShareableLinkResponse
 
 use base64::{engine::general_purpose::STANDARD, Engine};
-use tracing::{error, info, warn, instrument};
+use tracing::{debug, error, info, warn, instrument};
 
 use crate::coordinator::CoordinatorMessage;
 use crate::message::Message;
@@ -145,6 +145,7 @@ impl PeerActor {
             request_id: request_id.clone(),
             page: to_published_page_meta(&prepared.meta),
             page_permit: prepared.permit,
+            owner_permit: prepared.owner_permit,
             ephemeral_public: prepared.ephemeral_public,
             layers: prepared.layers,
         };
@@ -238,18 +239,19 @@ impl PeerActor {
     /// Handle PublishPage (Node receives from owner)
     ///
     /// **Context**: Owner sends page with transit-encrypted layers
-    /// **Peer sends**: Page metadata, permit, ephemeral public, encrypted layers
+    /// **Peer sends**: Page metadata, node permit, owner permit, ephemeral public, encrypted layers
     /// **We verify**: Permit validity (relationship="node", issuer=authenticated peer)
     /// **We decrypt**: Layers using ECDH transit key
     /// **We re-encrypt**: Layers with our own AES key
-    /// **We store**: Page + permit via Butler
+    /// **We store**: Page + node permit + owner permit via Butler
     /// **We send**: PublishPageAck
-    #[instrument(skip(self, state, page, page_permit, ephemeral_public, layers), fields(request_id = %request_id, page_id = %page.id))]
+    #[instrument(skip(self, state, page, page_permit, owner_permit, ephemeral_public, layers), fields(request_id = %request_id, page_id = %page.id))]
     pub(super) async fn on_publish_page(
         &self,
         request_id: &str,
         page: &crate::message::PublishedPageMeta,
         page_permit: &str,
+        owner_permit: &str,
         ephemeral_public: &[u8; 32],
         layers: &[(String, Vec<u8>)],
         state: &mut PeerActorState,
@@ -295,15 +297,33 @@ impl PeerActor {
         }
 
         // Convert and store (source_node_did is None - owner publishing to node)
+        // Store sender's (owner's) state vectors for incremental sync later
         let page_meta = from_published_page_meta(page);
         let transit_layers: Vec<(String, Vec<u8>)> = layers.to_vec();
-        if let Err(e) = state.butler.store_published_page(page_meta, page_permit, ephemeral_public, transit_layers, None).await {
+        let sender_device_id = self.node_id.to_string();
+        if let Err(e) = state.butler.store_published_page(
+            page_meta,
+            page_permit,
+            ephemeral_public,
+            transit_layers,
+            None,
+            &page.owner_did,
+            &sender_device_id,
+        ).await {
             error!("Failed to store published page: {}", e);
             self.send_publish_error(request_id, &format!("Storage failed: {}", e), state).await;
             return;
         }
 
         info!("Stored published page: {} ({})", page.id, page.name);
+
+        // Store owner's permit for sync authorization (permit-based auth, no DID whitelist)
+        if let Err(e) = state.butler.store_user_page_permit(&page.id, &page.owner_did, owner_permit) {
+            warn!("Failed to store owner's permit for sync auth: {} - sync may fail", e);
+            // Continue - page was stored successfully, sync can still work via subscription
+        } else {
+            debug!("Stored owner's permit for page {} (sync authorization)", page.id);
+        }
 
         let ack = Message::PublishPageAck {
             request_id: request_id.to_string(),
@@ -344,9 +364,29 @@ impl PeerActor {
         }
 
         // Mark page as published on this node
-        let node_id = self.node_id.to_string();
-        if let Err(e) = state.butler.mark_page_published(page_id, &node_id) {
+        let node_id_str = self.node_id.to_string();
+        if let Err(e) = state.butler.mark_page_published(page_id, &node_id_str) {
             warn!("Failed to mark page as published: {}", e);
+        }
+
+        // Store node's permit for sync authorization (permit-based auth)
+        // This allows owner to verify incoming SyncOffer from node
+        if let Ok((node_did, _)) = require_auth(&state.state) {
+            if let Err(e) = state.butler.store_user_page_permit(page_id, node_did, permit) {
+                warn!("Failed to store node's permit for sync auth: {} - sync may fail", e);
+            } else {
+                debug!("Stored node's permit for page {} (sync authorization)", page_id);
+            }
+
+            // Store node's state vectors so we can send incremental updates later
+            // The node now has what we just sent, so store our current layer state as their vector
+            if let Err(e) = state.butler.store_peer_vectors_from_page(
+                page_id,
+                node_did,
+                &node_id_str,
+            ).await {
+                warn!("Failed to store node's state vectors: {}", e);
+            }
         }
 
         let _ = state.coordinator.cast(CoordinatorMessage::PagePublished {

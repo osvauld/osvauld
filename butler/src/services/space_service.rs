@@ -687,21 +687,22 @@ pub async fn prepare_page_for_publish(
     let page_data = store.find_page_by_id(page_id)?
         .ok_or_else(|| ButlerError::PageNotFound(page_id.to_string()))?;
 
-    // 2. Get owner's permit from the page (MY permit)
+    // 2. Get owner's permit from the page (MY permit) - clone to avoid borrow issues
     let owner_permit = page_data.get_permit()
         .ok_or_else(|| ButlerError::PermitNotFound(
             format!("Owner permit not found for page {}", page_id)
-        ))?;
+        ))?
+        .clone();
 
     // 3. Parse permit to get local_only layers (for filtering)
-    let permit = gurkha::Permit::from_token(owner_permit)
+    let permit = gurkha::Permit::from_token(&owner_permit)
         .map_err(|e| ButlerError::Permit(format!("Failed to parse permit: {:?}", e)))?;
     let local_only_layers: Vec<&String> = permit.sync_facts().local_only.iter().collect();
 
     // 4. Issue page permit for node via gurkha
     let (node_permit, _cid) = gurkha::delegate_page(
         owner_signing_key,
-        owner_permit,
+        &owner_permit,
         "node",  // template_key from PAGE_TEMPLATE.delegation.node
         node_public_key,
     ).await.map_err(|e| ButlerError::Permit(format!("Failed to issue page permit: {}", e)))?;
@@ -751,6 +752,7 @@ pub async fn prepare_page_for_publish(
     Ok(PreparedPage {
         meta: page_data.meta,
         permit: node_permit,
+        owner_permit,
         ephemeral_public,
         layers: transit_layers,
     })
@@ -776,6 +778,8 @@ pub async fn prepare_page_for_publish(
 /// * `node_secret_key` - Node's X25519 secret key for decryption
 /// * `node_public_key` - Node's X25519 public key for AES key encryption
 /// * `source_node_did` - Optional: DID of node that sent this page (for viewer tracking)
+/// * `sender_did` - DID of the peer sending this page (for state vector storage)
+/// * `sender_device_id` - Device ID of the sender (for state vector storage)
 pub fn store_published_page(
     store: &RedbStore,
     page_meta: PageMeta,
@@ -785,6 +789,8 @@ pub fn store_published_page(
     node_secret_key: &[u8; 32],
     node_public_key: &[u8; 32],
     source_node_did: Option<&str>,
+    sender_did: &str,
+    sender_device_id: &str,
 ) -> Result<Page> {
     // 1. Derive transit key from ECDH to decrypt
     let shared_secret = herald::ecdh(node_secret_key, ephemeral_public);
@@ -803,13 +809,26 @@ pub fn store_published_page(
     // 3. Generate new AES key for storage on Node
     let aes_key = herald::generate_aes_key();
 
-    // 4. Re-encrypt layers with new AES key
+    // 4. Re-encrypt layers with new AES key and store sender's state vectors
     for (layer_name, plaintext) in &decrypted_layers {
         let encrypted = herald::encrypt_symmetric(&aes_key, plaintext)
             .map_err(|e| ButlerError::Encryption(
                 format!("Failed to encrypt layer {}: {}", layer_name, e)
             ))?;
         store.put_layer(&page_meta.id, layer_name, &encrypted)?;
+
+        // Store sender's state vector so we can send incremental updates later
+        let temp_doc = loro::LoroDoc::new();
+        if temp_doc.import(plaintext).is_ok() {
+            let vector = temp_doc.oplog_vv().encode();
+            let _ = store.put_peer_vector_for_layer(
+                &page_meta.id,
+                sender_did,
+                sender_device_id,
+                layer_name,
+                vector,
+            );
+        }
     }
 
     // 5. Encrypt AES key with Node's encryption public key (ECIES)
@@ -830,6 +849,13 @@ pub fn store_published_page(
     }
 
     store.put_page(&data)?;
+
+    // Register sender (owner) as authorized user for this page
+    // This allows can_write() in Scribe to accept SyncOffer from owner
+    // Compute CID from permit for revocation tracking
+    let permit_cid = gurkha::crypto::get_permit_cid(permit)
+        .unwrap_or_else(|_| "unknown".to_string());
+    store.put_permit_cid(&meta.id, sender_did, &permit_cid)?;
 
     Ok(Page::from(meta))
 }
@@ -862,21 +888,22 @@ pub async fn prepare_page_for_viewer(
     let page_data = store.find_page_by_id(page_id)?
         .ok_or_else(|| ButlerError::PageNotFound(page_id.to_string()))?;
 
-    // 2. Get node's permit from the page
+    // 2. Get node's permit from the page - clone to avoid borrow issues
     let node_permit = page_data.get_permit()
         .ok_or_else(|| ButlerError::PermitNotFound(
             format!("Node permit not found for page {}", page_id)
-        ))?;
+        ))?
+        .clone();
 
     // 3. Parse permit to get local_only layers (for filtering)
-    let permit = gurkha::Permit::from_token(node_permit)
+    let permit = gurkha::Permit::from_token(&node_permit)
         .map_err(|e| ButlerError::Permit(format!("Failed to parse permit: {:?}", e)))?;
     let local_only_layers: Vec<&String> = permit.sync_facts().local_only.iter().collect();
 
     // 4. Issue page permit for viewer via gurkha
     let (viewer_permit, _cid) = gurkha::delegate_page(
         node_signing_key,
-        node_permit,
+        &node_permit,
         "viewer",  // template_key from PAGE_TEMPLATE.delegation.viewer
         viewer_public_key,
     ).await.map_err(|e| ButlerError::Permit(format!("Failed to issue viewer permit: {}", e)))?;
@@ -925,6 +952,7 @@ pub async fn prepare_page_for_viewer(
     Ok(PreparedPage {
         meta: page_data.meta,
         permit: viewer_permit,
+        owner_permit: node_permit,  // Node's permit - used for sync authorization
         ephemeral_public,
         layers: transit_layers,
     })

@@ -7,8 +7,7 @@
   import ModeSwitcher from '../components/ModeSwitcher.svelte';
   import { open } from '@tauri-apps/plugin-dialog';
   import { readTextFile } from '@tauri-apps/plugin-fs';
-  import { parseHUML } from '../lib/services/humlParser';
-  import { templateImporter } from '../shared/loro/templateImporter';
+  import { invoke } from '@tauri-apps/api/core';
 
   let humlContent = $state<string>('');
   let originalContent = $state<string>('');
@@ -16,6 +15,7 @@
   let lastSavedTime = $state<Date | null>(null);
   let autoSaveInterval: number | null = null;
   let isImporting = $state<boolean>(false);
+  let isOpeningPreview = $state<boolean>(false);
 
   // Track if content has unsaved changes
   const isDirty = $derived(humlContent !== originalContent);
@@ -77,6 +77,7 @@
   /**
    * Save content to Loro contentDoc
    * Note: SyncManager handles sending changes to backend automatically
+   * HUML parsing is done in Rust when opening preview, not here
    */
   async function saveContent() {
     if (!dataState.currentResourceId || !isDirty || isSaving) {
@@ -86,19 +87,8 @@
     try {
       isSaving = true;
 
-      // Parse and update template tree if HUML is valid
-      try {
-        const parsed = parseHUML(humlContent);
-        console.log('✅ [BuilderApp] HUML parsed successfully');
-
-        // Update template tree from HUML
-        await templateImporter.importFromHUML(humlContent);
-      } catch (parseError) {
-        console.warn('⚠️ [BuilderApp] HUML parse failed, saving source only:', parseError);
-        // Continue to save the source even if parsing fails
-      }
-
       // Update template doc with raw HUML source
+      // HUML parsing happens in Rust when opening native preview
       const templateMap = loroCoordinator.getTemplateMap();
       templateMap.set('huml_source', humlContent);
 
@@ -107,8 +97,6 @@
       loroCoordinator.getDocuments().templateDoc.commit();
       loroCoordinator.getDocuments().userContentDoc.commit();
       loroCoordinator.getDocuments().uiStateDoc.commit();
-
-      // No need to call saveCurrentResource - SyncManager handles it
 
       originalContent = humlContent;
       lastSavedTime = new Date();
@@ -145,6 +133,7 @@
 
   /**
    * Import HUML file
+   * Just loads the file content - HUML parsing happens in Rust
    */
   async function importHUML() {
     if (!dataState.currentResourceId) {
@@ -170,22 +159,14 @@
 
       // Read file content
       const fileContent = await readTextFile(selected);
+      console.log('📥 [BuilderApp] Loaded HUML file, length:', fileContent.length);
 
-      // Parse HUML to validate it
-      const parsed = parseHUML(fileContent);
-      console.log('📥 [BuilderApp] Parsed HUML:', parsed);
+      // Store raw HUML in templateDoc
+      const templateMap = loroCoordinator.getTemplateMap();
+      templateMap.set('huml_source', fileContent);
 
-      // Import HUML template
-      // This stores raw HUML in templateDoc and extracts state to contentDoc
-      await templateImporter.importFromHUML(fileContent);
-
-      // Commit all document changes - SyncManager will auto-sync to backend
-      loroCoordinator.getDocuments().contentDoc.commit();
+      // Commit document changes - SyncManager will auto-sync to backend
       loroCoordinator.getDocuments().templateDoc.commit();
-      loroCoordinator.getDocuments().userContentDoc.commit();
-      loroCoordinator.getDocuments().uiStateDoc.commit();
-
-      // No need to call saveCurrentResource - SyncManager handles it
 
       // Update editor
       humlContent = fileContent;
@@ -198,6 +179,43 @@
       alert(`Failed to import: ${error}`);
     } finally {
       isImporting = false;
+    }
+  }
+
+  /**
+   * Open HUML preview window with native Vello rendering
+   * HUML parsing happens in Rust
+   */
+  async function openPreview() {
+    if (!humlContent.trim()) {
+      alert('No HUML content to preview');
+      return;
+    }
+
+    try {
+      isOpeningPreview = true;
+
+      // Use currentPageId for Scribe persistence
+      // This ensures messages persist when reopening the same template
+      const pageId = dataState.currentPageId;
+      console.log('🔗 [BuilderApp] Opening preview with page_id:', pageId);
+
+      // Call Rust to parse HUML and open HUML window with Vello rendering
+      const windowLabel = await invoke('open_huml_with_template', {
+        input: {
+          huml_content: humlContent,
+          title: 'HUML Preview',
+          initial_values: null,
+          page_id: pageId
+        }
+      });
+
+      console.log('✅ [BuilderApp] Opened HUML preview window:', windowLabel);
+    } catch (error) {
+      console.error('❌ [BuilderApp] Failed to open preview:', error);
+      alert(`Failed to open preview: ${error}`);
+    } finally {
+      isOpeningPreview = false;
     }
   }
 
@@ -282,6 +300,15 @@
           title="Reload from document (discards unsaved changes)"
         >
           🔄 Reload
+        </button>
+
+        <button
+          onclick={openPreview}
+          class="btn-preview"
+          disabled={isOpeningPreview || !humlContent.trim()}
+          title="Open native HUML preview window (Vello GPU rendering)"
+        >
+          {isOpeningPreview ? '🖼️ Opening...' : '🖼️ Preview'}
         </button>
 
         <span class="status" class:modified={isDirty}>
@@ -381,7 +408,8 @@
 
   .btn-import,
   .btn-save,
-  .btn-reload {
+  .btn-reload,
+  .btn-preview {
     padding: 8px 16px;
     border: none;
     border-radius: 4px;
@@ -436,6 +464,21 @@
 
   .btn-reload:hover {
     background: #4f46e5;
+  }
+
+  .btn-preview {
+    background: #8b5cf6;
+    color: white;
+  }
+
+  .btn-preview:hover:not(:disabled) {
+    background: #7c3aed;
+  }
+
+  .btn-preview:disabled {
+    background: #374151;
+    color: #6b7280;
+    cursor: not-allowed;
   }
 
   @keyframes pulse {

@@ -138,9 +138,9 @@ ui::
               content: "Post"
               action: "setState"
               stateUpdates::
-                posts: "${ posts + [{\"id\": generateId(), \"title\": newPostTitle, \"content\": newPostContent, \"author\": currentUser, \"timestamp\": now(), \"upvotes\": 0}] }"
-                newPostTitle: ""
-                newPostContent: ""
+                posts: "${ commit(posts + [{\"id\": generateId(), \"title\": newPostTitle, \"content\": newPostContent, \"author\": currentUser, \"timestamp\": now(), \"upvotes\": 0}]) }"
+                newPostTitle: "${ local('') }"
+                newPostContent: "${ local('') }"
               css: "padding: 0.75rem 2rem; background: #ff4500; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 600;"
 
         - ::
@@ -224,8 +224,8 @@ ui::
                               content: "Comment"
                               action: "setState"
                               stateUpdates::
-                                comments: "${ comments + [{\"id\": generateId(), \"postId\": post.id, \"text\": newCommentText, \"author\": currentUser, \"timestamp\": now(), \"upvotes\": 0, \"parentCommentId\": \"\"}] }"
-                                newCommentText: ""
+                                comments: "${ commit(comments + [{\"id\": generateId(), \"postId\": post.id, \"text\": newCommentText, \"author\": currentUser, \"timestamp\": now(), \"upvotes\": 0, \"parentCommentId\": \"\"}]) }"
+                                newCommentText: "${ local('') }"
                               css: "padding: 0.5rem 1.25rem; background: #0079d3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9375rem;"
 
         - ::

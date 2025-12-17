@@ -31,7 +31,7 @@ herald = { path = "../../herald" }
 transport = { path = "../../transport" }
 courier = { path = "../../courier" }
 # Tauri
-tauri = { version = "2.9.3", features = ["protocol-asset"] }
+tauri = { version = "2.9.3", features = ["protocol-asset", "unstable"] }
 tauri-plugin-shell = "2.2.1"
 tauri-plugin-store = "2.2.0"
 tauri-plugin-clipboard-manager = "2.0.2"
@@ -39,9 +39,17 @@ tauri-plugin-clipboard-manager = "2.0.2"
 # Core
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 tokio = { version = "1.44.2", features = ["sync"] }
 anyhow = "1.0.91"
 thiserror = "2.0.0"
+
+# HUML rendering (custom reactive renderer with Vello)
+huml_renderer = { path = "../../huml_renderer" }
+cel_runtime = { path = "../../cel_runtime" }
+huml_parser = { path = "../../huml_parser" }
+tauri_huml_plugin = { path = "../../tauri_huml_plugin" }
+query_bridge = { path = "../../query_bridge" }
 
 # Utilities
 logging_utils = { path = "../../logging_utils" }
@@ -58,5 +66,9 @@ tauri-plugin-fs = "2.2.1"
 tauri-plugin-dialog = "2.0.0-rc"
 clap = { version = "4.5.40", features = ["derive"] }
 mime_guess = "2.0"
+
+# Force zerovec alloc feature (required by icu_properties via tauri's url dep)
+zerovec = { version = "0.11", features = ["alloc"] }
+
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2.0.0-rc"

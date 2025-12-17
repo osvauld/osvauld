@@ -7,9 +7,9 @@
 
 use crate::events::spawn_event_bridge;
 use crate::types::BaseCryptoResponse;
-use butler::{Butler, ConnectionType};
+use butler::{Butler, ConnectionType, SyncEvent};
 use courier::{Courier, CourierHandle, CourierMode, HandshakeServices};
-use tracing::{info, instrument};
+use tracing::{info, warn, instrument};
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::RwLock;
@@ -92,13 +92,35 @@ pub async fn start_p2p_listener(
         Some(handshake_services),
     );
 
+    // Wire sync events: Butler → Coordinator
+    // This allows Scribe actors to trigger sync when updates happen
+    let (sync_event_tx, mut sync_event_rx) = tokio::sync::mpsc::channel::<SyncEvent>(64);
+    butler.set_sync_event_tx(sync_event_tx).await;
+
+    // Spawn sync event bridge - forwards SyncEvent to Coordinator
+    let handle_for_sync = handle.clone();
+    tokio::spawn(async move {
+        info!("Sync event bridge started");
+        while let Some(event) = sync_event_rx.recv().await {
+            match event {
+                SyncEvent::EnsureSync { user_did } => {
+                    if let Err(e) = handle_for_sync.ensure_sync(&user_did) {
+                        warn!(error = %e, user_did = %user_did, "Failed to forward EnsureSync");
+                    }
+                }
+            }
+        }
+        info!("Sync event bridge stopped");
+    });
+
     // Spawn courier event loop
     tokio::spawn(async move {
         courier.run(transport_rx).await;
     });
 
     // Spawn event bridge - translates CourierEvent to Tauri events
-    spawn_event_bridge(event_rx, app);
+    // Also handles ConnectRequested by auto-connecting (for sync flow)
+    spawn_event_bridge(event_rx, app, handle.clone());
 
     // Store handle in state (clone for auto-reconnect)
     let handle_for_reconnect = handle.clone();
@@ -229,9 +251,12 @@ pub async fn handle_connect_to_website(
 
     // 4. Store node as Contact (type=Node) for future reconnection
     // This allows viewer to reconnect later for updates
+    // Convert base64 public key to DID format for consistent storage
+    let node_did = herald::Identity::did_from_base64_pubkey(&conn.node_public_key)
+        .map_err(|e| format!("Invalid node public key: {}", e))?;
     butler
         .add_node_contact(
-            &conn.node_public_key,      // Node's DID (verifying key)
+            &node_did,                  // Node's DID (converted from base64)
             &conn.node_encryption_key,  // Node's encryption key (for ECDH)
             &conn.name,                 // Node name
             &node_id,                   // Iroh NodeId

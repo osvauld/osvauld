@@ -434,14 +434,14 @@ ui::
                   when: "${ canSubmit }"
                   action: "setState"
                   stateUpdates::
-                    submissions: "${ submissions + [{\"id\": generateId(), \"username\": username, \"email\": email, \"message\": message, \"country\": country, \"favoriteColor\": favoriteColor, \"agreeToTerms\": agreeToTerms, \"newsletter\": newsletter, \"submittedAt\": now()}] }"
-                    username: ""
-                    email: ""
-                    message: ""
-                    country: ""
-                    favoriteColor: ""
-                    agreeToTerms: false
-                    newsletter: false
+                    submissions: "${ commit(submissions + [{\"id\": generateId(), \"username\": username, \"email\": email, \"message\": message, \"country\": country, \"favoriteColor\": favoriteColor, \"agreeToTerms\": agreeToTerms, \"newsletter\": newsletter, \"submittedAt\": now()}]) }"
+                    username: "${ local('') }"
+                    email: "${ local('') }"
+                    message: "${ local('') }"
+                    country: "${ local('') }"
+                    favoriteColor: "${ local('') }"
+                    agreeToTerms: "${ local(false) }"
+                    newsletter: "${ local(false) }"
                   css: "padding: 0.75rem 1.5rem; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; width: 100%;"
 
                 - ::

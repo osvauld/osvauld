@@ -5,10 +5,15 @@
 //!
 //! Flows:
 //! 1. Viewer requests space: SpaceRequest → SpaceData → SpaceDataAck → ViewerPage (x N)
-//! 2. Live sync: SyncPush (fire-and-forget CRDT updates)
+//! 2. 3-Step Sync Protocol: SyncOffer → SyncAccept → SyncAck (or resync SyncOffer if diverged)
 //!
-//! Future:
-//! - SyncRequest/SyncResponse for pull-based sync
+//! The 3-step protocol is used for ALL sync operations:
+//! - Initial sync on subscribe
+//! - Broadcast updates
+//! - Periodic reconciliation
+//!
+//! Divergence detection: If state vectors don't match after applying update,
+//! sender immediately sends full diff as new SyncOffer.
 
 use tracing::{debug, error, info, warn, instrument};
 
@@ -291,6 +296,17 @@ impl PeerActor {
 
             self.send_message(&msg, state).await;
             debug!("Sent ViewerPage {}/{} ({}) to viewer {}", idx + 1, total_pages, page_id, pending.viewer_did);
+
+            // Store viewer's state vectors so we can send incremental updates later
+            // The viewer now has what we just sent, so store the current layer state as their vector
+            let viewer_device_id = self.node_id.to_string();
+            if let Err(e) = state.butler.store_peer_vectors_from_page(
+                page_id,
+                &pending.viewer_did,
+                &viewer_device_id,
+            ).await {
+                warn!("Failed to store viewer's state vectors for page {}: {}", page_id, e);
+            }
         }
 
         info!("Streamed {} pages to viewer {} for space {}", total_pages, pending.viewer_did, space_id);
@@ -388,10 +404,30 @@ impl PeerActor {
         info!("ViewerPage: page={} space={} is_last={} from_node={:?}", meta.id, space_id, is_last, node_did);
 
         // Convert and store with source node DID for viewer→node reconnection
+        // Also store node's state vectors for incremental sync later
         let page_meta = from_published_page_meta(meta);
         let butler_page: butler::Page = page_meta.clone().into();
         let transit_layers: Vec<(String, Vec<u8>)> = layers.to_vec();
-        match state.butler.store_published_page(page_meta, permit, ephemeral_public, transit_layers, node_did.as_deref()).await {
+        let sender_device_id = self.node_id.to_string();
+
+        // sender_did is the node's DID, sender_device_id is node's Iroh NodeId
+        let (sender_did, sender_device_id) = match &node_did {
+            Some(did) => (did.as_str(), sender_device_id.as_str()),
+            None => {
+                error!("Cannot store page without node DID - skipping state vector storage");
+                ("unknown", "unknown")
+            }
+        };
+
+        match state.butler.store_published_page(
+            page_meta,
+            permit,
+            ephemeral_public,
+            transit_layers,
+            node_did.as_deref(),
+            sender_did,
+            sender_device_id,
+        ).await {
             Ok(_) => {
                 info!("Stored page {} from space {} (source_node={:?})", meta.id, space_id, node_did);
             }
@@ -421,29 +457,31 @@ impl PeerActor {
         }
     }
 
-    // ==================== Live Sync: SyncPush ====================
+    // ==================== 3-Step Sync Protocol ====================
 
-    /// Handle incoming SyncPush from peer
+    /// Handle incoming SyncOffer from peer (Step 1)
     ///
-    /// **Context**: Peer has a layer update to send us
-    /// **Peer sends**: SyncPush with page_id, layer_name, transit-encrypted update, consent permit
-    /// **We verify**: Consent permit is valid (issued by us, audience is node)
+    /// **Context**: Peer has a layer update with their state vector
+    /// **Peer sends**: SyncOffer with page_id, layer_name, encrypted data, state_vector, permit
+    /// **We verify**: Permit is valid
     /// **We decrypt**: ECDH with ephemeral_public + our encryption key
-    /// **We apply**: Via Scribe.ApplyUpdate (handles merge + broadcast)
-    #[instrument(skip(self, state, update, ephemeral_public, consent_permit), fields(page_id = %page_id, layer_name = %layer_name))]
-    pub(super) async fn on_sync_push(
+    /// **We apply**: Via Scribe.ApplyUpdate (handles merge)
+    /// **We respond**: SyncAccept with our state vector after applying
+    #[instrument(skip(self, state, data, their_state_vector, ephemeral_public, permit), fields(page_id = %page_id, layer_name = %layer_name))]
+    pub(super) async fn on_sync_offer(
         &self,
         page_id: &str,
         layer_name: &str,
-        update: &[u8],
+        data: &[u8],
+        their_state_vector: &[u8],
         ephemeral_public: &[u8; 32],
-        consent_permit: &str,
+        permit: &str,
         state: &mut PeerActorState,
     ) {
         let (peer_did, _) = match require_auth(&state.state) {
             Ok(info) => (info.0.to_string(), info.1.to_string()),
             Err(_) => {
-                warn!("SyncPush from unauthenticated peer: {}", self.node_id);
+                warn!("SyncOffer from unauthenticated peer: {}", self.node_id);
                 return;
             }
         };
@@ -451,35 +489,30 @@ impl PeerActor {
         let peer_device_id = self.node_id.to_string();
 
         // Verify consent permit
-        // The consent permit should be:
-        // - Issued by us (iss = our DID)
-        // - Audience is the sender (aud = peer_did / node DID)
-        // - Token type is sync_page_consent
-        // - Page ID matches
         debug!(
-            "SyncPush: page={} layer={} has consent permit (verification pending)",
+            "SyncOffer: page={} layer={} has permit (verification pending)",
             page_id, layer_name
         );
-        // TODO: gurkha::verify_sync_consent(consent_permit, our_did, peer_did, page_id)
-        let _ = consent_permit; // suppress unused warning until verification is implemented
+        // TODO: gurkha::verify_sync_consent(permit, our_did, peer_did, page_id)
+        let _ = permit;
 
         info!(
-            "SyncPush: page={} layer={} ({} bytes) from {}",
-            page_id, layer_name, update.len(), peer_did
+            "SyncOffer: page={} layer={} ({} bytes, vector {} bytes) from {}",
+            page_id, layer_name, data.len(), their_state_vector.len(), peer_did
         );
 
         // Decrypt transit-encrypted update using ECDH
         let our_secret = match state.butler.encryption_key().await {
             Ok(key) => key,
             Err(e) => {
-                error!("Failed to get encryption key for SyncPush decryption: {}", e);
+                error!("Failed to get encryption key for SyncOffer decryption: {}", e);
                 return;
             }
         };
-        let decrypted_update = match herald::decrypt_from_transfer(&our_secret, ephemeral_public, update) {
+        let decrypted_data = match herald::decrypt_from_transfer(&our_secret, ephemeral_public, data) {
             Ok(data) => data,
             Err(e) => {
-                error!("Failed to decrypt SyncPush from {}: {}", peer_did, e);
+                error!("Failed to decrypt SyncOffer from {}: {}", peer_did, e);
                 return;
             }
         };
@@ -493,13 +526,261 @@ impl PeerActor {
             }
         };
 
+        // Apply the update
         if let Err(e) = scribe.cast(butler::ScribeMessage::ApplyUpdate {
             layer_name: layer_name.to_string(),
-            update: decrypted_update,
-            from_peer: Some((peer_did, peer_device_id)),
+            update: decrypted_data,
+            from_peer: Some((peer_did.clone(), peer_device_id.clone())),
         }) {
             error!("Failed to send ApplyUpdate to Scribe: {}", e);
+            return;
         }
+
+        // Get our state vector after applying
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if let Err(e) = scribe.cast(butler::ScribeMessage::GetStateVector {
+            layer_name: layer_name.to_string(),
+            reply: tx.into(),
+        }) {
+            error!("Failed to request state vector from Scribe: {}", e);
+            return;
+        }
+
+        let our_state_vector = match rx.await {
+            Ok(Ok(vector)) => vector,
+            Ok(Err(e)) => {
+                error!("Scribe returned error getting state vector: {}", e);
+                return;
+            }
+            Err(_) => {
+                error!("Scribe dropped state vector reply channel");
+                return;
+            }
+        };
+
+        // Send SyncAccept with our state vector
+        let msg = Message::SyncAccept {
+            page_id: page_id.to_string(),
+            layer_name: layer_name.to_string(),
+            state_vector: our_state_vector.clone(),
+        };
+
+        self.send_message(&msg, state).await;
+        debug!(
+            "Sent SyncAccept for page={} layer={} to {} (our vector {} bytes)",
+            page_id, layer_name, peer_did, our_state_vector.len()
+        );
+    }
+
+    /// Handle incoming SyncAccept from peer (Step 2)
+    ///
+    /// **Context**: Peer applied our update and reports their state vector
+    /// **Peer sends**: SyncAccept with their state vector after applying
+    /// **We compare**: Their vector with our current vector
+    /// **If match**: Send SyncAck (sync complete)
+    /// **If diverged**: Send new SyncOffer with full diff from their vector (resync)
+    #[instrument(skip(self, state, their_state_vector), fields(page_id = %page_id, layer_name = %layer_name))]
+    pub(super) async fn on_sync_accept(
+        &self,
+        page_id: &str,
+        layer_name: &str,
+        their_state_vector: &[u8],
+        state: &mut PeerActorState,
+    ) {
+        let (peer_did, _) = match require_auth(&state.state) {
+            Ok(info) => (info.0.to_string(), info.1.to_string()),
+            Err(_) => {
+                warn!("SyncAccept from unauthenticated peer: {}", self.node_id);
+                return;
+            }
+        };
+
+        info!(
+            "SyncAccept: page={} layer={} from {} (their vector {} bytes)",
+            page_id, layer_name, peer_did, their_state_vector.len()
+        );
+
+        // Get pending sync context
+        let key = (page_id.to_string(), layer_name.to_string());
+        let pending = match state.pending_sync_offers.remove(&key) {
+            Some(p) => p,
+            None => {
+                warn!(
+                    "SyncAccept received but no pending SyncOffer for page={} layer={}",
+                    page_id, layer_name
+                );
+                return;
+            }
+        };
+
+        // Get our current state vector from Scribe
+        let scribe = match state.butler.open_page(page_id).await {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to open page {}: {}", page_id, e);
+                return;
+            }
+        };
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if let Err(e) = scribe.cast(butler::ScribeMessage::GetStateVector {
+            layer_name: layer_name.to_string(),
+            reply: tx.into(),
+        }) {
+            error!("Failed to request state vector from Scribe: {}", e);
+            return;
+        }
+
+        let our_current_vector = match rx.await {
+            Ok(Ok(vector)) => vector,
+            Ok(Err(e)) => {
+                error!("Scribe returned error getting state vector: {}", e);
+                return;
+            }
+            Err(_) => {
+                error!("Scribe dropped state vector reply channel");
+                return;
+            }
+        };
+
+        // Compare state vectors
+        if their_state_vector == our_current_vector.as_slice() {
+            // In sync! Send SyncAck
+            info!(
+                "SyncAccept: vectors match for page={} layer={} - sending SyncAck",
+                page_id, layer_name
+            );
+
+            let msg = Message::SyncAck {
+                page_id: page_id.to_string(),
+                layer_name: layer_name.to_string(),
+                state_vector: our_current_vector.clone(),
+            };
+            self.send_message(&msg, state).await;
+
+            // Update cached peer vector
+            let peer_device_id = self.node_id.to_string();
+            if let Err(e) = state.butler.store_peer_state_vector(
+                &peer_did,
+                &peer_device_id,
+                page_id,
+                layer_name,
+                their_state_vector,
+            ).await {
+                warn!("Failed to update cached peer vector: {}", e);
+            }
+        } else {
+            // Diverged! Send resync SyncOffer with full diff from their vector
+            info!(
+                "SyncAccept: vectors DIVERGED for page={} layer={} - sending resync SyncOffer",
+                page_id, layer_name
+            );
+
+            // Get diff from their state vector
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            if let Err(e) = scribe.cast(butler::ScribeMessage::GetUpdatesSince {
+                layer_name: layer_name.to_string(),
+                state_vector: their_state_vector.to_vec(),
+                reply: tx,
+            }) {
+                error!("Failed to request updates from Scribe: {}", e);
+                return;
+            }
+
+            let diff = match rx.await {
+                Ok(Ok(d)) => d,
+                Ok(Err(e)) => {
+                    error!("Scribe returned error getting updates: {}", e);
+                    return;
+                }
+                Err(_) => {
+                    error!("Scribe dropped updates reply channel");
+                    return;
+                }
+            };
+
+            // Encrypt and send new SyncOffer
+            let peer_encryption_key = match state.peer_encryption_key {
+                Some(key) => key,
+                None => {
+                    warn!("Cannot send resync SyncOffer: peer encryption key not set");
+                    return;
+                }
+            };
+
+            let (ephemeral_public, encrypted_data) = match herald::encrypt_for_transfer(
+                &peer_encryption_key,
+                &diff,
+            ) {
+                Ok(result) => result,
+                Err(e) => {
+                    error!("Failed to encrypt resync data: {}", e);
+                    return;
+                }
+            };
+
+            // Track this new pending sync
+            state.pending_sync_offers.insert(
+                key.clone(),
+                super::PendingSyncOffer {
+                    our_state_vector: our_current_vector.clone(),
+                    permit: pending.permit.clone(),
+                },
+            );
+
+            let msg = Message::SyncOffer {
+                page_id: page_id.to_string(),
+                layer_name: layer_name.to_string(),
+                data: encrypted_data,
+                state_vector: our_current_vector,
+                ephemeral_public,
+                permit: pending.permit,
+            };
+            self.send_message(&msg, state).await;
+        }
+    }
+
+    /// Handle incoming SyncAck from peer (Step 3)
+    ///
+    /// **Context**: Peer confirms sync complete after comparing vectors
+    /// **Peer sends**: SyncAck with their final state vector
+    /// **We do**: Update cached peer vector, log sync complete
+    #[instrument(skip(self, state, their_state_vector), fields(page_id = %page_id, layer_name = %layer_name))]
+    pub(super) async fn on_sync_ack(
+        &self,
+        page_id: &str,
+        layer_name: &str,
+        their_state_vector: &[u8],
+        state: &mut PeerActorState,
+    ) {
+        let (peer_did, _) = match require_auth(&state.state) {
+            Ok(info) => (info.0.to_string(), info.1.to_string()),
+            Err(_) => {
+                warn!("SyncAck from unauthenticated peer: {}", self.node_id);
+                return;
+            }
+        };
+
+        info!(
+            "SyncAck: page={} layer={} from {} - sync complete",
+            page_id, layer_name, peer_did
+        );
+
+        // Update cached peer vector
+        let peer_device_id = self.node_id.to_string();
+        if let Err(e) = state.butler.store_peer_state_vector(
+            &peer_did,
+            &peer_device_id,
+            page_id,
+            layer_name,
+            their_state_vector,
+        ).await {
+            warn!("Failed to update cached peer vector: {}", e);
+        }
+
+        // Clean up any pending sync for this page/layer (shouldn't exist but be safe)
+        let key = (page_id.to_string(), layer_name.to_string());
+        state.pending_sync_offers.remove(&key);
     }
 
     // ==================== Page Subscription ====================
@@ -573,10 +854,52 @@ impl PeerActor {
         state.page_subscriptions.insert(page_id.to_string(), handle);
     }
 
-    /// Handle broadcast received from Scribe - encrypt and send as SyncPush
+    /// Subscribe this peer to all active Scribes they have access to
+    ///
+    /// **Context**: Called after handshake completes to auto-subscribe to open pages
+    /// **We do**: Query Butler for active Scribes, subscribe to each
+    #[instrument(skip(self, myself, state))]
+    pub(super) async fn subscribe_to_active_scribes(
+        &self,
+        myself: ractor::ActorRef<super::PeerMessage>,
+        state: &mut PeerActorState,
+    ) {
+        let peer_did = match require_auth(&state.state) {
+            Ok((did, _)) => did.to_string(),
+            Err(_) => {
+                warn!("Cannot subscribe to active scribes: peer not authenticated");
+                return;
+            }
+        };
+
+        let active_pages = match state.butler.list_active_scribes_for_peer(&peer_did).await {
+            Ok(pages) => pages,
+            Err(e) => {
+                warn!("Failed to list active scribes for peer {}: {}", peer_did, e);
+                return;
+            }
+        };
+
+        if active_pages.is_empty() {
+            debug!("No active scribes to subscribe peer {} to", peer_did);
+            return;
+        }
+
+        info!(
+            "Auto-subscribing peer {} to {} active scribes",
+            peer_did, active_pages.len()
+        );
+
+        for (page_id, permit) in active_pages {
+            self.subscribe_to_page(myself.clone(), &page_id, &permit, state).await;
+        }
+    }
+
+    /// Handle broadcast received from Scribe - encrypt and send as SyncOffer
     ///
     /// **Context**: Scribe sent us an update to forward to this peer
-    /// **We do**: Look up consent permit, ECDH encrypt with peer's key, send as SyncPush
+    /// **We do**: Look up consent permit, ECDH encrypt with peer's key, send as SyncOffer
+    /// **3-Step**: This initiates the sync protocol; we wait for SyncAccept
     #[instrument(skip(self, state, payload), fields(page_id = %payload.page_id, layer_name = %payload.layer_name))]
     pub(super) async fn handle_broadcast_received(
         &self,
@@ -587,7 +910,7 @@ impl PeerActor {
         let peer_encryption_key = match state.peer_encryption_key {
             Some(key) => key,
             None => {
-                warn!("Cannot send SyncPush: peer encryption key not set");
+                warn!("Cannot send SyncOffer: peer encryption key not set");
                 return;
             }
         };
@@ -596,47 +919,67 @@ impl PeerActor {
         let peer_did = match require_auth(&state.state) {
             Ok((did, _)) => did.to_string(),
             Err(_) => {
-                warn!("Cannot send SyncPush: peer not authenticated");
+                warn!("Cannot send SyncOffer: peer not authenticated");
                 return;
             }
         };
 
-        // Look up viewer's consent permit for this page (required)
-        let consent_permit = match state.butler.get_viewer_page_consent(&peer_did, &payload.page_id) {
-            Ok(Some(permit)) => permit,
-            Ok(None) => {
-                warn!("Cannot send SyncPush: no consent permit for peer {} page {}", peer_did, payload.page_id);
-                return;
-            }
-            Err(e) => {
-                warn!("Cannot send SyncPush: failed to get consent permit for peer {} page {}: {}", peer_did, payload.page_id, e);
+        // Look up consent permit: viewer consent first, then owner's own page permit
+        // - For node→viewer sync: use viewer's consent permit (issued by viewer)
+        // - For owner→node sync: use owner's page permit (issued when page was created)
+        let permit = state.butler.get_viewer_page_consent(&peer_did, &payload.page_id)
+            .ok()
+            .flatten()
+            .or_else(|| {
+                // For owner→node: use owner's own page permit
+                state.butler.get_page(&payload.page_id)
+                    .ok()
+                    .flatten()
+                    .and_then(|pd| pd.permit.clone())
+            });
+
+        let permit = match permit {
+            Some(p) => p,
+            None => {
+                warn!("Cannot send SyncOffer: no permit for peer {} page {}", peer_did, payload.page_id);
                 return;
             }
         };
 
         // Encrypt update using ECDH
-        let (ephemeral_public, encrypted_update) = match herald::encrypt_for_transfer(
+        let (ephemeral_public, encrypted_data) = match herald::encrypt_for_transfer(
             &peer_encryption_key,
             &payload.update,
         ) {
             Ok(result) => result,
             Err(e) => {
-                error!("Failed to encrypt update for SyncPush: {}", e);
+                error!("Failed to encrypt update for SyncOffer: {}", e);
                 return;
             }
         };
 
-        // Send SyncPush with consent permit
-        let msg = Message::SyncPush {
+        // Track this pending sync offer
+        let key = (payload.page_id.clone(), payload.layer_name.clone());
+        state.pending_sync_offers.insert(
+            key,
+            super::PendingSyncOffer {
+                our_state_vector: payload.state_vector.clone(),
+                permit: permit.clone(),
+            },
+        );
+
+        // Send SyncOffer with our state vector
+        let msg = Message::SyncOffer {
             page_id: payload.page_id,
             layer_name: payload.layer_name,
-            update: encrypted_update,
+            data: encrypted_data,
+            state_vector: payload.state_vector,
             ephemeral_public,
-            consent_permit,
+            permit,
         };
 
         self.send_message(&msg, state).await;
-        debug!("Sent SyncPush to peer {}", self.node_id);
+        debug!("Sent SyncOffer to peer {}", self.node_id);
     }
 
     // ==================== Helpers ====================
@@ -657,7 +1000,7 @@ impl PeerActor {
     ///
     /// **Context**: Viewer received space + pages, now issues consent permits
     /// **We do**: Issue consent permits via gurkha, send SyncConsentGrant to node
-    /// **Node stores**: These permits to attach to future SyncPush messages
+    /// **Node stores**: These permits to attach to future SyncOffer messages
     #[instrument(skip(self, state, space_template, page_template), fields(space_id = %space_id))]
     pub(super) async fn issue_sync_consent(
         &self,

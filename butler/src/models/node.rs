@@ -113,6 +113,7 @@ impl SovereignNode {
     /// Create a new SovereignNode from a connection string
     ///
     /// Derives node_id from device_public_key (base64 -> hex)
+    /// Converts node_public_key (base64) to DID format for storage
     pub fn from_connection_string(conn: &ConnectionString, connection_type: ConnectionType) -> Self {
         // Derive node_id from device_public_key (base64 -> bytes -> hex)
         // This matches iroh's NodeId format: lowercase hex of the Ed25519 public key
@@ -121,8 +122,12 @@ impl SovereignNode {
             .map(|bytes| bytes.iter().map(|b| format!("{:02x}", b)).collect())
             .unwrap_or_else(|_| String::new());
 
+        // Convert base64 public key to DID format for consistent storage
+        let did = herald::Identity::did_from_base64_pubkey(&conn.node_public_key)
+            .expect("Invalid public key in connection string");
+
         Self {
-            did: conn.node_public_key.clone(),
+            did,
             encryption_key: conn.node_encryption_key.clone(),
             name: conn.name.clone(),
             node_id,

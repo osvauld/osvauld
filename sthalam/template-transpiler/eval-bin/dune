@@ -5,3 +5,10 @@
  (preprocess
   (pps js_of_ocaml-ppx))
  (modes wasm))
+
+; WASI target for native Rust integration (no JS dependencies)
+(executable
+ (name cel_wasi)
+ (modules cel_wasi)
+ (libraries cel str yojson)
+ (modes (best exe)))

@@ -20,6 +20,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use tracing::{debug, error, info, warn, instrument};
 
+use herald::Identity;
 use gurkha::{
     HandshakeRole, HelloDecision, WelcomeDecision, PermitGrantDecision,
     HelloContext, WelcomeContext, PermitGrantContext,
@@ -85,16 +86,16 @@ impl PeerActor {
         };
 
         // Get expected node verifying key from sovereign node record
-        // We compare against the verifying key (did), not the device key
+        // We compare against the verifying key (extracted from DID), not the device key
         let node_id_str = self.node_id.to_string();
         let expected_node_pubkey = match state.butler.get_sovereign_node(&node_id_str) {
             Ok(Some(sovereign_node)) => {
-                // Decode the verifying key (did) from base64
-                // This is the node's Ed25519 public key, same as what Welcome sends
-                match STANDARD.decode(&sovereign_node.did) {
-                    Ok(bytes) => bytes,
+                // Extract the 32-byte public key from DID format
+                // DID is "did:key:z6Mk..." - we need the raw bytes for comparison
+                match Identity::public_key_from_did(&sovereign_node.did) {
+                    Ok(bytes) => bytes.to_vec(),
                     Err(e) => {
-                        error!("Failed to decode node verifying key: {}", e);
+                        error!("Failed to extract pubkey from node DID: {}", e);
                         state.state = PeerState::fail("Invalid node public key");
                         return;
                     }
@@ -175,7 +176,7 @@ impl PeerActor {
             return;
         }
 
-        // Store peer's encryption key for ECDH during SyncPush
+        // Store peer's encryption key for ECDH during SyncOffer
         state.peer_encryption_key = Some(*encryption_key);
 
         info!("Received Hello from {} ({})", username, did);
@@ -409,9 +410,10 @@ impl PeerActor {
     /// **We validate**: Node identity, permit type matches our role (security!)
     /// **We issue**: Reciprocal permit based on our role
     /// **We send**: PermitGrant
-    #[instrument(skip(self, state, permit_for_us))]
+    #[instrument(skip(self, myself, state, permit_for_us))]
     pub(super) async fn on_welcome(
         &self,
+        myself: ractor::ActorRef<super::PeerMessage>,
         permit_for_us: &str,
         node_public_key: &[u8; 32],
         node_encryption_key: &[u8; 32],
@@ -476,6 +478,7 @@ impl PeerActor {
         match decision {
             WelcomeDecision::Accept { reciprocal_permit_type, our_role } => {
                 self.complete_welcome_flow(
+                    myself,
                     permit_for_us,
                     &our_did,
                     &our_username,
@@ -506,8 +509,10 @@ impl PeerActor {
     /// **We store**: Node's permit
     /// **We issue**: Reciprocal permit
     /// **We send**: PermitGrant
+    /// **On reconnection**: Also subscribe to active Scribes for live sync
     async fn complete_welcome_flow(
         &self,
+        myself: ractor::ActorRef<super::PeerMessage>,
         permit_for_us: &str,
         _our_did: &str,
         _our_username: &str,
@@ -517,6 +522,18 @@ impl PeerActor {
         state: &mut PeerActorState,
     ) {
         let node_id_str = self.node_id.to_string();
+
+        // Derive node's DID from their public signing key
+        // This is used for consistent identity tracking (e.g., state vector storage)
+        let node_public_key_32: [u8; 32] = match node_public_key.try_into() {
+            Ok(key) => key,
+            Err(_) => {
+                error!("Invalid node public key length: expected 32 bytes");
+                state.state = PeerState::fail("Invalid node public key");
+                return;
+            }
+        };
+        let node_did = Identity::did_from_public_key(&node_public_key_32);
 
         // Check if this is a reconnection
         let stored_permit = state.butler
@@ -539,12 +556,15 @@ impl PeerActor {
 
                 state.state = PeerState::Authenticated {
                     peer_type,
-                    did: node_id_str.clone(),
+                    did: node_did.clone(),
                     username: "node".to_string(),
                 };
 
-                self.notify_authenticated(state, peer_type, &node_id_str, "node");
+                self.notify_authenticated(state, peer_type, &node_did, "node");
                 info!(?our_role, "Reconnection handshake complete with node {}", self.node_id);
+
+                // Subscribe peer to our active Scribes for live sync
+                self.subscribe_to_active_scribes(myself, state).await;
                 return;
             } else {
                 warn!("Reconnection: Permit mismatch - falling through to first connection flow");
@@ -581,8 +601,9 @@ impl PeerActor {
         self.send_message(&permit_grant, state).await;
 
         // Transition to AwaitingPermitGrant (waiting for Ack)
+        // Use the derived DID for consistent identity tracking
         state.state = PeerState::AwaitingPermitGrant {
-            their_did: node_id_str,
+            their_did: node_did,
             their_username: "node".to_string(),
             is_first_connection: true,
             their_role: our_role, // From user's perspective, track our role
@@ -598,8 +619,14 @@ impl PeerActor {
     /// **We store**: The permit they gave us
     /// **We send**: Ack
     /// **Result**: Both sides authenticated
-    #[instrument(skip(self, state, permit_for_node))]
-    pub(super) async fn on_permit_grant(&self, permit_for_node: &str, state: &mut PeerActorState) {
+    /// **Post-auth**: Subscribe peer to our active Scribes for live sync
+    #[instrument(skip(self, myself, state, permit_for_node))]
+    pub(super) async fn on_permit_grant(
+        &self,
+        myself: ractor::ActorRef<super::PeerMessage>,
+        permit_for_node: &str,
+        state: &mut PeerActorState,
+    ) {
         if require_node_mode(state.mode, "on_permit_grant").is_some() {
             return;
         }
@@ -680,6 +707,9 @@ impl PeerActor {
                 self.send_message(&Message::Ack, state).await;
 
                 info!(?peer_role, "Handshake complete with {} ({})", their_username, self.node_id);
+
+                // Subscribe peer to our active Scribes for live sync
+                self.subscribe_to_active_scribes(myself, state).await;
             }
             PermitGrantDecision::RejectPermitTypeMismatch { expected, received } => {
                 warn!("PermitGrant type mismatch: expected {} got {}", expected, received);
@@ -702,8 +732,13 @@ impl PeerActor {
     ///
     /// **User mode**: Ack after PermitGrant completes first connection handshake
     /// **Node mode (reconnection)**: Ack after Welcome completes reconnection handshake
-    #[instrument(skip(self, state))]
-    pub(super) async fn on_ack(&self, state: &mut PeerActorState) {
+    /// **Post-auth**: Subscribe peer to our active Scribes for live sync
+    #[instrument(skip(self, myself, state))]
+    pub(super) async fn on_ack(
+        &self,
+        myself: ractor::ActorRef<super::PeerMessage>,
+        state: &mut PeerActorState,
+    ) {
         // Extract state data
         let (their_did, their_username, is_first_connection, their_role) = match &state.state {
             PeerState::AwaitingPermitGrant { their_did, their_username, is_first_connection, their_role } => {
@@ -736,5 +771,8 @@ impl PeerActor {
             self.notify_authenticated(state, peer_type, &their_did, &their_username);
             info!(?their_role, "Reconnection handshake complete with {}", their_username);
         }
+
+        // Subscribe peer to our active Scribes for live sync (both paths)
+        self.subscribe_to_active_scribes(myself, state).await;
     }
 }

@@ -11,6 +11,11 @@ members = [
   "transport",
   "courier",
   "integration_tests",
+  "cel_runtime",
+  "huml_parser",
+  "query_bridge",
+  "huml_renderer",
+  "tauri_huml_plugin",
 ]
 
 # Speed up dev builds
@@ -21,3 +26,7 @@ incremental = true
 # Optimize dependencies but not our code (speeds up without losing debuggability)
 [profile.dev.package."*"]
 opt-level = 1
+
+# Workspace dependencies to fix feature resolution issues
+[workspace.dependencies]
+zerovec = { version = "0.11", features = ["alloc"] }

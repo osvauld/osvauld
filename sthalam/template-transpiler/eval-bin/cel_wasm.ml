@@ -537,6 +537,8 @@ let supported_functions () =
     (* Geometry functions (8) *)
     "distance"; "lerp"; "clamp"; "map_range";
     "normalize"; "angle"; "degrees"; "radians";
+    (* Data flow functions (2) *)
+    "local"; "commit";
   |] in
   let arr = new%js Js.array_empty in
   Array.iter (fun name ->

@@ -93,6 +93,73 @@ impl Layer {
         // Convert LoroValue to serde_json::Value
         loro_value_to_json(loro_value)
     }
+
+    /// Alias for to_json_value (for consistency)
+    pub fn to_json(&self) -> serde_json::Value {
+        self.to_json_value()
+    }
+
+    /// Set a value at a path from JSON (for UI commits)
+    ///
+    /// **Context**: CEL `commit()` returns JSON values that need to be stored in Loro.
+    /// **We do**: Convert JSON to Loro containers and update the document.
+    ///
+    /// **Path**: Currently supports root-level keys only (e.g., "messages")
+    pub fn set_from_json(&self, path: &str, value: &serde_json::Value) -> Result<(), LayerError> {
+        // Get or create the root map
+        let root = self.inner.get_map("root");
+
+        // Set the value based on type
+        match value {
+            serde_json::Value::Array(arr) => {
+                // For arrays, we need to clear and repopulate the list
+                // First, delete the existing list if any
+                root.delete(path).ok();
+
+                // Create a new list at this path
+                let list = root.insert_container(path, loro::LoroList::new())
+                    .map_err(|e| LayerError::Import(e.to_string()))?;
+
+                // Insert each item
+                for item in arr {
+                    let loro_value = json_to_loro_value(item);
+                    list.push(loro_value)
+                        .map_err(|e| LayerError::Import(e.to_string()))?;
+                }
+            }
+            serde_json::Value::Object(_) => {
+                // For objects, insert as a map
+                let loro_value = json_to_loro_value(value);
+                root.insert(path, loro_value)
+                    .map_err(|e| LayerError::Import(e.to_string()))?;
+            }
+            serde_json::Value::String(s) => {
+                root.insert(path, s.clone())
+                    .map_err(|e| LayerError::Import(e.to_string()))?;
+            }
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    root.insert(path, i)
+                        .map_err(|e| LayerError::Import(e.to_string()))?;
+                } else if let Some(f) = n.as_f64() {
+                    root.insert(path, f)
+                        .map_err(|e| LayerError::Import(e.to_string()))?;
+                }
+            }
+            serde_json::Value::Bool(b) => {
+                root.insert(path, *b)
+                    .map_err(|e| LayerError::Import(e.to_string()))?;
+            }
+            serde_json::Value::Null => {
+                root.delete(path).ok();
+            }
+        }
+
+        // Commit the transaction
+        self.inner.commit();
+
+        Ok(())
+    }
 }
 
 /// Convert LoroValue to serde_json::Value
@@ -121,6 +188,35 @@ fn loro_value_to_json(value: loro::LoroValue) -> serde_json::Value {
         loro::LoroValue::Container(_) => {
             // Containers are resolved in get_deep_value, shouldn't appear here
             serde_json::Value::Null
+        }
+    }
+}
+
+/// Convert serde_json::Value to LoroValue (for set_from_json)
+fn json_to_loro_value(value: &serde_json::Value) -> loro::LoroValue {
+    match value {
+        serde_json::Value::Null => loro::LoroValue::Null,
+        serde_json::Value::Bool(b) => loro::LoroValue::Bool(*b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                loro::LoroValue::I64(i)
+            } else if let Some(f) = n.as_f64() {
+                loro::LoroValue::Double(f)
+            } else {
+                loro::LoroValue::Null
+            }
+        }
+        serde_json::Value::String(s) => loro::LoroValue::String(s.clone().into()),
+        serde_json::Value::Array(arr) => {
+            let list: Vec<loro::LoroValue> = arr.iter().map(json_to_loro_value).collect();
+            loro::LoroValue::List(list.into())
+        }
+        serde_json::Value::Object(obj) => {
+            let map: std::collections::HashMap<String, loro::LoroValue> = obj
+                .iter()
+                .map(|(k, v)| (k.clone(), json_to_loro_value(v)))
+                .collect();
+            loro::LoroValue::Map(map.into())
         }
     }
 }

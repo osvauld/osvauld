@@ -220,6 +220,18 @@ impl CourierHandle {
     pub fn coordinator(&self) -> &ActorRef<CoordinatorMessage> {
         &self.coordinator
     }
+
+    /// Ensure sync with a user (forward SyncEvent::EnsureSync to Coordinator)
+    ///
+    /// **Context**: Scribe emitted EnsureSync - forward to Coordinator
+    /// **Coordinator will**: Resolve user_did → device, connect if needed, PeerActor subscribes
+    pub fn ensure_sync(&self, user_did: &str) -> Result<(), String> {
+        self.coordinator
+            .cast(CoordinatorMessage::EnsureSync {
+                user_did: user_did.to_string(),
+            })
+            .map_err(|e| format!("Failed to send EnsureSync: {:?}", e))
+    }
 }
 
 /// Handshake services - wraps Butler for handshake operations

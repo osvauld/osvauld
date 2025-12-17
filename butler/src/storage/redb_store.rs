@@ -65,6 +65,10 @@ const VIEWER_CONSENT_SPACE: TableDefinition<&str, &str> = TableDefinition::new("
 /// VIEWER_CONSENT_PAGE: {viewer_did}/{page_id} → consent permit string
 const VIEWER_CONSENT_PAGE: TableDefinition<&str, &str> = TableDefinition::new("viewer_consent_page");
 
+// User page permits (for sync authorization - Node stores permits for owner/viewers)
+/// USER_PAGE_PERMITS: {page_id}/{user_did} → permit string - User's permit for sync auth
+const USER_PAGE_PERMITS: TableDefinition<&str, &str> = TableDefinition::new("user_page_permits");
+
 // Legacy tables (kept for migration, will be removed)
 const DEVICES: TableDefinition<&str, &[u8]> = TableDefinition::new("devices");
 
@@ -105,6 +109,9 @@ impl RedbStore {
             // Viewer consent tables
             let _ = write_txn.open_table(VIEWER_CONSENT_SPACE)?;
             let _ = write_txn.open_table(VIEWER_CONSENT_PAGE)?;
+
+            // User page permits (for sync authorization)
+            let _ = write_txn.open_table(USER_PAGE_PERMITS)?;
 
             // Legacy tables (kept for migration)
             let _ = write_txn.open_table(DEVICES)?;
@@ -1123,6 +1130,32 @@ impl RedbStore {
         Ok(cids)
     }
 
+    /// List all user_dids authorized to access a page.
+    ///
+    /// **Context**: Called by Scribe in node mode to get sync targets.
+    /// **We query**: PERMIT_CIDS table for this page.
+    /// **We return**: List of user_dids (Coordinator handles device resolution).
+    pub fn list_authorized_users_for_page(&self, page_id: &str) -> Result<Vec<String>> {
+        let prefix = format!("{}/", page_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(PERMIT_CIDS)?;
+
+        let mut users = Vec::new();
+        for result in table.range(prefix.as_str()..)? {
+            let (key, _cid) = result?;
+            let key_str = key.value();
+
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+
+            if let Some(user_did) = key_str.strip_prefix(&prefix) {
+                users.push(user_did.to_string());
+            }
+        }
+        Ok(users)
+    }
+
     /// Delete all permit CIDs for a page.
     ///
     /// **Context**: Called when a page is deleted.
@@ -1396,5 +1429,49 @@ impl RedbStore {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(VIEWER_CONSENT_PAGE)?;
         Ok(table.get(key.as_str())?.is_some())
+    }
+
+    // =========================================================================
+    // User Page Permits (for sync authorization - Node stores permits)
+    // Key: {page_id}/{user_did} → permit string
+    // Used for permit-based sync auth (replaces DID whitelist)
+    // =========================================================================
+
+    /// Store a user's permit for a page (Node mode - for sync authorization).
+    ///
+    /// **Context**: Node receives owner's permit during PublishPage.
+    /// This permit is used for sync authorization (layer permissions).
+    pub fn put_user_page_permit(
+        &self,
+        page_id: &str,
+        user_did: &str,
+        permit: &str,
+    ) -> Result<()> {
+        let key = format!("{}/{}", page_id, user_did);
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(USER_PAGE_PERMITS)?;
+            table.insert(key.as_str(), permit)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Get a user's permit for a page (Node mode - for sync authorization).
+    ///
+    /// **Context**: Node needs permit to authorize sync operations.
+    pub fn get_user_page_permit(
+        &self,
+        page_id: &str,
+        user_did: &str,
+    ) -> Result<Option<String>> {
+        let key = format!("{}/{}", page_id, user_did);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(USER_PAGE_PERMITS)?;
+
+        match table.get(key.as_str())? {
+            Some(guard) => Ok(Some(guard.value().to_string())),
+            None => Ok(None),
+        }
     }
 }

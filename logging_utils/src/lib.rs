@@ -89,7 +89,12 @@ pub fn init_rich_tracing(
              igd_next::aio::tokio=warn,\
              tantivy=warn,\
              reqwest=warn,\
-             asset_protocol=warn",
+             asset_protocol=warn,\
+             wgpu_core=warn,\
+             wgpu_hal=off,\
+             wgpu_hal::gles=off,\
+             winit=warn,\
+             naga=warn",
             config.level
         ))
     })?;

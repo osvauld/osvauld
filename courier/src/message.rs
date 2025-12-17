@@ -60,43 +60,56 @@ pub enum Message {
     /// Connection/request rejected
     Rejected { reason: String },
 
-    // ==================== Resource Sync (Phase 2) ====================
+    // ==================== Sync Protocol (3-Step) ====================
 
-    /// Request sync for a resource
-    SyncRequest {
-        /// Request ID for correlation
-        id: String,
-        /// Resource (page) ID to sync
-        resource_id: String,
-        /// Loro state vector for incremental sync
-        state_vector: Vec<u8>,
-    },
-
-    /// Response with updates
-    SyncResponse {
-        /// Matches request ID
-        id: String,
-        /// Loro updates (encrypted)
-        updates: Vec<u8>,
-    },
-
-    /// Push updates (fire-and-forget)
+    /// Sync offer: update data + sender's state vector
     ///
-    /// **Context**: Scribe broadcasts CRDT layer updates to subscribed peers.
-    /// Updates are transit-encrypted with ephemeral ECDH.
-    /// Includes viewer-issued consent permit for authorization.
-    SyncPush {
+    /// **Context**: First step of 3-step sync protocol
+    /// **Sender**: Has update data and their current state vector
+    /// **Receiver**: Should apply update, then send SyncAccept with their vector
+    ///
+    /// **Flow**: SyncOffer → SyncAccept → SyncAck (or resync SyncOffer if diverged)
+    SyncOffer {
         /// Page ID (which page this update belongs to)
         page_id: String,
         /// Layer name (e.g., "collaborative_doc", "submissions_doc")
         layer_name: String,
         /// Loro update bytes (transit encrypted)
-        update: Vec<u8>,
+        data: Vec<u8>,
+        /// Sender's state vector for this layer (plaintext - not sensitive)
+        state_vector: Vec<u8>,
         /// Ephemeral X25519 public key for ECDH decryption
         ephemeral_public: [u8; 32],
-        /// Viewer-issued consent permit (proves viewer consented to receive updates)
-        /// Required - node must have consent permit before sending sync updates
-        consent_permit: String,
+        /// Consent permit (proves authorization to sync)
+        permit: String,
+    },
+
+    /// Sync accept: receiver's state vector after applying update
+    ///
+    /// **Context**: Second step of 3-step sync protocol
+    /// **Sender**: Applied the update, reporting their state vector
+    /// **Receiver**: Compares vectors - if match send SyncAck, if diverged send resync SyncOffer
+    SyncAccept {
+        /// Page ID
+        page_id: String,
+        /// Layer name
+        layer_name: String,
+        /// Receiver's state vector after applying update
+        state_vector: Vec<u8>,
+    },
+
+    /// Sync acknowledgment: final confirmation
+    ///
+    /// **Context**: Third step of 3-step sync protocol (happy path)
+    /// **Sender**: Vectors matched, sync complete
+    /// **Receiver**: Updates cached peer vector, sync complete
+    SyncAck {
+        /// Page ID
+        page_id: String,
+        /// Layer name
+        layer_name: String,
+        /// Sender's final state vector
+        state_vector: Vec<u8>,
     },
 
     // ==================== Publishing (Owner → Node) ====================
@@ -125,6 +138,8 @@ pub enum Message {
         page: PublishedPageMeta,
         /// Node's page permit (delegated from owner's page permit)
         page_permit: String,
+        /// Owner's page permit (for node to store for sync authorization)
+        owner_permit: String,
         /// Ephemeral X25519 public key for ECDH transit encryption
         ephemeral_public: [u8; 32],
         /// Transit-encrypted layers: layer_name → encrypted bytes
@@ -292,11 +307,6 @@ pub enum Message {
         request_id: String,
         space_id: String,
     },
-
-    // ==================== Live Data (Future) ====================
-
-    /// Continuous data stream (games, video, audio)
-    LiveData { stream_id: String, data: Vec<u8> },
 
     // ==================== Errors ====================
 

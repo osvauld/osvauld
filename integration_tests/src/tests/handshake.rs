@@ -528,9 +528,12 @@ async fn test_viewer_handshake() {
     .expect("Viewer handshake failed");
 
     // === PHASE 5: Store node as Contact (simulating handle_connect_to_website) ===
+    // Convert base64 public key to DID format for consistent storage
+    let node_did = herald::Identity::did_from_base64_pubkey(&viewer_conn.node_public_key)
+        .expect("Invalid node public key");
     viewer_butler
         .add_node_contact(
-            &viewer_conn.node_public_key,
+            &node_did,
             &viewer_conn.node_encryption_key,
             &viewer_conn.name,
             &node_node_id.to_string(),
@@ -547,6 +550,7 @@ async fn test_viewer_handshake() {
     assert!(node_contact.permit.is_some(), "Contact should have permit");
     assert_eq!(node_contact.node_id.as_ref().unwrap(), &node_node_id.to_string(), "Contact.node_id mismatch");
     assert!(!node_contact.did.is_empty(), "Contact.did should be set");
+    assert!(node_contact.did.starts_with("did:key:z"), "Contact.did should be DID format, got: {}", node_contact.did);
     assert_eq!(node_contact.encryption_key, BASE64.encode(&node_info_expected.encryption_key), "Contact.encryption_key mismatch");
     assert_eq!(node_contact.username, "my-node", "Contact.username mismatch");
 

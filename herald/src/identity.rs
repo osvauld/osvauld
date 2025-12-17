@@ -149,6 +149,74 @@ impl Identity {
         &self.inner.did
     }
 
+    /// Derive a DID from a public signing key (Ed25519, 32 bytes)
+    ///
+    /// This is useful when receiving a peer's public key and needing to identify them.
+    pub fn did_from_public_key(public_key: &[u8; 32]) -> String {
+        let did_bytes = [ED25519_MAGIC_BYTES, public_key.as_slice()].concat();
+        format!("did:key:z{}", bs58::encode(&did_bytes).into_string())
+    }
+
+    /// Extract public key bytes from a DID
+    ///
+    /// Reverses `did_from_public_key`: parses DID, base58 decodes, removes multicodec prefix.
+    /// Returns 32-byte Ed25519 public key.
+    pub fn public_key_from_did(did: &str) -> Result<[u8; 32]> {
+        // Remove "did:key:z" prefix
+        let encoded = did
+            .strip_prefix("did:key:z")
+            .ok_or_else(|| HeraldError::InvalidPublicKey("Invalid DID format: must start with 'did:key:z'".into()))?;
+
+        // Base58 decode
+        let did_bytes = bs58::decode(encoded)
+            .into_vec()
+            .map_err(|e| HeraldError::InvalidPublicKey(format!("Invalid base58 in DID: {}", e)))?;
+
+        // Verify and remove multicodec prefix (0xed 0x01)
+        if did_bytes.len() != 34 || did_bytes[0] != 0xed || did_bytes[1] != 0x01 {
+            return Err(HeraldError::InvalidPublicKey("Invalid DID: wrong length or multicodec prefix".into()));
+        }
+
+        let pubkey: [u8; 32] = did_bytes[2..]
+            .try_into()
+            .map_err(|_| HeraldError::InvalidPublicKey("Invalid public key length".into()))?;
+
+        Ok(pubkey)
+    }
+
+    /// Convert base64 public key to DID format
+    ///
+    /// Input: "PvtlPXdb41VEPceTuviS/IrTl37daFmzyFjJicD1qDg=" (base64)
+    /// Output: "did:key:z6MkiXXX..." (DID)
+    ///
+    /// Use this at storage boundary: receive base64 from transport, store as DID.
+    pub fn did_from_base64_pubkey(base64_pubkey: &str) -> Result<String> {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+        let pubkey_bytes = STANDARD
+            .decode(base64_pubkey)
+            .map_err(|e| HeraldError::InvalidPublicKey(format!("Invalid base64: {}", e)))?;
+
+        let pubkey_32: [u8; 32] = pubkey_bytes
+            .try_into()
+            .map_err(|_| HeraldError::InvalidPublicKey("Public key must be 32 bytes".into()))?;
+
+        Ok(Self::did_from_public_key(&pubkey_32))
+    }
+
+    /// Convert DID to base64 public key format
+    ///
+    /// Input: "did:key:z6MkiXXX..."
+    /// Output: "PvtlPXdb41VEPceTuviS/..." (base64)
+    ///
+    /// Use this when transport layer needs base64 format.
+    pub fn base64_pubkey_from_did(did: &str) -> Result<String> {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+        let pubkey_bytes = Self::public_key_from_did(did)?;
+        Ok(STANDARD.encode(pubkey_bytes))
+    }
+
     /// Get the public signing key (Ed25519, 32 bytes)
     pub fn public_signing_key(&self) -> [u8; 32] {
         self.inner.signing_key.verifying_key().to_bytes()

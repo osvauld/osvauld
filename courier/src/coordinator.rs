@@ -60,6 +60,14 @@ pub enum CoordinatorMessage {
     /// PeerActor failed or disconnected
     PeerFailed { node_id: NodeId, reason: String },
 
+    // ==================== Sync Events ====================
+
+    /// Scribe requested sync with a user (EnsureSync from Scribe)
+    ///
+    /// **Context**: Scribe has an update for a user not currently subscribed.
+    /// **We do**: Resolve user_did → device, connect if needed, PeerActor subscribes.
+    EnsureSync { user_did: String },
+
     // ==================== Publishing Commands ====================
 
     /// Publish a space to a connected node (User mode)
@@ -352,6 +360,17 @@ impl Actor for Coordinator {
                     },
                 );
 
+                // Mark sovereign node as connected (for User mode connecting to their Node)
+                // This enables sync_target resolution in Scribe
+                if peer_type == PeerType::MyNode {
+                    let node_id_str = node_id.to_string();
+                    match state.butler.set_sovereign_node_connected(&node_id_str, true) {
+                        Ok(true) => info!("Marked sovereign node {} as connected", node_id_str),
+                        Ok(false) => debug!("Sovereign node {} not found in storage", node_id_str),
+                        Err(e) => warn!("Failed to mark sovereign node connected: {}", e),
+                    }
+                }
+
                 // Notify any waiters that auth completed
                 if let Some(waiters) = state.auth_waiters.remove(&node_id) {
                     info!("Notifying {} auth waiters for {}", waiters.len(), node_id);
@@ -477,6 +496,10 @@ impl Actor for Coordinator {
 
             CoordinatorMessage::ConnectAndAuth { node_id, permit, response } => {
                 self.on_connect_and_auth(node_id, permit, response, state).await;
+            }
+
+            CoordinatorMessage::EnsureSync { user_did } => {
+                self.on_ensure_sync(myself.clone(), user_did, state).await;
             }
 
             CoordinatorMessage::Shutdown => {
@@ -908,12 +931,89 @@ impl Coordinator {
         state.pending_connections.insert(node_id);
 
         // Store permit for on_connected to use when initiating handshake
-        state.pending_permits.insert(node_id, permit.clone());
+        state.pending_permits.insert(node_id, permit);
 
-        // Emit event to initiate connection via transport
+        // Note: We don't emit ConnectRequested here because the caller
+        // (CourierHandle::connect_and_wait_for_auth) already connects via transport.
+        // ConnectRequested is only emitted by on_ensure_sync for Scribe-driven sync.
+    }
+
+    /// Handle EnsureSync event from Scribe.
+    ///
+    /// **Context**: Scribe has an update for a user not currently subscribed.
+    /// **We do**:
+    ///   1. Check if user is already connected (by any device)
+    ///   2. If not, resolve user_did → device info
+    ///   3. Initiate connection (PeerActor will subscribe on connect)
+    async fn on_ensure_sync(
+        &self,
+        _myself: ActorRef<CoordinatorMessage>,
+        user_did: String,
+        state: &mut CoordinatorState,
+    ) {
+        info!(user_did = %user_did, "Scribe requested sync with user");
+
+        // 1. Check if user is already connected
+        if let Some(peer_actor) = self.get_peer_actor_for_user(&user_did, state) {
+            // Peer is connected but may not be subscribed to new Scribes
+            // Tell PeerActor to refresh subscriptions (subscribe to any new pages)
+            debug!(user_did = %user_did, "User already connected, refreshing subscriptions");
+            let _ = peer_actor.cast(PeerMessage::RefreshSubscriptions);
+            return;
+        }
+
+        // 2. Resolve user_did to device info (node_id + permit)
+        let device_info = match state.butler.resolve_device_for_user(&user_did) {
+            Ok(Some(info)) => info,
+            Ok(None) => {
+                warn!(user_did = %user_did, "No device info found for user");
+                return;
+            }
+            Err(e) => {
+                warn!(user_did = %user_did, error = %e, "Failed to resolve device");
+                return;
+            }
+        };
+
+        // 3. Parse node_id from string
+        let node_id = match device_info.node_id.parse::<NodeId>() {
+            Ok(id) => id,
+            Err(e) => {
+                warn!(node_id = %device_info.node_id, error = ?e, "Failed to parse node_id");
+                return;
+            }
+        };
+
+        // 4. Check if we're already connecting/connected to this node
+        if state.peer_actors.contains_key(&node_id) || state.pending_connections.contains(&node_id) {
+            debug!(user_did = %user_did, node_id = %node_id, "Already connected/connecting to node");
+            return;
+        }
+
+        // 5. Initiate connection (use ConnectAndAuth pattern but ignore result)
+        info!(user_did = %user_did, node_id = %node_id, "Initiating connection for sync");
+
+        state.pending_connections.insert(node_id);
+        state.pending_permits.insert(node_id, device_info.permit.clone());
+
         Self::emit_event(state, CourierEvent::ConnectRequested {
             node_id: node_id.to_string(),
-            permit,
+            permit: device_info.permit,
         });
+    }
+
+    /// Find peer actor for a user (by any device).
+    ///
+    /// **Context**: Called to check if a user is already connected.
+    fn get_peer_actor_for_user<'a>(
+        &self,
+        user_did: &str,
+        state: &'a CoordinatorState,
+    ) -> Option<&'a ActorRef<PeerMessage>> {
+        state.authenticated_peers
+            .iter()
+            .find(|(_, info)| info.did == user_did)
+            .map(|(node_id, _)| state.peer_actors.get(node_id))
+            .flatten()
     }
 }

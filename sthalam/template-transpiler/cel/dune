@@ -5,6 +5,7 @@
  (modules
    cel_types
    cel_eval
+   cel_deps
    cel_lexer
    cel_parser
    string_funcs
@@ -13,6 +14,7 @@
    time_funcs
    math_funcs
    geometry_funcs
+   dataflow_funcs
    stdlib_registry
    glsl_translator))
 
