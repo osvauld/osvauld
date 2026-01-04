@@ -2,7 +2,7 @@
 //!
 //! **Purpose**: Provides query-based data access to Scribe with:
 //! - Result caching (avoid re-querying unchanged data)
-//! - CEL-based filtering
+//! - Filter-based querying (CEL being replaced by Rune)
 //! - Subscription management
 //! - Dependency tracking integration
 //!
@@ -12,7 +12,7 @@
 //!      │
 //!      ▼
 //! QueryBridge
-//!   ├── CelEvaluator (for filtering)
+//!   ├── Filter evaluation (stubbed - Rune TBD)
 //!   ├── QueryCache (cached results)
 //!   └── Scribe subscription
 //!      │
@@ -27,15 +27,41 @@
 //! 4. When QueryDelta arrives → update cache → notify renderer
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use butler::models::{QueryDelta, QueryResult, QuerySpec};
-use cel_runtime::CelEvaluator;
 use serde_json::Value;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
+
+// =============================================================================
+// Stub CelEvaluator - CEL is being replaced by Rune runtime
+// =============================================================================
+
+/// Stub evaluator - CEL is being replaced by Rune runtime
+///
+/// All evaluation returns true (filter is a no-op until Rune is integrated).
+#[derive(Debug, Clone)]
+pub struct CelEvaluator;
+
+impl CelEvaluator {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Stub evaluate - always returns true
+    pub fn evaluate(&self, _expr: &str, _context: &Value) -> std::result::Result<Value, String> {
+        // TODO: Replace with native filtering in Scribe
+        Ok(Value::Bool(true))
+    }
+}
+
+impl Default for CelEvaluator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum QueryBridgeError {
@@ -124,24 +150,21 @@ impl QueryBridge {
     /// Create a new QueryBridge
     ///
     /// **Arguments**:
-    /// - `cel_path`: Path to the CEL evaluator executable
     /// - `scribe_tx`: Channel to send requests to Scribe
     /// - `delta_rx`: Channel to receive QueryDeltas from Scribe
     pub fn new(
-        cel_path: PathBuf,
         scribe_tx: mpsc::Sender<ScribeRequest>,
         delta_rx: mpsc::Receiver<QueryDelta>,
-    ) -> Result<Self> {
-        let cel = CelEvaluator::new(cel_path)
-            .map_err(|e| QueryBridgeError::CelError(e.to_string()))?;
+    ) -> Self {
+        let cel = CelEvaluator::new();
 
-        Ok(Self {
+        Self {
             cel: Arc::new(cel),
             cache: HashMap::new(),
             scribe_tx,
             delta_rx,
             changed_queries: Vec::new(),
-        })
+        }
     }
 
     /// Create with an existing CEL evaluator

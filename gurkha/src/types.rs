@@ -1,45 +1,45 @@
 use serde::{Deserialize, Serialize};
 
-/// Permission level for document access (domain concept)
-/// Hierarchy: Collaborator >= Submitter >= Viewer (for capability checking)
+/// Permission level for layer access (simplified for Lua FFI)
+/// Hierarchy: Admin > ReadWrite > ReadOnly
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Capability {
-    /// Receive-only, no sending updates (was: crud/readonly)
+    /// Read-only access, no write permissions
     /// Lowest privilege
-    Viewer,
+    ReadOnly,
 
-    /// Send full snapshots to isolated namespace (was: crud/submit)
-    Submitter,
+    /// Read and write access to layer
+    ReadWrite,
 
-    /// Full bidirectional CRDT sync (was: crud/merge)
+    /// Full administrative access
     /// Highest privilege
-    Collaborator,
+    Admin,
 }
 
 impl Capability {
     pub fn from_str(s: &str) -> Result<Self, String> {
         match s {
-            "collaborator" => Ok(Capability::Collaborator),
-            "viewer" => Ok(Capability::Viewer),
-            "submitter" => Ok(Capability::Submitter),
+            "read_only" | "readonly" | "viewer" => Ok(Capability::ReadOnly),
+            "read_write" | "readwrite" | "collaborator" => Ok(Capability::ReadWrite),
+            "admin" | "owner" => Ok(Capability::Admin),
             _ => Err(format!("Unknown capability: {}", s)),
         }
     }
 
     pub fn as_str(&self) -> &str {
         match self {
-            Capability::Collaborator => "collaborator",
-            Capability::Viewer => "viewer",
-            Capability::Submitter => "submitter",
+            Capability::ReadOnly => "read_only",
+            Capability::ReadWrite => "read_write",
+            Capability::Admin => "admin",
         }
     }
 
     pub fn can_write(&self) -> bool {
-        matches!(self, Capability::Collaborator | Capability::Submitter)
+        matches!(self, Capability::ReadWrite | Capability::Admin)
     }
 
-    pub fn can_sync_bidirectional(&self) -> bool {
-        matches!(self, Capability::Collaborator)
+    pub fn can_admin(&self) -> bool {
+        matches!(self, Capability::Admin)
     }
 }
 

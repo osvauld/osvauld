@@ -13,9 +13,6 @@ ed25519-dalek = "2.1"
 # CRDT library for merge logic
 loro = "1.5"
 
-# CEL (Common Expression Language) for operation validation
-cel-interpreter = "0.10"
-
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

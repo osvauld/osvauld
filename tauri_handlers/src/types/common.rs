@@ -171,7 +171,6 @@ pub struct SpaceResponse {
 #[serde(rename_all = "camelCase")]
 pub struct CreatePageInput {
     pub space_id: String,
-    pub page_type: String,
     pub permit_template_json: String,
     pub metadata_json: String,
 }
@@ -216,6 +215,15 @@ pub struct PageResponse {
     pub favourite: bool,
     pub last_accessed: i64,
     pub space_id: String,
+    pub has_wasm: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavePageWasmInput {
+    pub page_id: String,
+    /// Base64-encoded WASM bytes
+    pub wasm_base64: String,
 }
 
 // ========== User Types ==========

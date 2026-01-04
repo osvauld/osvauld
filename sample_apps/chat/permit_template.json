@@ -1,0 +1,45 @@
+{
+    "owner_template": {
+        "operations": {
+            "own": "allow",
+            "read": "allow",
+            "write": "allow",
+            "share": "allow"
+        },
+        "layers": {
+            "messages": {
+                "type": "list",
+                "sync": true
+            },
+            "settings": {
+                "type": "map",
+                "sync": true
+            }
+        },
+        "delegation": {
+            "collaborator": {
+                "token_type": "page_collaborator",
+                "operations": {
+                    "read": "allow",
+                    "write": "allow"
+                },
+                "auth_capabilities": {
+                    "can_connect": true,
+                    "sync_enabled": true
+                },
+                "relationship": "collaborator"
+            },
+            "viewer": {
+                "token_type": "page_viewer",
+                "operations": {
+                    "read": "allow"
+                },
+                "auth_capabilities": {
+                    "can_connect": true,
+                    "sync_enabled": false
+                },
+                "relationship": "viewer"
+            }
+        }
+    }
+}

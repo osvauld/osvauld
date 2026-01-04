@@ -9,20 +9,21 @@
 
 use crate::types::{
     ApplyUpdateInput, BaseCryptoResponse, CreatePageInput, OpenPageInput, ClosePageInput,
-    PageMetadata, PageResponse,
+    PageMetadata, PageResponse, SavePageWasmInput,
 };
-use butler::{Butler, PageType};
+use base64::Engine;
+use butler::Butler;
 use std::sync::Arc;
 use tauri::State;
 use tracing::{info, instrument};
 
 /// Create a new page in a space
 ///
-/// **Context**: User creates a new page (document)
+/// **Context**: User creates a new page (document/app)
 /// **We call**: Butler.create_page with layer configuration
 /// **We return**: Page metadata for UI display
 #[tauri::command]
-#[instrument(skip(input, butler), fields(space_id = %input.space_id, page_type = %input.page_type))]
+#[instrument(skip(input, butler), fields(space_id = %input.space_id))]
 pub async fn handle_create_page(
     input: CreatePageInput,
     butler: State<'_, Arc<Butler>>,
@@ -37,18 +38,10 @@ pub async fn handle_create_page(
 
     let layer_names = Butler::extract_layer_names_from_template(&input.permit_template_json);
 
-    let page_type = match input.page_type.as_str() {
-        "content" => PageType::Content,
-        "comments" => PageType::Comments,
-        "submissions" => PageType::Submissions,
-        _ => PageType::Content,
-    };
-
     let page = butler
         .create_page(
             &input.space_id,
             &title,
-            page_type,
             layer_names,
             &input.permit_template_json,
         )
@@ -60,7 +53,7 @@ pub async fn handle_create_page(
     let response = PageMetadata {
         id: page.id.clone(),
         title,
-        page_type: input.page_type,
+        page_type: "app".to_string(), // All pages are apps now
         space_id: input.space_id,
         last_modified: page.created_at,
         favourite: false,
@@ -89,6 +82,11 @@ pub async fn handle_open_page(
 
     let data = decrypted_page.docs_to_json();
 
+    // Check if page has a WASM module
+    let has_wasm = butler
+        .has_page_wasm(&input.page_id)
+        .unwrap_or(false);
+
     // TODO: Subscribe to Scribe for live updates
     // This will be implemented in the subscription manager
 
@@ -101,6 +99,7 @@ pub async fn handle_open_page(
             .unwrap()
             .as_secs() as i64,
         space_id: decrypted_page.space_id,
+        has_wasm,
     };
 
     Ok(BaseCryptoResponse::PageOpened(response))
@@ -169,18 +168,10 @@ pub async fn handle_list_pages(
     let metadata_list: Vec<PageMetadata> = pages
         .into_iter()
         .map(|page| {
-            let page_type = match page.page_type {
-                PageType::Content => "content",
-                PageType::Comments => "comments",
-                PageType::Submissions => "submissions",
-                PageType::PrivateChat => "private_chat",
-            }
-            .to_string();
-
             PageMetadata {
                 id: page.id,
                 title: page.name,
-                page_type,
+                page_type: "app".to_string(), // All pages are apps now
                 space_id: page.space_id,
                 last_modified: page.updated_at,
                 favourite: false,

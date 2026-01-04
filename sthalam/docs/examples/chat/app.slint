@@ -1,0 +1,139 @@
+// Chat App UI
+// This is a user-defined app that runs inside the Sthalam shell
+
+// Message data structure
+struct Message {
+    id: string,
+    author: string,
+    content: string,
+}
+
+// Main chat component
+export component App inherits Rectangle {
+    // Properties synced from Lua state
+    in property<[Message]> messages: [];
+    in-out property<string> draft: "";
+    in property<string> username: "You";
+
+    // Callbacks handled by Lua
+    callback send();
+
+    // Styling
+    background: #010409;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+
+        // Header
+        HorizontalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "Sthalam Chat";
+                font-size: 24px;
+                font-weight: 700;
+                color: #c9d1d9;
+            }
+
+            Text {
+                text: messages.length + " message(s)";
+                font-size: 14px;
+                color: #6e7681;
+                vertical-alignment: center;
+            }
+        }
+
+        // Separator
+        Rectangle {
+            height: 1px;
+            background: #21262d;
+        }
+
+        // Message list
+        Flickable {
+            viewport-height: messages.length * 40px;
+
+            VerticalLayout {
+                spacing: 8px;
+
+                for msg in messages: Rectangle {
+                    height: 36px;
+                    background: #0d0e13;
+                    border-radius: 6px;
+
+                    HorizontalLayout {
+                        padding: 8px;
+                        spacing: 8px;
+
+                        Text {
+                            text: msg.author + ":";
+                            color: #89b4fa;
+                            font-size: 14px;
+                            font-weight: 500;
+                        }
+                        Text {
+                            text: msg.content;
+                            color: #c9d1d9;
+                            font-size: 14px;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Separator
+        Rectangle {
+            height: 1px;
+            background: #21262d;
+        }
+
+        // Input area
+        HorizontalLayout {
+            spacing: 12px;
+
+            Rectangle {
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: input-area.has-focus ? #4d4f60 : #2f303e;
+                background: #0d0e13;
+                height: 44px;
+
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+
+                    input-area := TextInput {
+                        text <=> draft;
+                        color: #c9d1d9;
+                        font-size: 14px;
+                        horizontal-alignment: left;
+                        accepted => { send(); }
+                    }
+                }
+
+                animate border-color { duration: 150ms; }
+            }
+
+            Rectangle {
+                width: 80px;
+                height: 44px;
+                border-radius: 8px;
+                background: send-area.has-hover ? #9a97e8 : #8a86e5;
+
+                Text {
+                    text: "Send";
+                    color: #010409;
+                    font-size: 14px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                send-area := TouchArea {
+                    clicked => { send(); }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,23 @@
+[package]
+name = "slint_shell"
+version = "0.1.0"
+edition = "2021"
+description = "Sthalam shell UI built with Slint"
+
+[dependencies]
+slint = { version = "1.14", features = ["backend-winit", "renderer-skia"] }
+butler = { path = "../butler" }
+app_runtime = { path = "../app_runtime" }
+dirs = "5.0"
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+ractor = "0.14"
+rfd = "0.15"
+walkdir = "2"
+tempfile = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[build-dependencies]
+slint-build = "1.14"

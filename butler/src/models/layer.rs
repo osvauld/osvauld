@@ -14,6 +14,7 @@ use loro::{LoroDoc, ExportMode};
 ///
 /// Consumers (like Butler) use this type, never LoroDoc directly.
 /// All loro operations go through this wrapper.
+#[derive(Clone)]
 pub struct Layer {
     inner: LoroDoc,
 }
@@ -76,6 +77,14 @@ impl Layer {
         self.inner.state_frontiers().encode()
     }
 
+    /// Commit the current transaction
+    ///
+    /// This must be called after direct modifications via Loro FFI to trigger observers.
+    /// Example: After Lua modifies a LoroList/LoroMap, call this to fire change events.
+    pub fn commit(&self) {
+        self.inner.commit();
+    }
+
     /// Access the underlying LoroDoc for container operations (text, map, list, etc.)
     ///
     /// Use this to get/create containers and perform actual layer edits.
@@ -99,12 +108,146 @@ impl Layer {
         self.to_json_value()
     }
 
+    // =========================================================================
+    // CRDT-Specific Operations
+    // =========================================================================
+
+    /// Push an item to a list at the given path
+    ///
+    /// **Context**: Template action `append(item)` triggers this
+    /// **We do**: Find/create the list, push the item
+    pub fn list_push(&self, path: &str, item: &serde_json::Value) -> Result<(), LayerError> {
+        let root = self.inner.get_map("root");
+
+        // Get or create the list at this path
+        let list = match root.get(path) {
+            Some(loro::ValueOrContainer::Container(loro::Container::List(list))) => list,
+            Some(_) => return Err(LayerError::Import(format!("Path '{}' is not a list", path))),
+            None => {
+                // Create new list
+                root.insert_container(path, loro::LoroList::new())
+                    .map_err(|e| LayerError::Import(e.to_string()))?
+            }
+        };
+
+        // Push the item
+        let loro_value = json_to_loro_value(item);
+        list.push(loro_value)
+            .map_err(|e| LayerError::Import(e.to_string()))?;
+
+        self.inner.commit();
+        Ok(())
+    }
+
+    /// Insert an item at a specific index in a list
+    pub fn list_insert(&self, path: &str, index: usize, item: &serde_json::Value) -> Result<(), LayerError> {
+        let root = self.inner.get_map("root");
+
+        let list = match root.get(path) {
+            Some(loro::ValueOrContainer::Container(loro::Container::List(list))) => list,
+            Some(_) => return Err(LayerError::Import(format!("Path '{}' is not a list", path))),
+            None => {
+                root.insert_container(path, loro::LoroList::new())
+                    .map_err(|e| LayerError::Import(e.to_string()))?
+            }
+        };
+
+        let loro_value = json_to_loro_value(item);
+        list.insert(index, loro_value)
+            .map_err(|e| LayerError::Import(e.to_string()))?;
+
+        self.inner.commit();
+        Ok(())
+    }
+
+    /// Delete an item at a specific index from a list
+    pub fn list_delete(&self, path: &str, index: usize) -> Result<(), LayerError> {
+        let root = self.inner.get_map("root");
+
+        let list = match root.get(path) {
+            Some(loro::ValueOrContainer::Container(loro::Container::List(list))) => list,
+            Some(_) => return Err(LayerError::Import(format!("Path '{}' is not a list", path))),
+            None => return Ok(()), // Nothing to delete
+        };
+
+        list.delete(index, 1)
+            .map_err(|e| LayerError::Import(e.to_string()))?;
+
+        self.inner.commit();
+        Ok(())
+    }
+
+    /// Insert a key-value pair into a map at the given path
+    pub fn map_insert(&self, path: &str, key: &str, value: &serde_json::Value) -> Result<(), LayerError> {
+        let root = self.inner.get_map("root");
+
+        let map = match root.get(path) {
+            Some(loro::ValueOrContainer::Container(loro::Container::Map(map))) => map,
+            Some(_) => return Err(LayerError::Import(format!("Path '{}' is not a map", path))),
+            None => {
+                root.insert_container(path, loro::LoroMap::new())
+                    .map_err(|e| LayerError::Import(e.to_string()))?
+            }
+        };
+
+        let loro_value = json_to_loro_value(value);
+        map.insert(key, loro_value)
+            .map_err(|e| LayerError::Import(e.to_string()))?;
+
+        self.inner.commit();
+        Ok(())
+    }
+
+    /// Delete a key from a map at the given path
+    pub fn map_delete(&self, path: &str, key: &str) -> Result<(), LayerError> {
+        let root = self.inner.get_map("root");
+
+        let map = match root.get(path) {
+            Some(loro::ValueOrContainer::Container(loro::Container::Map(map))) => map,
+            Some(_) => return Err(LayerError::Import(format!("Path '{}' is not a map", path))),
+            None => return Ok(()), // Nothing to delete
+        };
+
+        map.delete(key).ok(); // Ignore if key doesn't exist
+
+        self.inner.commit();
+        Ok(())
+    }
+
+    /// Increment a counter value
+    ///
+    /// **Note**: Counter support requires loro "counter" feature.
+    /// For now, we emulate with a numeric value in the root map.
+    pub fn counter_inc(&self, path: &str, amount: i64) -> Result<(), LayerError> {
+        let root = self.inner.get_map("root");
+
+        // Get current value or default to 0
+        let current: i64 = match root.get(path) {
+            Some(loro::ValueOrContainer::Value(loro::LoroValue::I64(n))) => n,
+            Some(loro::ValueOrContainer::Value(loro::LoroValue::Double(f))) => f as i64,
+            _ => 0,
+        };
+
+        // Update with new value
+        let new_value = current + amount;
+        root.insert(path, new_value)
+            .map_err(|e| LayerError::Import(e.to_string()))?;
+
+        self.inner.commit();
+        Ok(())
+    }
+
+    // =========================================================================
+    // Legacy JSON Operations
+    // =========================================================================
+
     /// Set a value at a path from JSON (for UI commits)
     ///
     /// **Context**: CEL `commit()` returns JSON values that need to be stored in Loro.
     /// **We do**: Convert JSON to Loro containers and update the document.
     ///
     /// **Path**: Currently supports root-level keys only (e.g., "messages")
+    /// **Note**: Prefer typed CRDT operations (list_push, map_insert) for proper merging
     pub fn set_from_json(&self, path: &str, value: &serde_json::Value) -> Result<(), LayerError> {
         // Get or create the root map
         let root = self.inner.get_map("root");
@@ -159,6 +302,25 @@ impl Layer {
         self.inner.commit();
 
         Ok(())
+    }
+
+    // =========================================================================
+    // Observer/Subscription Methods
+    // =========================================================================
+
+    /// Subscribe to Loro changes and get delta information
+    ///
+    /// **Context**: Subscribe to all changes in this layer's CRDT
+    /// **Callback receives**: DiffEvent containing delta operations
+    /// **Returns**: Subscription handle that must be kept alive
+    ///
+    /// **Important**: The returned Subscription must be stored! If dropped, the subscription is cancelled.
+    pub fn subscribe_root<F>(&self, callback: F) -> loro::Subscription
+    where
+        F: (for<'a> Fn(loro::event::DiffEvent<'a>)) + 'static + Send + Sync,
+    {
+        use std::sync::Arc;
+        self.inner.subscribe_root(Arc::new(callback))
     }
 }
 

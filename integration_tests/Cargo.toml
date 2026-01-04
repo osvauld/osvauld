@@ -13,6 +13,10 @@ transport = { path = "../transport" }
 gurkha = { path = "../gurkha" }
 herald = { path = "../herald" }
 
+
+# JSON
+serde_json = "1"
+
 # CRDT
 loro = "1.5.4"
 

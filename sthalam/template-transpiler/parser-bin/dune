@@ -1,7 +1,0 @@
-; Native HUML parser for Rust/egui integration
-; Reads HUML from stdin, outputs JSON to stdout
-(executable
- (name huml_native)
- (modules huml_native)
- (libraries huml yojson)
- (modes exe))

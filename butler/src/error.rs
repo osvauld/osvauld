@@ -70,6 +70,9 @@ pub enum ButlerError {
 
     #[error("Not found: {0}")]
     NotFound(String),
+
+    #[error("Asset not found: {0}")]
+    AssetNotFound(String),
 }
 
 pub type Result<T> = std::result::Result<T, ButlerError>;

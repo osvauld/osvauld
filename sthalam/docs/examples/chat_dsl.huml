@@ -1,0 +1,328 @@
+// Chat Example - Declarative CRDT-Aware DSL
+//
+// Demonstrates:
+// - Type definitions for data contracts
+// - Queries block for Loro CRDT bindings
+// - State declarations for local UI state
+// - Declarative actions with CRDT primitives (append, local)
+// - For loops over data
+
+// Type definitions - data structure contracts
+type Message {
+    id: String
+    text: String
+    userId: String
+    username: String
+    timestamp: Number
+}
+
+// Queries block - bindings to Loro CRDT containers
+// These define what data comes from the Scribe persistence layer
+queries {
+    messages {
+        layer: "content"
+        path: "messages"
+        type: list
+        default: []
+        sort_by: "timestamp"
+        sort_order: "asc"
+        limit: 100
+    }
+}
+
+// State declarations - local UI state (not synced via CRDT)
+state {
+    newMessage: String = ""
+    currentUserId: String = "user_123"
+    username: String = "TestUser"
+}
+
+// Design tokens
+tokens {
+    colors {
+        background: rgb(11, 20, 26)
+        surface: rgb(32, 44, 51)
+        accent: rgb(0, 92, 75)
+        accent_light: rgb(0, 168, 132)
+        text: rgb(233, 237, 239)
+        muted: rgb(134, 150, 160)
+    }
+    spacing {
+        xs: 4
+        sm: 8
+        md: 16
+        lg: 24
+    }
+    radius {
+        sm: 4
+        md: 8
+        lg: 24
+    }
+}
+
+// Main chat screen
+screen Chat {
+    VStack {
+        gap: 0
+        fill: @colors.background
+
+        // Header
+        HStack {
+            fill: @colors.surface
+            padding: @spacing.md
+            gap: @spacing.md
+
+            Text("Chat") {
+                size: 20
+                weight: bold
+                color: @colors.text
+            }
+
+            Text("${size(messages)} messages") {
+                color: @colors.muted
+                size: 14
+            }
+        }
+
+        // Messages area
+        VStack {
+            padding: @spacing.md
+            gap: @spacing.sm
+
+            for message in messages {
+                HStack {
+                    gap: @spacing.sm
+                    padding: @spacing.sm
+                    corner_radius: @radius.md
+
+                    VStack {
+                        gap: @spacing.xs
+
+                        Text(message.username) {
+                            color: @colors.muted
+                            size: 12
+                            weight: bold
+                        }
+
+                        Text(message.text) {
+                            color: @colors.text
+                            size: 14
+                        }
+                    }
+                }
+            }
+        }
+
+        // Input area
+        HStack {
+            fill: @colors.surface
+            padding: @spacing.md
+            gap: @spacing.sm
+
+            Input(bind: newMessage, placeholder: "Type a message...") {
+                color: @colors.text
+                size: 14
+            }
+
+            // Declarative action: append to messages list, clear input
+            Button("Send", action: {
+                messages: append({
+                    id: generateId(),
+                    text: newMessage,
+                    userId: currentUserId,
+                    username: username,
+                    timestamp: now()
+                }),
+                newMessage: local("")
+            }) {
+                fill: @colors.accent_light
+                color: @colors.text
+                corner_radius: @radius.lg
+                padding: [@spacing.sm, @spacing.md]
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Test Fixtures - Reusable test data validated against types
+// ============================================================================
+
+fixtures {
+    // Sample messages for testing - type-checked against Message type
+    sampleMessages: list<Message> = [
+        {id: "msg_1", text: "Hello everyone!", userId: "user_1", username: "Alice", timestamp: 1000},
+        {id: "msg_2", text: "Hi Alice!", userId: "user_2", username: "Bob", timestamp: 2000},
+        {id: "msg_3", text: "How are you?", userId: "user_1", username: "Alice", timestamp: 3000}
+    ]
+
+    // Single message for focused tests
+    singleMessage: list<Message> = [
+        {id: "msg_1", text: "Test message", userId: "user_123", username: "TestUser", timestamp: 1000}
+    ]
+
+    // Empty state fixture
+    emptyState: {
+        messages: []
+        newMessage: ""
+    }
+
+    // Active chat state with messages
+    activeChat: {
+        messages: sampleMessages
+        newMessage: ""
+    }
+
+    // State with text being typed
+    typingState: {
+        messages: sampleMessages
+        newMessage: "Hello world"
+    }
+}
+
+// ============================================================================
+// Embedded Tests - Self-validating template tests
+// ============================================================================
+
+tests {
+    // CEL expression tests
+    test "size function works on empty list" {
+        given: emptyState
+        assert: size(messages) == 0
+    }
+
+    test "size function works on populated list" {
+        given: activeChat
+        assert: size(messages) == 3
+    }
+
+    test "state defaults are correct" {
+        // No given = use state defaults from state {} block
+        assert: newMessage == ""
+        assert: currentUserId == "user_123"
+        assert: username == "TestUser"
+    }
+
+    // Render tree tests
+    test "header renders with message count" {
+        given: activeChat
+        assert_render {
+            contains_text: "Chat"
+            contains_text: "3 messages"
+        }
+    }
+
+    test "empty state shows zero messages" {
+        given: emptyState
+        assert_render {
+            contains_text: "0 messages"
+        }
+    }
+
+    test "messages render with usernames" {
+        given: activeChat
+        assert_render {
+            contains_text: "Alice"
+            contains_text: "Bob"
+            contains_text: "Hello everyone!"
+        }
+    }
+
+    test "input shows placeholder when empty" {
+        given: emptyState
+        assert_render {
+            contains_text: "Type a message..."
+        }
+    }
+
+    // ========================================================================
+    // CRDT State Tests (require page_id for Scribe integration)
+    // These test real CRDT operations against Loro
+    // ========================================================================
+
+    // Verify layer state directly
+    test "state assertion verifies layer content" {
+        given: activeChat
+        assert_state: {
+            layer: "content"
+            path: "messages"
+            length: 3
+        }
+    }
+
+    // Verify field doesn't exist (for local-only state)
+    test "local state not persisted to layer" {
+        given: typingState
+        assert_state: {
+            layer: "content"
+            path: "newMessage"
+            exists: false
+        }
+    }
+
+    // Use CEL expression for complex state verification
+    test "first message is from Alice" {
+        given: activeChat
+        assert_state: {
+            layer: "content"
+            expression: "layer.messages[0].username == 'Alice'"
+        }
+    }
+
+    // ========================================================================
+    // Query Tests (verify full query pipeline)
+    // ========================================================================
+
+    // Verify query returns expected items
+    test "messages query returns sorted data" {
+        given: activeChat
+        assert_query: {
+            query: "messages"
+            length: 3
+            first_item: { timestamp: 1000 }  // Sorted asc, oldest first
+            last_item: { timestamp: 3000 }   // Newest last
+        }
+    }
+
+    // Verify query respects limit
+    test "messages query respects configured limit" {
+        given: activeChat
+        assert_query: {
+            query: "messages"
+            has_more: false  // We have 3 items, limit is 100
+        }
+    }
+
+    // ========================================================================
+    // Action + State Verification
+    // ========================================================================
+
+    // Test that append actually persists to Loro
+    test "append persists message to layer" {
+        given: { ...emptyState, newMessage: "Hello" }
+        action: {
+            messages: append({
+                id: generateId(),
+                text: newMessage,
+                userId: currentUserId,
+                username: username,
+                timestamp: now()
+            })
+        }
+        assert_state: {
+            layer: "content"
+            path: "messages"
+            length: 1
+        }
+    }
+
+    // Verify local() doesn't persist
+    test "local operation does not affect layer" {
+        given: typingState
+        action: {
+            newMessage: local("")
+        }
+        assert: newMessage == ""
+        assert_no_crdt: true
+    }
+}

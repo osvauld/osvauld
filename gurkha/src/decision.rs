@@ -581,114 +581,63 @@ impl SyncContext {
         &self.peer_permit
     }
 
-    /// Evaluate a CEL function comparing our permit with peer's
-    ///
-    /// Returns None if function doesn't exist (caller should use fallback)
-    pub fn evaluate_function(&self, function_name: &str, layer: &str) -> Option<bool> {
-        use crate::cel::{evaluate_function, EvalContext};
-
-        // Build eval context using issuer/audience from parsed UCAN
-        let our_iss = self.our_permit.parsed().issuer();
-        let our_aud = self.our_permit.parsed().audience();
-        let peer_iss = self.peer_permit.parsed().issuer();
-        let peer_aud = self.peer_permit.parsed().audience();
-
-        let eval_ctx = EvalContext::new(
-            our_iss.to_string(),
-            peer_iss.to_string(),
-        ).with_layer(layer.to_string());
-
-        // Try to evaluate the function
-        match evaluate_function(
-            self.our_permit.facts(),
-            our_iss,
-            our_aud,
-            self.peer_permit.facts(),
-            peer_iss,
-            peer_aud,
-            function_name,
-            &eval_ctx,
-        ) {
-            Ok(result) => Some(result),
-            Err(e) => {
-                tracing::debug!("CEL function '{}' evaluation failed: {:?}", function_name, e);
-                None // Function doesn't exist or failed - use fallback
-            }
-        }
-    }
 }
 
 /// Determine if we should send updates for a layer
 ///
-/// Uses CEL function `should_send_layer` from permit facts.
+/// Uses simple sync rules from permit facts.
 /// Returns DontSend if function not found or evaluates to false.
 pub fn should_send_updates(context: &SyncContext, layer_name: &str) -> crate::types::SyncDecision {
     use crate::types::SyncDecision;
 
     tracing::debug!("🔍 [should_send_updates] Checking layer '{}'", layer_name);
 
-    // Evaluate CEL function
-    match context.evaluate_function("should_send_layer", layer_name) {
-        Some(true) => {
-            // Check if submitter (needs full snapshot)
-            if context.our_permit.should_send_full_snapshot(layer_name) {
-                tracing::info!("📤 [should_send_updates] '{}' → SendFullSnapshot (CEL)", layer_name);
-                SyncDecision::SendFullSnapshot
-            } else {
-                tracing::info!("✅ [should_send_updates] '{}' → SendIncrementalUpdates (CEL)", layer_name);
-                SyncDecision::SendIncrementalUpdates
-            }
+    // TODO: Implement simple permit-based logic in Phase 4
+    // For now, check if we have capability for this layer
+    if context.our_permit.has_capability(layer_name) {
+        if context.our_permit.should_send_full_snapshot(layer_name) {
+            tracing::info!("📤 [should_send_updates] '{}' → SendFullSnapshot", layer_name);
+            SyncDecision::SendFullSnapshot
+        } else {
+            tracing::info!("✅ [should_send_updates] '{}' → SendIncrementalUpdates", layer_name);
+            SyncDecision::SendIncrementalUpdates
         }
-        Some(false) => {
-            tracing::info!("🚫 [should_send_updates] '{}' → DontSend (CEL)", layer_name);
-            SyncDecision::DontSend
-        }
-        None => {
-            tracing::warn!("⚠️ [should_send_updates] '{}' → DontSend (no CEL function)", layer_name);
-            SyncDecision::DontSend
-        }
+    } else {
+        tracing::info!("🚫 [should_send_updates] '{}' → DontSend (no capability)", layer_name);
+        SyncDecision::DontSend
     }
 }
 
 /// Check if we can receive updates for a layer
 ///
-/// Uses CEL function `can_receive_layer` from permit facts.
-/// Returns false if function not found or evaluates to false.
+/// Uses simple sync rules from permit facts.
+/// Returns false if no capability or sync disabled.
 pub fn can_receive_updates(context: &SyncContext, layer_name: &str) -> bool {
     tracing::debug!("🔒 [can_receive_updates] Checking layer '{}'", layer_name);
 
-    match context.evaluate_function("can_receive_layer", layer_name) {
-        Some(result) => {
-            tracing::info!("🎯 [can_receive_updates] '{}' → {} (CEL)", layer_name, result);
-            result
-        }
-        None => {
-            tracing::warn!("⚠️ [can_receive_updates] '{}' → false (no CEL function)", layer_name);
-            false
-        }
-    }
+    // TODO: Implement simple permit-based logic in Phase 4
+    // For now, check if we have capability and sync is not disabled
+    let has_capability = context.our_permit.has_capability(layer_name);
+    let can_receive = has_capability && !context.our_permit.has_no_incoming_updates(layer_name);
+
+    tracing::info!("🎯 [can_receive_updates] '{}' → {}", layer_name, can_receive);
+    can_receive
 }
 
 /// Determine if we should REQUEST updates for a layer (used in sync requests)
 ///
-/// Uses CEL function `can_receive_layer` - if we can receive, we should request.
-/// Returns DontSend if function not found or evaluates to false.
+/// Uses simple sync rules - if we can receive, we should request.
+/// Returns DontSend if no capability or sync disabled.
 pub fn should_request_updates(context: &SyncContext, layer_name: &str) -> SyncDecision {
     tracing::debug!("🔍 [should_request_updates] Checking layer '{}'", layer_name);
 
-    match context.evaluate_function("can_receive_layer", layer_name) {
-        Some(true) => {
-            tracing::info!("✅ [should_request_updates] '{}' → RequestUpdates (CEL)", layer_name);
-            SyncDecision::SendIncrementalUpdates
-        }
-        Some(false) => {
-            tracing::info!("🚫 [should_request_updates] '{}' → DontRequest (CEL)", layer_name);
-            SyncDecision::DontSend
-        }
-        None => {
-            tracing::warn!("⚠️ [should_request_updates] '{}' → DontRequest (no CEL function)", layer_name);
-            SyncDecision::DontSend
-        }
+    // TODO: Implement simple permit-based logic in Phase 4
+    if can_receive_updates(context, layer_name) {
+        tracing::info!("✅ [should_request_updates] '{}' → RequestUpdates", layer_name);
+        SyncDecision::SendIncrementalUpdates
+    } else {
+        tracing::info!("🚫 [should_request_updates] '{}' → DontRequest", layer_name);
+        SyncDecision::DontSend
     }
 }
 

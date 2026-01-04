@@ -1,0 +1,1470 @@
+// Sthalam Shell - Main window with tabs and app content area
+
+import { Theme } from "theme.slint";
+
+// Tab data structure
+export struct TabInfo {
+    id: string,
+    title: string,
+}
+
+// Space data structure
+export struct SpaceInfo {
+    id: string,
+    name: string,
+    app-count: int,
+}
+
+// App data structure
+export struct AppInfo {
+    id: string,
+    name: string,
+    space-id: string,
+}
+
+// Tab button component
+component TabButton {
+    in property<string> title;
+    in property<bool> active;
+    callback clicked();
+    callback close-clicked();
+
+    min-width: 120px;
+    height: 36px;
+
+    Rectangle {
+        background: active ? Theme.side-list-highlight : Theme.frame-black;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: active ? Theme.active-border : Theme.default-border;
+
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 8px;
+            spacing: 8px;
+            alignment: space-between;
+
+            Text {
+                text: title;
+                color: active ? Theme.side-list-active : Theme.text-passive;
+                font-size: 13px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            // Close button
+            Rectangle {
+                width: 20px;
+                height: 20px;
+                border-radius: 4px;
+                background: close-area.has-hover ? Theme.cancel-background : transparent;
+
+                Text {
+                    text: "\u{00D7}";
+                    color: close-area.has-hover ? Theme.quarzo-white : Theme.faded-cancel;
+                    font-size: 16px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                close-area := TouchArea {
+                    clicked => { close-clicked(); }
+                }
+            }
+        }
+
+        tab-area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+    }
+}
+
+// New tab button
+component NewTabButton {
+    callback clicked();
+
+    width: 36px;
+    height: 36px;
+
+    Rectangle {
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: area.has-hover ? Theme.active-border : Theme.default-border;
+        background: area.has-hover ? Theme.side-list-highlight : Theme.frame-black;
+
+        Text {
+            text: "+";
+            color: area.has-hover ? Theme.quarzo-white : Theme.text-passive;
+            font-size: 18px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+    }
+}
+
+// Initiation screen (first launch)
+component InitiationScreen {
+    callback import-key();
+    callback new-user();
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 40px;
+
+        // Hero text
+        VerticalLayout {
+            alignment: center;
+            spacing: 8px;
+
+            Text {
+                text: "Sovereign browsing and hosting";
+                font-size: 48px;
+                color: Theme.quarzo-white;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "Free, secure, and private";
+                font-size: 52px;
+                color: Theme.text-active;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "Build and share on your terms.";
+                font-size: 52px;
+                color: Theme.text-active;
+                horizontal-alignment: center;
+            }
+        }
+
+        // Buttons
+        HorizontalLayout {
+            alignment: center;
+            spacing: 24px;
+
+            // Secondary button - Import key
+            Rectangle {
+                width: 200px;
+                height: 48px;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: import-area.has-hover ? Theme.text-active : Theme.default-border;
+                background: transparent;
+
+                Text {
+                    text: "I already have the key";
+                    color: import-area.has-hover ? Theme.quarzo-white : Theme.text-active;
+                    font-size: 14px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                import-area := TouchArea {
+                    clicked => { import-key(); }
+                }
+
+                animate border-color { duration: 300ms; }
+            }
+
+            // Primary button - New user
+            Rectangle {
+                width: 200px;
+                height: 48px;
+                border-radius: 8px;
+                background: Theme.livnote-lavender;
+
+                Text {
+                    text: "I am new here";
+                    color: Theme.ninja-black;
+                    font-size: 14px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    clicked => { new-user(); }
+                }
+            }
+        }
+    }
+}
+
+// Sign Up screen (account creation)
+component SignUpScreen {
+    in-out property<string> username: "";
+    in-out property<string> password: "";
+    in property<bool> loading: false;
+    in-out property<bool> show-password: false;
+
+    callback submit(string, string);
+    callback go-back();
+
+    // Validation
+    property<bool> username-ok: username != "";
+    property<bool> password-ok: password.character-count >= 4;
+    property<bool> can-submit: username-ok && password-ok;
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 24px;
+
+        Rectangle {
+            width: 420px;
+            background: Theme.ninja-black;
+            border-radius: 12px;
+
+            VerticalLayout {
+                padding: 32px;
+                spacing: 20px;
+
+                // Back button and title row
+                HorizontalLayout {
+                    spacing: 16px;
+
+                    Rectangle {
+                        width: 32px;
+                        height: 32px;
+                        border-radius: 6px;
+                        background: back-area.has-hover ? Theme.cancel-background : transparent;
+
+                        Text {
+                            text: "\u{2190}";
+                            color: back-area.has-hover ? Theme.quarzo-white : Theme.text-passive;
+                            font-size: 20px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        back-area := TouchArea {
+                            clicked => { go-back(); }
+                        }
+                    }
+
+                    VerticalLayout {
+                        Text {
+                            text: "Create Account";
+                            color: Theme.quarzo-white;
+                            font-size: 20px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "Set up your identity";
+                            color: Theme.text-active;
+                            font-size: 13px;
+                        }
+                    }
+                }
+
+                // Username
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Username";
+                        color: Theme.quarzo-white;
+                        font-size: 14px;
+                    }
+
+                    Rectangle {
+                        height: 48px;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: user-input.has-focus ? Theme.livnote-lavender : Theme.default-border;
+                        background: Theme.frame-black;
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+
+                            user-input := TextInput {
+                                text <=> username;
+                                color: Theme.quarzo-white;
+                                font-size: 14px;
+                            }
+                        }
+
+                        animate border-color { duration: 150ms; }
+                    }
+                }
+
+                // Password
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Password";
+                        color: Theme.quarzo-white;
+                        font-size: 14px;
+                    }
+
+                    Rectangle {
+                        height: 48px;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: pass-input.has-focus ? Theme.livnote-lavender : Theme.default-border;
+                        background: Theme.frame-black;
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 8px;
+                            spacing: 8px;
+
+                            pass-input := TextInput {
+                                text <=> password;
+                                input-type: show-password ? InputType.text : InputType.password;
+                                color: Theme.quarzo-white;
+                                font-size: 14px;
+                                accepted => { if can-submit { submit(username, password); } }
+                            }
+
+                            Rectangle {
+                                width: 32px;
+                                height: 32px;
+                                background: pass-toggle.has-hover ? Theme.cancel-background : transparent;
+                                border-radius: 4px;
+
+                                Text {
+                                    text: show-password ? "\u{1F441}" : "\u{1F576}";
+                                    font-size: 16px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                                pass-toggle := TouchArea {
+                                    clicked => { show-password = !show-password; }
+                                }
+                            }
+                        }
+
+                        animate border-color { duration: 150ms; }
+                    }
+
+                    // Password hint
+                    if password != "" && !password-ok: Text {
+                        text: "Minimum 4 characters";
+                        color: Theme.danger-red;
+                        font-size: 12px;
+                    }
+                }
+
+                // Submit button
+                Rectangle {
+                    height: 48px;
+                    border-radius: 8px;
+                    background: can-submit ? Theme.livnote-lavender : Theme.cancel-background;
+
+                    Text {
+                        text: loading ? "Creating..." : "Create Account";
+                        color: can-submit ? Theme.ninja-black : Theme.text-passive;
+                        font-size: 14px;
+                        font-weight: 500;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        enabled: can-submit && !loading;
+                        clicked => { submit(username, password); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Welcome/Login screen
+component WelcomeScreen {
+    in-out property<string> passphrase: "";
+    in property<bool> loading: false;
+    in property<bool> error: false;
+    in-out property<bool> show-password: false;
+
+    callback submit();
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 16px;
+
+        Rectangle {
+            width: 400px;
+            height: 300px;
+            background: Theme.ninja-black;
+            border-radius: 12px;
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 16px;
+                padding: 32px;
+
+                Text {
+                    text: "Enter Passphrase";
+                    color: Theme.quarzo-white;
+                    font-size: 18px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                }
+
+                // Password input container
+                Rectangle {
+                    height: 48px;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: input-area.has-focus ? Theme.active-border : Theme.default-border;
+                    background: Theme.frame-black;
+
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 8px;
+
+                        input-area := TextInput {
+                            text <=> passphrase;
+                            input-type: show-password ? InputType.text : InputType.password;
+                            color: Theme.quarzo-white;
+                            font-size: 14px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            accepted => { submit(); }
+                        }
+
+                        // Toggle visibility button
+                        Rectangle {
+                            width: 32px;
+                            height: 32px;
+                            background: toggle-area.has-hover ? Theme.cancel-background : transparent;
+                            border-radius: 4px;
+
+                            Text {
+                                text: show-password ? "\u{1F441}" : "\u{1F576}";
+                                font-size: 16px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            toggle-area := TouchArea {
+                                clicked => { show-password = !show-password; }
+                            }
+                        }
+                    }
+                }
+
+                // Error or info message
+                if error: Text {
+                    text: "Wrong Passphrase";
+                    color: Theme.danger-red;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
+                if !error: HorizontalLayout {
+                    alignment: center;
+                    spacing: 8px;
+
+                    Text {
+                        text: "\u{1F512}";
+                        font-size: 14px;
+                    }
+                    Text {
+                        text: "End-to-end encrypted";
+                        color: Theme.text-active;
+                        font-size: 12px;
+                    }
+                }
+
+                // Submit button
+                HorizontalLayout {
+                    alignment: center;
+
+                    Rectangle {
+                        width: 150px;
+                        height: 44px;
+                        border-radius: 8px;
+                        background: Theme.livnote-lavender;
+
+                        if loading: Text {
+                            text: "...";
+                            color: Theme.ninja-black;
+                            font-size: 14px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        if !loading: Text {
+                            text: "Submit";
+                            color: Theme.ninja-black;
+                            font-size: 14px;
+                            font-weight: 500;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea {
+                            clicked => { submit(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Space card component
+component SpaceCard {
+    in property<string> space-id;
+    in property<string> name;
+    in property<int> app-count;
+    callback clicked();
+
+    width: 200px;
+    height: 120px;
+
+    Rectangle {
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: area.has-hover ? Theme.active-border : Theme.default-border;
+        background: area.has-hover ? Theme.side-list-highlight : Theme.frame-black;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+            alignment: start;
+
+            // Folder icon
+            Text {
+                text: "\u{1F4C1}";
+                font-size: 32px;
+            }
+
+            // Space name
+            Text {
+                text: name;
+                color: Theme.quarzo-white;
+                font-size: 16px;
+                font-weight: 500;
+                overflow: elide;
+            }
+
+            // App count
+            Text {
+                text: app-count == 1 ? "1 app" : app-count + " apps";
+                color: Theme.text-passive;
+                font-size: 12px;
+            }
+        }
+
+        area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+        animate background { duration: 150ms; }
+    }
+}
+
+// Create space card (+ button)
+component CreateSpaceCard {
+    callback clicked();
+
+    width: 200px;
+    height: 120px;
+
+    Rectangle {
+        border-radius: 12px;
+        border-width: 2px;
+        border-color: area.has-hover ? Theme.livnote-lavender : Theme.default-border;
+        background: area.has-hover ? #0d0e1380 : transparent;
+
+        VerticalLayout {
+            alignment: center;
+
+            Text {
+                text: "+";
+                color: area.has-hover ? Theme.livnote-lavender : Theme.text-passive;
+                font-size: 48px;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "New Space";
+                color: area.has-hover ? Theme.livnote-lavender : Theme.text-passive;
+                font-size: 14px;
+                horizontal-alignment: center;
+            }
+        }
+
+        area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+        animate background { duration: 150ms; }
+    }
+}
+
+// Modal Dialog for creating a space
+component CreateSpaceModal {
+    in-out property<string> space-name: "";
+    in property<bool> show;
+
+    callback create(string);
+    callback cancel();
+
+    width: 100%;
+    height: 100%;
+
+    if show: Rectangle {
+        // Full screen overlay with absolute positioning
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        background: #00000080;  // Semi-transparent black backdrop
+
+        // Backdrop click to close (must be before dialog to be behind it)
+        backdrop-area := TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => { cancel(); }
+        }
+
+        // Dialog box - centered
+        FocusScope {
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            width: 400px;
+            height: 200px;
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                border-radius: 12px;
+                background: Theme.frame-black;
+                border-width: 1px;
+                border-color: Theme.default-border;
+
+                // Touch area to prevent clicks from propagating to backdrop
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                }
+
+                VerticalLayout {
+                        padding: 24px;
+                        spacing: 20px;
+
+                        // Title
+                        Text {
+                            text: "Create New Space";
+                            color: Theme.quarzo-white;
+                            font-size: 20px;
+                            font-weight: 600;
+                        }
+
+                        // Input field
+                        Rectangle {
+                            height: 44px;
+                            border-radius: 8px;
+                            border-width: 1px;
+                            border-color: space-input.has-focus ? Theme.livnote-lavender : Theme.default-border;
+                            background: Theme.ninja-black;
+
+                            VerticalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                alignment: center;
+
+                                space-input := TextInput {
+                                    text <=> space-name;
+                                    color: Theme.quarzo-white;
+                                    font-size: 14px;
+                                    input-type: text;
+                                    accepted => {
+                                        if space-name != "" {
+                                            create(space-name);
+                                        }
+                                    }
+                                }
+                            }
+
+                            animate border-color { duration: 150ms; }
+                        }
+
+                        // Buttons
+                        HorizontalLayout {
+                            spacing: 12px;
+                            alignment: end;
+
+                            // Cancel button
+                            Rectangle {
+                                width: 100px;
+                                height: 36px;
+                                border-radius: 8px;
+                                background: cancel-btn.has-hover ? Theme.cancel-background : transparent;
+                                border-width: 1px;
+                                border-color: Theme.default-border;
+
+                                Text {
+                                    text: "Cancel";
+                                    color: Theme.text-passive;
+                                    font-size: 14px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                cancel-btn := TouchArea {
+                                    clicked => { cancel(); }
+                                }
+                            }
+
+                            // Create button
+                            Rectangle {
+                                width: 100px;
+                                height: 36px;
+                                border-radius: 8px;
+                                background: space-name != "" ? Theme.livnote-lavender : Theme.cancel-background;
+
+                                Text {
+                                    text: "Create";
+                                    color: space-name != "" ? Theme.ninja-black : Theme.text-passive;
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    enabled: space-name != "";
+                                    clicked => {
+                                        if space-name != "" {
+                                            create(space-name);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+            }  // Close Rectangle (dialog background)
+        }  // Close FocusScope
+    }  // Close Rectangle (backdrop)
+}
+
+// Space Grid Row component (reusable row for space cards)
+component SpaceGridRow inherits HorizontalLayout {
+    in property<[SpaceInfo]> spaces;
+    in property<int> row-number;
+    in property<int> columns;
+    in property<length> card-width;
+    in property<length> card-spacing;
+
+    callback select-space(string);
+
+    horizontal-stretch: 1;    // Fill parent width
+    alignment: start;
+    spacing: 0px;             // No spacing - we'll use margins instead
+
+    for space[idx] in spaces: Rectangle {
+        visible: idx >= columns * row-number && idx < columns * (row-number + 1);
+        width: (idx >= columns * row-number && idx < columns * (row-number + 1)) ? card-width + card-spacing : 0px;
+        height: (idx >= columns * row-number && idx < columns * (row-number + 1)) ? 120px : 0px;
+
+        SpaceCard {
+            width: card-width;
+            height: 120px;
+            space-id: space.id;
+            name: space.name;
+            app-count: space.app-count;
+            clicked => { root.select-space(space.id); }
+        }
+    }
+}
+
+// Spaces Dashboard screen
+component SpacesDashboard {
+    in property<[SpaceInfo]> spaces: [];
+    in-out property<string> new-space-name: "";
+    in-out property<bool> show-create-form: false;
+
+    callback request-spaces();          // Called to load/refresh spaces
+    callback create-space(string);
+    callback select-space(string);
+
+    // Responsive grid properties
+    property<length> card-width: 12.5rem;     // ~200px at default font
+    property<length> card-spacing: 1rem;      // ~16px responsive
+    property<length> padding-horizontal: 4rem; // ~64px
+    property<length> available-width: root.width - padding-horizontal;
+    property<int> columns: max(1, floor(available-width / (card-width + card-spacing)));
+
+    // Request spaces when component is shown
+    init => { request-spaces(); }
+
+    VerticalLayout {
+        padding-top: 1rem;      // Minimal top padding
+        padding-left: 1rem;     // Minimal left padding
+        padding-right: 1rem;
+        padding-bottom: 2rem;
+        spacing: 1rem;          // Reduce from 24px
+
+        // Header
+        HorizontalLayout {
+            spacing: 16px;
+
+            Text {
+                text: "Your Spaces";
+                color: Theme.quarzo-white;
+                font-size: 28px;
+                font-weight: 600;
+            }
+        }
+
+        // Space grid (responsive layout)
+        Flickable {
+            VerticalLayout {
+                alignment: start;     // Top-left alignment
+                spacing: 1rem;        // Responsive spacing
+                padding: 0px;         // Remove padding
+
+                // Row 0
+                if spaces.length > 0: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 0;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length < columns: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 1
+                if spaces.length > columns: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 1;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns && spaces.length < columns * 2: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 2
+                if spaces.length > columns * 2: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 2;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 2 && spaces.length < columns * 3: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 3
+                if spaces.length > columns * 3: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 3;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 3 && spaces.length < columns * 4: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 4
+                if spaces.length > columns * 4: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 4;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 4 && spaces.length < columns * 5: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 5
+                if spaces.length > columns * 5: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 5;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 5 && spaces.length < columns * 6: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 6
+                if spaces.length > columns * 6: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 6;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 6 && spaces.length < columns * 7: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 7
+                if spaces.length > columns * 7: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 7;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 7 && spaces.length < columns * 8: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 8
+                if spaces.length > columns * 8: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 8;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 8 && spaces.length < columns * 9: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 9
+                if spaces.length > columns * 9: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 9;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 9 && spaces.length < columns * 10: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+            }
+        }
+
+        // Empty state message
+        if spaces.length == 0 && !show-create-form: VerticalLayout {
+            alignment: center;
+            spacing: 12px;
+
+            Text {
+                text: "No spaces yet";
+                color: Theme.text-passive;
+                font-size: 18px;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "Create a space to organize your apps";
+                color: Theme.text-active;
+                font-size: 14px;
+                horizontal-alignment: center;
+            }
+        }
+    }
+
+    // Modal for creating space
+    CreateSpaceModal {
+        show: show-create-form;
+        space-name <=> new-space-name;
+        create(name) => {
+            create-space(name);
+            new-space-name = "";
+            show-create-form = false;
+        }
+        cancel() => {
+            new-space-name = "";
+            show-create-form = false;
+        }
+    }
+}
+
+// App card component
+component AppCard {
+    in property<string> app-id;
+    in property<string> name;
+    callback clicked();
+
+    width: 160px;
+    height: 100px;
+
+    Rectangle {
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: area.has-hover ? Theme.active-border : Theme.default-border;
+        background: area.has-hover ? Theme.side-list-highlight : Theme.frame-black;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            alignment: center;
+
+            // App icon
+            Text {
+                text: "\u{1F4BB}";
+                font-size: 28px;
+                horizontal-alignment: center;
+            }
+
+            // App name
+            Text {
+                text: name;
+                color: Theme.quarzo-white;
+                font-size: 14px;
+                font-weight: 500;
+                overflow: elide;
+                horizontal-alignment: center;
+            }
+        }
+
+        area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+        animate background { duration: 150ms; }
+    }
+}
+
+// Upload app card (+ button)
+component UploadAppCard {
+    callback clicked();
+
+    width: 160px;
+    height: 100px;
+
+    Rectangle {
+        border-radius: 12px;
+        border-width: 2px;
+        border-color: area.has-hover ? Theme.livnote-lavender : Theme.default-border;
+        background: area.has-hover ? #0d0e1380 : transparent;
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 4px;
+
+            Text {
+                text: "+";
+                color: area.has-hover ? Theme.livnote-lavender : Theme.text-passive;
+                font-size: 36px;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "Upload App";
+                color: area.has-hover ? Theme.livnote-lavender : Theme.text-passive;
+                font-size: 12px;
+                horizontal-alignment: center;
+            }
+        }
+
+        area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+        animate background { duration: 150ms; }
+    }
+}
+
+// App Grid Row component (reusable row for app cards)
+component AppGridRow inherits HorizontalLayout {
+    in property<[AppInfo]> apps;
+    in property<int> row-number;
+    in property<int> app-columns;
+    in property<length> app-card-width;
+    in property<length> app-card-spacing;
+
+    callback select-app(string);
+
+    horizontal-stretch: 1;    // Fill parent width
+    alignment: start;
+    spacing: 0px;             // No spacing - we'll use margins instead
+
+    for app[idx] in apps: Rectangle {
+        visible: idx >= app-columns * row-number && idx < app-columns * (row-number + 1);
+        width: (idx >= app-columns * row-number && idx < app-columns * (row-number + 1)) ? app-card-width + app-card-spacing : 0px;
+        height: (idx >= app-columns * row-number && idx < app-columns * (row-number + 1)) ? 100px : 0px;
+
+        AppCard {
+            width: app-card-width;
+            height: 100px;
+            app-id: app.id;
+            name: app.name;
+            clicked => { root.select-app(app.id); }
+        }
+    }
+}
+
+// Space View screen (inside a space)
+component SpaceView {
+    in property<string> space-id: "";
+    in property<string> space-name: "Space";
+    in property<[AppInfo]> apps: [];
+
+    callback go-back();
+    callback request-apps(string);      // Called to load apps for this space
+    callback upload-app-clicked();      // Called when user wants to upload an app
+    callback select-app(string);
+
+    // Responsive grid properties for apps
+    property<length> app-card-width: 10rem;      // ~160px at default font
+    property<length> app-card-spacing: 1rem;     // ~16px responsive
+    property<length> padding-horizontal: 4rem;   // ~64px
+    property<length> available-width: root.width - padding-horizontal;
+    property<int> app-columns: max(1, floor(available-width / (app-card-width + app-card-spacing)));
+
+    // Request apps when component is shown
+    init => { request-apps(space-id); }
+
+    VerticalLayout {
+        padding-top: 1rem;      // Minimal top padding
+        padding-left: 1rem;     // Minimal left padding
+        padding-right: 1rem;
+        padding-bottom: 2rem;
+        spacing: 1rem;          // Reduce from 24px
+
+        // Header with back button
+        HorizontalLayout {
+            spacing: 16px;
+
+            // Back button
+            Rectangle {
+                width: 40px;
+                height: 40px;
+                border-radius: 8px;
+                background: back-area.has-hover ? Theme.cancel-background : transparent;
+
+                Text {
+                    text: "\u{2190}";
+                    color: back-area.has-hover ? Theme.quarzo-white : Theme.text-passive;
+                    font-size: 24px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                back-area := TouchArea {
+                    clicked => { go-back(); }
+                }
+            }
+
+            // Space name
+            Text {
+                text: space-name;
+                color: Theme.quarzo-white;
+                font-size: 28px;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+        }
+
+        // Apps section
+        Text {
+            text: "Apps";
+            color: Theme.text-active;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        // App grid (responsive layout)
+        Flickable {
+            VerticalLayout {
+                alignment: start;         // Top-left alignment
+                spacing: 1rem;            // Responsive spacing
+                padding: 0px;             // Remove padding
+
+                // Row 0
+                if apps.length > 0: AppGridRow {
+                    apps: apps;
+                    row-number: 0;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+                if apps.length < app-columns: UploadAppCard {
+                    clicked => { upload-app-clicked(); }
+                }
+
+                // Row 1
+                if apps.length > app-columns: AppGridRow {
+                    apps: apps;
+                    row-number: 1;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+                if apps.length >= app-columns && apps.length < app-columns * 2: UploadAppCard {
+                    clicked => { upload-app-clicked(); }
+                }
+
+                // Row 2
+                if apps.length > app-columns * 2: AppGridRow {
+                    apps: apps;
+                    row-number: 2;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+                if apps.length >= app-columns * 2 && apps.length < app-columns * 3: UploadAppCard {
+                    clicked => { upload-app-clicked(); }
+                }
+
+                // Row 3
+                if apps.length > app-columns * 3: AppGridRow {
+                    apps: apps;
+                    row-number: 3;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+                if apps.length >= app-columns * 3 && apps.length < app-columns * 4: UploadAppCard {
+                    clicked => { upload-app-clicked(); }
+                }
+
+                // Row 4
+                if apps.length > app-columns * 4: AppGridRow {
+                    apps: apps;
+                    row-number: 4;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+                if apps.length >= app-columns * 4 && apps.length < app-columns * 5: UploadAppCard {
+                    clicked => { upload-app-clicked(); }
+                }
+
+                // Row 5
+                if apps.length > app-columns * 5: AppGridRow {
+                    apps: apps;
+                    row-number: 5;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+                if apps.length >= app-columns * 5 && apps.length < app-columns * 6: UploadAppCard {
+                    clicked => { upload-app-clicked(); }
+                }
+
+                // Row 6
+                if apps.length > app-columns * 6: AppGridRow {
+                    apps: apps;
+                    row-number: 6;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+                if apps.length >= app-columns * 6 && apps.length < app-columns * 7: UploadAppCard {
+                    clicked => { upload-app-clicked(); }
+                }
+
+                // Row 7
+                if apps.length > app-columns * 7: AppGridRow {
+                    apps: apps;
+                    row-number: 7;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+                if apps.length >= app-columns * 7 && apps.length < app-columns * 8: UploadAppCard {
+                    clicked => { upload-app-clicked(); }
+                }
+
+                // Row 8
+                if apps.length > app-columns * 8: AppGridRow {
+                    apps: apps;
+                    row-number: 8;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+                if apps.length >= app-columns * 8 && apps.length < app-columns * 9: UploadAppCard {
+                    clicked => { upload-app-clicked(); }
+                }
+
+                // Row 9
+                if apps.length > app-columns * 9: AppGridRow {
+                    apps: apps;
+                    row-number: 9;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+                if apps.length >= app-columns * 9 && apps.length < app-columns * 10: UploadAppCard {
+                    clicked => { upload-app-clicked(); }
+                }
+            }
+        }
+
+        // Empty state hint (only when no apps)
+        if apps.length == 0: Text {
+            text: "Click '+' to upload your first app";
+            color: Theme.text-active;
+            font-size: 14px;
+        }
+    }
+}
+
+// Main shell component
+export component Shell inherits Window {
+    title: "Sthalam";
+    background: Theme.ninja-black;
+    min-width: 800px;
+    min-height: 600px;
+
+    // Tab state
+    in property<[TabInfo]> tabs: [];
+    in property<string> active-tab-id: "";
+
+    // Shell state
+    in property<bool> authenticated: false;
+    in property<bool> initialized: false;
+
+    // Screen state: "initiation", "signup", "login", "spaces", "space-view", "app"
+    in-out property<string> current-screen: "initiation";
+
+    // Space state
+    in property<[SpaceInfo]> spaces: [];
+    in-out property<string> current-space-id: "";
+    in property<[AppInfo]> apps: [];  // apps in current space
+    in property<string> current-space-name: "";
+
+    // Callbacks
+    callback tab-selected(string);
+    callback tab-closed(string);
+    callback new-tab();
+
+    // Auth callbacks
+    callback login(string);
+    callback sign-up(string, string);  // username, password
+    callback import-key();
+
+    // Space callbacks
+    callback request-spaces();          // UI requests to load spaces
+    callback create-space(string);      // name
+    callback select-space(string);      // space_id
+    callback delete-space(string);      // space_id
+
+    // App callbacks
+    callback request-apps(string);      // UI requests apps for space_id
+    callback upload-app-clicked();      // User wants to upload an app (opens folder picker)
+    callback select-app(string);        // app_id
+    callback delete-app(string);        // app_id
+
+    VerticalLayout {
+        // Tab bar (only show when authenticated)
+        if authenticated: Rectangle {
+            height: 52px;
+            background: Theme.frame-black;
+            border-width: 0px;
+            border-color: Theme.dark-separator;
+
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 8px;
+                alignment: start;
+
+                // Tabs
+                for tab in tabs: TabButton {
+                    title: tab.title;
+                    active: tab.id == active-tab-id;
+                    clicked => { tab-selected(tab.id); }
+                    close-clicked => { tab-closed(tab.id); }
+                }
+
+                // New tab button
+                NewTabButton {
+                    clicked => { new-tab(); }
+                }
+            }
+        }
+
+        // Separator
+        if authenticated: Rectangle {
+            height: 1px;
+            background: Theme.dark-separator;
+        }
+
+        // Content area
+        Rectangle {
+            background: Theme.ninja-black;
+
+            // Initiation screen
+            if current-screen == "initiation": InitiationScreen {
+                import-key => { import-key(); }
+                new-user => { current-screen = "signup"; }
+            }
+
+            // Sign up screen
+            if current-screen == "signup": SignUpScreen {
+                go-back => { current-screen = "initiation"; }
+                submit(username, password) => { sign-up(username, password); }
+            }
+
+            // Login screen
+            if current-screen == "login": WelcomeScreen {
+                submit => { login(self.passphrase); }
+            }
+
+            // Spaces dashboard (after login)
+            if current-screen == "spaces": SpacesDashboard {
+                width: 100%;
+                height: 100%;
+                spaces: spaces;
+                request-spaces => { request-spaces(); }
+                create-space(name) => {
+                    create-space(name);
+                }
+                select-space(space-id) => {
+                    current-space-id = space-id;
+                    select-space(space-id);
+                    current-screen = "space-view";
+                }
+            }
+
+            // Space view (inside a space)
+            if current-screen == "space-view": SpaceView {
+                width: 100%;
+                height: 100%;
+                space-id: current-space-id;
+                space-name: current-space-name;
+                apps: apps;
+                go-back => { current-screen = "spaces"; }
+                request-apps(space-id) => { request-apps(space-id); }
+                select-app(app-id) => { select-app(app-id); }
+                upload-app-clicked => { upload-app-clicked(); }
+            }
+
+            // App content placeholder (when authenticated and in app mode)
+            if current-screen == "app": Rectangle {
+                // App runtime will inject content here
+                Text {
+                    text: tabs.length > 0 ? "App content for: " + active-tab-id : "No tabs open. Click + to open a new tab.";
+                    color: Theme.text-passive;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

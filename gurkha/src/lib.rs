@@ -22,7 +22,6 @@
 //! - `merge` - Pure CRDT merge logic (Loro document operations)
 //! - `sync` - Pure sync logic (permit-driven document synchronization)
 //! - `service` - Stateless permit functions (takes key bytes, returns permits)
-//! - `cel` - CEL rule evaluation for authorization
 //! - `errors` - GurkhaError types
 
 pub mod types;
@@ -37,7 +36,6 @@ pub mod merge;
 pub mod sync;
 pub mod service;
 pub mod errors;
-pub mod cel;
 
 // Re-export commonly used items
 pub use types::*;
@@ -54,7 +52,6 @@ pub use verification::{ProofCache, ProofChainTracer};
 pub use builder::GurkhaPermitBuilder;
 pub use merge::MergeService;
 pub use sync::{SyncRequestData, SyncResponseData, prepare_sync_request, generate_sync_response, apply_peer_docs, apply_peer_updates, generate_collaborative_updates};
-pub use cel::{OperationValidator, CelError, CelResult};
 
 // Re-export stateless permit functions
 pub use service::{

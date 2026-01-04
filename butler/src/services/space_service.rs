@@ -12,12 +12,13 @@ use crate::error::{ButlerError, Result};
 use crate::storage::{RedbStore, LayerCache};
 use crate::models::{
     SpaceData, SpaceMeta, Space,
-    PageData, PageMeta, Page, PageType,
+    PageData, PageMeta, Page,
     Layer, DecryptedPage, PreparedPage,
 };
 use herald::{generate_aes_key, encrypt, encrypt_symmetric};
 use std::collections::HashMap;
 use tokio::sync::RwLock;
+use tracing::{info, debug, error, instrument};
 use uuid::Uuid;
 
 // =========================================================================
@@ -214,9 +215,8 @@ pub fn mark_space_published(store: &RedbStore, space_id: &str, node_id: &str) ->
 /// * `owner_did` - Owner's DID
 /// * `owner_public_key` - Owner's X25519 public key for encrypting AES key
 /// * `signing_key` - Owner's Ed25519 signing key for permit issuance
-/// * `page_type` - Type of page
 /// * `layer_names` - List of layer names from permit template (e.g., ["content", "comments"])
-/// * `permit_template_json` - JSON template for the page permit (PAGE_TEMPLATE)
+/// * `permit_template_json` - JSON template for the page permit
 ///
 /// # Flow
 /// 1. Generate random AES-256 key
@@ -231,7 +231,6 @@ pub async fn create_page(
     owner_did: String,
     owner_public_key: &[u8; 32],
     signing_key: &[u8; 32],
-    page_type: PageType,
     layer_names: Vec<String>,
     permit_template_json: &str,
 ) -> Result<Page> {
@@ -272,7 +271,6 @@ pub async fn create_page(
 
     // Create page metadata with encrypted key
     let mut meta = PageMeta::new(name, space_id, owner_did)
-        .with_type(page_type)
         .with_encrypted_key(encrypted_key);
     meta.id = page_id; // Use the ID we generated earlier
 
@@ -316,7 +314,6 @@ pub async fn create_private_page(
         .map_err(|e| ButlerError::Encryption(e.to_string()))?;
 
     let mut meta = PageMeta::new(name, space_id, owner_did)
-        .with_type(PageType::PrivateChat)
         .with_encrypted_key(encrypted_key)
         .as_private();
     meta.id = page_id;

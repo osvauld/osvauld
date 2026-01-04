@@ -1,0 +1,124 @@
+// Simple Chat App - Demonstrates component expansion
+
+tokens {
+    colors {
+        background: rgb(18, 18, 18)
+        surface: rgb(32, 32, 32)
+        primary: rgb(0, 132, 255)
+        text: rgb(230, 230, 230)
+        muted: rgb(128, 128, 128)
+    }
+    spacing {
+        xs: 4
+        sm: 8
+        md: 16
+        lg: 24
+    }
+    radius {
+        sm: 8
+        md: 12
+        lg: 16
+    }
+}
+
+// Message bubble component
+component MessageBubble(message) {
+    Box {
+        fill: @colors.surface
+        corner_radius: @radius.md
+        padding: [@spacing.sm, @spacing.md]
+
+        VStack {
+            gap: @spacing.xs
+
+            Text(message.sender) {
+                size: 12
+                weight: bold
+                color: @colors.primary
+            }
+
+            Text(message.content) {
+                size: 14
+                color: @colors.text
+            }
+
+            Text(message.time) {
+                size: 10
+                color: @colors.muted
+            }
+        }
+    }
+}
+
+// Header component
+component ChatHeader(title) {
+    Box {
+        fill: @colors.surface
+        padding: @spacing.md
+
+        HStack {
+            align: center
+
+            Text(title) {
+                size: 18
+                weight: bold
+                color: @colors.text
+            }
+
+            Spacer {}
+
+            Text("3 online") {
+                size: 12
+                color: @colors.muted
+            }
+        }
+    }
+}
+
+// Input bar component
+component InputBar() {
+    Box {
+        fill: @colors.surface
+        padding: @spacing.sm
+
+        HStack {
+            gap: @spacing.sm
+            align: center
+
+            Input(bind: newMessage, placeholder: "Type a message...") {
+                color: @colors.text
+                placeholder_color: @colors.muted
+                size: 14
+            }
+
+            Button("Send", action: sendMessage) {
+                fill: @colors.primary
+                color: @colors.text
+                corner_radius: @radius.sm
+                padding: [@spacing.sm, @spacing.md]
+            }
+        }
+    }
+}
+
+// Main chat screen
+screen Chat {
+    VStack {
+        fill: @colors.background
+
+        ChatHeader("Team Chat")
+
+        VStack {
+            padding: @spacing.sm
+            gap: @spacing.xs
+
+            for message in messages {
+                MessageBubble(message)
+            }
+        }
+
+        Spacer {}
+
+        InputBar()
+    }
+}

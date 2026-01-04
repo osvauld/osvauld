@@ -1,0 +1,163 @@
+// Chat App UI
+// A simple chat application built with Slint
+
+// Message data structure
+struct Message {
+    id: string,
+    author: string,
+    content: string,
+}
+
+// Theme colors
+global Theme {
+    out property<color> bg-primary: #010409;
+    out property<color> bg-secondary: #0d0e13;
+    out property<color> border: #21262d;
+    out property<color> border-focus: #4d4f60;
+    out property<color> text-primary: #c9d1d9;
+    out property<color> text-secondary: #6e7681;
+    out property<color> accent: #8a86e5;
+    out property<color> accent-hover: #9a97e8;
+    out property<color> author-color: #89b4fa;
+}
+
+// Main chat component
+export component App inherits Window {
+    title: "Sthalam Chat";
+    min-width: 400px;
+    min-height: 300px;
+    preferred-width: 600px;
+    preferred-height: 500px;
+
+    // Properties synced from Lua state
+    in property<[Message]> messages: [];
+    in-out property<string> draft: "";
+    in property<string> username: "You";
+
+    // Callbacks handled by Lua
+    callback send();
+
+    background: Theme.bg-primary;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+
+        // Header
+        HorizontalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "Sthalam Chat";
+                font-size: 24px;
+                font-weight: 700;
+                color: Theme.text-primary;
+            }
+
+            Text {
+                text: messages.length + " message(s)";
+                font-size: 14px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+
+        // Separator
+        Rectangle {
+            height: 1px;
+            background: Theme.border;
+        }
+
+        // Message list
+        Flickable {
+            vertical-stretch: 1;
+            viewport-height: messages.length * 44px;
+
+            VerticalLayout {
+                spacing: 8px;
+
+                for msg in messages: Rectangle {
+                    height: 40px;
+                    background: Theme.bg-secondary;
+                    border-radius: 6px;
+
+                    HorizontalLayout {
+                        padding: 10px;
+                        spacing: 8px;
+
+                        Text {
+                            text: msg.author + ":";
+                            color: Theme.author-color;
+                            font-size: 14px;
+                            font-weight: 500;
+                        }
+                        Text {
+                            text: msg.content;
+                            color: Theme.text-primary;
+                            font-size: 14px;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Separator
+        Rectangle {
+            height: 1px;
+            background: Theme.border;
+        }
+
+        // Input area
+        HorizontalLayout {
+            spacing: 12px;
+
+            Rectangle {
+                horizontal-stretch: 1;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: input-area.has-focus ? Theme.border-focus : Theme.border;
+                background: Theme.bg-secondary;
+                height: 44px;
+
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+
+                    input-area := TextInput {
+                        text <=> draft;
+                        color: Theme.text-primary;
+                        font-size: 14px;
+                        horizontal-alignment: left;
+                        vertical-alignment: center;
+                        accepted => { send(); }
+                    }
+                }
+
+                animate border-color { duration: 150ms; }
+            }
+
+            Rectangle {
+                width: 80px;
+                height: 44px;
+                border-radius: 8px;
+                background: send-area.has-hover ? Theme.accent-hover : Theme.accent;
+
+                Text {
+                    text: "Send";
+                    color: Theme.bg-primary;
+                    font-size: 14px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                send-area := TouchArea {
+                    clicked => { send(); }
+                }
+
+                animate background { duration: 150ms; }
+            }
+        }
+    }
+}

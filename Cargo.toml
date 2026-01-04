@@ -1,21 +1,19 @@
 [workspace]
 resolver = "2"
 members = [
-  "sthalam/src-tauri",
   "gurkha",
   "kunki",
-  "tauri_handlers",
+  # "tauri_handlers",  # Temporarily disabled - depends on old crates
   "logging_utils",
   "butler",
   "herald",
   "transport",
   "courier",
   "integration_tests",
-  "cel_runtime",
-  "huml_parser",
   "query_bridge",
-  "huml_renderer",
-  "tauri_huml_plugin",
+  # Slint + Lua app architecture
+  "slint_shell",
+  "app_runtime",
 ]
 
 # Speed up dev builds

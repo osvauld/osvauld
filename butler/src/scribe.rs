@@ -11,11 +11,17 @@
 //! - Notify UI subscribers of changes
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+// NOTE: CEL is being replaced by Rune runtime. Filter evaluation is stubbed.
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use tokio::sync::mpsc;
+use tokio::time::{interval, Duration};
 use tracing::{debug, error, info, warn, instrument};
+use serde::{Serialize, Deserialize};
+use loro::event::{Diff, ListDiffItem};
+use loro::{LoroValue, ValueOrContainer};
+use base64::Engine;
 
 use crate::models::{Layer, QuerySpec, QueryResult, QueryDelta};
 use crate::error::{ButlerError, Result};
@@ -94,6 +100,41 @@ pub enum ScribeMessage {
     /// Flush dirty layers to storage
     Flush,
 
+    /// Get LoroList container reference for Lua FFI
+    ///
+    /// **Context**: Lua app wants direct access to a list container
+    /// **We do**: Get layer, extract LoroList handle, return to Lua
+    GetLoroList {
+        layer_name: String,
+        reply: tokio::sync::oneshot::Sender<Result<loro::LoroList>>,
+    },
+
+    /// Get LoroMap container reference for Lua FFI
+    ///
+    /// **Context**: Lua app wants direct access to a map container
+    /// **We do**: Get layer, extract LoroMap handle, return to Lua
+    GetLoroMap {
+        layer_name: String,
+        reply: tokio::sync::oneshot::Sender<Result<loro::LoroMap>>,
+    },
+
+    /// Subscribe to Loro changes for reactive UI updates
+    ///
+    /// **Context**: App runtime wants to receive callbacks when Loro changes (local writes or peer sync)
+    /// **We do**: Register observer on LoroDoc, send events via channel when changes occur
+    SubscribeToLoroChanges {
+        layer_name: String,
+        event_tx: mpsc::Sender<LoroChangeEvent>,
+    },
+
+    /// Notify that Lua modified a layer directly via FFI
+    ///
+    /// **Context**: Lua called push/set/etc on a Loro container (LoroList/LoroMap)
+    /// **We do**: Save layer, notify observers, broadcast to peers
+    LayerModifiedByLua {
+        layer_name: String,
+    },
+
     /// Get current snapshot for a layer (for testing/debugging)
     ///
     /// **Context**: Test wants to verify Scribe state without waiting for persistence
@@ -156,6 +197,61 @@ pub enum ScribeMessage {
         reply: Option<tokio::sync::oneshot::Sender<Result<()>>>,
     },
 
+    // =========================================================================
+    // Typed CRDT Operations (from template actions)
+    // =========================================================================
+
+    /// Push item to a list (append)
+    ///
+    /// **Context**: Template `action: { messages: append({...}) }`
+    /// **We do**: Layer.list_push, broadcast, notify subscribers
+    ListPush {
+        layer_name: String,
+        path: String,
+        item: serde_json::Value,
+    },
+
+    /// Insert item at index in a list
+    ListInsert {
+        layer_name: String,
+        path: String,
+        index: usize,
+        item: serde_json::Value,
+    },
+
+    /// Delete item at index from a list
+    ListDelete {
+        layer_name: String,
+        path: String,
+        index: usize,
+    },
+
+    /// Insert/update key in a map
+    ///
+    /// **Context**: Template `action: { users: set("id", {...}) }`
+    MapInsert {
+        layer_name: String,
+        path: String,
+        key: String,
+        value: serde_json::Value,
+    },
+
+    /// Delete key from a map
+    MapDelete {
+        layer_name: String,
+        path: String,
+        key: String,
+    },
+
+    /// Increment/decrement a counter
+    ///
+    /// **Context**: Template `action: { likes: increment(1) }`
+    CounterInc {
+        layer_name: String,
+        path: String,
+        amount: i64,
+    },
+
     /// Shutdown the actor
     Shutdown,
 }
@@ -177,6 +273,179 @@ pub struct BroadcastPayload {
 #[derive(Debug, Clone)]
 pub enum ScribeEvent {
     LayerUpdated { layer_name: String },
+}
+
+/// Events emitted when Loro CRDT changes (for reactive Lua callbacks)
+///
+/// **Context**: App runtime subscribes to get notified when Loro changes
+/// **Contains**: Layer name, optional delta operations, and full data JSON
+///
+/// **Delta operations**: Incremental changes (Insert/Delete/Retain) for efficient UI updates
+/// **Full data**: Complete layer state (fallback when delta unavailable)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoroChangeEvent {
+    pub layer_name: String,
+
+    /// Delta operations (incremental changes)
+    /// None if layer doesn't support deltas yet
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta: Option<LoroDelta>,
+
+    /// Full data (for fallback/debugging)
+    pub full_data: serde_json::Value,
+}
+
+/// Delta operations for different Loro container types
+///
+/// **Context**: Represents incremental changes to CRDT containers
+/// **Usage**: Lua apps can apply deltas for efficient UI updates (preserve scroll, animations)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum LoroDelta {
+    /// List delta: sequence of Retain/Insert/Delete operations
+    List { ops: Vec<ListOp> },
+
+    /// Map delta: updated keys
+    Map { updated: HashMap<String, Option<serde_json::Value>> },
+
+    /// Text delta (for future rich text support)
+    Text { ops: Vec<TextOp> },
+}
+
+/// List delta operations (applied sequentially)
+///
+/// **Context**: Represents changes to a Loro list container
+/// **Example**: [Retain(3), Insert([msg4]), Delete(1)] means "skip 3 items, insert msg4, delete 1 item"
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op")]
+pub enum ListOp {
+    /// Keep N items unchanged (advance cursor)
+    Retain { count: usize },
+
+    /// Insert values at current position
+    Insert { values: Vec<serde_json::Value> },
+
+    /// Delete N items at current position
+    Delete { count: usize },
+}
+
+/// Text delta operations (for rich text editing)
+///
+/// **Context**: Represents changes to a Loro text container
+/// **Note**: Deferred for now - will implement when we need rich text editing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op")]
+pub enum TextOp {
+    /// Keep N characters unchanged
+    Retain { count: usize },
+
+    /// Insert text at current position
+    Insert { text: String },
+
+    /// Delete N characters at current position
+    Delete { count: usize },
+}
+
+// =============================================================================
+// Delta Conversion Helpers
+// =============================================================================
+
+/// Convert Loro's Diff to our LoroDelta format
+///
+/// **Context**: Loro observer provides Diff on changes, we convert to JSON-serializable format
+/// **Returns**: LoroDelta for List/Map/Text containers, None for unsupported types
+fn convert_loro_diff_to_delta(diff: &Diff) -> Option<LoroDelta> {
+    match diff {
+        Diff::List(items) => {
+            let ops = items.iter().map(|item| {
+                match item {
+                    ListDiffItem::Insert { insert, .. } => {
+                        // Convert ValueOrContainer to JSON values
+                        let values = insert.iter()
+                            .map(|v| value_or_container_to_json(v))
+                            .collect();
+                        ListOp::Insert { values }
+                    }
+                    ListDiffItem::Delete { delete } => {
+                        ListOp::Delete { count: *delete }
+                    }
+                    ListDiffItem::Retain { retain } => {
+                        ListOp::Retain { count: *retain }
+                    }
+                }
+            }).collect();
+
+            Some(LoroDelta::List { ops })
+        }
+
+        Diff::Map(map_delta) => {
+            let updated = map_delta.updated.iter()
+                .map(|(k, v)| {
+                    let value = v.as_ref()
+                        .map(|v| value_or_container_to_json(v));
+                    (k.to_string(), value)
+                })
+                .collect();
+
+            Some(LoroDelta::Map { updated })
+        }
+
+        Diff::Text(_text_delta) => {
+            // TODO: Implement text delta conversion when needed
+            // For now, return None and fall back to full data
+            debug!("Text delta conversion not yet implemented");
+            None
+        }
+
+        _ => {
+            debug!("Unsupported diff type: {:?}", diff);
+            None
+        }
+    }
+}
+
+/// Convert Loro ValueOrContainer to serde_json::Value
+///
+/// **Context**: Loro stores values as LoroValue or nested Containers
+/// **We do**: Extract deep value and convert to JSON
+fn value_or_container_to_json(value: &ValueOrContainer) -> serde_json::Value {
+    // Use ValueOrContainer::get_deep_value() to resolve containers
+    let deep_value = value.get_deep_value();
+    loro_value_to_json(&deep_value)
+}
+
+/// Convert LoroValue to serde_json::Value
+///
+/// **Context**: Loro's native value type → JSON for Lua consumption
+fn loro_value_to_json(value: &LoroValue) -> serde_json::Value {
+    match value {
+        LoroValue::Null => serde_json::Value::Null,
+        LoroValue::Bool(b) => serde_json::Value::Bool(*b),
+        LoroValue::I64(i) => serde_json::json!(*i),
+        LoroValue::Double(f) => serde_json::json!(*f),
+        LoroValue::String(s) => serde_json::Value::String(s.to_string()),
+        LoroValue::List(arr) => {
+            serde_json::Value::Array(
+                arr.iter().map(loro_value_to_json).collect()
+            )
+        }
+        LoroValue::Map(map) => {
+            serde_json::Value::Object(
+                map.iter()
+                    .map(|(k, v)| (k.to_string(), loro_value_to_json(v)))
+                    .collect()
+            )
+        }
+        LoroValue::Binary(bytes) => {
+            // Encode binary as base64 string
+            serde_json::Value::String(base64::engine::general_purpose::STANDARD.encode(&**bytes))
+        }
+        LoroValue::Container(_) => {
+            // Containers are resolved by get_deep_value, shouldn't appear in deltas
+            debug!("Container in delta value (unexpected), converting to null");
+            serde_json::Value::Null
+        }
+    }
 }
 
 /// Events emitted for sync coordination (consumed by Coordinator)
@@ -291,6 +560,9 @@ pub struct ScribeState {
     ui_subscribers: Vec<mpsc::Sender<ScribeEvent>>,
     /// Query subscribers (query_id → QuerySubscriberInfo)
     query_subscribers: HashMap<String, QuerySubscriberInfo>,
+    /// Loro change subscribers (layer_name → Arc of list of event channels)
+    /// Arc is needed to share with Loro observer callbacks
+    loro_observers: HashMap<String, Arc<Mutex<Vec<mpsc::Sender<LoroChangeEvent>>>>>,
     /// Layers with unsaved changes
     dirty_layers: HashSet<String>,
     /// Injected save function
@@ -307,6 +579,9 @@ pub struct ScribeState {
     list_authorized_users: Option<ListAuthorizedUsersFn>,
     /// Callback to load a user's permit for this page (node mode - permit-based sync auth)
     load_user_permit: Option<LoadUserPermitFn>,
+    /// Loro subscriptions (layer_name → Subscription)
+    /// Must keep these alive or subscriptions are cancelled
+    loro_subscriptions: HashMap<String, loro::Subscription>,
 }
 
 /// Arguments for spawning Scribe
@@ -357,7 +632,7 @@ impl Actor for Scribe {
 
     async fn pre_start(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> std::result::Result<Self::State, ActorProcessingErr> {
         let role_info = args.sync_config.as_ref()
@@ -365,12 +640,24 @@ impl Actor for Scribe {
             .unwrap_or_else(|| "no sync config".to_string());
         info!(page_id = %args.page_id, %role_info, "Scribe started");
 
+        // Spawn periodic flush timer - saves dirty layers every 10 seconds
+        // This prevents blocking the actor on every single operation
+        let myself_clone = myself.clone();
+        tokio::spawn(async move {
+            let mut flush_interval = interval(Duration::from_secs(10));
+            loop {
+                flush_interval.tick().await;
+                let _ = myself_clone.cast(ScribeMessage::Flush);
+            }
+        });
+
         Ok(ScribeState {
             page_id: args.page_id,
             layers: args.layers,
             subscribers: HashMap::new(),
             ui_subscribers: Vec::new(),
             query_subscribers: HashMap::new(),
+            loro_observers: HashMap::new(),
             dirty_layers: HashSet::new(),
             save_layer: args.save_layer,
             load_peer_vector: args.load_peer_vector,
@@ -379,6 +666,7 @@ impl Actor for Scribe {
             sync_event_tx: args.sync_event_tx,
             list_authorized_users: args.list_authorized_users,
             load_user_permit: args.load_user_permit,
+            loro_subscriptions: HashMap::new(),
         })
     }
 
@@ -430,6 +718,28 @@ impl Actor for Scribe {
                 self.handle_flush(state).await;
             }
 
+            ScribeMessage::GetLoroList { layer_name, reply } => {
+                let result = state.layers.get(&layer_name)
+                    .ok_or_else(|| ButlerError::LayerNotFound(layer_name.clone()))
+                    .map(|layer| layer.loro().get_list(layer_name.clone()));
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::GetLoroMap { layer_name, reply } => {
+                let result = state.layers.get(&layer_name)
+                    .ok_or_else(|| ButlerError::LayerNotFound(layer_name.clone()))
+                    .map(|layer| layer.loro().get_map(layer_name.clone()));
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::SubscribeToLoroChanges { layer_name, event_tx } => {
+                self.handle_subscribe_loro_changes(state, layer_name, event_tx).await;
+            }
+
+            ScribeMessage::LayerModifiedByLua { layer_name } => {
+                self.handle_layer_modified_by_lua(state, layer_name).await;
+            }
+
             ScribeMessage::GetSnapshot { layer_name, reply } => {
                 let result = state.layers.get(&layer_name)
                     .map(|layer| layer.export_snapshot());
@@ -465,6 +775,43 @@ impl Actor for Scribe {
                 let result = self.handle_update_from_json(state, &layer_name, &path, value).await;
                 if let Some(tx) = reply {
                     let _ = tx.send(result);
+                }
+            }
+
+            // Typed CRDT operations
+            ScribeMessage::ListPush { layer_name, path, item } => {
+                if let Err(e) = self.handle_list_push(state, &layer_name, &path, item).await {
+                    warn!(error = %e, "ListPush failed");
+                }
+            }
+
+            ScribeMessage::ListInsert { layer_name, path, index, item } => {
+                if let Err(e) = self.handle_list_insert(state, &layer_name, &path, index, item).await {
+                    warn!(error = %e, "ListInsert failed");
+                }
+            }
+
+            ScribeMessage::ListDelete { layer_name, path, index } => {
+                if let Err(e) = self.handle_list_delete(state, &layer_name, &path, index).await {
+                    warn!(error = %e, "ListDelete failed");
+                }
+            }
+
+            ScribeMessage::MapInsert { layer_name, path, key, value } => {
+                if let Err(e) = self.handle_map_insert(state, &layer_name, &path, &key, value).await {
+                    warn!(error = %e, "MapInsert failed");
+                }
+            }
+
+            ScribeMessage::MapDelete { layer_name, path, key } => {
+                if let Err(e) = self.handle_map_delete(state, &layer_name, &path, &key).await {
+                    warn!(error = %e, "MapDelete failed");
+                }
+            }
+
+            ScribeMessage::CounterInc { layer_name, path, amount } => {
+                if let Err(e) = self.handle_counter_inc(state, &layer_name, &path, amount).await {
+                    warn!(error = %e, "CounterInc failed");
                 }
             }
 
@@ -698,8 +1045,12 @@ impl Scribe {
         // Notify query subscribers
         self.notify_query_subscribers(state, layer_name).await;
 
-        // Flush to storage immediately
-        self.handle_flush(state).await;
+        // NOTE: We don't manually call notify_loro_observers here!
+        // The Loro native observer (setup in handle_subscribe_loro_changes) will
+        // automatically fire when layer.apply() modifies the CRDT, sending delta information.
+        // This prevents duplicate events and ensures deltas are always included.
+
+        // Dirty layer will be flushed by periodic timer (every 10s)
     }
 
     /// Broadcast layer update to all eligible subscribers
@@ -942,11 +1293,9 @@ impl Scribe {
             None => Vec::new(),
         };
 
-        // Apply filter, sort, and pagination
-        // NOTE: For MVP, we don't have CEL runtime in Scribe yet
-        // Full CEL filtering will be implemented in QueryBridge (Phase 3)
-        let total_count = items.len();
-        let filtered_items = items; // TODO: Apply CEL filter
+        // Apply CEL filter if specified
+        let filtered_items = self.apply_filter(items, spec.filter.as_deref());
+        let total_count = filtered_items.len();
 
         // Apply sort
         let sorted_items = self.apply_sort(&filtered_items, spec);
@@ -1074,6 +1423,165 @@ impl Scribe {
         });
     }
 
+    /// Handle subscription to Loro changes for reactive UI updates
+    ///
+    /// **Context**: App runtime wants reactive callbacks when Loro changes
+    /// **We do**: Add channel to observers list for this layer
+    async fn handle_subscribe_loro_changes(
+        &self,
+        state: &mut ScribeState,
+        layer_name: String,
+        event_tx: mpsc::Sender<LoroChangeEvent>,
+    ) {
+        debug!(layer_name = %layer_name, "Subscribing to Loro changes");
+
+        use std::sync::{Arc, Mutex};
+
+        // Get or create Arc<Mutex<Vec>> for this layer's observers
+        let observers_arc = state.loro_observers
+            .entry(layer_name.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(Vec::new())))
+            .clone();
+
+        // Add new observer to the Arc'd list
+        if let Ok(mut observers) = observers_arc.lock() {
+            observers.push(event_tx);
+        }
+
+        // Setup Loro native observer (if not already setup for this layer)
+        if !state.loro_subscriptions.contains_key(&layer_name) {
+            let layer = match state.layers.get(&layer_name) {
+                Some(l) => l,
+                None => {
+                    warn!(layer_name = %layer_name, "Layer not found for subscription");
+                    return;
+                }
+            };
+
+            // Clone layer for callback
+            let layer_clone = layer.clone();
+            let layer_name_clone = layer_name.clone();
+
+            // Clone Arc for callback - now all future subscribers will be included!
+            let observers_for_callback = observers_arc.clone();
+
+            // Subscribe to Loro changes
+            let subscription = layer.subscribe_root(move |diff_event: loro::event::DiffEvent| {
+                // Extract delta from first container diff
+                let delta = diff_event.events.first()
+                    .and_then(|container_diff| convert_loro_diff_to_delta(&container_diff.diff));
+
+                // Get full data from layer
+                let full_data = layer_clone.to_json_value();
+
+                // Create event
+                let event = LoroChangeEvent {
+                    layer_name: layer_name_clone.clone(),
+                    delta,
+                    full_data,
+                };
+
+                // Send to all observers (best effort)
+                if let Ok(observers) = observers_for_callback.lock() {
+                    for observer_tx in observers.iter() {
+                        // Try send (non-blocking)
+                        match observer_tx.try_send(event.clone()) {
+                            Ok(()) => {
+                                debug!(layer_name = %layer_name_clone, "Sent Loro change event from observer");
+                            }
+                            Err(mpsc::error::TrySendError::Closed(_)) => {
+                                debug!(layer_name = %layer_name_clone, "Observer disconnected");
+                            }
+                            Err(mpsc::error::TrySendError::Full(_)) => {
+                                warn!(layer_name = %layer_name_clone, "Observer channel full");
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Store subscription so it doesn't get dropped
+            state.loro_subscriptions.insert(layer_name.clone(), subscription);
+            info!(layer_name = %layer_name, "Setup Loro native observer");
+        }
+    }
+
+    /// Notify Loro change observers when layer is updated
+    ///
+    /// **Context**: Layer has been updated, notify reactive observers
+    /// **We do**: Send LoroChangeEvent with updated JSON data to all observers
+    async fn notify_loro_observers(&self, state: &mut ScribeState, layer_name: &str) {
+        let Some(layer) = state.layers.get(layer_name) else {
+            return;
+        };
+
+        // Get updated data as JSON
+        let full_data = layer.to_json_value();
+
+        // TODO: Capture delta from Loro observer (Step 2/3)
+        // For now, set delta to None - will add in next step
+        let delta = None;
+
+        // Create event
+        let event = LoroChangeEvent {
+            layer_name: layer_name.to_string(),
+            delta,
+            full_data,
+        };
+
+        // Notify all observers for this layer
+        if let Some(observers_arc) = state.loro_observers.get(layer_name) {
+            if let Ok(observers) = observers_arc.lock() {
+                for observer_tx in observers.iter() {
+                    match observer_tx.try_send(event.clone()) {
+                        Ok(()) => {
+                            debug!(layer_name = %layer_name, "Sent Loro change event");
+                        }
+                        Err(mpsc::error::TrySendError::Closed(_)) => {
+                            debug!(layer_name = %layer_name, "Observer disconnected");
+                        }
+                        Err(mpsc::error::TrySendError::Full(_)) => {
+                            warn!(layer_name = %layer_name, "Observer channel full");
+                        }
+                    }
+                }
+            }
+        }
+
+        // Clean up disconnected observers
+        if let Some(observers_arc) = state.loro_observers.get(layer_name) {
+            if let Ok(mut observers) = observers_arc.lock() {
+                observers.retain(|tx| !tx.is_closed());
+            }
+        }
+    }
+
+    /// Handle layer modified by Lua via direct FFI access
+    ///
+    /// **Context**: Lua called push/set/etc on a LoroList/LoroMap
+    /// **We do**: Commit transaction, let Loro observer handle notifications
+    async fn handle_layer_modified_by_lua(&self, state: &mut ScribeState, layer_name: String) {
+        debug!(layer_name = %layer_name, "Layer modified by Lua, committing transaction");
+
+        // Commit the Loro transaction to trigger native observer
+        // This makes the observer fire immediately with delta information
+        if let Some(layer) = state.layers.get(&layer_name) {
+            layer.commit();
+        }
+
+        // Mark layer as dirty for periodic flush (every 10s)
+        state.dirty_layers.insert(layer_name.clone());
+
+        // NOTE: We don't manually notify observers here!
+        // The commit() above triggers Loro's native observer (setup in handle_subscribe_loro_changes)
+        // which will automatically:
+        // - Send LoroChangeEvent with delta to UI
+        // - Notify query subscribers
+        // - Broadcast to peers
+        //
+        // Dirty layer will be flushed to storage by periodic timer (every 10s)
+    }
+
     /// Get value at a JSON path (simple dot notation)
     ///
     /// **Example**: "messages" → data["root"]["messages"] (Loro stores under "root" container)
@@ -1106,6 +1614,26 @@ impl Scribe {
         }
 
         Some(current.clone())
+    }
+
+    /// Apply filter to items
+    ///
+    /// **Context**: Filter expression is evaluated against each item
+    /// **Note**: CEL is being replaced by Rune runtime. Currently stubbed to return all items.
+    fn apply_filter(&self, items: Vec<serde_json::Value>, filter: Option<&str>) -> Vec<serde_json::Value> {
+        let Some(filter_expr) = filter else {
+            return items;
+        };
+
+        // Skip empty filter expressions
+        if filter_expr.trim().is_empty() {
+            return items;
+        }
+
+        // TODO: Replace with Rune-based filter evaluation
+        // For now, return all items (filter is a no-op)
+        debug!(filter = %filter_expr, "Filter stubbed - returning all items");
+        items
     }
 
     /// Apply sorting to items
@@ -1183,10 +1711,171 @@ impl Scribe {
         // Notify query subscribers (for reactive updates)
         self.notify_query_subscribers(state, layer_name).await;
 
-        // Flush to storage immediately
-        self.handle_flush(state).await;
+        // Dirty layer will be flushed by periodic timer (every 10s)
 
         info!("Layer update from JSON complete");
+        Ok(())
+    }
+
+    // =========================================================================
+    // Typed CRDT Operation Handlers
+    // =========================================================================
+
+    /// Handle list push operation (append)
+    #[instrument(skip(self, state, item), fields(page_id = %state.page_id, layer = %layer_name, path = %path))]
+    async fn handle_list_push(
+        &self,
+        state: &mut ScribeState,
+        layer_name: &str,
+        path: &str,
+        item: serde_json::Value,
+    ) -> Result<()> {
+        info!("ListPush operation");
+
+        let layer = state.layers.entry(layer_name.to_string())
+            .or_insert_with(Layer::new);
+
+        layer.list_push(path, &item)
+            .map_err(|e| ButlerError::Layer(e.to_string()))?;
+
+        state.dirty_layers.insert(layer_name.to_string());
+        self.broadcast_update(state, layer_name, None).await;
+        self.notify_ui(state, layer_name);
+        self.notify_query_subscribers(state, layer_name).await;
+        // Dirty layer will be flushed by periodic timer (every 10s)
+
+        Ok(())
+    }
+
+    /// Handle list insert operation
+    #[instrument(skip(self, state, item), fields(page_id = %state.page_id, layer = %layer_name, path = %path))]
+    async fn handle_list_insert(
+        &self,
+        state: &mut ScribeState,
+        layer_name: &str,
+        path: &str,
+        index: usize,
+        item: serde_json::Value,
+    ) -> Result<()> {
+        info!("ListInsert operation");
+
+        let layer = state.layers.entry(layer_name.to_string())
+            .or_insert_with(Layer::new);
+
+        layer.list_insert(path, index, &item)
+            .map_err(|e| ButlerError::Layer(e.to_string()))?;
+
+        state.dirty_layers.insert(layer_name.to_string());
+        self.broadcast_update(state, layer_name, None).await;
+        self.notify_ui(state, layer_name);
+        self.notify_query_subscribers(state, layer_name).await;
+        // Dirty layer will be flushed by periodic timer (every 10s)
+
+        Ok(())
+    }
+
+    /// Handle list delete operation
+    #[instrument(skip(self, state), fields(page_id = %state.page_id, layer = %layer_name, path = %path))]
+    async fn handle_list_delete(
+        &self,
+        state: &mut ScribeState,
+        layer_name: &str,
+        path: &str,
+        index: usize,
+    ) -> Result<()> {
+        info!("ListDelete operation");
+
+        let layer = state.layers.entry(layer_name.to_string())
+            .or_insert_with(Layer::new);
+
+        layer.list_delete(path, index)
+            .map_err(|e| ButlerError::Layer(e.to_string()))?;
+
+        state.dirty_layers.insert(layer_name.to_string());
+        self.broadcast_update(state, layer_name, None).await;
+        self.notify_ui(state, layer_name);
+        self.notify_query_subscribers(state, layer_name).await;
+        // Dirty layer will be flushed by periodic timer (every 10s)
+
+        Ok(())
+    }
+
+    /// Handle map insert operation
+    #[instrument(skip(self, state, value), fields(page_id = %state.page_id, layer = %layer_name, path = %path))]
+    async fn handle_map_insert(
+        &self,
+        state: &mut ScribeState,
+        layer_name: &str,
+        path: &str,
+        key: &str,
+        value: serde_json::Value,
+    ) -> Result<()> {
+        info!("MapInsert operation");
+
+        let layer = state.layers.entry(layer_name.to_string())
+            .or_insert_with(Layer::new);
+
+        layer.map_insert(path, key, &value)
+            .map_err(|e| ButlerError::Layer(e.to_string()))?;
+
+        state.dirty_layers.insert(layer_name.to_string());
+        self.broadcast_update(state, layer_name, None).await;
+        self.notify_ui(state, layer_name);
+        self.notify_query_subscribers(state, layer_name).await;
+        // Dirty layer will be flushed by periodic timer (every 10s)
+
+        Ok(())
+    }
+
+    /// Handle map delete operation
+    #[instrument(skip(self, state), fields(page_id = %state.page_id, layer = %layer_name, path = %path))]
+    async fn handle_map_delete(
+        &self,
+        state: &mut ScribeState,
+        layer_name: &str,
+        path: &str,
+        key: &str,
+    ) -> Result<()> {
+        info!("MapDelete operation");
+
+        let layer = state.layers.entry(layer_name.to_string())
+            .or_insert_with(Layer::new);
+
+        layer.map_delete(path, key)
+            .map_err(|e| ButlerError::Layer(e.to_string()))?;
+
+        state.dirty_layers.insert(layer_name.to_string());
+        self.broadcast_update(state, layer_name, None).await;
+        self.notify_ui(state, layer_name);
+        self.notify_query_subscribers(state, layer_name).await;
+        // Dirty layer will be flushed by periodic timer (every 10s)
+
+        Ok(())
+    }
+
+    /// Handle counter increment operation
+    #[instrument(skip(self, state), fields(page_id = %state.page_id, layer = %layer_name, path = %path))]
+    async fn handle_counter_inc(
+        &self,
+        state: &mut ScribeState,
+        layer_name: &str,
+        path: &str,
+        amount: i64,
+    ) -> Result<()> {
+        info!("CounterInc operation");
+
+        let layer = state.layers.entry(layer_name.to_string())
+            .or_insert_with(Layer::new);
+
+        layer.counter_inc(path, amount)
+            .map_err(|e| ButlerError::Layer(e.to_string()))?;
+
+        state.dirty_layers.insert(layer_name.to_string());
+        self.broadcast_update(state, layer_name, None).await;
+        self.notify_ui(state, layer_name);
+        self.notify_query_subscribers(state, layer_name).await;
+        // Dirty layer will be flushed by periodic timer (every 10s)
+
         Ok(())
     }
 }

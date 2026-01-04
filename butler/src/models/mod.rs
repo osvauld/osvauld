@@ -16,6 +16,6 @@ pub use node::*;
 pub use contact::{ContactData, ContactType, DeviceInfo, ConnectionDeviceInfo};
 pub use device::*;
 pub use space::*;
-pub use page::{PageType, PageMeta, PageData, Page, PreparedPage, DecryptedPage};
+pub use page::{PageMeta, PageData, Page, PreparedPage, DecryptedPage};
 pub use layer::*;
 pub use query::*;

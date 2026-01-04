@@ -8,8 +8,7 @@ description = "Query-based data access bridge between HUML renderer and Scribe"
 # Data types from butler
 butler = { path = "../butler" }
 
-# CEL evaluation
-cel_runtime = { path = "../cel_runtime" }
+# CEL is being replaced by Rune runtime (stub in lib.rs)
 
 # Async runtime
 tokio = { version = "1", features = ["sync", "rt"] }

@@ -163,15 +163,11 @@ pub struct DelegationTemplate {
     pub sync: Option<SyncFacts>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc_types: Option<HashMap<String, String>>,  // doc_name -> doc_type (crdt/asset)
-    // CEL-based authorization fields (v3)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub auth_capabilities: Option<HashMap<String, serde_json::Value>>,  // CEL capabilities (can_connect, persist_share, etc.)
+    // Simple authorization fields
     #[serde(skip_serializing_if = "Option::is_none")]
     pub operations: Option<HashMap<String, serde_json::Value>>,          // Operations (own, read, write)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relationship: Option<String>,                                     // Relationship label (owner, node, viewer)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cel_rules: Option<HashMap<String, String>>,                      // CEL expression rules
 }
 
 impl DelegationTemplate {
@@ -257,16 +253,6 @@ impl DelegationTemplate {
             facts.insert("layers".to_string(), serde_json::Value::Object(layers_json));
         }
 
-        // Add CEL-based authorization capabilities (v3)
-        // Fixed: Use "auth_capabilities" instead of "capabilities" to match CEL rules
-        if let Some(auth_caps) = &self.auth_capabilities {
-            let auth_caps_json: serde_json::Map<String, serde_json::Value> = auth_caps
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            facts.insert("auth_capabilities".to_string(), serde_json::Value::Object(auth_caps_json));
-        }
-
         // Add operations
         if let Some(ops) = &self.operations {
             let ops_json: serde_json::Map<String, serde_json::Value> = ops
@@ -279,15 +265,6 @@ impl DelegationTemplate {
         // Add relationship
         if let Some(rel) = &self.relationship {
             facts.insert("relationship".to_string(), serde_json::Value::String(rel.clone()));
-        }
-
-        // Add CEL rules
-        if let Some(cel) = &self.cel_rules {
-            let cel_json: serde_json::Map<String, serde_json::Value> = cel
-                .iter()
-                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-                .collect();
-            facts.insert("cel_rules".to_string(), serde_json::Value::Object(cel_json));
         }
 
         facts
@@ -518,16 +495,6 @@ impl Permit {
                         None
                     };
 
-                    // Extract CEL authorization capabilities (v3)
-                    let auth_capabilities = template_obj
-                        .get("auth_capabilities")
-                        .and_then(|v| v.as_object())
-                        .map(|obj| {
-                            obj.iter()
-                                .map(|(k, v)| (k.clone(), v.clone()))
-                                .collect()
-                        });
-
                     // Extract operations
                     let operations = template_obj
                         .get("operations")
@@ -544,16 +511,6 @@ impl Permit {
                         .and_then(|v| v.as_str())
                         .map(String::from);
 
-                    // Extract CEL rules
-                    let cel_rules = template_obj
-                        .get("cel_rules")
-                        .and_then(|v| v.as_object())
-                        .map(|obj| {
-                            obj.iter()
-                                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                                .collect()
-                        });
-
                     delegation_templates.insert(
                         role_key.clone(),
                         DelegationTemplate {
@@ -561,10 +518,8 @@ impl Permit {
                             capabilities: capabilities_map,
                             sync,
                             doc_types,
-                            auth_capabilities,
                             operations,
                             relationship,
-                            cel_rules,
                         },
                     );
                 }
@@ -754,118 +709,4 @@ impl Permit {
     }
 
 
-    // ==================== CEL-Based Authorization Helpers (V3) ====================
-    // These methods evaluate CEL rules from token facts to determine capabilities
-
-    /// Check if share_record should be persisted to database
-    ///
-    /// Evaluates the `persist_share` CEL rule from token facts.
-    /// Falls back to checking the boolean capability directly if no CEL rule exists.
-    ///
-    /// # Example
-    /// ```rust,ignore
-    /// if permit.should_persist_share() {
-    ///     db.save_share_record(share_record).await?;
-    /// }
-    /// ```
-    pub fn should_persist_share(&self) -> bool {
-        self.evaluate_cel_rule("persist_share")
-            .or_else(|| {
-                // Fallback: check boolean capability directly
-                self.get_fact("capabilities")
-                    .and_then(|caps| caps.as_object())
-                    .and_then(|obj| obj.get("persist_share"))
-                    .and_then(|v| v.as_bool())
-            })
-            .unwrap_or(false)
-    }
-
-    /// Check if token can establish P2P connections
-    ///
-    /// Evaluates the `can_connect` CEL rule from token facts.
-    /// Falls back to checking the boolean capability directly if no CEL rule exists.
-    ///
-    /// # Example
-    /// ```rust,ignore
-    /// if permit.can_connect() {
-    ///     establish_connection(peer_id).await?;
-    /// }
-    /// ```
-    pub fn can_connect(&self) -> bool {
-        self.evaluate_cel_rule("can_connect")
-            .or_else(|| {
-                // Fallback: check boolean capability directly
-                self.get_fact("capabilities")
-                    .and_then(|caps| caps.as_object())
-                    .and_then(|obj| obj.get("can_connect"))
-                    .and_then(|v| v.as_bool())
-            })
-            .unwrap_or(false)
-    }
-
-    /// Check if token can issue new delegated tokens
-    ///
-    /// Evaluates the `can_delegate` CEL rule from token facts.
-    /// Falls back to checking the boolean capability directly if no CEL rule exists.
-    ///
-    /// # Example
-    /// ```rust,ignore
-    /// if permit.can_delegate() {
-    ///     let delegated_token = issue_delegated_token(permit).await?;
-    /// }
-    /// ```
-    pub fn can_delegate(&self) -> bool {
-        self.evaluate_cel_rule("can_delegate")
-            .or_else(|| {
-                // Fallback: check boolean capability directly
-                self.get_fact("capabilities")
-                    .and_then(|caps| caps.as_object())
-                    .and_then(|obj| obj.get("can_delegate"))
-                    .and_then(|v| v.as_bool())
-            })
-            .unwrap_or(false)
-    }
-
-    /// Check if token can sync updates with peers
-    ///
-    /// Evaluates the `sync_enabled` CEL rule from token facts.
-    /// Falls back to checking the boolean capability directly if no CEL rule exists.
-    ///
-    /// # Example
-    /// ```rust,ignore
-    /// if permit.sync_enabled() {
-    ///     sync_updates_with_peer(updates).await?;
-    /// }
-    /// ```
-    pub fn sync_enabled(&self) -> bool {
-        self.evaluate_cel_rule("sync_enabled")
-            .or_else(|| {
-                // Fallback: check boolean capability directly
-                self.get_fact("capabilities")
-                    .and_then(|caps| caps.as_object())
-                    .and_then(|obj| obj.get("sync_enabled"))
-                    .and_then(|v| v.as_bool())
-            })
-            .unwrap_or(false)
-    }
-
-    /// Helper method to evaluate a CEL rule from token facts
-    ///
-    /// # Arguments
-    /// * `rule_name` - Name of the rule to evaluate (e.g., "persist_share", "can_connect")
-    ///
-    /// # Returns
-    /// * `Some(true/false)` if CEL rule exists and evaluates successfully
-    /// * `None` if no CEL rule exists or evaluation fails
-    fn evaluate_cel_rule(&self, rule_name: &str) -> Option<bool> {
-        // Get cel_rules object from facts
-        let cel_rules = self.get_fact("cel_rules")?.as_object()?;
-
-        // Get the specific rule expression
-        let expression = cel_rules.get(rule_name)?.as_str()?;
-
-        // Create validator and evaluate
-        let mut validator = crate::cel::OperationValidator::new();
-        validator.validate(expression, self.facts()).ok()
-    }
 }

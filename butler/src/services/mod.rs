@@ -1,5 +1,6 @@
 // Internal service modules - Butler calls these directly
-pub(crate) mod space_service;
+pub mod space_service;
+pub mod app_service;
 pub(crate) mod node_service;
 pub(crate) mod contact_service;
 pub mod auth_service;

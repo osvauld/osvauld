@@ -28,7 +28,7 @@ pub use storage::{RedbStore, LayerCache, CachedLayer, LayerCacheStats, AssetStor
 pub use services::{signup, login, is_signed_up, recover, change_passphrase, SignupResult, get_identity_data};
 // Scribe actor exports
 pub use scribe::{
-    Scribe, ScribeMessage, ScribeArgs, ScribeState, ScribeEvent, SyncEvent,
+    Scribe, ScribeMessage, ScribeArgs, ScribeState, ScribeEvent, SyncEvent, LoroChangeEvent,
     BroadcastPayload, LayerCapability, SyncPolicy, SyncConfig,
     SaveLayerFn, LoadPeerVectorFn, SavePeerVectorFn, ListAuthorizedUsersFn, LoadUserPermitFn,
 };
@@ -39,6 +39,7 @@ use services::{space_service, node_service, contact_service};
 use herald::Identity;
 use ractor::ActorRef;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
@@ -130,6 +131,28 @@ impl Butler {
     /// Check if logged in
     pub async fn is_logged_in(&self) -> bool {
         self.identity.read().await.is_some()
+    }
+
+    // ==================== Auth Operations (Sync) ====================
+
+    /// Check if user has signed up
+    pub fn is_signed_up(&self) -> Result<bool> {
+        is_signed_up(&self.store)
+    }
+
+    /// Sign up a new user (blocking)
+    pub fn signup_sync(&self, username: &str, passphrase: &str) -> Result<SignupResult> {
+        signup(&self.store, username, passphrase)
+    }
+
+    /// Login and return identity (blocking)
+    pub fn login_sync(&self, passphrase: &str) -> Result<Identity> {
+        login(&self.store, passphrase)
+    }
+
+    /// Get stored identity data
+    pub fn identity_data(&self) -> Result<Option<IdentityData>> {
+        get_identity_data(&self.store)
     }
 
     // ==================== Key Accessors ====================
@@ -338,7 +361,6 @@ impl Butler {
         &self,
         space_id: &str,
         name: &str,
-        page_type: PageType,
         layer_names: Vec<String>,
         permit_template_json: &str,
     ) -> Result<Page> {
@@ -353,7 +375,6 @@ impl Butler {
             owner_did,
             &owner_public_key,
             &signing_key,
-            page_type,
             layer_names,
             permit_template_json,
         ).await
@@ -402,6 +423,86 @@ impl Butler {
         let identity = self.get_identity().await?;
         let secret_key = identity.secret_encryption_key();
         space_service::update_page_layers(&self.store, page_id, &secret_key, layer_updates)
+    }
+
+    // ==================== App File Storage ====================
+
+    /// Save an app file to page storage
+    ///
+    /// **Context**: User uploads a multi-file app (e.g., .slint, .lua files)
+    /// **We do**: Encrypt with page AES key, store with "file:{path}" layer name
+    pub async fn save_page_file(&self, page_id: &str, file_path: &str, content: &str) -> Result<()> {
+        // Get page's AES key
+        let (_decrypted, aes_key) = self.get_decrypted_page(page_id).await?;
+
+        // Encrypt content with page's AES key
+        let encrypted = herald::encrypt_symmetric(&aes_key, content.as_bytes())
+            .map_err(|e| ButlerError::Encryption(e.to_string()))?;
+
+        // Store with prefixed layer name to avoid collisions
+        let layer_name = format!("file:{}", file_path);
+        self.store.put_layer(page_id, &layer_name, &encrypted)?;
+
+        tracing::info!(page_id = %page_id, file_path = %file_path, size = content.len(), "Saved app file to page");
+        Ok(())
+    }
+
+    /// Get an app file from page storage
+    ///
+    /// **Context**: Loading a multi-file app
+    /// **We return**: Decrypted file content or None if file doesn't exist
+    pub async fn get_page_file(&self, page_id: &str, file_path: &str) -> Result<Option<String>> {
+        let layer_name = format!("file:{}", file_path);
+
+        // Check if layer exists
+        let encrypted = match self.store.get_layer(page_id, &layer_name)? {
+            Some(bytes) => bytes,
+            None => return Ok(None),
+        };
+
+        // Get page's AES key to decrypt
+        let (_decrypted, aes_key) = self.get_decrypted_page(page_id).await?;
+
+        // Decrypt file
+        let file_bytes = herald::decrypt_symmetric(&aes_key, &encrypted)
+            .map_err(|e| ButlerError::Encryption(format!("Decryption failed: {}", e)))?;
+
+        let content = String::from_utf8(file_bytes)
+            .map_err(|e| ButlerError::Encryption(format!("Invalid UTF-8 in file: {}", e)))?;
+
+        tracing::info!(page_id = %page_id, file_path = %file_path, size = content.len(), "Loaded app file from page");
+        Ok(Some(content))
+    }
+
+    /// List all app files in a page
+    ///
+    /// **Context**: Need to enumerate files in a multi-file app
+    /// **We return**: List of file paths (without "file:" prefix)
+    pub fn list_page_files(&self, page_id: &str) -> Result<Vec<String>> {
+        let layers = self.store.list_layer_names(page_id)?;
+        let files: Vec<String> = layers
+            .into_iter()
+            .filter_map(|name| name.strip_prefix("file:").map(|s| s.to_string()))
+            .collect();
+        Ok(files)
+    }
+
+    // ==================== App Import Operations ====================
+
+    /// Import an app from a directory
+    ///
+    /// **Context**: Development workflow - import sample app to Butler
+    /// **We do**: Delegate to app_service::import_app_from_directory
+    pub async fn import_app(&self, space_id: &str, app_dir: &Path) -> Result<Page> {
+        services::app_service::import_app_from_directory(self, space_id, app_dir).await
+    }
+
+    /// Update an existing app from a directory
+    ///
+    /// **Context**: Development workflow - update app with new version
+    /// **We do**: Delegate to app_service::update_app_from_directory
+    pub async fn update_app(&self, page_id: &str, app_dir: &Path) -> Result<()> {
+        services::app_service::update_app_from_directory(self, page_id, app_dir).await
     }
 
     pub async fn prepare_space_for_publish(

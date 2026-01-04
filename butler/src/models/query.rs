@@ -8,9 +8,9 @@
 //! - Incremental updates (QueryDelta)
 //!
 //! **Architecture**:
-//! ```
-//! HUML Renderer → QueryBridge → Scribe
-//!                      ↑
+//! ```text
+//! HUML Renderer -> QueryBridge -> Scribe
+//!                      ^
 //!                 QueryDelta (subscribed updates)
 //! ```
 

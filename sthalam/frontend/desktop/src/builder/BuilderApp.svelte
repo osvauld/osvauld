@@ -6,7 +6,7 @@
   import NavigationToggle from '../components/NavigationToggle.svelte';
   import ModeSwitcher from '../components/ModeSwitcher.svelte';
   import { open } from '@tauri-apps/plugin-dialog';
-  import { readTextFile } from '@tauri-apps/plugin-fs';
+  import { readFile, readTextFile } from '@tauri-apps/plugin-fs';
   import { invoke } from '@tauri-apps/api/core';
 
   let humlContent = $state<string>('');
@@ -16,6 +16,26 @@
   let autoSaveInterval: number | null = null;
   let isImporting = $state<boolean>(false);
   let isOpeningPreview = $state<boolean>(false);
+  let isRunningTests = $state<boolean>(false);
+  let testReport = $state<TestReport | null>(null);
+  let showTestResults = $state<boolean>(false);
+  let hasWasmApp = $state<boolean>(false);
+
+  // Test report types matching Rust TestReport
+  interface TestResult {
+    name: string;
+    passed: boolean;
+    error: string | null;
+    duration_ms: number;
+  }
+
+  interface TestReport {
+    total: number;
+    passed: number;
+    failed: number;
+    results: TestResult[];
+    duration_ms: number;
+  }
 
   // Track if content has unsaved changes
   const isDirty = $derived(humlContent !== originalContent);
@@ -48,7 +68,7 @@
 
     const content = typeof humlSource === 'string' ? humlSource : '';
 
-    console.log('📂 [BuilderApp] Loading HUML content:', {
+    console.log('📂 [BuilderApp] Loading content:', {
       resourceId,
       contentLength: content.length,
       currentContentLength: humlContent.length,
@@ -57,6 +77,9 @@
 
     humlContent = content;
     originalContent = content;
+    // Reset hasWasmApp - will be set when import succeeds
+    // TODO: Check page's has_wasm from handle_open_page response
+    hasWasmApp = false;
 
     // Start autosave timer (60 second interval)
     autoSaveInterval = window.setInterval(async () => {
@@ -132,21 +155,21 @@
   }
 
   /**
-   * Import HUML file
-   * Just loads the file content - HUML parsing happens in Rust
+   * Import WASM app to page
+   * Saves to page's wasm_module layer in redb (encrypted)
    */
-  async function importHUML() {
-    if (!dataState.currentResourceId) {
-      alert('Please select a resource first');
+  async function importWasmApp() {
+    const pageId = dataState.currentPageId;
+    if (!pageId) {
+      alert('Please select a page first');
       return;
     }
 
     try {
-      // Pick file
       const selected = await open({
         filters: [{
-          name: 'HUML Template',
-          extensions: ['huml']
+          name: 'WASM App',
+          extensions: ['wasm']
         }],
         multiple: false
       });
@@ -157,23 +180,32 @@
 
       isImporting = true;
 
-      // Read file content
-      const fileContent = await readTextFile(selected);
-      console.log('📥 [BuilderApp] Loaded HUML file, length:', fileContent.length);
+      console.log('📥 [BuilderApp] Selected WASM app:', selected);
 
-      // Store raw HUML in templateDoc
-      const templateMap = loroCoordinator.getTemplateMap();
-      templateMap.set('huml_source', fileContent);
+      // Read the WASM file bytes
+      const wasmBytes = await readFile(selected);
 
-      // Commit document changes - SyncManager will auto-sync to backend
-      loroCoordinator.getDocuments().templateDoc.commit();
+      // Convert to base64
+      const base64 = btoa(
+        Array.from(wasmBytes)
+          .map(b => String.fromCharCode(b))
+          .join('')
+      );
 
-      // Update editor
-      humlContent = fileContent;
-      originalContent = fileContent;
+      console.log('📦 [BuilderApp] WASM bytes:', wasmBytes.length, 'base64 length:', base64.length);
+
+      // Save WASM to page
+      await invoke('handle_save_page_wasm', {
+        input: {
+          pageId: pageId,
+          wasmBase64: base64
+        }
+      });
+
+      console.log('✅ [BuilderApp] WASM saved to page');
+
+      hasWasmApp = true;
       lastSavedTime = new Date();
-
-      console.log('✅ [BuilderApp] Imported HUML template');
     } catch (error) {
       console.error('❌ [BuilderApp] Import failed:', error);
       alert(`Failed to import: ${error}`);
@@ -183,39 +215,73 @@
   }
 
   /**
-   * Open HUML preview window with native Vello rendering
-   * HUML parsing happens in Rust
+   * Open preview for existing WASM app
+   * Loads from page's wasm_module layer and opens native window
    */
   async function openPreview() {
-    if (!humlContent.trim()) {
-      alert('No HUML content to preview');
+    const pageId = dataState.currentPageId;
+    if (!pageId) {
+      alert('Please select a page first');
       return;
     }
 
     try {
       isOpeningPreview = true;
 
-      // Use currentPageId for Scribe persistence
-      // This ensures messages persist when reopening the same template
-      const pageId = dataState.currentPageId;
-      console.log('🔗 [BuilderApp] Opening preview with page_id:', pageId);
+      console.log('🔗 [BuilderApp] Opening existing WASM preview for page:', pageId);
 
-      // Call Rust to parse HUML and open HUML window with Vello rendering
-      const windowLabel = await invoke('open_huml_with_template', {
+      const windowLabel = await invoke<string>('handle_open_page_preview', {
         input: {
-          huml_content: humlContent,
-          title: 'HUML Preview',
-          initial_values: null,
-          page_id: pageId
+          pageId: pageId
         }
       });
 
-      console.log('✅ [BuilderApp] Opened HUML preview window:', windowLabel);
+      console.log('✅ [BuilderApp] Preview window opened:', windowLabel);
     } catch (error) {
       console.error('❌ [BuilderApp] Failed to open preview:', error);
       alert(`Failed to open preview: ${error}`);
     } finally {
       isOpeningPreview = false;
+    }
+  }
+
+  /**
+   * Run embedded template tests
+   *
+   * If a page_id is available (via dataState.currentPageId), tests run with
+   * real Scribe integration - fixtures seed to Loro, actions execute real
+   * CRDT operations, and assert_state/assert_query verify actual document state.
+   */
+  async function runTests() {
+    if (!humlContent.trim()) {
+      alert('No HUML content to test');
+      return;
+    }
+
+    try {
+      isRunningTests = true;
+      testReport = null;
+
+      // Pass page_id for Scribe integration if available
+      const pageId = dataState.currentPageId;
+      console.log('🧪 [BuilderApp] Running template tests...', pageId ? `(with Scribe: ${pageId})` : '(intent only)');
+
+      const report = await invoke<TestReport>('handle_run_template_tests', {
+        input: {
+          template_source: humlContent,
+          page_id: pageId || undefined  // Only pass if available
+        }
+      });
+
+      testReport = report;
+      showTestResults = true;
+
+      console.log('✅ [BuilderApp] Test results:', report);
+    } catch (error) {
+      console.error('❌ [BuilderApp] Failed to run tests:', error);
+      alert(`Failed to run tests: ${error}`);
+    } finally {
+      isRunningTests = false;
     }
   }
 
@@ -244,6 +310,7 @@
 
     return date.toLocaleTimeString();
   }
+
 </script>
 
 <svelte:window onkeydown={handleKeyDown} />
@@ -259,11 +326,11 @@
     {/if}
     <div class="empty-message">
       <h2>No resource selected</h2>
-      <p>Select a HUML template from the sidebar or create a new one to get started.</p>
+      <p>Select a resource from the sidebar or create a new one to get started.</p>
     </div>
   </div>
 {:else}
-  <!-- Resource selected - show HUML editor -->
+  <!-- Resource selected - show editor -->
   <div class="builder-app">
     <NavigationPanel />
     {#if !uiState.showNavigationPanel}
@@ -276,13 +343,19 @@
       <!-- Toolbar -->
       <div class="toolbar">
         <button
-          onclick={importHUML}
+          onclick={importWasmApp}
           class="btn-import"
           disabled={isImporting}
-          title="Import HUML template file"
+          title="Import WASM app to page"
         >
-          {isImporting ? '📥 Importing...' : '📥 Import'}
+          {isImporting ? '📥 Importing...' : '📥 Import WASM'}
         </button>
+
+        {#if hasWasmApp}
+          <span class="wasm-badge">
+            🔧 WASM loaded
+          </span>
+        {/if}
 
         <button
           onclick={saveContent}
@@ -305,10 +378,28 @@
         <button
           onclick={openPreview}
           class="btn-preview"
-          disabled={isOpeningPreview || !humlContent.trim()}
-          title="Open native HUML preview window (Vello GPU rendering)"
+          disabled={isOpeningPreview}
+          title="Open WASM app preview (Vello GPU rendering)"
         >
           {isOpeningPreview ? '🖼️ Opening...' : '🖼️ Preview'}
+        </button>
+
+        <button
+          onclick={runTests}
+          class="btn-test"
+          class:has-results={testReport !== null}
+          class:all-passed={testReport?.failed === 0 && testReport?.total > 0}
+          class:has-failures={testReport?.failed !== undefined && testReport.failed > 0}
+          disabled={isRunningTests || !humlContent.trim()}
+          title="Run embedded template tests"
+        >
+          {#if isRunningTests}
+            🧪 Running...
+          {:else if testReport}
+            🧪 {testReport.passed}/{testReport.total}
+          {:else}
+            🧪 Run Tests
+          {/if}
         </button>
 
         <span class="status" class:modified={isDirty}>
@@ -330,6 +421,40 @@
       <div class="editor-container">
         <HUMLEditor bind:value={humlContent} />
       </div>
+
+      <!-- Test Results Panel -->
+      {#if showTestResults && testReport}
+        <div class="test-results-panel">
+          <div class="test-results-header">
+            <span class="test-results-title">
+              {#if testReport.failed === 0}
+                ✅ All Tests Passed
+              {:else}
+                ❌ {testReport.failed} Test{testReport.failed > 1 ? 's' : ''} Failed
+              {/if}
+              <span class="test-summary">
+                ({testReport.passed}/{testReport.total} passed, {testReport.duration_ms}ms)
+              </span>
+            </span>
+            <button class="btn-close-results" onclick={() => showTestResults = false}>✕</button>
+          </div>
+          <div class="test-results-list">
+            {#each testReport.results as result}
+              <div class="test-result" class:passed={result.passed} class:failed={!result.passed}>
+                <span class="test-icon">{result.passed ? '✓' : '✗'}</span>
+                <span class="test-name">{result.name}</span>
+                <span class="test-duration">{result.duration_ms}ms</span>
+                {#if result.error}
+                  <div class="test-error">{result.error}</div>
+                {/if}
+              </div>
+            {/each}
+            {#if testReport.total === 0}
+              <div class="no-tests">No tests found in template. Add a <code>tests {'{'} {'}'}</code> block.</div>
+            {/if}
+          </div>
+        </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -406,10 +531,24 @@
     color: #f59e0b;
   }
 
+  .wasm-badge {
+    background: #10b981;
+    color: white;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .btn-import,
   .btn-save,
   .btn-reload,
-  .btn-preview {
+  .btn-preview,
+  .btn-test {
     padding: 8px 16px;
     border: none;
     border-radius: 4px;
@@ -479,6 +618,144 @@
     background: #374151;
     color: #6b7280;
     cursor: not-allowed;
+  }
+
+  .btn-test {
+    background: #6366f1;
+    color: white;
+  }
+
+  .btn-test:hover:not(:disabled) {
+    background: #4f46e5;
+  }
+
+  .btn-test:disabled {
+    background: #374151;
+    color: #6b7280;
+    cursor: not-allowed;
+  }
+
+  .btn-test.has-results.all-passed {
+    background: #10b981;
+  }
+
+  .btn-test.has-results.has-failures {
+    background: #ef4444;
+  }
+
+  /* Test Results Panel */
+  .test-results-panel {
+    background: #1e1e1e;
+    border-top: 1px solid #333;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .test-results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: #252526;
+    border-bottom: 1px solid #333;
+    position: sticky;
+    top: 0;
+  }
+
+  .test-results-title {
+    font-weight: 500;
+    color: #e1e4e8;
+  }
+
+  .test-summary {
+    font-weight: normal;
+    color: #8b949e;
+    margin-left: 8px;
+    font-size: 13px;
+  }
+
+  .btn-close-results {
+    background: transparent;
+    border: none;
+    color: #8b949e;
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 14px;
+  }
+
+  .btn-close-results:hover {
+    color: #e1e4e8;
+  }
+
+  .test-results-list {
+    padding: 8px 12px;
+  }
+
+  .test-result {
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    font-size: 13px;
+  }
+
+  .test-result.passed {
+    background: rgba(16, 185, 129, 0.1);
+  }
+
+  .test-result.failed {
+    background: rgba(239, 68, 68, 0.1);
+  }
+
+  .test-icon {
+    width: 20px;
+    font-weight: bold;
+  }
+
+  .test-result.passed .test-icon {
+    color: #10b981;
+  }
+
+  .test-result.failed .test-icon {
+    color: #ef4444;
+  }
+
+  .test-name {
+    flex: 1;
+    color: #c9d1d9;
+  }
+
+  .test-duration {
+    color: #6b7280;
+    font-size: 12px;
+    margin-left: 8px;
+  }
+
+  .test-error {
+    width: 100%;
+    margin-top: 4px;
+    margin-left: 20px;
+    padding: 8px;
+    background: rgba(239, 68, 68, 0.15);
+    border-radius: 4px;
+    color: #fca5a5;
+    font-family: monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
+
+  .no-tests {
+    color: #8b949e;
+    font-style: italic;
+    padding: 8px;
+  }
+
+  .no-tests code {
+    background: #374151;
+    padding: 2px 6px;
+    border-radius: 4px;
   }
 
   @keyframes pulse {

@@ -1,39 +1,20 @@
-//! Page - Sub-application instance within a Space
+//! Page - App instance within a Space
 //!
 //! Terminology:
-//! - Space: Container that groups Pages
-//! - Page: A sub-application instance with its own template and Layers
-//! - Layer: CRDT data containers within a Page
+//! - Space: Container that groups Pages (apps)
+//! - Page: An app instance with its own permit template and Layers
+//! - Layer: Data containers within a Page (files stored as file:{path})
 //!
 //! ## Key Design Decisions:
 //! - Each Page has one AES-256 key that encrypts ALL its Layers
 //! - `encrypted_key` stores the AES key encrypted for THIS user (owner or recipient)
 //! - Layers stored at hierarchical keys: `layers/{page_id}/{layer_name}`
-//! - Layer names come from permit template's `documents` map
+//! - App files stored as layers with `file:{path}` naming
 
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
-
-/// PageType - Type of page content
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum PageType {
-    /// Main HUML content
-    Content,
-    /// Thread comments
-    Comments,
-    /// Form submissions
-    Submissions,
-    /// Private chat
-    PrivateChat,
-}
-
-impl Default for PageType {
-    fn default() -> Self {
-        Self::Content
-    }
-}
 
 /// PageMeta - Page metadata stored in redb
 ///
@@ -44,7 +25,6 @@ pub struct PageMeta {
     pub id: String,
     pub space_id: String,
     pub name: String,
-    pub page_type: PageType,
     /// AES-256 key encrypted for THIS user (owner or recipient)
     /// Each user stores their own encrypted_key in their own DB
     /// Encrypted using X25519 ECIES via herald::encrypt()
@@ -63,18 +43,12 @@ impl PageMeta {
             id: Uuid::new_v4().to_string(),
             space_id,
             name,
-            page_type: PageType::default(),
             encrypted_key: Vec::new(),
             owner_did,
             is_private: false,
             created_at: now,
             updated_at: now,
         }
-    }
-
-    pub fn with_type(mut self, page_type: PageType) -> Self {
-        self.page_type = page_type;
-        self
     }
 
     /// Set the encrypted AES key for this page
@@ -157,7 +131,6 @@ pub struct Page {
     pub id: String,
     pub space_id: String,
     pub name: String,
-    pub page_type: PageType,
     pub owner_did: String,
     pub is_private: bool,
     pub created_at: i64,
@@ -170,7 +143,6 @@ impl From<PageMeta> for Page {
             id: meta.id,
             space_id: meta.space_id,
             name: meta.name,
-            page_type: meta.page_type,
             owner_did: meta.owner_did,
             is_private: meta.is_private,
             created_at: meta.created_at,
@@ -214,7 +186,6 @@ pub struct DecryptedPage {
     pub id: String,
     pub space_id: String,
     pub name: String,
-    pub page_type: PageType,
     pub owner_did: String,
     pub is_private: bool,
     pub created_at: i64,
@@ -231,7 +202,6 @@ impl DecryptedPage {
             id: page.id,
             space_id: page.space_id,
             name: page.name,
-            page_type: page.page_type,
             owner_did: page.owner_did,
             is_private: page.is_private,
             created_at: page.created_at,
