@@ -224,13 +224,26 @@ impl PeerActor {
 
         info!("Stored published space: {} ({})", space.id, space.name);
 
+        // Issue permit back to owner (node→owner permit proves space is published)
+        let owner_pubkey = permit.get_fact("user_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&peer_did);
+
+        let node_permit = match state.butler.issue_space_permit_to_owner(&space.id, owner_pubkey).await {
+            Ok(p) => p,
+            Err(e) => {
+                warn!("Failed to issue node permit to owner: {} - using echoed permit", e);
+                space_permit.to_string()
+            }
+        };
+
         // Get existing page IDs for this space
         let pages = state.butler.list_page_ids_for_space(&space.id)
             .unwrap_or_default();
 
         let ack = Message::PublishSpaceAck {
             request_id: request_id.to_string(),
-            permit: space_permit.to_string(),
+            permit: node_permit,
             pages,
         };
         self.send_message(&ack, state).await;
@@ -402,9 +415,10 @@ impl PeerActor {
     /// Handle PublishSpaceAck (Owner receives from node)
     ///
     /// **Context**: Node acknowledged our PublishSpace
-    /// **Peer sends**: Ack with echoed permit (space_id derived from permit)
+    /// **Peer sends**: Ack with node-issued permit (space_id derived from permit)
     /// **We verify**: Permit is valid, extract space_id
-    /// **We update**: Mark space as published, trigger page sync
+    /// **We store**: Node's permit (proves space is published to this node)
+    /// **We notify**: Coordinator to trigger page sync
     #[instrument(skip(self, state, permit, pages))]
     pub(super) async fn on_publish_space_ack(
         &self,
@@ -417,10 +431,13 @@ impl PeerActor {
             return;
         }
 
-        if require_auth(&state.state).is_err() {
-            warn!("PublishSpaceAck from unauthenticated peer: {}", self.node_id);
-            return;
-        }
+        let (node_did, _) = match require_auth(&state.state) {
+            Ok(info) => (info.0.to_string(), info.1.to_string()),
+            Err(_) => {
+                warn!("PublishSpaceAck from unauthenticated peer: {}", self.node_id);
+                return;
+            }
+        };
 
         // Extract space_id from permit
         let space_id = match gurkha::extract_space_id(permit) {
@@ -433,10 +450,11 @@ impl PeerActor {
 
         info!("PublishSpaceAck: space={}, request={}, {} existing pages", space_id, request_id, pages.len());
 
-        // Mark space as published on this node
-        let node_id = self.node_id.to_string();
-        if let Err(e) = state.butler.mark_space_published(&space_id, &node_id) {
-            warn!("Failed to mark space as published: {}", e);
+        // Store node's permit (proves space is published to this node)
+        if let Err(e) = state.butler.store_user_space_permit(&space_id, &node_did, permit) {
+            warn!("Failed to store node's space permit: {}", e);
+        } else {
+            debug!("Stored node's permit for space {} (published state)", space_id);
         }
 
         let _ = state.coordinator.cast(CoordinatorMessage::SpacePublished {

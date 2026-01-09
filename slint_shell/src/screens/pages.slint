@@ -1,0 +1,167 @@
+// Page screen - shows apps within a page
+
+import { Theme } from "../theme.slint";
+import { AppInfo } from "../types.slint";
+import { AppCard, UploadAppCard } from "../components/cards.slint";
+import { AppGridRow } from "../components/grids.slint";
+
+// Page View screen (inside a page - shows apps)
+export component PageView {
+    in property<string> page-id: "";
+    in property<string> page-name: "Page";
+    in property<[AppInfo]> apps: [];
+
+    callback go-back();
+    callback select-app(string);      // Launch app
+    callback reload-page();           // Reload all apps from filesystem
+
+    // Responsive grid properties for apps
+    property<length> app-card-width: 10rem;      // ~160px at default font
+    property<length> app-card-spacing: 1rem;     // ~16px responsive
+    property<length> padding-horizontal: 4rem;   // ~64px
+    property<length> available-width: root.width - padding-horizontal;
+    property<int> app-columns: max(1, floor(available-width / (app-card-width + app-card-spacing)));
+
+    VerticalLayout {
+        padding-top: 1rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+        padding-bottom: 2rem;
+        spacing: 1rem;
+
+        // Header with back button
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: space-between;
+
+            // Left side: Back button + Page name
+            HorizontalLayout {
+                spacing: 16px;
+
+                // Back button
+                Rectangle {
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 8px;
+                    background: back-area.has-hover ? Theme.cancel-background : transparent;
+
+                    Text {
+                        text: "\u{2190}";
+                        color: back-area.has-hover ? Theme.quarzo-white : Theme.text-passive;
+                        font-size: 24px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    back-area := TouchArea {
+                        clicked => { go-back(); }
+                    }
+                }
+
+                // Page name
+                Text {
+                    text: page-name;
+                    color: Theme.quarzo-white;
+                    font-size: 28px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Right side: Reload button
+            Rectangle {
+                width: 100px;
+                height: 36px;
+                border-radius: 6px;
+                background: reload-btn.has-hover ? Theme.active-border : Theme.livnote-lavender;
+
+                Text {
+                    text: "Reload";
+                    color: Theme.ninja-black;
+                    font-size: 13px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                reload-btn := TouchArea {
+                    clicked => { reload-page(); }
+                }
+            }
+        }
+
+        // Apps section
+        Text {
+            text: "Apps";
+            color: Theme.text-active;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        // App grid (responsive layout)
+        Flickable {
+            VerticalLayout {
+                alignment: start;
+                spacing: 1rem;
+                padding: 0px;
+
+                // Row 0
+                if apps.length > 0: AppGridRow {
+                    apps: apps;
+                    row-number: 0;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+
+                // Row 1
+                if apps.length > app-columns: AppGridRow {
+                    apps: apps;
+                    row-number: 1;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+
+                // Row 2
+                if apps.length > app-columns * 2: AppGridRow {
+                    apps: apps;
+                    row-number: 2;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+
+                // Row 3
+                if apps.length > app-columns * 3: AppGridRow {
+                    apps: apps;
+                    row-number: 3;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+
+                // Row 4
+                if apps.length > app-columns * 4: AppGridRow {
+                    apps: apps;
+                    row-number: 4;
+                    app-columns: app-columns;
+                    app-card-width: app-card-width;
+                    app-card-spacing: app-card-spacing;
+                    select-app(id) => { select-app(id); }
+                }
+            }
+        }
+
+        // Empty state hint (only when no apps)
+        if apps.length == 0: Text {
+            text: "No apps in this page yet";
+            color: Theme.text-active;
+            font-size: 14px;
+        }
+    }
+}

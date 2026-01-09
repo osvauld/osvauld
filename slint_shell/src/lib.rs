@@ -9,3 +9,11 @@ slint::include_modules!();
 
 // Shell and TabInfo are automatically exported by include_modules!()
 // Use slint_shell::Shell and slint_shell::TabInfo to access them
+
+// Re-export modules for main.rs
+pub mod app_runner;
+pub mod callbacks;
+pub mod events;
+pub mod setup;
+pub mod templates;
+pub mod utils;

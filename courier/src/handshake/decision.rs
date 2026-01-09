@@ -1,12 +1,12 @@
 //! Handshake decision logic
 //!
 //! Pure decision functions for handshake state machine.
-//! Courier calls these to decide what to do, then executes.
+//! PeerActor calls these to decide what to do, then executes.
 //!
 //! ## Design
 //!
-//! This module follows the same pattern as `decision.rs` for sync decisions.
-//! All handshake decisions are made here, courier just executes them.
+//! This module follows the same pattern as decision.rs in gurkha for sync decisions.
+//! All handshake decisions are made here, peer_actor just executes them.
 //!
 //! ## Security Model
 //!
@@ -14,7 +14,7 @@
 //! - **User validates node permit type**: Prevents privilege escalation
 //! - **Bidirectional permits**: Both sides issue permits to authenticate
 
-use crate::parser::PermitCore;
+use gurkha::PermitCore;
 
 /// Role in handshake - derived from permit relationship fact
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

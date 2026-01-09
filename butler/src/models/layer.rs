@@ -305,6 +305,90 @@ impl Layer {
     }
 
     // =========================================================================
+    // App Layer Operations (LoroMap of file paths -> content)
+    // =========================================================================
+
+    /// Get a file's content from an app layer
+    ///
+    /// **Context**: App layers store files as LoroMap { "path/to/file.lua": "content" }
+    /// **Returns**: File content as string, or None if not found
+    pub fn get_file(&self, file_path: &str) -> Option<String> {
+        let root = self.inner.get_map("files");
+        match root.get(file_path) {
+            Some(loro::ValueOrContainer::Value(loro::LoroValue::String(s))) => Some(s.to_string()),
+            _ => None,
+        }
+    }
+
+    /// Set a file's content in an app layer
+    ///
+    /// **Context**: Store or update a file in the app layer
+    /// **We do**: Insert/update the file path -> content mapping
+    pub fn set_file(&self, file_path: &str, content: &str) -> Result<(), LayerError> {
+        let root = self.inner.get_map("files");
+        root.insert(file_path, content.to_string())
+            .map_err(|e| LayerError::Import(e.to_string()))?;
+        self.inner.commit();
+        Ok(())
+    }
+
+    /// List all file paths in an app layer
+    ///
+    /// **Context**: Get list of all files stored in this app layer
+    /// **Returns**: Vector of file paths
+    pub fn list_files(&self) -> Vec<String> {
+        let root = self.inner.get_map("files");
+        root.keys().map(|k| k.to_string()).collect()
+    }
+
+    /// Delete a file from an app layer
+    ///
+    /// **Context**: Remove a file from the app layer
+    pub fn delete_file(&self, file_path: &str) -> Result<(), LayerError> {
+        let root = self.inner.get_map("files");
+        root.delete(file_path).ok(); // Ignore if doesn't exist
+        self.inner.commit();
+        Ok(())
+    }
+
+    /// Get all files as a HashMap (for bulk operations)
+    ///
+    /// **Context**: Load all app files at once
+    /// **Returns**: HashMap of file_path -> content
+    pub fn get_all_files(&self) -> std::collections::HashMap<String, String> {
+        let root = self.inner.get_map("files");
+        let mut files = std::collections::HashMap::new();
+        for key in root.keys() {
+            if let Some(loro::ValueOrContainer::Value(loro::LoroValue::String(s))) = root.get(&key) {
+                files.insert(key.to_string(), s.to_string());
+            }
+        }
+        files
+    }
+
+    /// Set multiple files at once (for bulk import)
+    ///
+    /// **Context**: Import all app files in one operation
+    /// **We do**: Clear existing files and set new ones
+    pub fn set_all_files(&self, files: &std::collections::HashMap<String, String>) -> Result<(), LayerError> {
+        let root = self.inner.get_map("files");
+
+        // Clear existing files
+        for key in root.keys() {
+            root.delete(&key).ok();
+        }
+
+        // Insert new files
+        for (path, content) in files {
+            root.insert(path, content.clone())
+                .map_err(|e| LayerError::Import(e.to_string()))?;
+        }
+
+        self.inner.commit();
+        Ok(())
+    }
+
+    // =========================================================================
     // Observer/Subscription Methods
     // =========================================================================
 

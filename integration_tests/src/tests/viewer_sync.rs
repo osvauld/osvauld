@@ -8,7 +8,7 @@
 
 use tracing::info;
 
-use butler::PageType;
+
 use courier::coordinator::{CoordinatorMessage, CourierMode};
 
 use crate::TestHarness;
@@ -99,7 +99,7 @@ async fn test_generate_shareable_link() {
     let layer_names: Vec<String> = TEST_PAGE_LAYERS.iter().map(|s| s.to_string()).collect();
 
     let page = owner_butler
-        .create_page(&space.id, "Shareable Page", PageType::Content, layer_names.clone(), TEST_PAGE_TEMPLATE)
+        .create_page(&space.id, "Shareable Page", layer_names.clone(), TEST_PAGE_TEMPLATE)
         .await
         .expect("Failed to create page");
 
@@ -251,7 +251,7 @@ async fn test_viewer_space_request() {
     let layer_names: Vec<String> = TEST_PAGE_LAYERS.iter().map(|s| s.to_string()).collect();
 
     let page = owner_butler
-        .create_page(&space.id, "Viewer Test Page", PageType::Content, layer_names.clone(), TEST_PAGE_TEMPLATE)
+        .create_page(&space.id, "Viewer Test Page", layer_names.clone(), TEST_PAGE_TEMPLATE)
         .await
         .expect("Failed to create page");
 

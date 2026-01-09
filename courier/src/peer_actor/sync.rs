@@ -14,11 +14,20 @@
 //!
 //! Divergence detection: If state vectors don't match after applying update,
 //! sender immediately sends full diff as new SyncOffer.
+//!
+//! ## Authorization
+//!
+//! **Identity-based**: `gurkha::can_access_layer()` checks if viewer can access layer
+//! **Role-based**: App code checks `permit:role()` for state-dependent authorization
+//!
+//! Authorization logic lives in app code (signed by owner, trusted).
 
+use serde_json::{json, Value};
 use tracing::{debug, error, info, warn, instrument};
 
 use crate::coordinator::CoordinatorMessage;
 use crate::message::Message;
+use crate::CourierMode;
 
 use super::guards::{
     require_user_mode, require_node_mode, require_auth, parse_permit,
@@ -282,7 +291,6 @@ impl PeerActor {
                     id: prepared.meta.id,
                     space_id: prepared.meta.space_id,
                     name: prepared.meta.name,
-                    page_type: format!("{:?}", prepared.meta.page_type),
                     owner_did: prepared.meta.owner_did,
                     is_private: prepared.meta.is_private,
                     created_at: prepared.meta.created_at,
@@ -334,20 +342,28 @@ impl PeerActor {
 
         info!("SpaceData: space={} pages={}", space_id, page_ids.len());
 
-        // Store the space with the delegated permit AND source node
-        // The source_node_id enables viewers to know which node to sync edits back to
+        // Get node's DID for sync target (EnsureSync uses DID, not transport node_id)
+        let source_did = match require_auth(&state.state) {
+            Ok((did, _)) => did.to_string(),
+            Err(_) => {
+                warn!("Cannot store space: peer not authenticated");
+                return;
+            }
+        };
+
+        // Store the space with the delegated permit AND source DID
+        // The source_did enables viewers to sync edits back to this node via EnsureSync
         let butler_space = from_published_space(space);
-        let source_node_id = self.node_id.to_string();
         if let Err(e) = state.butler.store_published_space_with_source(
             &butler_space,
             delegated_permit,
-            Some(&source_node_id),
+            Some(&source_did),
         ) {
             error!("Failed to store space: {}", e);
             return;
         }
 
-        info!("Stored space {} with delegated permit and source_node={}, expecting {} pages", space_id, source_node_id, page_ids.len());
+        info!("Stored space {} with delegated permit and source_did={}, expecting {} pages", space_id, source_did, page_ids.len());
 
         // Emit ViewerSpaceReceived to app
         let _ = state.coordinator.cast(CoordinatorMessage::ViewerSpaceReceived {
@@ -443,8 +459,22 @@ impl PeerActor {
             is_last,
         });
 
+        // Extract consent_template from permit_template.json layer (app-defined)
+        // Falls back to default if not found
+        let consent_template = layers.iter()
+            .find(|(name, _)| name == "file:permit_template.json")
+            .and_then(|(_, data)| serde_json::from_slice::<Value>(data).ok())
+            .and_then(|template_json| template_json.get("consent_template").cloned())
+            .map(|consent| serde_json::to_string(&json!({"consent_template": consent})).unwrap_or_else(|_| DEFAULT_PAGE_CONSENT_TEMPLATE.to_string()))
+            .unwrap_or_else(|| DEFAULT_PAGE_CONSENT_TEMPLATE.to_string());
+
+        debug!(
+            consent_has_layers = consent_template.contains("layers"),
+            "Using consent template from app"
+        );
+
         // Issue page consent permit for this page
-        self.issue_page_consent(&meta.id, permit, DEFAULT_PAGE_CONSENT_TEMPLATE, state).await;
+        self.issue_page_consent(&meta.id, permit, &consent_template, state).await;
 
         // If this is the last page, notify coordinator
         if is_last {
@@ -465,11 +495,12 @@ impl PeerActor {
     /// **Peer sends**: SyncOffer with page_id, layer_name, encrypted data, state_vector, permit
     /// **We verify**: Permit is valid
     /// **We decrypt**: ECDH with ephemeral_public + our encryption key
-    /// **We apply**: Via Scribe.ApplyUpdate (handles merge)
-    /// **We respond**: SyncAccept with our state vector after applying
-    #[instrument(skip(self, state, data, their_state_vector, ephemeral_public, permit), fields(page_id = %page_id, layer_name = %layer_name))]
+    /// **We apply**: Via Scribe.ApplyUpdateWithResult (handles merge)
+    /// **We respond**: SyncAccept with our state vector after applying (only if successful)
+    #[instrument(skip(self, myself, state, data, their_state_vector, ephemeral_public, permit), fields(page_id = %page_id, layer_name = %layer_name))]
     pub(super) async fn on_sync_offer(
         &self,
+        myself: ractor::ActorRef<super::PeerMessage>,
         page_id: &str,
         layer_name: &str,
         data: &[u8],
@@ -487,14 +518,6 @@ impl PeerActor {
         };
 
         let peer_device_id = self.node_id.to_string();
-
-        // Verify consent permit
-        debug!(
-            "SyncOffer: page={} layer={} has permit (verification pending)",
-            page_id, layer_name
-        );
-        // TODO: gurkha::verify_sync_consent(permit, our_did, peer_did, page_id)
-        let _ = permit;
 
         info!(
             "SyncOffer: page={} layer={} ({} bytes, vector {} bytes) from {}",
@@ -517,6 +540,13 @@ impl PeerActor {
             }
         };
 
+        // Auto-subscribe peer if not already subscribed (Node mode)
+        // This ensures can_write() will find them in subscribers with correct permissions
+        if state.mode == CourierMode::Node && !state.page_subscriptions.contains_key(page_id) {
+            info!("Auto-subscribing peer {} to page {} with permit from SyncOffer", peer_did, page_id);
+            self.subscribe_to_page(myself.clone(), page_id, permit, state).await;
+        }
+
         // Get Scribe via Butler and apply update
         let scribe = match state.butler.open_page(page_id).await {
             Ok(s) => s,
@@ -526,14 +556,33 @@ impl PeerActor {
             }
         };
 
-        // Apply the update
-        if let Err(e) = scribe.cast(butler::ScribeMessage::ApplyUpdate {
+        // Apply the update with result feedback
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        if let Err(e) = scribe.cast(butler::ScribeMessage::ApplyUpdateWithResult {
             layer_name: layer_name.to_string(),
             update: decrypted_data,
             from_peer: Some((peer_did.clone(), peer_device_id.clone())),
+            permit: Some(permit.to_string()),
+            reply: reply_tx,
         }) {
-            error!("Failed to send ApplyUpdate to Scribe: {}", e);
+            error!("Failed to send ApplyUpdateWithResult to Scribe: {}", e);
             return;
+        }
+
+        // Wait for apply result - only send SyncAccept if successful
+        match reply_rx.await {
+            Ok(Ok(())) => {
+                debug!("ApplyUpdate succeeded for page={} layer={}", page_id, layer_name);
+            }
+            Ok(Err(e)) => {
+                warn!("ApplyUpdate rejected for page={} layer={}: {}", page_id, layer_name, e);
+                // DO NOT send SyncAccept - this stops the infinite retry loop
+                return;
+            }
+            Err(_) => {
+                error!("ApplyUpdate reply channel closed for page={} layer={}", page_id, layer_name);
+                return;
+            }
         }
 
         // Get our state vector after applying
@@ -658,7 +707,7 @@ impl PeerActor {
             };
             self.send_message(&msg, state).await;
 
-            // Update cached peer vector
+            // Update cached peer vector (persistent storage)
             let peer_device_id = self.node_id.to_string();
             if let Err(e) = state.butler.store_peer_state_vector(
                 &peer_did,
@@ -668,6 +717,16 @@ impl PeerActor {
                 their_state_vector,
             ).await {
                 warn!("Failed to update cached peer vector: {}", e);
+            }
+
+            // Also update Scribe's in-memory vector cache (for faster sync decisions)
+            if let Some(subscription) = state.page_subscriptions.get(page_id) {
+                let _ = subscription.scribe.cast(butler::ScribeMessage::UpdatePeerVector {
+                    user_did: peer_did.clone(),
+                    device_id: peer_device_id.clone(),
+                    layer_name: layer_name.to_string(),
+                    state_vector: their_state_vector.to_vec(),
+                });
             }
         } else {
             // Diverged! Send resync SyncOffer with full diff from their vector
@@ -766,7 +825,7 @@ impl PeerActor {
             page_id, layer_name, peer_did
         );
 
-        // Update cached peer vector
+        // Update cached peer vector (persistent storage)
         let peer_device_id = self.node_id.to_string();
         if let Err(e) = state.butler.store_peer_state_vector(
             &peer_did,
@@ -776,6 +835,16 @@ impl PeerActor {
             their_state_vector,
         ).await {
             warn!("Failed to update cached peer vector: {}", e);
+        }
+
+        // Also update Scribe's in-memory vector cache (for faster sync decisions)
+        if let Some(subscription) = state.page_subscriptions.get(page_id) {
+            let _ = subscription.scribe.cast(butler::ScribeMessage::UpdatePeerVector {
+                user_did: peer_did.clone(),
+                device_id: peer_device_id.clone(),
+                layer_name: layer_name.to_string(),
+                state_vector: their_state_vector.to_vec(),
+            });
         }
 
         // Clean up any pending sync for this page/layer (shouldn't exist but be safe)
@@ -841,7 +910,7 @@ impl PeerActor {
         // Spawn listener task that forwards broadcasts to this actor
         let actor_ref = myself.clone();
         let page_id_clone = page_id.to_string();
-        let handle = tokio::spawn(async move {
+        let listener_handle = tokio::spawn(async move {
             while let Some(payload) = rx.recv().await {
                 if let Err(_) = actor_ref.cast(super::PeerMessage::BroadcastReceived(payload)) {
                     // Actor stopped, exit loop
@@ -851,7 +920,14 @@ impl PeerActor {
             debug!("Broadcast listener stopped for page {}", page_id_clone);
         });
 
-        state.page_subscriptions.insert(page_id.to_string(), handle);
+        // Store full subscription info for cleanup on disconnect
+        let subscription = super::PageSubscription {
+            scribe,
+            listener_handle,
+            user_did: peer_did,
+            device_id,
+        };
+        state.page_subscriptions.insert(page_id.to_string(), subscription);
     }
 
     /// Subscribe this peer to all active Scribes they have access to
@@ -1375,4 +1451,26 @@ impl PeerActor {
             space_id: space_id.to_string(),
         });
     }
+}
+
+// ==================== Mutation Validation (Node-side enforcement) ====================
+
+/// Validate viewer mutation using permit's layer patterns
+///
+/// **Context**: Node receives SyncOffer from viewer, wants to validate before applying
+///
+/// **Implementation**: Identity-based check via can_access_layer
+/// Authorization logic is in the app code (checked by permit:role())
+#[allow(dead_code)]
+pub fn validate_viewer_mutation(
+    permit: &gurkha::Permit,
+    layer_name: &str,
+) -> Result<(), String> {
+    // Identity-based check: can viewer access this layer?
+    if !gurkha::can_access_layer(permit, layer_name, "sync") {
+        return Err(format!("Viewer cannot sync layer '{}'", layer_name));
+    }
+
+    // State-based authorization is handled in app code via permit:role()
+    Ok(())
 }

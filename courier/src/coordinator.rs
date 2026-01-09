@@ -404,6 +404,13 @@ impl Actor for Coordinator {
                     "Space {} published to node {} ({} existing pages)",
                     space_id, node_id, existing_pages.len()
                 );
+
+                // Emit event to UI
+                Self::emit_event(state, CourierEvent::SpacePublished {
+                    node_id: node_id.to_string(),
+                    space_id: space_id.clone(),
+                });
+
                 // Trigger page sync: publish all pages not already on node
                 self.on_space_published(myself.clone(), node_id, &space_id, &existing_pages, state).await;
             }
@@ -600,7 +607,7 @@ impl Coordinator {
         // Store connection handle
         state.connections.insert(node_id, conn.clone());
 
-        // Spawn PeerActor
+        // Always spawn new PeerActor (anonymous to avoid name conflicts on reconnection)
         let peer_actor = PeerActor::new(node_id);
         let args = PeerActorArgs {
             mode: state.mode,
@@ -610,7 +617,7 @@ impl Coordinator {
         };
 
         match Actor::spawn_linked(
-            Some(format!("peer-{}-{}", state.our_node_id, node_id)),
+            None, // Anonymous actor - avoids ActorAlreadyRegistered on reconnection
             peer_actor,
             args,
             myself.get_cell(),
@@ -645,7 +652,8 @@ impl Coordinator {
     async fn on_disconnected(&self, node_id: NodeId, state: &mut CoordinatorState) {
         info!("Disconnected: {}", node_id);
 
-        // Stop the PeerActor
+        // Always clean up PeerActor on disconnect
+        // New connections will spawn fresh actors (anonymous, so no name conflicts)
         if let Some(actor) = state.peer_actors.remove(&node_id) {
             actor.stop(Some("disconnected".to_string()));
         }

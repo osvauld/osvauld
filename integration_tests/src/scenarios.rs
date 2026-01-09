@@ -18,7 +18,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use transport::NodeId;
 
-use butler::{Butler, PageType};
+use butler::{Butler};
 use courier::coordinator::{CoordinatorMessage, CourierMode};
 use ractor::ActorRef;
 
@@ -148,7 +148,7 @@ impl PublishedPageScenario {
 
         let layers: Vec<String> = TEST_PAGE_LAYERS.iter().map(|s| s.to_string()).collect();
         let page = base.owner_butler
-            .create_page(&space.id, page_name, PageType::Content, layers, TEST_PAGE_TEMPLATE)
+            .create_page(&space.id, page_name, layers, TEST_PAGE_TEMPLATE)
             .await?;
 
         base.owner_coordinator().cast(CoordinatorMessage::PublishSpace {
@@ -268,7 +268,7 @@ impl MultiPartyScenario {
 
         let layers: Vec<String> = TEST_PAGE_LAYERS.iter().map(|s| s.to_string()).collect();
         let page = owner_butler
-            .create_page(&space.id, "Test Page", PageType::Content, layers, TEST_PAGE_TEMPLATE)
+            .create_page(&space.id, "Test Page", layers, TEST_PAGE_TEMPLATE)
             .await?;
 
         harness.peer("owner").unwrap().coordinator.cast(

@@ -77,6 +77,7 @@ async fn test_owner_edit_syncs_to_node() {
         layer_name: "collaborative_doc".to_string(),
         update,
         from_peer: None, // Local edit
+        permit: None,
     }).expect("Failed to apply update");
 
     info!("Owner made local edit");
@@ -186,6 +187,7 @@ async fn test_multiparty_live_sync() {
         layer_name: "collaborative_doc".to_string(),
         update: owner_update,
         from_peer: None,
+        permit: None,
     }).expect("Owner failed to apply update");
 
     info!("Owner made edit");
@@ -210,6 +212,7 @@ async fn test_multiparty_live_sync() {
         layer_name: "collaborative_doc".to_string(),
         update: viewer_update,
         from_peer: None,
+        permit: None,
     }).expect("Viewer failed to apply update");
 
     info!("Viewer made edit");
@@ -262,6 +265,7 @@ async fn test_scribe_get_snapshot() {
         layer_name: "collaborative_doc".to_string(),
         update,
         from_peer: None,
+        permit: None,
     }).expect("Failed to apply update");
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -343,6 +347,7 @@ async fn test_auto_subscribe_via_ensure_sync() {
         layer_name: "collaborative_doc".to_string(),
         update,
         from_peer: None, // Local edit
+        permit: None,
     }).expect("Failed to apply update");
 
     info!("Owner made edit - relying on EnsureSync → RefreshSubscriptions flow");

@@ -19,17 +19,20 @@ mod vecmodel_ops;
 mod lua_worker;
 mod slint_runtime;
 mod slint_model_bindings;
+mod page_runtime;
 
 // Existing modules (still needed for backwards compat)
 mod scribe_channel;
 mod loro_bindings;
 mod butler_bindings;
+mod permit_bindings;
 
 // New architecture exports
 pub use vecmodel_ops::{VecModelOp, UiMutation, PropertyUpdate};
 pub use lua_worker::{LuaWorker, LuaWorkerCommand};
 pub use slint_runtime::SlintRuntime;
 pub use slint_model_bindings::LuaSlintModel;
+pub use page_runtime::{generate_page_shell, write_shell_slint, AppTab};
 
 // Existing exports
 pub use scribe_channel::{ScribeChannel, ScribeCommand, ScribeEvent};

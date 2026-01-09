@@ -8,7 +8,7 @@
 
 use tracing::info;
 
-use butler::PageType;
+
 use courier::coordinator::{CoordinatorMessage, CourierMode};
 
 use crate::TestHarness;
@@ -427,12 +427,12 @@ async fn test_owner_publishes_space_and_pages_auto_sync() {
     let layer_names: Vec<String> = TEST_PAGE_LAYERS.iter().map(|s| s.to_string()).collect();
 
     let page1 = owner_butler
-        .create_page(&space.id, "Page One", PageType::Content, layer_names.clone(), TEST_PAGE_TEMPLATE)
+        .create_page(&space.id, "Page One", layer_names.clone(), TEST_PAGE_TEMPLATE)
         .await
         .expect("Failed to create page 1");
 
     let page2 = owner_butler
-        .create_page(&space.id, "Page Two", PageType::Content, layer_names.clone(), TEST_PAGE_TEMPLATE)
+        .create_page(&space.id, "Page Two", layer_names.clone(), TEST_PAGE_TEMPLATE)
         .await
         .expect("Failed to create page 2");
 
@@ -664,7 +664,7 @@ async fn test_incremental_page_sync() {
     let layer_names: Vec<String> = TEST_PAGE_LAYERS.iter().map(|s| s.to_string()).collect();
 
     let page1 = owner_butler
-        .create_page(&space.id, "Initial Page", PageType::Content, layer_names.clone(), TEST_PAGE_TEMPLATE)
+        .create_page(&space.id, "Initial Page", layer_names.clone(), TEST_PAGE_TEMPLATE)
         .await
         .expect("Failed to create page 1");
 
@@ -686,7 +686,7 @@ async fn test_incremental_page_sync() {
 
     // Now create page2 locally
     let page2 = owner_butler
-        .create_page(&space.id, "New Page", PageType::Content, layer_names.clone(), TEST_PAGE_TEMPLATE)
+        .create_page(&space.id, "New Page", layer_names.clone(), TEST_PAGE_TEMPLATE)
         .await
         .expect("Failed to create page 2");
 

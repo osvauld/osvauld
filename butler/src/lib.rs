@@ -20,6 +20,8 @@ pub mod models;
 pub mod storage;
 pub mod services;
 pub mod scribe;
+pub mod merge;
+pub mod sync;
 
 pub use error::{ButlerError, Result};
 pub use models::*;
@@ -29,6 +31,7 @@ pub use services::{signup, login, is_signed_up, recover, change_passphrase, Sign
 // Scribe actor exports
 pub use scribe::{
     Scribe, ScribeMessage, ScribeArgs, ScribeState, ScribeEvent, SyncEvent, LoroChangeEvent,
+    LoroDelta, ListOp,
     BroadcastPayload, LayerCapability, SyncPolicy, SyncConfig,
     SaveLayerFn, LoadPeerVectorFn, SavePeerVectorFn, ListAuthorizedUsersFn, LoadUserPermitFn,
 };
@@ -329,8 +332,51 @@ impl Butler {
     }
 
     /// Mark space as published on a specific node
+    ///
+    /// DEPRECATED: Use store_user_space_permit instead for permit-based tracking
     pub fn mark_space_published(&self, space_id: &str, node_id: &str) -> Result<()> {
         space_service::mark_space_published(&self.store, space_id, node_id)
+    }
+
+    /// Store a node's permit for a space (Owner mode - proves space is published)
+    ///
+    /// **Context**: Owner receives permit from node after PublishSpaceAck.
+    /// This permit proves the space is published to that node.
+    pub fn store_user_space_permit(&self, space_id: &str, node_did: &str, permit: &str) -> Result<()> {
+        self.store.put_user_space_permit(space_id, node_did, permit)
+    }
+
+    /// Get a node's permit for a space (Owner mode - check if published)
+    pub fn get_user_space_permit(&self, space_id: &str, node_did: &str) -> Result<Option<String>> {
+        self.store.get_user_space_permit(space_id, node_did)
+    }
+
+    /// List all nodes that have issued permits for a space (= published nodes)
+    ///
+    /// **Context**: UI needs to show which nodes a space is published to
+    /// **We return**: DIDs of nodes with permits for this space
+    pub fn get_nodes_with_space_permits(&self, space_id: &str) -> Result<Vec<String>> {
+        self.store.list_nodes_with_space_permits(space_id)
+    }
+
+    /// Issue a space permit from node to owner
+    ///
+    /// **Context**: Node receives PublishSpace, issues permit back to owner
+    /// **We do**: Create node→owner permit proving space is published
+    pub async fn issue_space_permit_to_owner(
+        &self,
+        space_id: &str,
+        owner_pubkey: &str,
+    ) -> Result<String> {
+        let signing_key = self.signing_key().await?;
+
+        let (permit, _cid) = gurkha::issue_space_node_to_owner(
+            &signing_key,
+            space_id,
+            owner_pubkey,
+        ).await.map_err(|e| ButlerError::PermitError(format!("Failed to issue permit: {:?}", e)))?;
+
+        Ok(permit)
     }
 
     // ==================== Page Operations ====================
@@ -487,6 +533,148 @@ impl Butler {
         Ok(files)
     }
 
+    // ==================== Static File Storage (Binary Blobs) ====================
+
+    /// Save a static binary file to page storage
+    ///
+    /// **Context**: Store binary assets (images, fonts) that don't need CRDT merging
+    /// **We do**: Encrypt with page AES key, store with "static:{path}" layer name
+    pub async fn save_static_file(&self, page_id: &str, file_path: &str, content: &[u8]) -> Result<()> {
+        // Get page's AES key
+        let (_decrypted, aes_key) = self.get_decrypted_page(page_id).await?;
+
+        // Encrypt content with page's AES key
+        let encrypted = herald::encrypt_symmetric(&aes_key, content)
+            .map_err(|e| ButlerError::Encryption(e.to_string()))?;
+
+        // Store with static: prefix
+        let layer_name = format!("static:{}", file_path);
+        self.store.put_layer(page_id, &layer_name, &encrypted)?;
+
+        tracing::info!(page_id = %page_id, file_path = %file_path, size = content.len(), "Saved static file");
+        Ok(())
+    }
+
+    /// Get a static binary file from page storage
+    ///
+    /// **Context**: Load binary assets (images, fonts)
+    /// **We return**: Decrypted bytes or None if file doesn't exist
+    pub async fn get_static_file(&self, page_id: &str, file_path: &str) -> Result<Option<Vec<u8>>> {
+        let layer_name = format!("static:{}", file_path);
+
+        // Check if layer exists
+        let encrypted = match self.store.get_layer(page_id, &layer_name)? {
+            Some(data) => data,
+            None => return Ok(None),
+        };
+
+        // Get page's AES key
+        let (_decrypted, aes_key) = self.get_decrypted_page(page_id).await?;
+
+        // Decrypt
+        let content = herald::decrypt_symmetric(&aes_key, &encrypted)
+            .map_err(|e| ButlerError::Encryption(format!("Decryption failed: {}", e)))?;
+
+        tracing::info!(page_id = %page_id, file_path = %file_path, size = content.len(), "Loaded static file");
+        Ok(Some(content))
+    }
+
+    /// List all static files in a page
+    ///
+    /// **Context**: Enumerate binary assets in a page
+    /// **We return**: List of file paths (without "static:" prefix)
+    pub fn list_static_files(&self, page_id: &str) -> Result<Vec<String>> {
+        let layers = self.store.list_layer_names(page_id)?;
+        let files: Vec<String> = layers
+            .into_iter()
+            .filter_map(|name| name.strip_prefix("static:").map(|s| s.to_string()))
+            .collect();
+        Ok(files)
+    }
+
+    /// Delete a static file from page storage
+    pub fn delete_static_file(&self, page_id: &str, file_path: &str) -> Result<()> {
+        let layer_name = format!("static:{}", file_path);
+        self.store.delete_layer(page_id, &layer_name)?;
+        tracing::info!(page_id = %page_id, file_path = %file_path, "Deleted static file");
+        Ok(())
+    }
+
+    // ==================== App Layer Operations ====================
+
+    /// List all apps in a page
+    ///
+    /// **Context**: Find all `app:*` layers in a page
+    /// **We return**: List of app names (without "app:" prefix)
+    pub fn list_apps(&self, page_id: &str) -> Result<Vec<String>> {
+        let layers = self.store.list_layer_names(page_id)?;
+        let apps: Vec<String> = layers
+            .into_iter()
+            .filter_map(|name| name.strip_prefix("app:").map(|s| s.to_string()))
+            .collect();
+        Ok(apps)
+    }
+
+    /// List data layers in a page
+    ///
+    /// **Context**: Find layers that store app data (not app code, not files, not static assets)
+    /// **We return**: Layer names that don't have app:, file:, or static: prefix
+    pub fn list_data_layers(&self, page_id: &str) -> Result<Vec<String>> {
+        let layers = self.store.list_layer_names(page_id)?;
+        let data_layers: Vec<String> = layers
+            .into_iter()
+            .filter(|name| {
+                !name.starts_with("app:") &&
+                !name.starts_with("file:") &&
+                !name.starts_with("static:")
+            })
+            .collect();
+        Ok(data_layers)
+    }
+
+    /// Get all files from an app layer
+    ///
+    /// **Context**: Load app files from `app:{app_name}` LoroMap layer
+    /// **We return**: HashMap of file_path -> content
+    pub async fn get_app_files(&self, page_id: &str, app_name: &str) -> Result<HashMap<String, String>> {
+        let layer_name = format!("app:{}", app_name);
+
+        // Get decrypted page data
+        let (decrypted, _aes_key) = self.get_decrypted_page(page_id).await?;
+
+        // Check if app layer exists
+        let layer_bytes = decrypted.docs.get(&layer_name)
+            .ok_or_else(|| ButlerError::NotFound(format!("App '{}' not found in page", app_name)))?;
+
+        if layer_bytes.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Reconstruct Layer from snapshot and extract files
+        let layer = Layer::from_snapshot(layer_bytes)
+            .map_err(|e| ButlerError::Layer(e.to_string()))?;
+
+        let files = layer.get_all_files();
+
+        tracing::debug!(
+            page_id = %page_id,
+            app_name = %app_name,
+            file_count = files.len(),
+            "Loaded app files from layer"
+        );
+
+        Ok(files)
+    }
+
+    /// Get a single file from an app layer
+    ///
+    /// **Context**: Load specific file from `app:{app_name}` LoroMap layer
+    /// **We return**: File content or None if not found
+    pub async fn get_app_file(&self, page_id: &str, app_name: &str, file_path: &str) -> Result<Option<String>> {
+        let files = self.get_app_files(page_id, app_name).await?;
+        Ok(files.get(file_path).cloned())
+    }
+
     // ==================== App Import Operations ====================
 
     /// Import an app from a directory
@@ -503,6 +691,32 @@ impl Butler {
     /// **We do**: Delegate to app_service::update_app_from_directory
     pub async fn update_app(&self, page_id: &str, app_dir: &Path) -> Result<()> {
         services::app_service::update_app_from_directory(self, page_id, app_dir).await
+    }
+
+    /// Import a page directory containing multiple apps
+    ///
+    /// **Context**: Development workflow - import page with multiple apps
+    /// **Structure**:
+    /// ```text
+    /// page_dir/                     ← directory name = page name
+    ///   ├── permit_template.json    ← page-level permit (data layers)
+    ///   ├── shop-owner/             ← app 1
+    ///   └── shop-customer/          ← app 2
+    /// ```
+    /// **We do**: Delegate to app_service::import_page_from_directory
+    pub async fn import_page(&self, space_id: &str, page_dir: &Path) -> Result<Page> {
+        services::app_service::import_page_from_directory(self, space_id, page_dir).await
+    }
+
+    /// Reload a page from directory (sync from filesystem)
+    ///
+    /// **Context**: Development workflow - reload page after editing files
+    /// **Behavior**:
+    /// - Updates existing apps (files changed on disk)
+    /// - Adds new apps (new subdirectories with manifest.json)
+    /// **We do**: Delegate to app_service::reload_page_from_directory
+    pub async fn reload_page(&self, page_id: &str, page_dir: &Path) -> Result<services::app_service::PageReloadResult> {
+        services::app_service::reload_page_from_directory(self, page_id, page_dir).await
     }
 
     pub async fn prepare_space_for_publish(
@@ -1007,19 +1221,20 @@ impl Butler {
         let user_did_hash = &user_info.did[user_info.did.len().saturating_sub(8)..];
         let actor_name = format!("scribe-{}-{}", user_did_hash, page_id);
 
-        // Check if actor already exists in ractor registry (handles edge cases)
-        if let Some(actor) = ractor::registry::where_is(actor_name.clone()) {
-            log::debug!("Found existing Scribe actor in registry: {}", actor_name);
-            let actor_ref: ActorRef<ScribeMessage> = actor.into();
-            // Re-add to our map
-            {
-                let mut scribes = self.scribes.write().await;
-                scribes.insert(page_id.to_string(), ScribeEntry {
-                    actor: actor_ref.clone(),
-                    last_accessed: Instant::now(),
-                });
+        // Check if an old actor with this name is still in the registry
+        // (happens when evicted actor hasn't fully shut down yet).
+        // If so, stop it and wait for registry cleanup before creating new one.
+        if let Some(old_actor) = ractor::registry::where_is(actor_name.clone()) {
+            log::info!("Found stale Scribe actor in registry: {} - stopping it", actor_name);
+            old_actor.stop(Some("replaced by new open_page call".to_string()));
+
+            // Wait for the old actor to fully unregister (up to 500ms)
+            for _ in 0..50 {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                if ractor::registry::where_is(actor_name.clone()).is_none() {
+                    break;
+                }
             }
-            return Ok(actor_ref);
         }
 
         // Evict LRU if at capacity

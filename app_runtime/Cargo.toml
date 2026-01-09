@@ -25,8 +25,14 @@ thiserror = "2"
 # Logging
 tracing = "0.1"
 
+# Fast mutex (no poison, simpler API)
+parking_lot = "0.12"
+
 # Butler integration for loading apps from storage
 butler = { path = "../butler" }
+
+# Gurkha for AuthSandbox (permit-based authorization)
+gurkha = { path = "../gurkha" }
 
 # Loro CRDT for direct FFI access
 loro = "1.5"

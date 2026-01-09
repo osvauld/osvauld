@@ -1,0 +1,563 @@
+// Space screens
+
+import { Theme } from "../theme.slint";
+import { SpaceInfo, AppInfo, PageInfo, NodeInfo } from "../types.slint";
+import { SpaceCard, CreateSpaceCard, AppCard, UploadAppCard, PageCard, UploadPageCard } from "../components/cards.slint";
+import { CreateSpaceModal, PublishSpaceModal, AddWebsiteModal } from "../components/modals.slint";
+import { SpaceGridRow, AppGridRow, PageGridRow } from "../components/grids.slint";
+
+// Spaces Dashboard screen
+export component SpacesDashboard {
+    in property<[SpaceInfo]> spaces: [];
+    in-out property<string> new-space-name: "";
+    in-out property<bool> show-create-form: false;
+
+    // Add Website modal state
+    in-out property<bool> show-add-website-modal: false;
+    in property<bool> connecting-website: false;
+
+    callback request-spaces();          // Called to load/refresh spaces
+    callback create-space(string);
+    callback select-space(string);
+    callback navigate-to-nodes();
+    callback add-website(string);       // connection_string
+
+    // Responsive grid properties
+    property<length> card-width: 12.5rem;     // ~200px at default font
+    property<length> card-spacing: 1rem;      // ~16px responsive
+    property<length> padding-horizontal: 4rem; // ~64px
+    property<length> available-width: root.width - padding-horizontal;
+    property<int> columns: max(1, floor(available-width / (card-width + card-spacing)));
+
+    // Request spaces when component is shown
+    init => { request-spaces(); }
+
+    VerticalLayout {
+        padding-top: 1rem;      // Minimal top padding
+        padding-left: 1rem;     // Minimal left padding
+        padding-right: 1rem;
+        padding-bottom: 2rem;
+        spacing: 1rem;          // Reduce from 24px
+
+        // Header
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: space-between;
+
+            Text {
+                text: "Your Spaces";
+                color: Theme.quarzo-white;
+                font-size: 28px;
+                font-weight: 600;
+            }
+
+            // Right side buttons
+            HorizontalLayout {
+                spacing: 12px;
+
+                // Add Website button
+                Rectangle {
+                    width: 110px;
+                    height: 36px;
+                    border-radius: 6px;
+                    background: add-website-btn.has-hover ? Theme.active-border : Theme.livnote-lavender;
+
+                    Text {
+                        text: "Add Website";
+                        color: Theme.ninja-black;
+                        font-size: 13px;
+                        font-weight: 500;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    add-website-btn := TouchArea {
+                        clicked => { show-add-website-modal = true; }
+                    }
+                }
+
+                // Settings/Nodes button
+                Rectangle {
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 8px;
+                    background: settings-btn.has-hover ? Theme.side-list-highlight : transparent;
+
+                    Text {
+                        text: "\u{2699}";
+                        font-size: 20px;
+                        color: Theme.quarzo-white;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    settings-btn := TouchArea {
+                        clicked => { navigate-to-nodes(); }
+                    }
+                }
+            }
+        }
+
+        // Space grid (responsive layout)
+        Flickable {
+            VerticalLayout {
+                alignment: start;     // Top-left alignment
+                spacing: 1rem;        // Responsive spacing
+                padding: 0px;         // Remove padding
+
+                // Row 0
+                if spaces.length > 0: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 0;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length < columns: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 1
+                if spaces.length > columns: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 1;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns && spaces.length < columns * 2: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 2
+                if spaces.length > columns * 2: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 2;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 2 && spaces.length < columns * 3: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 3
+                if spaces.length > columns * 3: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 3;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 3 && spaces.length < columns * 4: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 4
+                if spaces.length > columns * 4: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 4;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 4 && spaces.length < columns * 5: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 5
+                if spaces.length > columns * 5: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 5;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 5 && spaces.length < columns * 6: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 6
+                if spaces.length > columns * 6: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 6;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 6 && spaces.length < columns * 7: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 7
+                if spaces.length > columns * 7: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 7;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 7 && spaces.length < columns * 8: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 8
+                if spaces.length > columns * 8: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 8;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 8 && spaces.length < columns * 9: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+
+                // Row 9
+                if spaces.length > columns * 9: SpaceGridRow {
+                    spaces: spaces;
+                    row-number: 9;
+                    columns: columns;
+                    card-width: card-width;
+                    card-spacing: card-spacing;
+                    select-space(id) => { select-space(id); }
+                }
+                if spaces.length >= columns * 9 && spaces.length < columns * 10: CreateSpaceCard {
+                    clicked => { show-create-form = true; }
+                }
+            }
+        }
+
+        // Empty state message
+        if spaces.length == 0 && !show-create-form: VerticalLayout {
+            alignment: center;
+            spacing: 12px;
+
+            Text {
+                text: "No spaces yet";
+                color: Theme.text-passive;
+                font-size: 18px;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "Create a space to organize your apps";
+                color: Theme.text-active;
+                font-size: 14px;
+                horizontal-alignment: center;
+            }
+        }
+    }
+
+    // Modal for creating space
+    CreateSpaceModal {
+        show: show-create-form;
+        space-name <=> new-space-name;
+        create(name) => {
+            create-space(name);
+            new-space-name = "";
+            show-create-form = false;
+        }
+        cancel() => {
+            new-space-name = "";
+            show-create-form = false;
+        }
+    }
+
+    // Modal for adding website (viewer connection)
+    AddWebsiteModal {
+        show: show-add-website-modal;
+        connecting: connecting-website;
+        connect(conn-str) => { add-website(conn-str); }
+        cancel => { show-add-website-modal = false; }
+    }
+}
+
+// Space View screen (inside a space - shows pages)
+export component SpaceView {
+    in property<string> space-id: "";
+    in property<string> space-name: "Space";
+    in property<[PageInfo]> pages: [];
+    in property<[NodeInfo]> connected-nodes: [];
+    in property<bool> publishing: false;
+    in-out property<bool> show-publish-modal: false;
+
+    // Shareable link state
+    in property<string> shareable-link: "";
+    in property<bool> requesting-link: false;
+
+    callback go-back();
+    callback request-pages(string);      // Called to load pages for this space
+    callback upload-page-clicked();      // Called when user wants to upload a page directory
+    callback select-page(string);        // Called when user selects a page
+    callback publish-space(string, string);  // space_id, node_id
+    callback request-connected-nodes();
+    callback get-shareable-link(string, string);  // space_id, node_id
+    callback copy-shareable-link();     // Copy link to clipboard
+
+    // Responsive grid properties for pages
+    property<length> page-card-width: 10rem;      // ~160px at default font
+    property<length> page-card-spacing: 1rem;     // ~16px responsive
+    property<length> padding-horizontal: 4rem;    // ~64px
+    property<length> available-width: root.width - padding-horizontal;
+    property<int> page-columns: max(1, floor(available-width / (page-card-width + page-card-spacing)));
+
+    // Request pages when component is shown
+    init => { request-pages(space-id); }
+
+    VerticalLayout {
+        padding-top: 1rem;      // Minimal top padding
+        padding-left: 1rem;     // Minimal left padding
+        padding-right: 1rem;
+        padding-bottom: 2rem;
+        spacing: 1rem;          // Reduce from 24px
+
+        // Header with back button
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: space-between;
+
+            // Left side: Back button + Space name
+            HorizontalLayout {
+                spacing: 16px;
+
+                // Back button
+                Rectangle {
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 8px;
+                    background: back-area.has-hover ? Theme.cancel-background : transparent;
+
+                    Text {
+                        text: "\u{2190}";
+                        color: back-area.has-hover ? Theme.quarzo-white : Theme.text-passive;
+                        font-size: 24px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    back-area := TouchArea {
+                        clicked => { go-back(); }
+                    }
+                }
+
+                // Space name
+                Text {
+                    text: space-name;
+                    color: Theme.quarzo-white;
+                    font-size: 28px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Right side: Publish button
+            Rectangle {
+                width: 100px;
+                height: 36px;
+                border-radius: 6px;
+                background: publish-btn.has-hover ? Theme.active-border : Theme.livnote-lavender;
+
+                Text {
+                    text: "Publish";
+                    color: Theme.ninja-black;
+                    font-size: 13px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                publish-btn := TouchArea {
+                    clicked => {
+                        request-connected-nodes();
+                        show-publish-modal = true;
+                    }
+                }
+            }
+        }
+
+        // Pages section
+        Text {
+            text: "Pages";
+            color: Theme.text-active;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        // Page grid (responsive layout)
+        Flickable {
+            VerticalLayout {
+                alignment: start;         // Top-left alignment
+                spacing: 1rem;            // Responsive spacing
+                padding: 0px;             // Remove padding
+
+                // Row 0
+                if pages.length > 0: PageGridRow {
+                    pages: pages;
+                    row-number: 0;
+                    page-columns: page-columns;
+                    page-card-width: page-card-width;
+                    page-card-spacing: page-card-spacing;
+                    select-page(id) => { select-page(id); }
+                }
+                if pages.length < page-columns: UploadPageCard {
+                    clicked => { upload-page-clicked(); }
+                }
+
+                // Row 1
+                if pages.length > page-columns: PageGridRow {
+                    pages: pages;
+                    row-number: 1;
+                    page-columns: page-columns;
+                    page-card-width: page-card-width;
+                    page-card-spacing: page-card-spacing;
+                    select-page(id) => { select-page(id); }
+                }
+                if pages.length >= page-columns && pages.length < page-columns * 2: UploadPageCard {
+                    clicked => { upload-page-clicked(); }
+                }
+
+                // Row 2
+                if pages.length > page-columns * 2: PageGridRow {
+                    pages: pages;
+                    row-number: 2;
+                    page-columns: page-columns;
+                    page-card-width: page-card-width;
+                    page-card-spacing: page-card-spacing;
+                    select-page(id) => { select-page(id); }
+                }
+                if pages.length >= page-columns * 2 && pages.length < page-columns * 3: UploadPageCard {
+                    clicked => { upload-page-clicked(); }
+                }
+
+                // Row 3
+                if pages.length > page-columns * 3: PageGridRow {
+                    pages: pages;
+                    row-number: 3;
+                    page-columns: page-columns;
+                    page-card-width: page-card-width;
+                    page-card-spacing: page-card-spacing;
+                    select-page(id) => { select-page(id); }
+                }
+                if pages.length >= page-columns * 3 && pages.length < page-columns * 4: UploadPageCard {
+                    clicked => { upload-page-clicked(); }
+                }
+
+                // Row 4
+                if pages.length > page-columns * 4: PageGridRow {
+                    pages: pages;
+                    row-number: 4;
+                    page-columns: page-columns;
+                    page-card-width: page-card-width;
+                    page-card-spacing: page-card-spacing;
+                    select-page(id) => { select-page(id); }
+                }
+                if pages.length >= page-columns * 4 && pages.length < page-columns * 5: UploadPageCard {
+                    clicked => { upload-page-clicked(); }
+                }
+
+                // Row 5
+                if pages.length > page-columns * 5: PageGridRow {
+                    pages: pages;
+                    row-number: 5;
+                    page-columns: page-columns;
+                    page-card-width: page-card-width;
+                    page-card-spacing: page-card-spacing;
+                    select-page(id) => { select-page(id); }
+                }
+                if pages.length >= page-columns * 5 && pages.length < page-columns * 6: UploadPageCard {
+                    clicked => { upload-page-clicked(); }
+                }
+
+                // Row 6
+                if pages.length > page-columns * 6: PageGridRow {
+                    pages: pages;
+                    row-number: 6;
+                    page-columns: page-columns;
+                    page-card-width: page-card-width;
+                    page-card-spacing: page-card-spacing;
+                    select-page(id) => { select-page(id); }
+                }
+                if pages.length >= page-columns * 6 && pages.length < page-columns * 7: UploadPageCard {
+                    clicked => { upload-page-clicked(); }
+                }
+
+                // Row 7
+                if pages.length > page-columns * 7: PageGridRow {
+                    pages: pages;
+                    row-number: 7;
+                    page-columns: page-columns;
+                    page-card-width: page-card-width;
+                    page-card-spacing: page-card-spacing;
+                    select-page(id) => { select-page(id); }
+                }
+                if pages.length >= page-columns * 7 && pages.length < page-columns * 8: UploadPageCard {
+                    clicked => { upload-page-clicked(); }
+                }
+
+                // Row 8
+                if pages.length > page-columns * 8: PageGridRow {
+                    pages: pages;
+                    row-number: 8;
+                    page-columns: page-columns;
+                    page-card-width: page-card-width;
+                    page-card-spacing: page-card-spacing;
+                    select-page(id) => { select-page(id); }
+                }
+                if pages.length >= page-columns * 8 && pages.length < page-columns * 9: UploadPageCard {
+                    clicked => { upload-page-clicked(); }
+                }
+
+                // Row 9
+                if pages.length > page-columns * 9: PageGridRow {
+                    pages: pages;
+                    row-number: 9;
+                    page-columns: page-columns;
+                    page-card-width: page-card-width;
+                    page-card-spacing: page-card-spacing;
+                    select-page(id) => { select-page(id); }
+                }
+                if pages.length >= page-columns * 9 && pages.length < page-columns * 10: UploadPageCard {
+                    clicked => { upload-page-clicked(); }
+                }
+            }
+        }
+
+        // Empty state hint (only when no pages)
+        if pages.length == 0: Text {
+            text: "Click '+' to upload your first page";
+            color: Theme.text-active;
+            font-size: 14px;
+        }
+    }
+
+    // Publish Space Modal
+    PublishSpaceModal {
+        nodes: connected-nodes;
+        show: show-publish-modal;
+        publishing: publishing;
+        shareable-link: shareable-link;
+        requesting-link: requesting-link;
+
+        publish(node-id) => {
+            publish-space(space-id, node-id);
+        }
+        get-shareable-link(node-id) => {
+            get-shareable-link(space-id, node-id);
+        }
+        copy-link => {
+            copy-shareable-link();
+        }
+        cancel => {
+            show-publish-modal = false;
+        }
+    }
+}

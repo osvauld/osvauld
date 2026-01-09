@@ -7,7 +7,7 @@ use tokio::sync::{RwLock, mpsc};
 use transport::NodeId;
 use tracing_subscriber::EnvFilter;
 
-use butler::{Butler, RedbStore, LayerCache, signup, ScribeMessage, BroadcastPayload, PageType};
+use butler::{Butler, RedbStore, LayerCache, signup, ScribeMessage, BroadcastPayload};
 use courier::coordinator::{CoordinatorMessage, CourierMode};
 
 use crate::TestHarness;
@@ -208,7 +208,7 @@ pub async fn setup_with_published_page(
 
     let layer_names: Vec<String> = TEST_PAGE_LAYERS.iter().map(|s| s.to_string()).collect();
     let page = peers.owner_butler
-        .create_page(&space.id, "Test Page", PageType::Content, layer_names, TEST_PAGE_TEMPLATE)
+        .create_page(&space.id, "Test Page", layer_names, TEST_PAGE_TEMPLATE)
         .await?;
 
     // Publish space (auto-syncs pages)
@@ -409,7 +409,7 @@ pub async fn setup_with_viewer(
 
     let layer_names: Vec<String> = TEST_PAGE_LAYERS.iter().map(|s| s.to_string()).collect();
     let page = owner_butler
-        .create_page(&space.id, "Test Page", PageType::Content, layer_names, TEST_PAGE_TEMPLATE)
+        .create_page(&space.id, "Test Page", layer_names, TEST_PAGE_TEMPLATE)
         .await?;
 
     // Publish space to node

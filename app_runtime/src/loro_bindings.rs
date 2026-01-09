@@ -32,6 +32,11 @@ impl UserData for LuaLoroList {
             Ok(this.list.len())
         });
 
+        // list:length() - Alias for len() (Lua convention)
+        methods.add_method("length", |_, this, ()| {
+            Ok(this.list.len())
+        });
+
         // list:get(index) - Get item at index (0-based)
         methods.add_method("get", |lua, this, index: usize| {
             match this.list.get(index) {
@@ -71,6 +76,21 @@ impl UserData for LuaLoroList {
         methods.add_method("delete", |_, this, index: usize| {
             this.list.delete(index, 1)
                 .map_err(|e| LuaError::RuntimeError(format!("LoroList delete failed: {}", e)))?;
+            Ok(())
+        });
+
+        // list:set(index, item) - Update item at index (delete + insert)
+        methods.add_method("set", |_, this, (index, item): (usize, LuaValue)| {
+            let loro_val = lua_to_loro_value(&item)?;
+            // Delete then insert to update (LoroList doesn't have direct set)
+            this.list.delete(index, 1)
+                .map_err(|e| LuaError::RuntimeError(format!("LoroList set (delete) failed: {}", e)))?;
+            this.list.insert(index, loro_val)
+                .map_err(|e| LuaError::RuntimeError(format!("LoroList set (insert) failed: {}", e)))?;
+            // Notify Scribe of the modification
+            let _ = this.scribe_ref.cast(ScribeMessage::LayerModifiedByLua {
+                layer_name: this.layer_name.clone(),
+            });
             Ok(())
         });
 
@@ -339,6 +359,193 @@ impl UserData for LoroBindings {
             };
 
             Ok(LuaLoroMap::new(loro_map, this.scribe_ref.clone(), layer_name))
+        });
+
+        // loro:get_or_create_layer(name, type) - Get or create a layer
+        // type is "list" or "map"
+        methods.add_method("get_or_create_layer", |lua, this, (layer_name, layer_type): (String, String)| {
+            match layer_type.as_str() {
+                "list" => {
+                    let (tx, rx) = oneshot::channel();
+                    this.scribe_ref.cast(ScribeMessage::GetOrCreateLoroList {
+                        layer_name: layer_name.clone(),
+                        reply: tx,
+                    }).map_err(|e| LuaError::RuntimeError(format!("Failed to send message: {}", e)))?;
+
+                    let loro_list = match tokio::runtime::Handle::try_current() {
+                        Ok(handle) => {
+                            tokio::task::block_in_place(|| {
+                                handle.block_on(async {
+                                    rx.await
+                                        .map_err(|e| LuaError::RuntimeError(format!("Scribe dropped channel: {}", e)))?
+                                        .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
+                                })
+                            })?
+                        }
+                        Err(_) => {
+                            let rt = tokio::runtime::Runtime::new()
+                                .map_err(|e| LuaError::RuntimeError(format!("Failed to create runtime: {}", e)))?;
+                            rt.block_on(async {
+                                rx.await
+                                    .map_err(|e| LuaError::RuntimeError(format!("Scribe dropped channel: {}", e)))?
+                                    .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
+                            })?
+                        }
+                    };
+                    let wrapper = LuaLoroList::new(loro_list, this.scribe_ref.clone(), layer_name);
+                    lua.create_userdata(wrapper).map(LuaValue::UserData)
+                }
+                "map" => {
+                    let (tx, rx) = oneshot::channel();
+                    this.scribe_ref.cast(ScribeMessage::GetOrCreateLoroMap {
+                        layer_name: layer_name.clone(),
+                        reply: tx,
+                    }).map_err(|e| LuaError::RuntimeError(format!("Failed to send message: {}", e)))?;
+
+                    let loro_map = match tokio::runtime::Handle::try_current() {
+                        Ok(handle) => {
+                            tokio::task::block_in_place(|| {
+                                handle.block_on(async {
+                                    rx.await
+                                        .map_err(|e| LuaError::RuntimeError(format!("Scribe dropped channel: {}", e)))?
+                                        .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
+                                })
+                            })?
+                        }
+                        Err(_) => {
+                            let rt = tokio::runtime::Runtime::new()
+                                .map_err(|e| LuaError::RuntimeError(format!("Failed to create runtime: {}", e)))?;
+                            rt.block_on(async {
+                                rx.await
+                                    .map_err(|e| LuaError::RuntimeError(format!("Scribe dropped channel: {}", e)))?
+                                    .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
+                            })?
+                        }
+                    };
+                    let wrapper = LuaLoroMap::new(loro_map, this.scribe_ref.clone(), layer_name);
+                    lua.create_userdata(wrapper).map(LuaValue::UserData)
+                }
+                _ => Err(LuaError::RuntimeError(
+                    format!("Unknown layer type: {}. Use 'list' or 'map'", layer_type)
+                ))
+            }
+        });
+
+        // loro:list_layers(pattern) - List layers matching pattern
+        methods.add_method("list_layers", |lua, this, pattern: String| {
+            let (tx, rx) = oneshot::channel();
+
+            this.scribe_ref.cast(ScribeMessage::ListLayers {
+                pattern,
+                reply: tx,
+            }).map_err(|e| LuaError::RuntimeError(format!("Failed to send ListLayers message: {}", e)))?;
+
+            let layer_names: Vec<String> = match tokio::runtime::Handle::try_current() {
+                Ok(handle) => {
+                    tokio::task::block_in_place(|| {
+                        handle.block_on(async {
+                            rx.await
+                                .map_err(|e| LuaError::RuntimeError(format!("Scribe dropped channel: {}", e)))
+                        })
+                    })?
+                }
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new()
+                        .map_err(|e| LuaError::RuntimeError(format!("Failed to create runtime: {}", e)))?;
+                    rt.block_on(async {
+                        rx.await
+                            .map_err(|e| LuaError::RuntimeError(format!("Scribe dropped channel: {}", e)))
+                    })?
+                }
+            };
+
+            // Convert to Lua table
+            let table = lua.create_table()?;
+            for (i, name) in layer_names.iter().enumerate() {
+                table.set(i + 1, name.as_str())?;
+            }
+            Ok(table)
+        });
+
+        // loro:get_layer(name, type) - Get a layer with optional type ("list" or "map")
+        // If type is omitted, defaults to "map" for backward compatibility
+        methods.add_method("get_layer", |lua, this, (layer_name, layer_type): (String, Option<String>)| {
+            let layer_type = layer_type.unwrap_or_else(|| "map".to_string());
+
+            match layer_type.as_str() {
+                "list" => {
+                    let (tx, rx) = oneshot::channel();
+                    this.scribe_ref.cast(ScribeMessage::GetLoroList {
+                        layer_name: layer_name.clone(),
+                        reply: tx,
+                    }).map_err(|e| LuaError::RuntimeError(format!("Failed to send GetLoroList message: {}", e)))?;
+
+                    let loro_list = match tokio::runtime::Handle::try_current() {
+                        Ok(handle) => {
+                            tokio::task::block_in_place(|| {
+                                handle.block_on(async {
+                                    rx.await
+                                        .map_err(|e| LuaError::RuntimeError(format!("Scribe dropped channel: {}", e)))?
+                                        .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
+                                })
+                            })
+                        }
+                        Err(_) => {
+                            let rt = tokio::runtime::Runtime::new()
+                                .map_err(|e| LuaError::RuntimeError(format!("Failed to create runtime: {}", e)))?;
+                            rt.block_on(async {
+                                rx.await
+                                    .map_err(|e| LuaError::RuntimeError(format!("Scribe dropped channel: {}", e)))?
+                                    .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
+                            })
+                        }
+                    };
+
+                    match loro_list {
+                        Ok(list) => {
+                            let wrapper = LuaLoroList::new(list, this.scribe_ref.clone(), layer_name);
+                            lua.create_userdata(wrapper).map(|ud| LuaValue::UserData(ud))
+                        }
+                        Err(_) => Ok(LuaValue::Nil), // Return nil if layer doesn't exist
+                    }
+                }
+                "map" | _ => {
+                    let (tx, rx) = oneshot::channel();
+                    this.scribe_ref.cast(ScribeMessage::GetLoroMap {
+                        layer_name: layer_name.clone(),
+                        reply: tx,
+                    }).map_err(|e| LuaError::RuntimeError(format!("Failed to send GetLoroMap message: {}", e)))?;
+
+                    let loro_map = match tokio::runtime::Handle::try_current() {
+                        Ok(handle) => {
+                            tokio::task::block_in_place(|| {
+                                handle.block_on(async {
+                                    rx.await
+                                        .map_err(|e| LuaError::RuntimeError(format!("Scribe dropped channel: {}", e)))?
+                                        .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
+                                })
+                            })
+                        }
+                        Err(_) => {
+                            let rt = tokio::runtime::Runtime::new()
+                                .map_err(|e| LuaError::RuntimeError(format!("Failed to create runtime: {}", e)))?;
+                            rt.block_on(async {
+                                rx.await
+                                    .map_err(|e| LuaError::RuntimeError(format!("Scribe dropped channel: {}", e)))?
+                                    .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
+                            })
+                        }
+                    };
+
+                    match loro_map {
+                        Ok(map) => {
+                            let wrapper = LuaLoroMap::new(map, this.scribe_ref.clone(), layer_name);
+                            lua.create_userdata(wrapper).map(|ud| LuaValue::UserData(ud))
+                        }
+                        Err(_) => Ok(LuaValue::Nil), // Return nil if layer doesn't exist
+                    }
+                }
+            }
         });
     }
 }

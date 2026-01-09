@@ -234,6 +234,7 @@ async fn test_scribe_apply_loro_update() {
             layer_name: "collaborative_doc".to_string(),
             update,
             from_peer: None,
+            permit: None,
         })
         .expect("Failed to send ApplyUpdate");
 
@@ -264,6 +265,7 @@ async fn test_scribe_persists_updates() {
             layer_name: "collaborative_doc".to_string(),
             update,
             from_peer: None,
+            permit: None,
         })
         .expect("Failed to apply update");
 
@@ -301,6 +303,7 @@ async fn test_scribe_multiple_updates() {
                 layer_name: "collaborative_doc".to_string(),
                 update,
                 from_peer: None,
+                permit: None,
             })
             .expect("Failed to apply update");
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -336,6 +339,7 @@ async fn test_scribe_different_layers() {
                 layer_name: layer.to_string(),
                 update,
                 from_peer: None,
+                permit: None,
             })
             .expect("Failed");
     }
@@ -438,6 +442,7 @@ async fn test_both_peers_open_page() {
             layer_name: "collaborative_doc".to_string(),
             update: owner_update,
             from_peer: None,
+            permit: None,
         })
         .expect("Failed to apply owner update");
 
@@ -448,6 +453,7 @@ async fn test_both_peers_open_page() {
             layer_name: "collaborative_doc".to_string(),
             update: node_update,
             from_peer: None,
+            permit: None,
         })
         .expect("Failed to apply node update");
 
@@ -508,6 +514,7 @@ async fn test_scribe_subscription_with_real_permit() {
             layer_name: "collaborative_doc".to_string(),
             update,
             from_peer: None,
+            permit: None,
         })
         .expect("Failed to apply update");
 
@@ -577,6 +584,7 @@ async fn test_scribe_receives_peer_update() {
             layer_name: "collaborative_doc".to_string(),
             update: peer_update,
             from_peer: Some((node_user_info.did.clone(), node_device_id.clone())),
+            permit: None,
         })
         .expect("Failed to apply peer update");
 

@@ -66,6 +66,20 @@ pub enum ScribeMessage {
         update: Vec<u8>,
         /// None = local edit, Some = remote peer
         from_peer: Option<(String, String)>,
+        /// Permit from SyncOffer (for peers not yet subscribed)
+        permit: Option<String>,
+    },
+
+    /// Apply layer update with result feedback (for SyncAccept control)
+    ///
+    /// **Context**: Remote sync push that needs success/failure feedback
+    /// **We do**: Permission check, CRDT merge, broadcast to subscribers, reply with result
+    ApplyUpdateWithResult {
+        layer_name: String,
+        update: Vec<u8>,
+        from_peer: Option<(String, String)>,
+        permit: Option<String>,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
     },
 
     /// Sync request - peer wants updates since their version
@@ -100,6 +114,23 @@ pub enum ScribeMessage {
     /// Flush dirty layers to storage
     Flush,
 
+    /// Update peer's cached state vector (from PeerActor after SyncAccept/SyncAck)
+    ///
+    /// **Context**: PeerActor received confirmation of peer's state
+    /// **We do**: Update in-memory vector cache (persistence via periodic flush)
+    UpdatePeerVector {
+        user_did: String,
+        device_id: String,
+        layer_name: String,
+        state_vector: Vec<u8>,
+    },
+
+    /// Periodic reconciliation - check all subscribers for divergence
+    ///
+    /// **Context**: Timer fires every 30 seconds
+    /// **We do**: Compare vectors, re-broadcast if diverged
+    ReconcileWithPeers,
+
     /// Get LoroList container reference for Lua FFI
     ///
     /// **Context**: Lua app wants direct access to a list container
@@ -116,6 +147,33 @@ pub enum ScribeMessage {
     GetLoroMap {
         layer_name: String,
         reply: tokio::sync::oneshot::Sender<Result<loro::LoroMap>>,
+    },
+
+    /// Get or create LoroList (creates layer if doesn't exist)
+    ///
+    /// **Context**: Lua calls loro:get_or_create_layer("name", "list")
+    /// **We do**: Get layer or create new one, return LoroList handle
+    GetOrCreateLoroList {
+        layer_name: String,
+        reply: tokio::sync::oneshot::Sender<Result<loro::LoroList>>,
+    },
+
+    /// Get or create LoroMap (creates layer if doesn't exist)
+    ///
+    /// **Context**: Lua calls loro:get_or_create_layer("name", "map")
+    /// **We do**: Get layer or create new one, return LoroMap handle
+    GetOrCreateLoroMap {
+        layer_name: String,
+        reply: tokio::sync::oneshot::Sender<Result<loro::LoroMap>>,
+    },
+
+    /// List layers matching a pattern
+    ///
+    /// **Context**: Lua calls loro:list_layers("*:order")
+    /// **We do**: Return layer names matching glob pattern
+    ListLayers {
+        pattern: String,
+        reply: tokio::sync::oneshot::Sender<Vec<String>>,
     },
 
     /// Subscribe to Loro changes for reactive UI updates
@@ -273,6 +331,8 @@ pub struct BroadcastPayload {
 #[derive(Debug, Clone)]
 pub enum ScribeEvent {
     LayerUpdated { layer_name: String },
+    /// New layer discovered (from peer sync or local creation)
+    LayerDiscovered { layer_name: String },
 }
 
 /// Events emitted when Loro CRDT changes (for reactive Lua callbacks)
@@ -555,7 +615,8 @@ pub struct ScribeState {
     /// LoroDoc layers (layer_name → Layer)
     layers: HashMap<String, Layer>,
     /// Peer subscribers (user_did, device_id) → SubscriberInfo
-    subscribers: HashMap<(String, String), SubscriberInfo>,
+    /// Arc<RwLock> allows Loro observer callback to send directly to peers
+    subscribers: Arc<std::sync::RwLock<HashMap<(String, String), SubscriberInfo>>>,
     /// UI subscribers
     ui_subscribers: Vec<mpsc::Sender<ScribeEvent>>,
     /// Query subscribers (query_id → QuerySubscriberInfo)
@@ -651,10 +712,21 @@ impl Actor for Scribe {
             }
         });
 
-        Ok(ScribeState {
+        // Spawn periodic reconciliation timer - catches missed syncs every 30 seconds
+        // Useful for reconnection scenarios where state vectors may have diverged
+        let myself_reconcile = myself.clone();
+        tokio::spawn(async move {
+            let mut reconcile_interval = interval(Duration::from_secs(30));
+            loop {
+                reconcile_interval.tick().await;
+                let _ = myself_reconcile.cast(ScribeMessage::ReconcileWithPeers);
+            }
+        });
+
+        let state = ScribeState {
             page_id: args.page_id,
             layers: args.layers,
-            subscribers: HashMap::new(),
+            subscribers: Arc::new(std::sync::RwLock::new(HashMap::new())),
             ui_subscribers: Vec::new(),
             query_subscribers: HashMap::new(),
             loro_observers: HashMap::new(),
@@ -667,7 +739,23 @@ impl Actor for Scribe {
             list_authorized_users: args.list_authorized_users,
             load_user_permit: args.load_user_permit,
             loro_subscriptions: HashMap::new(),
-        })
+        };
+
+        // Emit EnsureSync on page open to trigger remote subscription
+        // Flow: EnsureSync → Coordinator → (connect if needed) → RefreshSubscriptions → remote subscribes
+        if let Some(ref sync_config) = state.sync_config {
+            if let Some(ref sync_target) = sync_config.sync_target {
+                if let Some(ref tx) = state.sync_event_tx {
+                    let event = SyncEvent::EnsureSync { user_did: sync_target.clone() };
+                    match tx.try_send(event) {
+                        Ok(()) => info!(sync_target = %sync_target, page_id = %state.page_id, "Emitted EnsureSync on page open"),
+                        Err(e) => warn!(sync_target = %sync_target, error = %e, "Failed to emit EnsureSync on page open"),
+                    }
+                }
+            }
+        }
+
+        Ok(state)
     }
 
     async fn handle(
@@ -690,8 +778,13 @@ impl Actor for Scribe {
                 debug!(page_id = %state.page_id, "UI subscriber added");
             }
 
-            ScribeMessage::ApplyUpdate { layer_name, update, from_peer } => {
-                self.handle_apply_update(state, &layer_name, &update, from_peer).await;
+            ScribeMessage::ApplyUpdate { layer_name, update, from_peer, permit } => {
+                let _ = self.handle_apply_update(state, &layer_name, &update, from_peer, permit.as_deref()).await;
+            }
+
+            ScribeMessage::ApplyUpdateWithResult { layer_name, update, from_peer, permit, reply } => {
+                let result = self.handle_apply_update(state, &layer_name, &update, from_peer, permit.as_deref()).await;
+                let _ = reply.send(result);
             }
 
             ScribeMessage::SyncRequest { layer_name, their_vector, reply } => {
@@ -732,12 +825,60 @@ impl Actor for Scribe {
                 let _ = reply.send(result);
             }
 
+            ScribeMessage::GetOrCreateLoroList { layer_name, reply } => {
+                // Get existing layer or create new one
+                if !state.layers.contains_key(&layer_name) {
+                    state.layers.insert(layer_name.clone(), Layer::new());
+                    state.dirty_layers.insert(layer_name.clone());
+                    debug!(layer = %layer_name, "Created new layer for Lua");
+                }
+                let result = state.layers.get(&layer_name)
+                    .ok_or_else(|| ButlerError::LayerNotFound(layer_name.clone()))
+                    .map(|layer| layer.loro().get_list(layer_name.clone()));
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::GetOrCreateLoroMap { layer_name, reply } => {
+                // Get existing layer or create new one
+                if !state.layers.contains_key(&layer_name) {
+                    state.layers.insert(layer_name.clone(), Layer::new());
+                    state.dirty_layers.insert(layer_name.clone());
+                    debug!(layer = %layer_name, "Created new layer for Lua");
+                }
+                let result = state.layers.get(&layer_name)
+                    .ok_or_else(|| ButlerError::LayerNotFound(layer_name.clone()))
+                    .map(|layer| layer.loro().get_map(layer_name.clone()));
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::ListLayers { pattern, reply } => {
+                // Match layer names against glob pattern
+                let matching: Vec<String> = state.layers.keys()
+                    .filter(|name| glob_match(&pattern, name))
+                    .cloned()
+                    .collect();
+                let _ = reply.send(matching);
+            }
+
             ScribeMessage::SubscribeToLoroChanges { layer_name, event_tx } => {
                 self.handle_subscribe_loro_changes(state, layer_name, event_tx).await;
             }
 
             ScribeMessage::LayerModifiedByLua { layer_name } => {
                 self.handle_layer_modified_by_lua(state, layer_name).await;
+            }
+
+            ScribeMessage::UpdatePeerVector { user_did, device_id, layer_name, state_vector } => {
+                if let Ok(mut subs) = state.subscribers.write() {
+                    if let Some(info) = subs.get_mut(&(user_did.clone(), device_id.clone())) {
+                        info.vectors.insert(layer_name.clone(), state_vector);
+                        debug!(user_did = %user_did, device_id = %device_id, layer_name = %layer_name, "Updated in-memory peer vector");
+                    }
+                }
+            }
+
+            ScribeMessage::ReconcileWithPeers => {
+                self.handle_reconcile_with_peers(state).await;
             }
 
             ScribeMessage::GetSnapshot { layer_name, reply } => {
@@ -874,17 +1015,20 @@ impl Scribe {
             }
         };
 
-        state.subscribers.insert(
-            (user_did.clone(), device_id.clone()),
-            SubscriberInfo {
-                broadcast_tx: broadcast_tx.clone(),
-                vectors,
-                layer_permissions: layer_permissions.clone(),
-                sync_policy: sync_policy.clone(),
-            },
-        );
+        debug!(layer_permissions = ?layer_permissions.keys().collect::<Vec<_>>(), "Parsed layer permissions from permit");
 
-        debug!(subscriber_count = state.subscribers.len(), "Subscriber added");
+        if let Ok(mut subs) = state.subscribers.write() {
+            subs.insert(
+                (user_did.clone(), device_id.clone()),
+                SubscriberInfo {
+                    broadcast_tx: broadcast_tx.clone(),
+                    vectors,
+                    layer_permissions: layer_permissions.clone(),
+                    sync_policy: sync_policy.clone(),
+                },
+            );
+            debug!(subscriber_count = subs.len(), "Subscriber added");
+        }
 
         // Send initial state to new subscriber for layers they have access to
         self.send_initial_state_to_subscriber(state, &user_did, &device_id, &broadcast_tx, &layer_permissions, &sync_policy).await;
@@ -975,53 +1119,76 @@ impl Scribe {
     ) {
         info!(user_did = %user_did, device_id = %device_id, "Peer unsubscribing");
 
-        // Save their vectors before removing
-        if let Some(info) = state.subscribers.get(&(user_did.to_string(), device_id.to_string())) {
-            if let Err(e) = (state.save_peer_vector)(user_did, device_id, &info.vectors) {
-                warn!(error = %e, "Failed to save peer vectors on unsubscribe");
+        if let Ok(mut subs) = state.subscribers.write() {
+            // Save their vectors before removing
+            if let Some(info) = subs.get(&(user_did.to_string(), device_id.to_string())) {
+                if let Err(e) = (state.save_peer_vector)(user_did, device_id, &info.vectors) {
+                    warn!(error = %e, "Failed to save peer vectors on unsubscribe");
+                }
             }
-        }
 
-        state.subscribers.remove(&(user_did.to_string(), device_id.to_string()));
-        debug!(subscriber_count = state.subscribers.len(), "Subscriber removed");
+            subs.remove(&(user_did.to_string(), device_id.to_string()));
+            debug!(subscriber_count = subs.len(), "Subscriber removed");
+        }
     }
 
     /// Handle layer update (local or remote)
     ///
     /// **Context**: Edit from UI or sync push from peer
     /// **We do**: Permission check, CRDT merge, broadcast to subscribers
-    #[instrument(skip(self, state, update), fields(page_id = %state.page_id, layer = %layer_name))]
+    /// **Returns**: Ok(()) on success, Err(message) on failure (for ApplyUpdateWithResult feedback)
+    #[instrument(skip(self, state, update, permit), fields(page_id = %state.page_id, layer = %layer_name))]
     async fn handle_apply_update(
         &self,
         state: &mut ScribeState,
         layer_name: &str,
         update: &[u8],
         from_peer: Option<(String, String)>,
-    ) {
+        permit: Option<&str>,
+    ) -> std::result::Result<(), String> {
+        let _ = permit; // Permit is used for subscription in Courier, not here
+
         // Skip local_only layers for remote updates
         if from_peer.is_some() && self.is_local_only(state, layer_name) {
             warn!("Rejected update for local_only layer from remote peer");
-            return;
+            return Err("local_only layer cannot be updated by remote peer".to_string());
         }
 
         // Permission check for remote updates
         if let Some(ref peer) = from_peer {
             if !self.can_write(state, peer, layer_name) {
                 warn!(user_did = %peer.0, "Permission denied: cannot write to layer");
-                return;
+                return Err("Permission denied: cannot write to layer".to_string());
             }
             // Note: submitter namespace validation is client-side (trusted)
         }
 
-        // Get layer and apply CRDT merge
+        // Get or create layer for CRDT merge
+        // For peer updates, we auto-create the layer if it doesn't exist
+        // This enables P2P layer discovery (e.g., customer creates orders layer, owner sees it)
+        let is_new_layer = !state.layers.contains_key(layer_name);
+        if is_new_layer {
+            if from_peer.is_some() {
+                state.layers.insert(layer_name.to_string(), Layer::new());
+                state.dirty_layers.insert(layer_name.to_string());
+                info!(layer = %layer_name, "Created new layer from peer sync");
+                // Notify UI subscribers about the new layer
+                self.notify_layer_discovered(state, layer_name);
+            } else {
+                // Local updates should only go to existing layers
+                warn!("Layer not found for local update");
+                return Err("Layer not found".to_string());
+            }
+        }
+
         let Some(layer) = state.layers.get(layer_name) else {
             warn!("Layer not found");
-            return;
+            return Err("Layer not found".to_string());
         };
 
         if let Err(e) = layer.apply(update) {
             error!(error = %e, "Failed to apply update to layer");
-            return;
+            return Err(format!("Failed to apply update: {}", e));
         }
 
         state.dirty_layers.insert(layer_name.to_string());
@@ -1029,10 +1196,12 @@ impl Scribe {
 
         // Update sender's vector to reflect what they've sent us
         if let Some(ref peer) = from_peer {
-            if let Some(info) = state.subscribers.get_mut(peer) {
-                let current_vector = layer.version_vector();
-                info.vectors.insert(layer_name.to_string(), current_vector);
-                debug!(user_did = %peer.0, "Updated sender's peer vector");
+            if let Ok(mut subs) = state.subscribers.write() {
+                if let Some(info) = subs.get_mut(peer) {
+                    let current_vector = layer.version_vector();
+                    info.vectors.insert(layer_name.to_string(), current_vector);
+                    debug!(user_did = %peer.0, "Updated sender's peer vector");
+                }
             }
         }
 
@@ -1051,6 +1220,7 @@ impl Scribe {
         // This prevents duplicate events and ensures deltas are always included.
 
         // Dirty layer will be flushed by periodic timer (every 10s)
+        Ok(())
     }
 
     /// Broadcast layer update to all eligible subscribers
@@ -1068,78 +1238,62 @@ impl Scribe {
             return;
         };
 
-        // Collect version vector once
+        // Collect version vector and snapshot once (same for all peers)
         let current_vector = layer.version_vector();
+        let snapshot = layer.export_snapshot();
 
         // Track subscribers to remove (channel closed = peer disconnected)
         let mut to_remove: Vec<(String, String)> = Vec::new();
 
-        for ((user_did, device_id), info) in &mut state.subscribers {
-            // Skip sender
-            if from_peer == Some(&(user_did.clone(), device_id.clone())) {
-                continue;
-            }
+        if let Ok(mut subs) = state.subscribers.write() {
+            for ((user_did, device_id), info) in subs.iter_mut() {
+                // Skip sender
+                if from_peer == Some(&(user_did.clone(), device_id.clone())) {
+                    continue;
+                }
 
-            // Check can receive (inline to avoid borrow issues)
-            let can_receive = info.layer_permissions.contains_key(layer_name)
-                && !info.sync_policy.no_incoming_updates.contains(layer_name);
+                // Check can receive (inline to avoid borrow issues)
+                let can_receive = info.layer_permissions.contains_key(layer_name)
+                    && !info.sync_policy.no_incoming_updates.contains(layer_name);
 
-            if !can_receive {
-                continue;
-            }
+                if !can_receive {
+                    continue;
+                }
 
-            // Determine what to send: full snapshot or incremental
-            let export = if info.sync_policy.send_full_snapshot.contains(layer_name) {
-                layer.export_snapshot()
-            } else {
-                // Incremental: export since their last known vector
-                let their_vector = info.vectors.get(layer_name).cloned().unwrap_or_default();
-                if their_vector.is_empty() {
-                    layer.export_snapshot()
-                } else {
-                    match layer.export_updates(&their_vector) {
-                        Ok(updates) => updates,
-                        Err(e) => {
-                            warn!(error = %e, "Failed to export incremental, falling back to snapshot");
-                            layer.export_snapshot()
-                        }
+                // Send same snapshot to all (CRDT handles ordering)
+                let payload = BroadcastPayload {
+                    page_id: state.page_id.clone(),
+                    layer_name: layer_name.to_string(),
+                    update: snapshot.clone(),
+                    state_vector: current_vector.clone(),
+                };
+
+                match info.broadcast_tx.try_send(payload) {
+                    Ok(()) => {
+                        // Update their vector on successful send
+                        info.vectors.insert(layer_name.to_string(), current_vector.clone());
+                    }
+                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                        // Channel closed = peer disconnected, mark for removal
+                        info!(user_did = %user_did, device_id = %device_id, "Subscriber disconnected, removing");
+                        to_remove.push((user_did.clone(), device_id.clone()));
+                    }
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        // Channel full - log warning but don't remove (temporary backpressure)
+                        warn!(user_did = %user_did, "Broadcast channel full, update dropped");
                     }
                 }
-            };
-
-            // Send via broadcast channel with our state vector for 3-step sync
-            let payload = BroadcastPayload {
-                page_id: state.page_id.clone(),
-                layer_name: layer_name.to_string(),
-                update: export,
-                state_vector: current_vector.clone(),
-            };
-
-            match info.broadcast_tx.try_send(payload) {
-                Ok(()) => {
-                    // Update their vector on successful send
-                    info.vectors.insert(layer_name.to_string(), current_vector.clone());
-                }
-                Err(mpsc::error::TrySendError::Closed(_)) => {
-                    // Channel closed = peer disconnected, mark for removal
-                    info!(user_did = %user_did, device_id = %device_id, "Subscriber disconnected, removing");
-                    to_remove.push((user_did.clone(), device_id.clone()));
-                }
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    // Channel full - log warning but don't remove (temporary backpressure)
-                    warn!(user_did = %user_did, "Broadcast channel full, update dropped");
-                }
             }
-        }
 
-        // Remove disconnected subscribers
-        for key in to_remove {
-            if let Some(info) = state.subscribers.remove(&key) {
-                // Save their final vectors before removal
-                if let Err(e) = (state.save_peer_vector)(&key.0, &key.1, &info.vectors) {
-                    warn!(error = %e, user_did = %key.0, device_id = %key.1, "Failed to save peer vector on disconnect");
+            // Remove disconnected subscribers
+            for key in to_remove {
+                if let Some(info) = subs.remove(&key) {
+                    // Save their final vectors before removal
+                    if let Err(e) = (state.save_peer_vector)(&key.0, &key.1, &info.vectors) {
+                        warn!(error = %e, user_did = %key.0, device_id = %key.1, "Failed to save peer vector on disconnect");
+                    }
+                    info!(user_did = %key.0, device_id = %key.1, "Cleaned up disconnected subscriber");
                 }
-                info!(user_did = %key.0, device_id = %key.1, "Cleaned up disconnected subscriber");
             }
         }
 
@@ -1150,6 +1304,20 @@ impl Scribe {
     /// Notify UI subscribers of layer change
     fn notify_ui(&self, state: &ScribeState, layer_name: &str) {
         let event = ScribeEvent::LayerUpdated {
+            layer_name: layer_name.to_string(),
+        };
+
+        for tx in &state.ui_subscribers {
+            let _ = tx.try_send(event.clone());
+        }
+    }
+
+    /// Notify UI subscribers of new layer discovery
+    ///
+    /// **Context**: A new layer was created (from peer sync or local creation)
+    /// **We do**: Send LayerDiscovered event to all UI subscribers (apps can filter by pattern)
+    fn notify_layer_discovered(&self, state: &ScribeState, layer_name: &str) {
+        let event = ScribeEvent::LayerDiscovered {
             layer_name: layer_name.to_string(),
         };
 
@@ -1228,9 +1396,66 @@ impl Scribe {
         }
 
         // Save all peer vectors
-        for ((user_did, device_id), info) in &state.subscribers {
-            if let Err(e) = (state.save_peer_vector)(user_did, device_id, &info.vectors) {
-                warn!(user_did = %user_did, error = %e, "Failed to save peer vectors");
+        if let Ok(subs) = state.subscribers.read() {
+            for ((user_did, device_id), info) in subs.iter() {
+                if let Err(e) = (state.save_peer_vector)(user_did, device_id, &info.vectors) {
+                    warn!(user_did = %user_did, error = %e, "Failed to save peer vectors");
+                }
+            }
+        }
+    }
+
+    /// Handle periodic reconciliation with all subscribed peers
+    ///
+    /// **Context**: Timer-driven check for state divergence (every 30s)
+    /// **We do**: For each layer, check if any subscriber is behind our vector
+    /// **If diverged**: Re-broadcast update (triggers 3-step sync to catch them up)
+    #[instrument(skip(self, state), fields(page_id = %state.page_id))]
+    async fn handle_reconcile_with_peers(&self, state: &mut ScribeState) {
+        // Check if any subscribers exist (read lock)
+        let has_subscribers = state.subscribers.read()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
+
+        if !has_subscribers {
+            return; // No subscribers to reconcile with
+        }
+
+        let sub_count = state.subscribers.read().map(|s| s.len()).unwrap_or(0);
+        let layer_names: Vec<_> = state.layers.keys().cloned().collect();
+        debug!(subscriber_count = sub_count, layers = ?layer_names, "Starting periodic reconciliation");
+
+        // For each layer, check if any subscriber needs sync
+        for layer_name in state.layers.keys().cloned().collect::<Vec<_>>() {
+            let our_vector = match state.layers.get(&layer_name) {
+                Some(layer) => layer.version_vector(),
+                None => continue,
+            };
+
+            // Check if any subscriber has a different vector (may be behind)
+            let needs_sync = if let Ok(subs) = state.subscribers.read() {
+                subs.iter().any(|((user_did, _), info)| {
+                    // Skip if they can't receive this layer
+                    if !info.layer_permissions.contains_key(&layer_name) {
+                        debug!(layer = %layer_name, user_did = %user_did, permissions = ?info.layer_permissions.keys().collect::<Vec<_>>(), "Subscriber lacks permission for layer");
+                        return false;
+                    }
+                    if info.sync_policy.no_incoming_updates.contains(&layer_name) {
+                        return false;
+                    }
+
+                    // Compare vectors - if different or missing, they may need sync
+                    info.vectors.get(&layer_name)
+                        .map(|v| v != &our_vector)
+                        .unwrap_or(true) // No vector = never synced = needs sync
+                })
+            } else {
+                false
+            };
+
+            if needs_sync {
+                debug!(layer_name = %layer_name, "Divergence detected during reconciliation, broadcasting");
+                self.broadcast_update(state, &layer_name, None).await;
             }
         }
     }
@@ -1426,7 +1651,12 @@ impl Scribe {
     /// Handle subscription to Loro changes for reactive UI updates
     ///
     /// **Context**: App runtime wants reactive callbacks when Loro changes
-    /// **We do**: Add channel to observers list for this layer
+    /// **We do**: Add channel to observers list for this layer, setup Loro observer
+    /// **Observer triggers**: UI notifications + peer broadcasts (event-driven sync)
+    ///
+    /// **Important**: Loro observer callbacks hold internal locks - we must NOT call
+    /// Loro methods (to_json_value, export_snapshot, version_vector) inside the callback.
+    /// Instead, we send a lightweight signal and defer work to an async task.
     async fn handle_subscribe_loro_changes(
         &self,
         state: &mut ScribeState,
@@ -1458,51 +1688,101 @@ impl Scribe {
                 }
             };
 
-            // Clone layer for callback
-            let layer_clone = layer.clone();
-            let layer_name_clone = layer_name.clone();
+            // Create internal channel for observer signals
+            // The callback sends lightweight signals here, async task does actual work
+            let (signal_tx, mut signal_rx) = tokio::sync::mpsc::unbounded_channel::<Option<LoroDelta>>();
 
-            // Clone Arc for callback - now all future subscribers will be included!
-            let observers_for_callback = observers_arc.clone();
+            // Clone for the async task that handles observer signals
+            let layer_for_task = layer.clone();
+            let layer_name_for_task = layer_name.clone();
+            let observers_for_task = observers_arc.clone();
+            let subscribers_for_task = state.subscribers.clone();
+            let page_id_for_task = state.page_id.clone();
 
-            // Subscribe to Loro changes
-            let subscription = layer.subscribe_root(move |diff_event: loro::event::DiffEvent| {
-                // Extract delta from first container diff
-                let delta = diff_event.events.first()
-                    .and_then(|container_diff| convert_loro_diff_to_delta(&container_diff.diff));
+            // Spawn async task to handle observer signals
+            // This task is safe to call Loro methods because it's outside the callback
+            tokio::spawn(async move {
+                while let Some(delta) = signal_rx.recv().await {
+                    // Now we're outside the observer callback - safe to call Loro methods
+                    let full_data = layer_for_task.to_json_value();
 
-                // Get full data from layer
-                let full_data = layer_clone.to_json_value();
+                    // Create event for UI observers
+                    let event = LoroChangeEvent {
+                        layer_name: layer_name_for_task.clone(),
+                        delta,
+                        full_data,
+                    };
 
-                // Create event
-                let event = LoroChangeEvent {
-                    layer_name: layer_name_clone.clone(),
-                    delta,
-                    full_data,
-                };
-
-                // Send to all observers (best effort)
-                if let Ok(observers) = observers_for_callback.lock() {
-                    for observer_tx in observers.iter() {
-                        // Try send (non-blocking)
-                        match observer_tx.try_send(event.clone()) {
-                            Ok(()) => {
-                                debug!(layer_name = %layer_name_clone, "Sent Loro change event from observer");
-                            }
-                            Err(mpsc::error::TrySendError::Closed(_)) => {
-                                debug!(layer_name = %layer_name_clone, "Observer disconnected");
-                            }
-                            Err(mpsc::error::TrySendError::Full(_)) => {
-                                warn!(layer_name = %layer_name_clone, "Observer channel full");
+                    // Send to all UI observers (best effort)
+                    if let Ok(observers) = observers_for_task.lock() {
+                        for observer_tx in observers.iter() {
+                            match observer_tx.try_send(event.clone()) {
+                                Ok(()) => {
+                                    debug!(layer_name = %layer_name_for_task, "Sent Loro change event to UI observer");
+                                }
+                                Err(mpsc::error::TrySendError::Closed(_)) => {
+                                    debug!(layer_name = %layer_name_for_task, "Observer disconnected");
+                                }
+                                Err(mpsc::error::TrySendError::Full(_)) => {
+                                    warn!(layer_name = %layer_name_for_task, "Observer channel full");
+                                }
                             }
                         }
                     }
+
+                    // Export snapshot for peer broadcast (safe here, outside callback)
+                    let snapshot = layer_for_task.export_snapshot();
+                    let state_vector = layer_for_task.version_vector();
+
+                    // Send to peer subscribers
+                    if let Ok(subs) = subscribers_for_task.read() {
+                        for ((user_did, device_id), info) in subs.iter() {
+                            // Skip if can't receive this layer
+                            if !info.layer_permissions.contains_key(&layer_name_for_task) {
+                                continue;
+                            }
+
+                            let payload = BroadcastPayload {
+                                page_id: page_id_for_task.clone(),
+                                layer_name: layer_name_for_task.clone(),
+                                update: snapshot.clone(),
+                                state_vector: state_vector.clone(),
+                            };
+
+                            match info.broadcast_tx.try_send(payload) {
+                                Ok(()) => {
+                                    debug!(user_did = %user_did, device_id = %device_id, layer_name = %layer_name_for_task, "Sent update to peer from observer task");
+                                }
+                                Err(mpsc::error::TrySendError::Closed(_)) => {
+                                    debug!(user_did = %user_did, "Peer broadcast channel closed");
+                                }
+                                Err(mpsc::error::TrySendError::Full(_)) => {
+                                    warn!(user_did = %user_did, "Peer broadcast channel full");
+                                }
+                            }
+                        }
+                    }
+                }
+                debug!(layer_name = %layer_name_for_task, "Observer signal handler task ended");
+            });
+
+            // Subscribe to Loro changes - callback only sends lightweight signal
+            let layer_name_clone = layer_name.clone();
+            let subscription = layer.subscribe_root(move |diff_event: loro::event::DiffEvent| {
+                // IMPORTANT: Do NOT call Loro methods here - it causes locking order violation!
+                // Only extract data from diff_event (already computed by Loro)
+                let delta = diff_event.events.first()
+                    .and_then(|container_diff| convert_loro_diff_to_delta(&container_diff.diff));
+
+                // Send signal to async task (unbounded so it never blocks)
+                if let Err(e) = signal_tx.send(delta) {
+                    debug!(layer_name = %layer_name_clone, error = %e, "Observer signal channel closed");
                 }
             });
 
             // Store subscription so it doesn't get dropped
             state.loro_subscriptions.insert(layer_name.clone(), subscription);
-            info!(layer_name = %layer_name, "Setup Loro native observer");
+            info!(layer_name = %layer_name, "Setup Loro native observer with deferred task");
         }
     }
 
@@ -1898,16 +2178,30 @@ impl Scribe {
     /// **Context**: Remote peer is trying to write to this layer
     /// **We check**:
     /// 1. Peer is a subscriber with collaborator/submitter permission
-    /// 2. OR peer has a stored permit with write access (node mode - permit-based sync auth)
+    /// 2. OR peer is our sync_target (owner/viewer mode - trust sync source)
+    /// 3. OR peer has a stored permit with write access (node mode - permit-based sync auth)
     fn can_write(&self, state: &ScribeState, peer: &(String, String), layer_name: &str) -> bool {
         // Check if peer is a subscriber with write permission
-        let subscriber_can_write = state.subscribers.get(peer)
-            .and_then(|info| info.layer_permissions.get(layer_name))
-            .map(|cap| matches!(cap, LayerCapability::Collaborator | LayerCapability::Submitter))
+        let subscriber_can_write = state.subscribers.read()
+            .map(|subs| subs.get(peer)
+                .and_then(|info| info.layer_permissions.get(layer_name))
+                .map(|cap| matches!(cap, LayerCapability::Collaborator | LayerCapability::Submitter))
+                .unwrap_or(false))
             .unwrap_or(false);
 
         if subscriber_can_write {
             return true;
+        }
+
+        // Owner/Viewer mode: trust data from our sync_target (the node we sync with)
+        // This allows receiving sync updates from the node without explicit subscription
+        if let Some(ref config) = state.sync_config {
+            if let Some(ref sync_target) = config.sync_target {
+                if &peer.0 == sync_target {
+                    debug!(user_did = %peer.0, layer = %layer_name, "Write allowed from sync_target");
+                    return true;
+                }
+            }
         }
 
         // Node mode: check stored permit for write access (permit-based auth)
@@ -1931,12 +2225,14 @@ impl Scribe {
 
     /// Check if peer can receive updates for layer
     fn can_receive(&self, state: &ScribeState, peer: &(String, String), layer_name: &str) -> bool {
-        state.subscribers.get(peer)
-            .map(|info| {
-                // Check capability exists AND not in no_incoming_updates
-                info.layer_permissions.contains_key(layer_name)
-                    && !info.sync_policy.no_incoming_updates.contains(layer_name)
-            })
+        state.subscribers.read()
+            .map(|subs| subs.get(peer)
+                .map(|info| {
+                    // Check capability exists AND not in no_incoming_updates
+                    info.layer_permissions.contains_key(layer_name)
+                        && !info.sync_policy.no_incoming_updates.contains(layer_name)
+                })
+                .unwrap_or(false))
             .unwrap_or(false)
     }
 }
@@ -1973,7 +2269,9 @@ impl Scribe {
     ///
     /// **Context**: Called during broadcast to filter already-subscribed users.
     fn is_user_subscribed(&self, state: &ScribeState, user_did: &str) -> bool {
-        state.subscribers.keys().any(|(did, _device)| did == user_did)
+        state.subscribers.read()
+            .map(|subs| subs.keys().any(|(did, _device)| did == user_did))
+            .unwrap_or(false)
     }
 
     /// Emit EnsureSync for users that should be synced but aren't subscribed.
@@ -2022,15 +2320,22 @@ fn parse_permit_for_layers(permit: &str) -> Result<(HashMap<String, LayerCapabil
     if let Some(layers_value) = parsed.get_fact("layers") {
         if let Some(layers_obj) = layers_value.as_object() {
             for (layer_name, config) in layers_obj {
-                if let Some(cap_str) = config.get("capability").and_then(|v| v.as_str()) {
-                    let capability = match cap_str {
+                // Check for explicit capability
+                let capability = if let Some(cap_str) = config.get("capability").and_then(|v| v.as_str()) {
+                    match cap_str {
                         "viewer" => LayerCapability::Viewer,
                         "submitter" => LayerCapability::Submitter,
                         "collaborator" => LayerCapability::Collaborator,
                         _ => LayerCapability::Viewer,
-                    };
-                    layer_permissions.insert(layer_name.clone(), capability);
-                }
+                    }
+                } else if config.get("sync").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    // If sync: true but no explicit capability, default to Collaborator
+                    LayerCapability::Collaborator
+                } else {
+                    // Layer exists but no sync enabled - skip
+                    continue;
+                };
+                layer_permissions.insert(layer_name.clone(), capability);
             }
         }
     }
@@ -2063,4 +2368,25 @@ fn parse_permit_for_layers(permit: &str) -> Result<(HashMap<String, LayerCapabil
     }
 
     Ok((layer_permissions, sync_policy))
+}
+
+/// Simple glob pattern matching for layer names
+///
+/// **Supported patterns:**
+/// - `*` at end: prefix match (e.g., "*:order" matches anything ending with ":order")
+/// - `*` at start: suffix match (e.g., "did:*" matches anything starting with "did:")
+/// - Exact match otherwise
+fn glob_match(pattern: &str, name: &str) -> bool {
+    if pattern == "*" {
+        true
+    } else if pattern.starts_with('*') {
+        // Suffix match: "*:order" matches "did:key:abc:order"
+        name.ends_with(&pattern[1..])
+    } else if pattern.ends_with('*') {
+        // Prefix match: "app:*" matches "app:shop"
+        name.starts_with(&pattern[..pattern.len() - 1])
+    } else {
+        // Exact match
+        pattern == name
+    }
 }

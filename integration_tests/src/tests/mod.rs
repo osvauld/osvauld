@@ -1,5 +1,6 @@
 //! Integration tests
 
+mod bidirectional_sync;
 mod handshake;
 mod layer_sync;
 mod lazy_sync;

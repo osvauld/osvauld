@@ -454,6 +454,41 @@ pub fn decide_space_owner_token(
     Ok(decision)
 }
 
+/// Decide what should be in a space node-to-owner token
+///
+/// Used when node issues a permit back to the owner after receiving PublishSpace.
+/// This permit proves the space is published to this node.
+///
+/// # Arguments
+/// * `verifying_key` - Node's verifying key (issuer)
+/// * `space_id` - Space identifier
+/// * `owner_pubkey` - Owner's public key (audience)
+pub fn decide_space_node_to_owner_token(
+    verifying_key: &VerifyingKey,
+    space_id: &str,
+    owner_pubkey: &str,
+) -> DecisionResult<TokenDecision> {
+    let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
+
+    let mut decision = TokenDecision::new(owner_pubkey);
+
+    // Build facts for node→owner permit
+    // This is a simple permit proving space is published to this node
+    decision.add_fact("token_type".into(), json!("space_node_share"));
+    decision.add_fact("relationship".into(), json!("owner"));
+    decision.add_fact("space_id".into(), json!(space_id));
+    decision.add_fact("issuer_id".into(), json!(pub_key_b64));
+    decision.add_fact("operations".into(), json!({
+        "sync": "allow"
+    }));
+    decision.add_fact("auth_capabilities".into(), json!({
+        "can_connect": true,
+        "sync_enabled": true
+    }));
+
+    Ok(decision)
+}
+
 // ==================== PAGE TOKEN DECISIONS ====================
 
 /// Decide what should be in a page owner token
@@ -788,4 +823,75 @@ pub fn decide_sync_page_consent(
 
     debug!("Page sync consent decision created for page {} -> node {}", page_id, node_pubkey);
     Ok(decision)
+}
+
+// ==================== LAYER PATTERN AUTHORIZATION ====================
+
+/// Check if permit authorizes access to a layer (IDENTITY-based)
+///
+/// **Note**: This only checks if the viewer CAN access the layer based on identity.
+/// State-based checks (can_write, can_delete) happen via auth_lua in AuthSandbox.
+///
+/// # Arguments
+/// * `permit` - The viewer's permit
+/// * `layer_name` - Name of the layer to access
+/// * `operation` - Operation to check: "create", "sync", "read", "write"
+///
+/// # Returns
+/// `true` if the permit authorizes this layer access
+pub fn can_access_layer(permit: &crate::parser::Permit, layer_name: &str, operation: &str) -> bool {
+    let aud = permit.core().audience().unwrap_or("");
+    let iss = permit.core().issuer().unwrap_or("");
+
+    // Check static capabilities first (existing behavior)
+    if permit.has_capability(layer_name) {
+        tracing::debug!("✅ [can_access_layer] '{}' has static capability", layer_name);
+        return true;
+    }
+
+    // Check layer_patterns with placeholder expansion
+    for (pattern, config) in permit.layer_patterns() {
+        let expanded = pattern
+            .replace("{aud}", aud)
+            .replace("{iss}", iss);
+
+        if matches_layer_pattern(layer_name, &expanded) {
+            let allowed = match operation {
+                "create" => config.create,
+                "sync" => config.sync,
+                "read" | "write" => true, // State-based checks in AuthSandbox
+                _ => false,
+            };
+            tracing::debug!(
+                "🔍 [can_access_layer] Pattern '{}' → '{}' matches '{}': {} = {}",
+                pattern, expanded, layer_name, operation, allowed
+            );
+            return allowed;
+        }
+    }
+
+    tracing::debug!("🚫 [can_access_layer] No pattern matches '{}'", layer_name);
+    false
+}
+
+/// Match a layer name against a pattern
+///
+/// Supports:
+/// - Exact match: "layer_name" matches "layer_name"
+/// - Prefix wildcard: "did:key:abc:*" matches "did:key:abc:orders"
+/// - Suffix wildcard: "*:orders" matches "did:key:abc:orders"
+fn matches_layer_pattern(layer_name: &str, pattern: &str) -> bool {
+    if pattern.ends_with(":*") {
+        // Prefix match: "did:key:abc:*" matches "did:key:abc:anything"
+        layer_name.starts_with(&pattern[..pattern.len() - 1])
+    } else if pattern.ends_with("*") {
+        // General prefix: "prefix*" matches "prefixanything"
+        layer_name.starts_with(&pattern[..pattern.len() - 1])
+    } else if pattern.starts_with("*:") {
+        // Suffix match: "*:orders" matches "anything:orders"
+        layer_name.ends_with(&pattern[1..])
+    } else {
+        // Exact match
+        layer_name == pattern
+    }
 }

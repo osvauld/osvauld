@@ -1,0 +1,7 @@
+{
+    "name": "Shop Customer",
+    "version": "1.0.0",
+    "description": "E-commerce customer app - browse products and place orders",
+    "entry_ui": "app.slint",
+    "entry_logic": "app.lua"
+}

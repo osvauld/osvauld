@@ -1,8 +1,13 @@
+//! Pure Sync Logic Layer
+//!
+//! Provides permit-driven document synchronization operations.
+//! Moved from gurkha as part of crate boundary cleanup.
+
 use std::collections::HashMap;
 use loro::LoroDoc;
-use crate::decision::{SyncContext, should_send_updates, can_receive_updates};
+use gurkha::decision::{SyncContext, should_send_updates, can_receive_updates, should_request_updates};
+use gurkha::types::SyncDecision;
 use crate::merge::MergeService;
-use crate::types::SyncDecision;
 
 /// Data to send in sync request
 #[derive(Debug)]
@@ -34,8 +39,6 @@ pub fn prepare_sync_request(
     our_permit: &str,
     peer_permit: &str,
 ) -> Result<SyncRequestData, Box<dyn std::error::Error>> {
-    use crate::decision::should_request_updates;
-
     // Create SyncContext for dual-permit validation (takes token strings)
     let context = SyncContext::new(our_permit, peer_permit)?;
 

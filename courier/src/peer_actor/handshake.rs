@@ -21,7 +21,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use tracing::{debug, error, info, warn, instrument};
 
 use herald::Identity;
-use gurkha::{
+use crate::handshake::{
     HandshakeRole, HelloDecision, WelcomeDecision, PermitGrantDecision,
     HelloContext, WelcomeContext, PermitGrantContext,
     decide_hello_response, decide_welcome_response, decide_permit_grant_response,

@@ -6,7 +6,7 @@
 //!     └──────────────────────────────────────────────────→ Failed
 //! ```
 
-use gurkha::HandshakeRole;
+use crate::handshake::HandshakeRole;
 
 /// Type of peer connection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

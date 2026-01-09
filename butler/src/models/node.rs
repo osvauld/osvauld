@@ -65,6 +65,25 @@ impl ConnectionString {
             .map(|bytes| bytes.iter().map(|b| format!("{:02x}", b)).collect())
             .unwrap_or_else(|_| String::new())
     }
+
+    /// Extract space_id from the permit (for viewer connections)
+    ///
+    /// Parses the UCAN permit and extracts the space_id fact.
+    pub fn space_id(&self) -> Result<String, String> {
+        let permit = gurkha::Permit::from_token(&self.permit)
+            .map_err(|e| format!("Invalid permit: {}", e))?;
+        permit.space_id()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "Permit missing space_id".to_string())
+    }
+
+    /// Get the node's DID from its public key
+    ///
+    /// Converts the base64 public key to DID format for storage.
+    pub fn node_did(&self) -> Result<String, String> {
+        herald::Identity::did_from_base64_pubkey(&self.node_public_key)
+            .map_err(|e| format!("Invalid node public key: {}", e))
+    }
 }
 
 // ==================== SOVEREIGN NODE ====================

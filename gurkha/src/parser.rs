@@ -6,6 +6,18 @@ use ucan::Ucan;
 
 // Note: Role and ResourceTokenType removed - using facts-only approach
 
+/// Layer pattern configuration for viewer access
+///
+/// Defines what operations a viewer can perform on layers matching a pattern.
+/// Patterns support `{aud}` placeholder for viewer DID substitution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayerPatternConfig {
+    /// Can create new layers matching this pattern
+    pub create: bool,
+    /// Can sync layers matching this pattern
+    pub sync: bool,
+}
+
 /// Error type for Permit token operations
 #[derive(Debug)]
 pub enum PermitError {
@@ -290,6 +302,9 @@ pub struct Permit {
     delegation_templates: HashMap<String, DelegationTemplate>,
     /// Parent permit CIDs for delegation chain
     proof_chain: Vec<String>,
+    /// Layer patterns for identity-based access (pattern -> config)
+    /// Patterns support `{aud}` placeholder for viewer DID substitution
+    layer_patterns: HashMap<String, LayerPatternConfig>,
 }
 
 impl Permit {
@@ -529,6 +544,23 @@ impl Permit {
         // Extract proof chain
         let proof_chain = parsed.proofs().clone().unwrap_or_default();
 
+        // Extract layer_patterns for identity-based access
+        // Format: { "{aud}:*": { "create": true, "sync": true } }
+        let mut layer_patterns = HashMap::new();
+        if let Some(patterns_obj) = facts.get("layer_patterns").and_then(|v| v.as_object()) {
+            for (pattern, config) in patterns_obj {
+                if let Some(config_obj) = config.as_object() {
+                    layer_patterns.insert(
+                        pattern.clone(),
+                        LayerPatternConfig {
+                            create: config_obj.get("create").and_then(|v| v.as_bool()).unwrap_or(false),
+                            sync: config_obj.get("sync").and_then(|v| v.as_bool()).unwrap_or(false),
+                        },
+                    );
+                }
+            }
+        }
+
         // Create PermitCore with parsed data (facts-only, no role/token_type enums)
         let core = PermitCore::new(token.to_string(), parsed, facts.clone());
 
@@ -547,6 +579,7 @@ impl Permit {
             resource_actions,
             delegation_templates,
             proof_chain,
+            layer_patterns,
         })
     }
 
@@ -708,5 +741,18 @@ impl Permit {
         self.get_fact_string("space_id").map(String::from)
     }
 
+    // ==================== Layer Pattern Access ====================
 
+    /// Get layer patterns for identity-based access control
+    ///
+    /// Patterns support `{aud}` placeholder for viewer DID substitution.
+    /// Example: `{aud}:*` expands to `did:key:viewer123:*`
+    pub fn layer_patterns(&self) -> &HashMap<String, LayerPatternConfig> {
+        &self.layer_patterns
+    }
+
+    /// Check if permit has any layer patterns defined
+    pub fn has_layer_patterns(&self) -> bool {
+        !self.layer_patterns.is_empty()
+    }
 }

@@ -353,7 +353,6 @@ pub struct PublishedPageMeta {
     pub id: String,
     pub space_id: String,
     pub name: String,
-    pub page_type: String,
     pub owner_did: String,
     pub is_private: bool,
     pub created_at: i64,

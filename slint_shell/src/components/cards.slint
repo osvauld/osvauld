@@ -1,0 +1,401 @@
+// Card components
+
+import { Theme } from "../theme.slint";
+import { AppInfo, PageInfo } from "../types.slint";
+
+// Space card component
+export component SpaceCard {
+    in property<string> space-id;
+    in property<string> name;
+    in property<int> app-count;
+    callback clicked();
+
+    width: 200px;
+    height: 120px;
+
+    Rectangle {
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: area.has-hover ? Theme.active-border : Theme.default-border;
+        background: area.has-hover ? Theme.side-list-highlight : Theme.frame-black;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+            alignment: start;
+
+            // Folder icon
+            Text {
+                text: "\u{1F4C1}";
+                font-size: 32px;
+            }
+
+            // Space name
+            Text {
+                text: name;
+                color: Theme.quarzo-white;
+                font-size: 16px;
+                font-weight: 500;
+                overflow: elide;
+            }
+
+            // App count
+            Text {
+                text: app-count == 1 ? "1 app" : app-count + " apps";
+                color: Theme.text-passive;
+                font-size: 12px;
+            }
+        }
+
+        area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+        animate background { duration: 150ms; }
+    }
+}
+
+// Create space card (+ button)
+export component CreateSpaceCard {
+    callback clicked();
+
+    width: 200px;
+    height: 120px;
+
+    Rectangle {
+        border-radius: 12px;
+        border-width: 2px;
+        border-color: area.has-hover ? Theme.livnote-lavender : Theme.default-border;
+        background: area.has-hover ? #0d0e1380 : transparent;
+
+        VerticalLayout {
+            alignment: center;
+
+            Text {
+                text: "+";
+                color: area.has-hover ? Theme.livnote-lavender : Theme.text-passive;
+                font-size: 48px;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "New Space";
+                color: area.has-hover ? Theme.livnote-lavender : Theme.text-passive;
+                font-size: 14px;
+                horizontal-alignment: center;
+            }
+        }
+
+        area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+        animate background { duration: 150ms; }
+    }
+}
+
+// App card component
+export component AppCard {
+    in property<string> app-id;
+    in property<string> name;
+    callback clicked();
+
+    width: 160px;
+    height: 100px;
+
+    Rectangle {
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: area.has-hover ? Theme.active-border : Theme.default-border;
+        background: area.has-hover ? Theme.side-list-highlight : Theme.frame-black;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            alignment: center;
+
+            // App icon
+            Text {
+                text: "\u{1F4BB}";
+                font-size: 28px;
+                horizontal-alignment: center;
+            }
+
+            // App name
+            Text {
+                text: name;
+                color: Theme.quarzo-white;
+                font-size: 14px;
+                font-weight: 500;
+                overflow: elide;
+                horizontal-alignment: center;
+            }
+        }
+
+        area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+        animate background { duration: 150ms; }
+    }
+}
+
+// Node card component
+export component NodeCard {
+    in property<string> node-id;
+    in property<string> name;
+    in property<bool> is-connected;
+    in property<string> last-connected;
+    in property<string> connection-type;
+
+    callback clicked();
+    callback delete-clicked();
+
+    width: 200px;
+    height: 140px;
+
+    Rectangle {
+        background: card-area.has-hover ? Theme.side-list-highlight : Theme.frame-black;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: is-connected ? Theme.grape-green : Theme.default-border;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+
+            // Delete button (top right)
+            Rectangle {
+                height: 20px;
+                HorizontalLayout {
+                    alignment: end;
+                    Rectangle {
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 4px;
+                        background: delete-area.has-hover ? Theme.cancel-background : transparent;
+
+                        Text {
+                            text: "\u{00D7}";
+                            color: delete-area.has-hover ? Theme.quarzo-white : Theme.faded-cancel;
+                            font-size: 16px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        delete-area := TouchArea {
+                            clicked => { delete-clicked(); }
+                        }
+                    }
+                }
+            }
+
+            // Server icon
+            Text {
+                text: "\u{1F4E1}";  // 📡
+                font-size: 32px;
+                horizontal-alignment: center;
+            }
+
+            // Node name
+            Text {
+                text: name;
+                color: Theme.quarzo-white;
+                font-size: 14px;
+                font-weight: 600;
+                horizontal-alignment: center;
+                overflow: elide;
+            }
+
+            // Connection status
+            HorizontalLayout {
+                alignment: center;
+                spacing: 6px;
+
+                Rectangle {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: is-connected ? Theme.grape-green : Theme.text-passive;
+                }
+
+                Text {
+                    text: is-connected ? "Connected" : "Offline";
+                    color: is-connected ? Theme.grape-green : Theme.text-passive;
+                    font-size: 11px;
+                }
+            }
+
+            // Connection type badge
+            Rectangle {
+                height: 20px;
+                HorizontalLayout {
+                    alignment: center;
+                    Rectangle {
+                        background: connection-type == "Owner" ? Theme.grape-green : Theme.active-border;
+                        border-radius: 4px;
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        height: 20px;
+
+                        Text {
+                            text: connection-type;
+                            color: Theme.quarzo-white;
+                            font-size: 10px;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            // Last connected
+            Text {
+                text: last-connected;
+                color: Theme.text-passive;
+                font-size: 10px;
+                horizontal-alignment: center;
+            }
+        }
+
+        card-area := TouchArea {
+            clicked => { clicked(); }
+        }
+    }
+}
+
+// Upload app card (+ button)
+export component UploadAppCard {
+    callback clicked();
+
+    width: 160px;
+    height: 100px;
+
+    Rectangle {
+        border-radius: 12px;
+        border-width: 2px;
+        border-color: area.has-hover ? Theme.livnote-lavender : Theme.default-border;
+        background: area.has-hover ? #0d0e1380 : transparent;
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 4px;
+
+            Text {
+                text: "+";
+                color: area.has-hover ? Theme.livnote-lavender : Theme.text-passive;
+                font-size: 36px;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "Upload App";
+                color: area.has-hover ? Theme.livnote-lavender : Theme.text-passive;
+                font-size: 12px;
+                horizontal-alignment: center;
+            }
+        }
+
+        area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+        animate background { duration: 150ms; }
+    }
+}
+
+// Page card component (shows a page containing apps)
+export component PageCard {
+    in property<string> page-id;
+    in property<string> name;
+    in property<int> app-count;
+    callback clicked();
+
+    width: 160px;
+    height: 100px;
+
+    Rectangle {
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: area.has-hover ? Theme.active-border : Theme.default-border;
+        background: area.has-hover ? Theme.side-list-highlight : Theme.frame-black;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 6px;
+            alignment: center;
+
+            // Page icon (document/folder)
+            Text {
+                text: "\u{1F4C4}";  // 📄 page icon
+                font-size: 28px;
+                horizontal-alignment: center;
+            }
+
+            // Page name
+            Text {
+                text: name;
+                color: Theme.quarzo-white;
+                font-size: 14px;
+                font-weight: 500;
+                overflow: elide;
+                horizontal-alignment: center;
+            }
+
+            // App count
+            Text {
+                text: app-count == 1 ? "1 app" : app-count + " apps";
+                color: Theme.text-passive;
+                font-size: 11px;
+                horizontal-alignment: center;
+            }
+        }
+
+        area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+        animate background { duration: 150ms; }
+    }
+}
+
+// Upload page card (+ button for uploading a page directory)
+export component UploadPageCard {
+    callback clicked();
+
+    width: 160px;
+    height: 100px;
+
+    Rectangle {
+        border-radius: 12px;
+        border-width: 2px;
+        border-color: area.has-hover ? Theme.livnote-lavender : Theme.default-border;
+        background: area.has-hover ? #0d0e1380 : transparent;
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 4px;
+
+            Text {
+                text: "+";
+                color: area.has-hover ? Theme.livnote-lavender : Theme.text-passive;
+                font-size: 36px;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "Upload Page";
+                color: area.has-hover ? Theme.livnote-lavender : Theme.text-passive;
+                font-size: 12px;
+                horizontal-alignment: center;
+            }
+        }
+
+        area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+        animate background { duration: 150ms; }
+    }
+}

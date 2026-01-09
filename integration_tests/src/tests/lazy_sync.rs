@@ -63,6 +63,7 @@ async fn test_viewer_edit_triggers_lazy_subscription() {
         layer_name: "collaborative_doc".to_string(),
         update,
         from_peer: None, // Local edit - triggers lazy subscription
+        permit: None,
     }).expect("Failed to apply update");
 
     info!("Viewer made local edit (should trigger lazy subscription)");
@@ -155,6 +156,7 @@ async fn test_viewer_edit_already_subscribed_syncs_to_all() {
         layer_name: "collaborative_doc".to_string(),
         update: viewer_update,
         from_peer: None,
+        permit: None,
     }).expect("Viewer failed to apply update");
 
     info!("Viewer made edit");
@@ -217,6 +219,7 @@ async fn test_viewer_edit_stored_locally_first() {
         layer_name: "collaborative_doc".to_string(),
         update,
         from_peer: None,
+        permit: None,
     }).expect("Failed to apply update");
 
     // 3. Immediately check local state (before network sync would complete)
@@ -324,6 +327,7 @@ async fn test_multiple_edits_single_subscription() {
             layer_name: "collaborative_doc".to_string(),
             update,
             from_peer: None,
+            permit: None,
         }).expect("Failed to apply update");
 
         // Small delay between edits
@@ -417,6 +421,7 @@ async fn test_owner_edit_reaches_viewer_after_lazy_subscription() {
         layer_name: "collaborative_doc".to_string(),
         update: viewer_update,
         from_peer: None,
+        permit: None,
     }).expect("Viewer failed to apply update");
 
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -428,6 +433,7 @@ async fn test_owner_edit_reaches_viewer_after_lazy_subscription() {
         layer_name: "collaborative_doc".to_string(),
         update: owner_update,
         from_peer: None,
+        permit: None,
     }).expect("Owner failed to apply update");
 
     info!("Owner made edit");
@@ -504,6 +510,7 @@ async fn test_owner_sync_config_from_permit() {
         layer_name: "collaborative_doc".to_string(),
         update,
         from_peer: None, // Local edit - triggers lazy subscription
+        permit: None,
     }).expect("Failed to apply update");
 
     info!("Owner made local edit (should use permit-based SyncConfig)");

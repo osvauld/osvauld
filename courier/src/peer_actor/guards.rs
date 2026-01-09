@@ -59,7 +59,6 @@ pub fn to_published_page_meta(meta: &butler::PageMeta) -> crate::message::Publis
         id: meta.id.clone(),
         space_id: meta.space_id.clone(),
         name: meta.name.clone(),
-        page_type: format!("{:?}", meta.page_type),
         owner_did: meta.owner_did.clone(),
         is_private: meta.is_private,
         created_at: meta.created_at,
@@ -85,18 +84,10 @@ pub fn from_published_space(
 
 /// Convert message::PublishedPageMeta → butler::PageMeta
 pub fn from_published_page_meta(meta: &crate::message::PublishedPageMeta) -> butler::PageMeta {
-    let page_type = match meta.page_type.as_str() {
-        "Content" => butler::PageType::Content,
-        "Comments" => butler::PageType::Comments,
-        "Submissions" => butler::PageType::Submissions,
-        "PrivateChat" => butler::PageType::PrivateChat,
-        _ => butler::PageType::Content,
-    };
     butler::PageMeta {
         id: meta.id.clone(),
         space_id: meta.space_id.clone(),
         name: meta.name.clone(),
-        page_type,
         encrypted_key: Vec::new(),
         owner_did: meta.owner_did.clone(),
         is_private: meta.is_private,

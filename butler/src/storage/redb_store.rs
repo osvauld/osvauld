@@ -69,6 +69,10 @@ const VIEWER_CONSENT_PAGE: TableDefinition<&str, &str> = TableDefinition::new("v
 /// USER_PAGE_PERMITS: {page_id}/{user_did} → permit string - User's permit for sync auth
 const USER_PAGE_PERMITS: TableDefinition<&str, &str> = TableDefinition::new("user_page_permits");
 
+// User space permits (Owner stores permits from nodes - proves space is published)
+/// USER_SPACE_PERMITS: {space_id}/{node_did} → permit string - Node's permit for space
+const USER_SPACE_PERMITS: TableDefinition<&str, &str> = TableDefinition::new("user_space_permits");
+
 // Legacy tables (kept for migration, will be removed)
 const DEVICES: TableDefinition<&str, &[u8]> = TableDefinition::new("devices");
 
@@ -112,6 +116,9 @@ impl RedbStore {
 
             // User page permits (for sync authorization)
             let _ = write_txn.open_table(USER_PAGE_PERMITS)?;
+
+            // User space permits (for published state tracking)
+            let _ = write_txn.open_table(USER_SPACE_PERMITS)?;
 
             // Legacy tables (kept for migration)
             let _ = write_txn.open_table(DEVICES)?;
@@ -1473,5 +1480,65 @@ impl RedbStore {
             Some(guard) => Ok(Some(guard.value().to_string())),
             None => Ok(None),
         }
+    }
+
+    // ==================== User Space Permits ====================
+
+    /// Store a node's permit for a space (Owner mode - proves space is published)
+    ///
+    /// **Context**: Owner receives permit from node after PublishSpaceAck.
+    /// This permit proves the space is published to that node.
+    pub fn put_user_space_permit(
+        &self,
+        space_id: &str,
+        node_did: &str,
+        permit: &str,
+    ) -> Result<()> {
+        let key = format!("{}/{}", space_id, node_did);
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(USER_SPACE_PERMITS)?;
+            table.insert(key.as_str(), permit)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Get a node's permit for a space (Owner mode - check if published)
+    pub fn get_user_space_permit(
+        &self,
+        space_id: &str,
+        node_did: &str,
+    ) -> Result<Option<String>> {
+        let key = format!("{}/{}", space_id, node_did);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(USER_SPACE_PERMITS)?;
+
+        match table.get(key.as_str())? {
+            Some(guard) => Ok(Some(guard.value().to_string())),
+            None => Ok(None),
+        }
+    }
+
+    /// List all nodes with permits for a space (Owner mode - get published nodes)
+    ///
+    /// Returns DIDs of nodes that have issued permits for this space.
+    pub fn list_nodes_with_space_permits(&self, space_id: &str) -> Result<Vec<String>> {
+        let prefix = format!("{}/", space_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(USER_SPACE_PERMITS)?;
+
+        let mut nodes = Vec::new();
+        for entry in table.iter()? {
+            let (key, _value) = entry?;
+            let key_str = key.value();
+            if key_str.starts_with(&prefix) {
+                // Extract node_did from key (space_id/node_did)
+                if let Some(node_did) = key_str.strip_prefix(&prefix) {
+                    nodes.push(node_did.to_string());
+                }
+            }
+        }
+        Ok(nodes)
     }
 }

@@ -21,13 +21,8 @@ global Theme {
     out property<color> author-color: #89b4fa;
 }
 
-// Main chat component
-export component App inherits Window {
-    title: "Sthalam Chat";
-    min-width: 400px;
-    min-height: 300px;
-    preferred-width: 600px;
-    preferred-height: 500px;
+// Main chat component - browser provides the window
+export component App inherits Rectangle {
 
     // Properties synced from Lua state
     in property<[Message]> messages: [];
@@ -35,7 +30,7 @@ export component App inherits Window {
     in property<string> username: "You";
 
     // Callbacks handled by Lua
-    callback send();
+    callback send(string);
 
     background: Theme.bg-primary;
 
@@ -130,7 +125,7 @@ export component App inherits Window {
                         font-size: 14px;
                         horizontal-alignment: left;
                         vertical-alignment: center;
-                        accepted => { send(); }
+                        accepted => { send(draft); }
                     }
                 }
 
@@ -153,7 +148,7 @@ export component App inherits Window {
                 }
 
                 send-area := TouchArea {
-                    clicked => { send(); }
+                    clicked => { send(draft); }
                 }
 
                 animate background { duration: 150ms; }

@@ -12,46 +12,32 @@
 //!
 //! ## Module Structure (V3: Facts-Only)
 //!
-//! - `types` - Domain types (Capability, DocType, SyncFacts)
-//! - `token` - Token error types
+//! - `types` - Domain types (Capability, DocType, SyncDecision, SyncFacts)
 //! - `parser` - Permit, DelegationTemplate, PermitCore (facts-based parsing)
 //! - `decision` - Decision/inference logic (pure facts-based logic)
 //! - `crypto` - Crypto operations (signing, verification)
 //! - `verification` - Proof chain validation (stateless, self-contained)
 //! - `builder` - Execution layer (builds tokens from decisions)
-//! - `merge` - Pure CRDT merge logic (Loro document operations)
-//! - `sync` - Pure sync logic (permit-driven document synchronization)
 //! - `service` - Stateless permit functions (takes key bytes, returns permits)
 //! - `errors` - GurkhaError types
+//!
+//! Note: handshake module moved to courier
+//! Note: merge and sync modules moved to butler
 
 pub mod types;
-pub mod token;
 pub mod parser;
 pub mod decision;
-pub mod handshake;
 pub mod crypto;
 pub mod verification;
 pub mod builder;
-pub mod merge;
-pub mod sync;
 pub mod service;
 pub mod errors;
-
 // Re-export commonly used items
 pub use types::*;
-pub use token::{PermitTokenError, PermitTokenResult};
-pub use parser::{Permit, DelegationTemplate, PermitCore, PermitError, PermitResult};
-pub use decision::{TokenDecision, DelegationDecision, SyncContext, should_send_updates, can_receive_updates};
-pub use handshake::{
-    HandshakeRole, HelloDecision, WelcomeDecision, PermitGrantDecision,
-    HelloContext, WelcomeContext, PermitGrantContext,
-    decide_hello_response, decide_welcome_response, decide_permit_grant_response,
-    permit_type_for_role,
-};
+pub use parser::{Permit, DelegationTemplate, PermitCore, PermitError, PermitResult, LayerPatternConfig};
+pub use decision::{TokenDecision, DelegationDecision, SyncContext, should_send_updates, can_receive_updates, can_access_layer};
 pub use verification::{ProofCache, ProofChainTracer};
 pub use builder::GurkhaPermitBuilder;
-pub use merge::MergeService;
-pub use sync::{SyncRequestData, SyncResponseData, prepare_sync_request, generate_sync_response, apply_peer_docs, apply_peer_updates, generate_collaborative_updates};
 
 // Re-export stateless permit functions
 pub use service::{
@@ -65,6 +51,7 @@ pub use service::{
     issue_page_owner_token,
     // Space tokens
     issue_space_owner_token,
+    issue_space_node_to_owner,
     delegate_space,
     // Sync consent tokens (viewer-issued)
     issue_sync_space_consent,

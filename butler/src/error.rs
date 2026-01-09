@@ -1,3 +1,4 @@
+use crate::models::LayerError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -76,3 +77,9 @@ pub enum ButlerError {
 }
 
 pub type Result<T> = std::result::Result<T, ButlerError>;
+
+impl From<LayerError> for ButlerError {
+    fn from(err: LayerError) -> Self {
+        ButlerError::Layer(err.to_string())
+    }
+}

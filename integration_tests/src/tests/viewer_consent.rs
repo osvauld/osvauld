@@ -17,7 +17,7 @@
 
 use tracing::info;
 
-use butler::PageType;
+
 use courier::coordinator::{CoordinatorMessage, CourierMode};
 
 use crate::TestHarness;
@@ -118,12 +118,12 @@ async fn test_viewer_consent_sync_flow() {
     let layer_names: Vec<String> = TEST_PAGE_LAYERS.iter().map(|s| s.to_string()).collect();
 
     let page1 = owner_butler
-        .create_page(&space.id, "Consent Page 1", PageType::Content, layer_names.clone(), TEST_PAGE_TEMPLATE)
+        .create_page(&space.id, "Consent Page 1", layer_names.clone(), TEST_PAGE_TEMPLATE)
         .await
         .expect("Failed to create page 1");
 
     let page2 = owner_butler
-        .create_page(&space.id, "Consent Page 2", PageType::Content, layer_names.clone(), TEST_PAGE_TEMPLATE)
+        .create_page(&space.id, "Consent Page 2", layer_names.clone(), TEST_PAGE_TEMPLATE)
         .await
         .expect("Failed to create page 2");
 

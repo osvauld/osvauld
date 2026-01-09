@@ -2,10 +2,11 @@
 //!
 //! Owns: ComponentInstance, VecModels
 //! Receives: UiMutation from Lua thread
-//! Applies: VecModel operations
+//! Applies: VecModel operations via AppAPI global
 //!
 //! **Threading**: Must stay on main thread (Rc<ComponentInstance>, Rc<VecModel>)
 //! **Pattern**: Pull mutations from channel via process_ui_mutations()
+//! **Global API**: Uses `set_global_property` and `set_global_callback` for AppAPI
 
 use slint::{VecModel, Model};
 use slint_interpreter::{ComponentInstance, Compiler, ComponentDefinition, Value as SlintValue};
@@ -15,6 +16,9 @@ use std::path::PathBuf;
 use tokio::sync::mpsc;
 use crate::vecmodel_ops::{UiMutation, VecModelOp, PropertyUpdate};
 use crate::lua_worker::LuaWorkerCommand;
+
+/// Global API name - apps define their public interface via `export global AppAPI`
+const GLOBAL_API_NAME: &str = "AppAPI";
 
 /// Slint runtime state (main thread only)
 ///
@@ -27,14 +31,17 @@ pub struct SlintRuntime {
     /// Slint component instance (UI window)
     slint_instance: Rc<ComponentInstance>,
 
-    /// VecModels by property name (e.g., "messages", "users")
-    models: HashMap<String, Rc<VecModel<SlintValue>>>,
+    /// VecModels by property name in AppAPI global (e.g., "products", "orders")
+    global_models: HashMap<String, Rc<VecModel<SlintValue>>>,
 
     /// Channel to receive UI mutations from Lua thread
     ui_rx: mpsc::Receiver<UiMutation>,
 
     /// Channel to send commands to Lua thread
     lua_tx: mpsc::Sender<LuaWorkerCommand>,
+
+    /// Channel to send tab switch requests (std::sync for Slint callback)
+    tab_switch_tx: Option<std::sync::mpsc::Sender<String>>,
 }
 
 impl SlintRuntime {
@@ -107,18 +114,19 @@ impl SlintRuntime {
         );
 
         // Initialize models HashMap
-        let models = HashMap::new();
+        let global_models = HashMap::new();
 
         let mut runtime = Self {
             page_id,
             slint_instance: Rc::new(slint_instance),
-            models,
+            global_models,
             ui_rx,
             lua_tx,
+            tab_switch_tx: None,
         };
 
-        // Auto-detect array properties and create VecModels
-        runtime.init_models()?;
+        // Auto-detect array properties in AppAPI global and create VecModels
+        runtime.init_global_models()?;
 
         Ok(runtime)
     }
@@ -128,36 +136,56 @@ impl SlintRuntime {
         &self.slint_instance
     }
 
-    /// Initialize VecModels for array properties
+    /// Set the channel for tab switch requests
     ///
-    /// **Pattern**: Iterate over component properties, create VecModel for arrays
-    /// **Registered**: Set as property on ComponentInstance
-    fn init_models(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Get all properties from component definition
-        let definition = self.slint_instance.definition();
+    /// **Context**: Called from app management to receive tab switch events
+    pub fn set_tab_switch_channel(&mut self, tx: std::sync::mpsc::Sender<String>) {
+        self.tab_switch_tx = Some(tx);
+    }
 
-        for (prop_name, _prop_type) in definition.properties() {
-            // Check if property is a model (array type in Slint)
-            // For now, we'll try to get the property value and check if it's a model
-            // This is a simplified approach - in production, you'd check the type
-            if let Ok(value) = self.slint_instance.get_property(&prop_name) {
+    /// Initialize VecModels for array properties in AppAPI global
+    ///
+    /// **Pattern**: Check AppAPI global properties, create VecModel for arrays
+    /// **Registered**: Set via set_global_property
+    fn init_global_models(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut model_names = Vec::new();
+
+        // Try to get properties from AppAPI global
+        // We check known array property names since the global introspection API is limited
+        let known_array_props = ["products", "orders", "my_orders"];
+
+        for prop_name in known_array_props {
+            // Try to get the property - if it returns a Model type, create a VecModel
+            if let Ok(value) = self.slint_instance.get_global_property(GLOBAL_API_NAME, prop_name) {
                 if matches!(value, SlintValue::Model(_)) {
                     // Create empty VecModel for this property
                     let model = Rc::new(VecModel::<SlintValue>::default());
 
-                    // Set as property
-                    self.slint_instance.set_property(
-                        &prop_name,
+                    // Set as global property
+                    if let Err(e) = self.slint_instance.set_global_property(
+                        GLOBAL_API_NAME,
+                        prop_name,
                         SlintValue::Model(model.clone().into())
-                    )?;
+                    ) {
+                        tracing::warn!(
+                            page_id = %self.page_id,
+                            global = GLOBAL_API_NAME,
+                            property = prop_name,
+                            error = %e,
+                            "Failed to set global model property"
+                        );
+                        continue;
+                    }
 
-                    // Store in models HashMap
-                    self.models.insert(prop_name.clone(), model);
+                    // Store in global_models HashMap
+                    self.global_models.insert(prop_name.to_string(), model);
+                    model_names.push(prop_name.to_string());
 
-                    tracing::debug!(
+                    tracing::info!(
                         page_id = %self.page_id,
-                        property = %prop_name,
-                        "VecModel initialized"
+                        global = GLOBAL_API_NAME,
+                        property = prop_name,
+                        "VecModel initialized in global"
                     );
                 }
             }
@@ -165,8 +193,10 @@ impl SlintRuntime {
 
         tracing::info!(
             page_id = %self.page_id,
-            model_count = self.models.len(),
-            "VecModels initialized"
+            global = GLOBAL_API_NAME,
+            model_count = self.global_models.len(),
+            models = ?model_names,
+            "Global VecModels initialized"
         );
 
         Ok(())
@@ -178,26 +208,42 @@ impl SlintRuntime {
     /// **Frequency**: Call this in Slint timer (e.g., every 100ms)
     pub fn process_ui_mutations(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut mutation_count = 0;
+        let mut error_count = 0;
 
         // Drain all pending mutations (non-blocking)
         while let Ok(mutation) = self.ui_rx.try_recv() {
-            // Apply property updates
+            // Apply property updates (continue on error to process remaining)
             for prop in mutation.properties {
-                self.apply_property_update(prop)?;
+                if let Err(e) = self.apply_property_update(prop) {
+                    tracing::warn!(
+                        page_id = %self.page_id,
+                        error = %e,
+                        "Property update failed"
+                    );
+                    error_count += 1;
+                }
             }
 
-            // Apply VecModel operations
+            // Apply VecModel operations (continue on error to process remaining)
             for op in mutation.model_ops {
-                self.apply_vecmodel_op(op)?;
+                if let Err(e) = self.apply_vecmodel_op(op) {
+                    tracing::warn!(
+                        page_id = %self.page_id,
+                        error = %e,
+                        "VecModel operation failed"
+                    );
+                    error_count += 1;
+                }
             }
 
             mutation_count += 1;
         }
 
         if mutation_count > 0 {
-            tracing::trace!(
+            tracing::debug!(
                 page_id = %self.page_id,
                 count = mutation_count,
+                errors = error_count,
                 "Processed UI mutations"
             );
         }
@@ -205,24 +251,36 @@ impl SlintRuntime {
         Ok(())
     }
 
-    /// Apply property update to ComponentInstance
+    /// Apply property update to AppAPI global
     ///
+    /// **Pattern**: All app properties go through AppAPI global
     /// **Triggers**: Property change notification in Slint
     fn apply_property_update(&self, update: PropertyUpdate) -> Result<(), Box<dyn std::error::Error>> {
         let slint_val = json_to_slint_value(&update.value)?;
 
-        self.slint_instance.set_property(&update.key, slint_val)?;
+        // All properties go to AppAPI global
+        if let Err(e) = self.slint_instance.set_global_property(GLOBAL_API_NAME, &update.key, slint_val) {
+            tracing::warn!(
+                page_id = %self.page_id,
+                global = GLOBAL_API_NAME,
+                property = %update.key,
+                error = %e,
+                "Failed to set global property"
+            );
+            return Err(e.into());
+        }
 
-        tracing::trace!(
+        tracing::debug!(
             page_id = %self.page_id,
+            global = GLOBAL_API_NAME,
             property = %update.key,
-            "Property updated"
+            "Global property updated"
         );
 
         Ok(())
     }
 
-    /// Apply single VecModel operation
+    /// Apply single VecModel operation to AppAPI global model
     ///
     /// **Triggers**: ModelNotify events (row_added, row_removed, row_changed)
     fn apply_vecmodel_op(&self, op: VecModelOp) -> Result<(), Box<dyn std::error::Error>> {
@@ -230,38 +288,53 @@ impl SlintRuntime {
 
         match op {
             Push { model_name, item } => {
-                let model = self.models.get(&model_name)
-                    .ok_or_else(|| format!("Model not found: {}", model_name))?;
+                let model = match self.global_models.get(&model_name) {
+                    Some(m) => m,
+                    None => {
+                        tracing::error!(
+                            page_id = %self.page_id,
+                            global = GLOBAL_API_NAME,
+                            model = %model_name,
+                            available_models = ?self.global_models.keys().collect::<Vec<_>>(),
+                            "Model not found for Push operation"
+                        );
+                        return Err(format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name).into());
+                    }
+                };
                 let slint_val = json_to_slint_value(&item)?;
                 model.push(slint_val);
 
-                tracing::trace!(
+                tracing::debug!(
                     page_id = %self.page_id,
+                    global = GLOBAL_API_NAME,
                     model = %model_name,
+                    row_count = model.row_count(),
                     "VecModel::push"
                 );
             }
             Insert { model_name, index, item } => {
-                let model = self.models.get(&model_name)
-                    .ok_or_else(|| format!("Model not found: {}", model_name))?;
+                let model = self.global_models.get(&model_name)
+                    .ok_or_else(|| format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name))?;
                 let slint_val = json_to_slint_value(&item)?;
                 model.insert(index, slint_val);
 
                 tracing::trace!(
                     page_id = %self.page_id,
+                    global = GLOBAL_API_NAME,
                     model = %model_name,
                     index = index,
                     "VecModel::insert"
                 );
             }
             Remove { model_name, index } => {
-                let model = self.models.get(&model_name)
-                    .ok_or_else(|| format!("Model not found: {}", model_name))?;
+                let model = self.global_models.get(&model_name)
+                    .ok_or_else(|| format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name))?;
                 if index < model.row_count() {
                     model.remove(index);
 
                     tracing::trace!(
                         page_id = %self.page_id,
+                        global = GLOBAL_API_NAME,
                         model = %model_name,
                         index = index,
                         "VecModel::remove"
@@ -269,6 +342,7 @@ impl SlintRuntime {
                 } else {
                     tracing::warn!(
                         page_id = %self.page_id,
+                        global = GLOBAL_API_NAME,
                         model = %model_name,
                         index = index,
                         len = model.row_count(),
@@ -277,14 +351,15 @@ impl SlintRuntime {
                 }
             }
             Set { model_name, index, item } => {
-                let model = self.models.get(&model_name)
-                    .ok_or_else(|| format!("Model not found: {}", model_name))?;
+                let model = self.global_models.get(&model_name)
+                    .ok_or_else(|| format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name))?;
                 if index < model.row_count() {
                     let slint_val = json_to_slint_value(&item)?;
                     model.set_row_data(index, slint_val);
 
                     tracing::trace!(
                         page_id = %self.page_id,
+                        global = GLOBAL_API_NAME,
                         model = %model_name,
                         index = index,
                         "VecModel::set"
@@ -292,6 +367,7 @@ impl SlintRuntime {
                 } else {
                     tracing::warn!(
                         page_id = %self.page_id,
+                        global = GLOBAL_API_NAME,
                         model = %model_name,
                         index = index,
                         len = model.row_count(),
@@ -300,15 +376,27 @@ impl SlintRuntime {
                 }
             }
             Clear { model_name } => {
-                let model = self.models.get(&model_name)
-                    .ok_or_else(|| format!("Model not found: {}", model_name))?;
+                let model = match self.global_models.get(&model_name) {
+                    Some(m) => m,
+                    None => {
+                        tracing::error!(
+                            page_id = %self.page_id,
+                            global = GLOBAL_API_NAME,
+                            model = %model_name,
+                            available_models = ?self.global_models.keys().collect::<Vec<_>>(),
+                            "Model not found for Clear operation"
+                        );
+                        return Err(format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name).into());
+                    }
+                };
                 let count = model.row_count();
                 for _ in 0..count {
                     model.remove(0);
                 }
 
-                tracing::trace!(
+                tracing::debug!(
                     page_id = %self.page_id,
+                    global = GLOBAL_API_NAME,
                     model = %model_name,
                     removed = count,
                     "VecModel::clear"
@@ -319,38 +407,144 @@ impl SlintRuntime {
         Ok(())
     }
 
-    /// Setup UI callbacks (button clicks, etc.)
+    /// Setup shell-level callbacks (tab switching, add-app)
     ///
-    /// **Pattern**: Slint callback → send LuaWorkerCommand::UiCallback
+    /// **Pattern**: Wire shell callbacks to appropriate handlers
+    /// **Special callbacks**:
+    /// - `select-tab(name)` → sent to tab_switch_tx for tab switching
+    /// - `add-app()` → could be wired to Lua if needed
     pub fn setup_callbacks(&self) -> Result<(), Box<dyn std::error::Error>> {
-        // Setup "send" callback (button click)
-        // Read draft property and pass it to Lua
-        let lua_tx = self.lua_tx.clone();
-        let instance = self.slint_instance.clone();
+        let definition = self.slint_instance.definition();
 
-        self.slint_instance.set_callback("send", move |_args| {
-            // Read current draft from Slint property
-            let draft_value = instance.get_property("draft").unwrap_or(SlintValue::String(Default::default()));
-
-            // Convert to JSON for Lua
-            let draft_json = match draft_value {
-                SlintValue::String(s) => serde_json::Value::String(s.to_string()),
-                _ => serde_json::Value::String(String::new()),
-            };
-
-            let _ = lua_tx.try_send(LuaWorkerCommand::UiCallback {
-                callback_name: "on_send".to_string(),
-                args: vec![draft_json],
-            });
-            SlintValue::Void
-        })?;
+        let mut callback_count = 0;
+        for callback_name in definition.callbacks() {
+            // Handle select-tab specially - send to tab switch channel
+            if callback_name == "select-tab" || callback_name == "select_tab" {
+                if let Some(ref tx) = self.tab_switch_tx {
+                    let tx = tx.clone();
+                    self.slint_instance.set_callback(&callback_name, move |args| {
+                        if let Some(tab_name) = args.first() {
+                            if let SlintValue::String(name) = tab_name {
+                                tracing::info!(
+                                    tab = %name,
+                                    "Tab switch requested"
+                                );
+                                let _ = tx.send(name.to_string());
+                            }
+                        }
+                        SlintValue::Void
+                    })?;
+                    callback_count += 1;
+                }
+            }
+            // add-app callback - currently no-op, could wire to Lua
+        }
 
         tracing::debug!(
             page_id = %self.page_id,
-            "UI callbacks configured"
+            callback_count = callback_count,
+            "Shell callbacks configured"
         );
 
         Ok(())
+    }
+
+    /// Setup AppAPI global callbacks (app-specific callbacks like create-order, add-product)
+    ///
+    /// **Pattern**: Wire AppAPI global callbacks to Lua
+    /// Slint `AppAPI.callback foo(args)` → Lua `on_foo(args)`
+    pub fn setup_global_callbacks(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // Known AppAPI callbacks - we use a known list since global introspection is limited
+        // Note: Using snake_case consistently (Slint accepts both kebab-case and snake_case)
+        let known_callbacks = [
+            // shop-customer callbacks
+            "select_product",
+            "create_order",
+            "submit_order",
+            "cancel_order",
+            // shop-owner callbacks
+            "add_product",
+            "update_order_status",
+        ];
+
+        let mut callback_count = 0;
+        for callback_name in known_callbacks {
+            let lua_tx = self.lua_tx.clone();
+            let callback_name_owned = callback_name.to_string();
+
+            // Try to set the global callback - if it doesn't exist, that's OK (not all apps have all callbacks)
+            match self.slint_instance.set_global_callback(GLOBAL_API_NAME, callback_name, move |args| {
+                // Convert Slint args to JSON for Lua
+                let json_args: Vec<serde_json::Value> = args
+                    .iter()
+                    .map(slint_value_to_json)
+                    .collect();
+
+                tracing::info!(
+                    global = GLOBAL_API_NAME,
+                    callback = %callback_name_owned,
+                    arg_count = json_args.len(),
+                    "AppAPI callback triggered"
+                );
+
+                let _ = lua_tx.try_send(LuaWorkerCommand::UiCallback {
+                    callback_name: callback_name_owned.clone(),
+                    args: json_args,
+                });
+                SlintValue::Void
+            }) {
+                Ok(_) => {
+                    callback_count += 1;
+                    tracing::debug!(
+                        page_id = %self.page_id,
+                        global = GLOBAL_API_NAME,
+                        callback = callback_name,
+                        "AppAPI callback configured"
+                    );
+                }
+                Err(e) => {
+                    // Not an error - app may not have this callback
+                    tracing::trace!(
+                        page_id = %self.page_id,
+                        global = GLOBAL_API_NAME,
+                        callback = callback_name,
+                        error = %e,
+                        "AppAPI callback not found (OK)"
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            page_id = %self.page_id,
+            global = GLOBAL_API_NAME,
+            callback_count = callback_count,
+            "AppAPI callbacks configured"
+        );
+
+        Ok(())
+    }
+}
+
+/// Convert Slint value to JSON for passing to Lua
+fn slint_value_to_json(value: &SlintValue) -> serde_json::Value {
+    match value {
+        SlintValue::String(s) => serde_json::Value::String(s.to_string()),
+        SlintValue::Number(n) => serde_json::json!(n),
+        SlintValue::Bool(b) => serde_json::Value::Bool(*b),
+        SlintValue::Void => serde_json::Value::Null,
+        SlintValue::Image(_) => serde_json::Value::Null, // Can't serialize images
+        SlintValue::Model(_) => serde_json::Value::Null, // Can't serialize models
+        SlintValue::Struct(s) => {
+            // Convert struct fields to JSON object
+            let obj: serde_json::Map<String, serde_json::Value> = s
+                .iter()
+                .map(|(k, v)| (k.to_string(), slint_value_to_json(&v)))
+                .collect();
+            serde_json::Value::Object(obj)
+        }
+        SlintValue::Brush(_) => serde_json::Value::Null, // Can't serialize brushes
+        _ => serde_json::Value::Null,
     }
 }
 

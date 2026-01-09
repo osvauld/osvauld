@@ -5,7 +5,7 @@
 //! - Create page with owner permit and layers
 //! - Verify permit structure and facts
 
-use butler::PageType;
+
 
 use crate::fixtures::{TEST_PAGE_LAYERS, TEST_PAGE_TEMPLATE, TEST_SPACE_TEMPLATE};
 use crate::helpers::{init_tracing, setup_butler_with_identity};
@@ -135,7 +135,6 @@ async fn test_create_page_with_permit() {
         .create_page(
             &space.id,
             "My First Page",
-            PageType::Content,
             layer_names.clone(),
             TEST_PAGE_TEMPLATE,
         )
@@ -182,7 +181,6 @@ async fn test_page_owner_permit_structure() {
         .create_page(
             &space.id,
             "Test Page",
-            PageType::Content,
             layer_names,
             TEST_PAGE_TEMPLATE,
         )
@@ -267,7 +265,6 @@ async fn test_page_layers_are_encrypted() {
         .create_page(
             &space.id,
             "Secret Page",
-            PageType::Content,
             layer_names,
             TEST_PAGE_TEMPLATE,
         )
@@ -320,12 +317,12 @@ async fn test_list_spaces_and_pages() {
     let layer_names: Vec<String> = TEST_PAGE_LAYERS.iter().map(|s| s.to_string()).collect();
 
     let _page1 = butler
-        .create_page(&space1.id, "Page A", PageType::Content, layer_names.clone(), TEST_PAGE_TEMPLATE)
+        .create_page(&space1.id, "Page A", layer_names.clone(), TEST_PAGE_TEMPLATE)
         .await
         .expect("Failed to create page 1");
 
     let _page2 = butler
-        .create_page(&space1.id, "Page B", PageType::Content, layer_names.clone(), TEST_PAGE_TEMPLATE)
+        .create_page(&space1.id, "Page B", layer_names.clone(), TEST_PAGE_TEMPLATE)
         .await
         .expect("Failed to create page 2");
 

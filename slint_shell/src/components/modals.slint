@@ -1,0 +1,753 @@
+// Modal components
+
+import { Theme } from "../theme.slint";
+import { NodeInfo } from "../types.slint";
+
+// Modal Dialog for creating a space
+export component CreateSpaceModal {
+    in-out property<string> space-name: "";
+    in property<bool> show;
+
+    callback create(string);
+    callback cancel();
+
+    width: 100%;
+    height: 100%;
+
+    if show: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        background: #00000080;
+
+        backdrop-area := TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => { cancel(); }
+        }
+
+        FocusScope {
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            width: 400px;
+            height: 200px;
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                border-radius: 12px;
+                background: Theme.frame-black;
+                border-width: 1px;
+                border-color: Theme.default-border;
+
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                }
+
+                VerticalLayout {
+                    padding: 24px;
+                    spacing: 20px;
+
+                    Text {
+                        text: "Create New Space";
+                        color: Theme.quarzo-white;
+                        font-size: 20px;
+                        font-weight: 600;
+                    }
+
+                    Rectangle {
+                        height: 44px;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: space-input.has-focus ? Theme.livnote-lavender : Theme.default-border;
+                        background: Theme.ninja-black;
+
+                        VerticalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            alignment: center;
+
+                            space-input := TextInput {
+                                text <=> space-name;
+                                color: Theme.quarzo-white;
+                                font-size: 14px;
+                                input-type: text;
+                                accepted => {
+                                    if space-name != "" {
+                                        create(space-name);
+                                    }
+                                }
+                            }
+                        }
+
+                        animate border-color { duration: 150ms; }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        alignment: end;
+
+                        Rectangle {
+                            width: 100px;
+                            height: 36px;
+                            border-radius: 8px;
+                            background: cancel-btn.has-hover ? Theme.cancel-background : transparent;
+                            border-width: 1px;
+                            border-color: Theme.default-border;
+
+                            Text {
+                                text: "Cancel";
+                                color: Theme.text-passive;
+                                font-size: 14px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            cancel-btn := TouchArea {
+                                clicked => { cancel(); }
+                            }
+                        }
+
+                        Rectangle {
+                            width: 100px;
+                            height: 36px;
+                            border-radius: 8px;
+                            background: space-name != "" ? Theme.livnote-lavender : Theme.cancel-background;
+
+                            Text {
+                                text: "Create";
+                                color: space-name != "" ? Theme.ninja-black : Theme.text-passive;
+                                font-size: 14px;
+                                font-weight: 600;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                enabled: space-name != "";
+                                clicked => {
+                                    if space-name != "" {
+                                        create(space-name);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Toast notification component
+export component Toast {
+    in property<string> message: "";
+    in property<bool> is-error: false;
+    in property<bool> show: false;
+
+    if show: Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - 24px;
+        width: 400px;
+        height: 48px;
+        background: is-error ? Theme.cancel-background : Theme.grape-green;
+        border-radius: 8px;
+
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            alignment: center;
+
+            Text {
+                text: message;
+                color: Theme.quarzo-white;
+                font-size: 14px;
+                vertical-alignment: center;
+            }
+        }
+
+        animate y { duration: 200ms; easing: ease-out; }
+    }
+}
+
+// Publish space modal - select target node + get shareable link
+export component PublishSpaceModal {
+    in property<[NodeInfo]> nodes: [];
+    in property<bool> show: false;
+    in property<bool> publishing: false;
+    in-out property<string> selected-node-id: "";
+    in-out property<bool> selected-node-is-published: false;
+    in property<string> shareable-link: "";
+    in property<bool> requesting-link: false;
+
+    callback publish(string);
+    callback get-shareable-link(string);  // node_id
+    callback copy-link();  // copy shareable-link to clipboard
+    callback cancel();
+
+    if show: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000080;
+
+        TouchArea {
+            clicked => { cancel(); }
+        }
+
+        FocusScope {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 500px;
+            height: shareable-link != "" ? 550px : 420px;
+
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    cancel();
+                    return accept;
+                }
+                return reject;
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: Theme.ninja-black;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: Theme.active-border;
+
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                }
+
+                VerticalLayout {
+                    padding: 24px;
+                    spacing: 16px;
+
+                    Text {
+                        text: "Publish to Node";
+                        color: Theme.quarzo-white;
+                        font-size: 18px;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: "Select a connected node to publish this space:";
+                        color: Theme.text-passive;
+                        font-size: 13px;
+                    }
+
+                    Rectangle {
+                        height: 160px;
+                        background: Theme.frame-black;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.default-border;
+
+                        Flickable {
+                            width: 100%;
+                            height: 100%;
+                            viewport-height: nodes.length * 52px;
+
+                            VerticalLayout {
+                                padding: 8px;
+                                spacing: 4px;
+
+                                for node[idx] in nodes: Rectangle {
+                                    height: 44px;
+                                    border-radius: 6px;
+                                    background: selected-node-id == node.id ? Theme.side-list-highlight : (node-area.has-hover ? Theme.side-list-highlight : transparent);
+                                    border-width: selected-node-id == node.id ? 1px : 0px;
+                                    border-color: node.is-published ? Theme.grape-green : Theme.livnote-lavender;
+
+                                    HorizontalLayout {
+                                        padding-left: 12px;
+                                        padding-right: 12px;
+                                        spacing: 12px;
+                                        alignment: start;
+
+                                        Rectangle {
+                                            width: 8px;
+                                            height: 8px;
+                                            border-radius: 4px;
+                                            background: node.is-connected ? Theme.grape-green : Theme.text-passive;
+                                            y: (parent.height - self.height) / 2;
+                                        }
+
+                                        Text {
+                                            text: node.name;
+                                            color: node.is-published ? Theme.text-passive : Theme.quarzo-white;
+                                            font-size: 14px;
+                                            vertical-alignment: center;
+                                        }
+
+                                        if node.is-published: Rectangle {
+                                            width: 68px;
+                                            height: 20px;
+                                            border-radius: 4px;
+                                            background: Theme.grape-green;
+
+                                            Text {
+                                                text: "Published";
+                                                color: Theme.ninja-black;
+                                                font-size: 10px;
+                                                font-weight: 500;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        if !node.is-published: Text {
+                                            text: node.is-connected ? "Connected" : "Offline";
+                                            color: node.is-connected ? Theme.grape-green : Theme.text-passive;
+                                            font-size: 11px;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+
+                                    node-area := TouchArea {
+                                        enabled: node.is-connected;
+                                        clicked => {
+                                            selected-node-id = node.id;
+                                            selected-node-is-published = node.is-published;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if nodes.length == 0: Text {
+                        text: "No connected nodes. Add a node first.";
+                        color: Theme.text-passive;
+                        font-size: 12px;
+                    }
+
+                    // Shareable link section (shown after selecting node)
+                    if selected-node-id != "": VerticalLayout {
+                        spacing: 8px;
+
+                        HorizontalLayout {
+                            spacing: 12px;
+                            alignment: start;
+
+                            Text {
+                                text: "Shareable Link";
+                                color: Theme.quarzo-white;
+                                font-size: 14px;
+                                font-weight: 500;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle {
+                                width: 100px;
+                                height: 28px;
+                                border-radius: 4px;
+                                background: requesting-link ? Theme.text-passive : (get-link-area.has-hover ? Theme.side-list-highlight : transparent);
+                                border-width: 1px;
+                                border-color: Theme.default-border;
+
+                                Text {
+                                    text: requesting-link ? "Loading..." : "Get Link";
+                                    color: Theme.text-passive;
+                                    font-size: 12px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                get-link-area := TouchArea {
+                                    enabled: !requesting-link && selected-node-id != "";
+                                    clicked => { get-shareable-link(selected-node-id); }
+                                }
+                            }
+                        }
+
+                        if shareable-link != "": Rectangle {
+                            height: 80px;
+                            background: Theme.frame-black;
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: Theme.default-border;
+                            clip: true;
+
+                            Flickable {
+                                width: parent.width - 16px;
+                                height: parent.height - 16px;
+                                x: 8px;
+                                y: 8px;
+                                viewport-width: self.width;
+                                viewport-height: link-text.preferred-height;
+
+                                link-text := Text {
+                                    width: parent.width;
+                                    text: shareable-link;
+                                    color: Theme.text-active;
+                                    font-size: 11px;
+                                    wrap: char-wrap;
+                                }
+                            }
+                        }
+
+                        if shareable-link != "": HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+
+                            Text {
+                                text: "Copy this link to share with viewers";
+                                color: Theme.text-passive;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle {
+                                width: 60px;
+                                height: 24px;
+                                border-radius: 4px;
+                                background: copy-area.has-hover ? Theme.grape-green : Theme.side-list-highlight;
+
+                                Text {
+                                    text: "Copy";
+                                    color: Theme.quarzo-white;
+                                    font-size: 11px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                copy-area := TouchArea {
+                                    clicked => { copy-link(); }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        alignment: end;
+
+                        Rectangle {
+                            width: 80px;
+                            height: 36px;
+                            border-radius: 6px;
+                            background: cancel-area.has-hover ? Theme.side-list-highlight : transparent;
+                            border-width: 1px;
+                            border-color: Theme.default-border;
+
+                            Text {
+                                text: "Close";
+                                color: Theme.text-passive;
+                                font-size: 13px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            cancel-area := TouchArea {
+                                clicked => { cancel(); }
+                            }
+                        }
+
+                        if !selected-node-is-published: Rectangle {
+                            width: 100px;
+                            height: 36px;
+                            border-radius: 6px;
+                            background: publishing ? Theme.text-passive : (selected-node-id == "" ? Theme.text-passive : (publish-area.has-hover ? Theme.active-border : Theme.livnote-lavender));
+
+                            Text {
+                                text: publishing ? "Publishing..." : "Publish";
+                                color: Theme.ninja-black;
+                                font-size: 13px;
+                                font-weight: 500;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            publish-area := TouchArea {
+                                enabled: !publishing && selected-node-id != "";
+                                clicked => { publish(selected-node-id); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Add node modal
+export component AddNodeModal {
+    in property<bool> show;
+    in-out property<string> connection-string: "";
+    in property<bool> connecting: false;
+    in property<string> error-message: "";
+
+    callback add(string);
+    callback cancel();
+
+    if show: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000080;
+
+        TouchArea {
+            clicked => { cancel(); }
+        }
+
+        FocusScope {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 500px;
+            height: 400px;
+
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    cancel();
+                    return accept;
+                }
+                return reject;
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: Theme.ninja-black;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: Theme.active-border;
+
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                }
+
+                VerticalLayout {
+                    padding: 24px;
+                    spacing: 20px;
+
+                    Text {
+                        text: "Add Sovereign Node";
+                        color: Theme.quarzo-white;
+                        font-size: 18px;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: "Paste the connection string from your sovereign node (Kunki):";
+                        color: Theme.text-passive;
+                        font-size: 13px;
+                    }
+
+                    Rectangle {
+                        height: 120px;
+                        background: Theme.frame-black;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.default-border;
+
+                        TextInput {
+                            text <=> connection-string;
+                            color: Theme.quarzo-white;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                            vertical-alignment: top;
+                            x: 8px;
+                            y: 8px;
+                            width: parent.width - 16px;
+                            height: parent.height - 16px;
+                        }
+                    }
+
+                    if error-message != "": Text {
+                        text: error-message;
+                        color: Theme.cancel-background;
+                        font-size: 12px;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        alignment: end;
+
+                        Rectangle {
+                            width: 80px;
+                            height: 36px;
+                            border-radius: 6px;
+                            background: cancel-area.has-hover ? Theme.side-list-highlight : transparent;
+                            border-width: 1px;
+                            border-color: Theme.default-border;
+
+                            Text {
+                                text: "Cancel";
+                                color: Theme.text-passive;
+                                font-size: 13px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            cancel-area := TouchArea {
+                                clicked => { cancel(); }
+                            }
+                        }
+
+                        Rectangle {
+                            width: 100px;
+                            height: 36px;
+                            border-radius: 6px;
+                            background: connecting ? Theme.text-passive : (connect-area.has-hover ? Theme.active-border : Theme.grape-green);
+
+                            Text {
+                                text: connecting ? "Connecting..." : "Connect";
+                                color: Theme.quarzo-white;
+                                font-size: 13px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            connect-area := TouchArea {
+                                enabled: !connecting && connection-string != "";
+                                clicked => { add(connection-string); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Add website modal (viewer connection using shareable link)
+export component AddWebsiteModal {
+    in property<bool> show;
+    in-out property<string> connection-string: "";
+    in property<bool> connecting: false;
+
+    callback connect(string);
+    callback cancel();
+
+    if show: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000080;
+
+        TouchArea {
+            clicked => { cancel(); }
+        }
+
+        FocusScope {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 500px;
+            height: 350px;
+
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    cancel();
+                    return accept;
+                }
+                return reject;
+            }
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: Theme.ninja-black;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: Theme.active-border;
+
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                }
+
+                VerticalLayout {
+                    padding: 24px;
+                    spacing: 20px;
+
+                    Text {
+                        text: "Add Website";
+                        color: Theme.quarzo-white;
+                        font-size: 18px;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: "Paste the shareable link to connect as a viewer:";
+                        color: Theme.text-passive;
+                        font-size: 13px;
+                    }
+
+                    Rectangle {
+                        height: 120px;
+                        background: Theme.frame-black;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.default-border;
+
+                        TextInput {
+                            text <=> connection-string;
+                            color: Theme.quarzo-white;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                            vertical-alignment: top;
+                            x: 8px;
+                            y: 8px;
+                            width: parent.width - 16px;
+                            height: parent.height - 16px;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        alignment: end;
+
+                        Rectangle {
+                            width: 80px;
+                            height: 36px;
+                            border-radius: 6px;
+                            background: cancel-area.has-hover ? Theme.side-list-highlight : transparent;
+                            border-width: 1px;
+                            border-color: Theme.default-border;
+
+                            Text {
+                                text: "Cancel";
+                                color: Theme.text-passive;
+                                font-size: 13px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            cancel-area := TouchArea {
+                                clicked => {
+                                    connection-string = "";
+                                    cancel();
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: 100px;
+                            height: 36px;
+                            border-radius: 6px;
+                            background: connecting ? Theme.text-passive : (connection-string == "" ? Theme.text-passive : (connect-area.has-hover ? Theme.active-border : Theme.livnote-lavender));
+
+                            Text {
+                                text: connecting ? "Connecting..." : "Connect";
+                                color: connecting || connection-string == "" ? Theme.ninja-black : Theme.ninja-black;
+                                font-size: 13px;
+                                font-weight: 500;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            connect-area := TouchArea {
+                                enabled: !connecting && connection-string != "";
+                                clicked => { connect(connection-string); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

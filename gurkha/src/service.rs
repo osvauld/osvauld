@@ -258,6 +258,38 @@ pub async fn issue_space_owner_token(
     Ok((token, cid))
 }
 
+/// Issue space node-to-owner token
+///
+/// Used when node issues a permit back to owner after receiving PublishSpace.
+/// This permit proves the space is published to this node.
+///
+/// # Arguments
+/// * `signing_key_bytes` - Node's 32-byte Ed25519 secret key
+/// * `space_id` - Space identifier
+/// * `owner_pubkey` - Owner's public key (audience)
+#[instrument(skip(signing_key_bytes), fields(space_id = %space_id, token_type = "space_node_share"))]
+pub async fn issue_space_node_to_owner(
+    signing_key_bytes: &[u8; 32],
+    space_id: &str,
+    owner_pubkey: &str,
+) -> ServiceResult<(String, String)> {
+    debug!("Issuing space node-to-owner token");
+
+    let signing_key = SigningKey::from_bytes(signing_key_bytes);
+    let verifying_key = signing_key.verifying_key();
+
+    let decision = decision::decide_space_node_to_owner_token(
+        &verifying_key,
+        space_id,
+        owner_pubkey,
+    )?;
+
+    let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
+
+    info!("Space node-to-owner token generated: cid={}", cid);
+    Ok((token, cid))
+}
+
 /// Unified space delegation
 ///
 /// Delegates a space to any audience using a template key.

@@ -33,7 +33,6 @@ mod sync;
 use std::sync::Arc;
 
 use ractor::{Actor, ActorProcessingErr, ActorRef};
-use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn, instrument};
 use transport::{ConnectionHandle, NodeId};
 
@@ -145,6 +144,20 @@ pub struct PendingSyncOffer {
     pub permit: String,
 }
 
+/// Active subscription to a page's Scribe
+///
+/// Stores all info needed to cleanly unsubscribe on disconnect.
+pub struct PageSubscription {
+    /// Scribe actor ref for sending Unsubscribe
+    pub scribe: ActorRef<butler::ScribeMessage>,
+    /// Listener task handle (aborted on cleanup)
+    pub listener_handle: tokio::task::JoinHandle<()>,
+    /// Subscriber's DID (for Unsubscribe message)
+    pub user_did: String,
+    /// Subscriber's device ID (for Unsubscribe message)
+    pub device_id: String,
+}
+
 /// Actor state for PeerActor
 pub struct PeerActorState {
     /// Our node's mode (User or Node)
@@ -163,9 +176,9 @@ pub struct PeerActorState {
     /// Peer's encryption key (set after handshake)
     /// Used for ECDH when sending SyncOffer messages
     peer_encryption_key: Option<[u8; 32]>,
-    /// Active page subscriptions: page_id -> broadcast receiver handle
-    /// When dropped, the Scribe will clean up the subscription
-    page_subscriptions: std::collections::HashMap<String, tokio::task::JoinHandle<()>>,
+    /// Active page subscriptions: page_id -> subscription info
+    /// Used for explicit cleanup on disconnect (abort task + send Unsubscribe)
+    page_subscriptions: std::collections::HashMap<String, PageSubscription>,
     /// Pending SyncOffer operations: (page_id, layer_name) -> context
     /// Tracks outgoing SyncOffers waiting for SyncAccept response
     pending_sync_offers: std::collections::HashMap<(String, String), PendingSyncOffer>,
@@ -303,9 +316,29 @@ impl Actor for PeerActor {
     async fn post_stop(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _state: &mut Self::State,
+        state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        info!("PeerActor stopped for {}", self.node_id);
+        let subscription_count = state.page_subscriptions.len();
+
+        // Clean up all page subscriptions
+        for (page_id, subscription) in state.page_subscriptions.drain() {
+            // Abort the listener task
+            subscription.listener_handle.abort();
+
+            // Send Unsubscribe to Scribe
+            if let Err(e) = subscription.scribe.cast(butler::ScribeMessage::Unsubscribe {
+                user_did: subscription.user_did.clone(),
+                device_id: subscription.device_id.clone(),
+            }) {
+                warn!("Failed to send Unsubscribe for page {}: {}", page_id, e);
+            } else {
+                debug!("Unsubscribed from page {} (user: {}, device: {})",
+                    page_id, subscription.user_did, subscription.device_id);
+            }
+        }
+
+        info!("PeerActor stopped for {} ({} subscriptions cleaned up)",
+            self.node_id, subscription_count);
         Ok(())
     }
 }
@@ -383,7 +416,7 @@ impl PeerActor {
 
             // 3-Step Sync Protocol messages
             Message::SyncOffer { page_id, layer_name, data, state_vector, ephemeral_public, permit } => {
-                self.on_sync_offer(&page_id, &layer_name, &data, &state_vector, &ephemeral_public, &permit, state).await;
+                self.on_sync_offer(myself.clone(), &page_id, &layer_name, &data, &state_vector, &ephemeral_public, &permit, state).await;
             }
 
             Message::SyncAccept { page_id, layer_name, state_vector } => {
