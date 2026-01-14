@@ -4,7 +4,7 @@
 //! The ONLY difference is the permit - gurkha handles authorization.
 //!
 //! Flows:
-//! 1. Viewer requests space: SpaceRequest → SpaceData → SpaceDataAck → ViewerPage (x N)
+//! 1. Viewer requests space: SpaceRequest → SpaceData → SpaceDataAck → PageData (x N)
 //! 2. 3-Step Sync Protocol: SyncOffer → SyncAccept → SyncAck (or resync SyncOffer if diverged)
 //!
 //! The 3-step protocol is used for ALL sync operations:
@@ -235,7 +235,7 @@ impl PeerActor {
     /// **Context**: Viewer acknowledged SpaceData, now stream pages
     /// **Viewer sent**: SpaceDataAck with delegated permit
     /// **We verify**: Permit matches what we delegated
-    /// **We stream**: ViewerPage messages one by one
+    /// **We stream**: PageData messages one by one
     #[instrument(skip(self, state, _delegated_permit), fields(request_id = %request_id, space_id = %space_id))]
     pub(super) async fn on_space_data_ack(
         &self,
@@ -283,8 +283,16 @@ impl PeerActor {
                 warn!("Failed to store permit CID for page {}: {}", page_id, e);
             }
 
-            // Send ViewerPage message
-            let msg = Message::ViewerPage {
+            // Store viewer's page permit for sync authorization
+            // This allows the node to authorize incoming SyncOffers from the viewer
+            if let Err(e) = state.butler.store_user_page_permit(page_id, &pending.viewer_did, &prepared.permit) {
+                warn!("Failed to store viewer's permit for sync auth: {} - sync may fail", e);
+            } else {
+                debug!("Stored viewer's permit for page {} (sync authorization)", page_id);
+            }
+
+            // Send PageData message
+            let msg = Message::PageData {
                 request_id: request_id.to_string(),
                 space_id: space_id.to_string(),
                 meta: crate::message::PublishedPageMeta {
@@ -303,7 +311,7 @@ impl PeerActor {
             };
 
             self.send_message(&msg, state).await;
-            debug!("Sent ViewerPage {}/{} ({}) to viewer {}", idx + 1, total_pages, page_id, pending.viewer_did);
+            debug!("Sent PageData {}/{} ({}) to viewer {}", idx + 1, total_pages, page_id, pending.viewer_did);
 
             // Store viewer's state vectors so we can send incremental updates later
             // The viewer now has what we just sent, so store the current layer state as their vector
@@ -386,10 +394,10 @@ impl PeerActor {
         info!("Sent SpaceDataAck for space {}, waiting for {} pages", space_id, page_ids.len());
     }
 
-    /// Handle ViewerPage from node (Viewer mode)
+    /// Handle PageData from node (Viewer mode)
     ///
     /// **Context**: Node is streaming pages after we acknowledged SpaceData
-    /// **Node sent**: ViewerPage with page metadata, permit, and encrypted layers
+    /// **Node sent**: PageData with page metadata, permit, and encrypted layers
     /// **We store**: Page with source_node_did for future sync (viewer→node reconnection)
     /// **If is_last**: Notify coordinator of successful viewer sync
     #[instrument(skip(self, state, meta, permit, ephemeral_public, layers), fields(request_id = %request_id, space_id = %space_id, page_id = %meta.id))]
@@ -412,12 +420,12 @@ impl PeerActor {
         let node_did = match require_auth(&state.state) {
             Ok((did, _)) => Some(did.to_string()),
             Err(_) => {
-                warn!("ViewerPage received without authentication - cannot track source node");
+                warn!("PageData received without authentication - cannot track source node");
                 None
             }
         };
 
-        info!("ViewerPage: page={} space={} is_last={} from_node={:?}", meta.id, space_id, is_last, node_did);
+        info!("PageData: page={} space={} is_last={} from_node={:?}", meta.id, space_id, is_last, node_did);
 
         // Convert and store with source node DID for viewer→node reconnection
         // Also store node's state vectors for incremental sync later
@@ -452,8 +460,8 @@ impl PeerActor {
             }
         }
 
-        // Emit ViewerPageReceived to app
-        let _ = state.coordinator.cast(CoordinatorMessage::ViewerPageReceived {
+        // Emit PageReceived to app
+        let _ = state.coordinator.cast(CoordinatorMessage::PageReceived {
             node_id: self.node_id,
             page: butler_page,
             is_last,
@@ -478,7 +486,7 @@ impl PeerActor {
 
         // If this is the last page, notify coordinator
         if is_last {
-            info!("ViewerPage stream complete for space {}", space_id);
+            info!("PageData stream complete for space {}", space_id);
             let _ = state.coordinator.cast(CoordinatorMessage::ViewerSyncComplete {
                 node_id: self.node_id,
                 space_id: space_id.to_string(),
@@ -540,9 +548,10 @@ impl PeerActor {
             }
         };
 
-        // Auto-subscribe peer if not already subscribed (Node mode)
-        // This ensures can_write() will find them in subscribers with correct permissions
-        if state.mode == CourierMode::Node && !state.page_subscriptions.contains_key(page_id) {
+        // Auto-subscribe peer if not already subscribed (both Node and User modes)
+        // For Node mode: Ensures can_write() can check viewer's write permissions
+        // For User mode: Ensures node gets subscribed to viewer's scribe for bidirectional sync
+        if !state.page_subscriptions.contains_key(page_id) {
             info!("Auto-subscribing peer {} to page {} with permit from SyncOffer", peer_did, page_id);
             self.subscribe_to_page(myself.clone(), page_id, permit, state).await;
         }
@@ -693,6 +702,13 @@ impl PeerActor {
         };
 
         // Compare state vectors
+        debug!(
+            "SyncAccept comparison: their_vector={} bytes {:02x?}, our_vector={} bytes {:02x?}",
+            their_state_vector.len(),
+            &their_state_vector[..their_state_vector.len().min(32)],
+            our_current_vector.len(),
+            &our_current_vector[..our_current_vector.len().min(32)]
+        );
         if their_state_vector == our_current_vector.as_slice() {
             // In sync! Send SyncAck
             info!(
@@ -890,6 +906,53 @@ impl PeerActor {
             }
         };
 
+        // Determine subscription permit based on mode.
+        // The subscription controls what layers the peer can RECEIVE from broadcasts.
+        //
+        // **Node mode**: Look up the peer's stored page permit. The peer's permit (stored
+        // when they first received the page) defines what they can access. Consent permits
+        // from SyncOffer don't have layer definitions, so stored permit is preferred.
+        //
+        // **User mode**: Use our local permit. We sync to a single target (the node) which
+        // has owner-level permissions. What matters is what WE can SEND (sync=true layers).
+        // The local permit defines our sync capabilities.
+        let subscription_permit = match state.mode {
+            CourierMode::Node => {
+                // Node mode: Look up peer's stored page permit
+                match state.butler.get_user_page_permit(page_id, &peer_did) {
+                    Ok(Some(stored_permit)) => {
+                        debug!("Node mode: Using stored page permit for peer {} (permit_len={})", peer_did, stored_permit.len());
+                        stored_permit
+                    }
+                    _ => {
+                        // No stored permit - try passed permit or local
+                        if !permit.is_empty() {
+                            debug!("Node mode: Using passed permit for peer {} (permit_len={})", peer_did, permit.len());
+                            permit.to_string()
+                        } else {
+                            match state.butler.get_page(page_id) {
+                                Ok(Some(page_data)) => {
+                                    debug!("Node mode: Using local permit for peer {} (no stored permit)", peer_did);
+                                    page_data.permit.clone().unwrap_or_default()
+                                }
+                                _ => String::new()
+                            }
+                        }
+                    }
+                }
+            }
+            CourierMode::User => {
+                // User mode: Use our local permit - we control what we send
+                match state.butler.get_page(page_id) {
+                    Ok(Some(page_data)) => {
+                        debug!("User mode: Using local permit for subscription (our sync capabilities)");
+                        page_data.permit.clone().unwrap_or_default()
+                    }
+                    _ => String::new()
+                }
+            }
+        };
+
         // Create broadcast channel
         let (tx, mut rx) = tokio::sync::mpsc::channel::<butler::BroadcastPayload>(32);
 
@@ -899,7 +962,7 @@ impl PeerActor {
             user_did: peer_did.clone(),
             device_id: device_id.clone(),
             broadcast_tx: tx,
-            permit: permit.to_string(),
+            permit: subscription_permit,
         }) {
             error!("Failed to subscribe to Scribe for page {}: {}", page_id, e);
             return;

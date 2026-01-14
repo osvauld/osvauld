@@ -31,8 +31,10 @@ mod mock_transport;
 mod test_harness;
 mod test_peer;
 
+pub mod app_loader;
 pub mod assertions;
 pub mod fixtures;
+pub mod headless_helper;
 pub mod helpers;
 pub mod scenarios;
 

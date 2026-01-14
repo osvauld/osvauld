@@ -38,6 +38,7 @@ anyhow = "1.0"
 
 # Logging
 tracing = "0.1"
+logging_utils = { path = "../logging_utils" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

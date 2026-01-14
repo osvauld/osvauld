@@ -21,11 +21,9 @@ mod slint_runtime;
 mod slint_model_bindings;
 mod page_runtime;
 
-// Existing modules (still needed for backwards compat)
+// Existing modules
 mod scribe_channel;
-mod loro_bindings;
 mod butler_bindings;
-mod permit_bindings;
 
 // New architecture exports
 pub use vecmodel_ops::{VecModelOp, UiMutation, PropertyUpdate};
@@ -34,9 +32,21 @@ pub use slint_runtime::SlintRuntime;
 pub use slint_model_bindings::LuaSlintModel;
 pub use page_runtime::{generate_page_shell, write_shell_slint, AppTab};
 
+// Re-export shared bindings from butler
+pub use butler::{
+    LoroBindings, PermitBindings, LuaLoroList, LuaLoroMap,
+    // Loro <-> Lua
+    loro_value_to_lua, lua_to_loro_value,
+    // JSON <-> Lua
+    json_to_lua, lua_to_json,
+    // JSON <-> Loro
+    json_to_loro_value, loro_value_to_json,
+    // Pattern matching
+    matches_layer_pattern,
+};
+
 // Existing exports
 pub use scribe_channel::{ScribeChannel, ScribeCommand, ScribeEvent};
-pub use loro_bindings::LoroBindings;
 pub use butler_bindings::ButlerBindings;
 
 use thiserror::Error;

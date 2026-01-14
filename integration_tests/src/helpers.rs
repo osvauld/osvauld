@@ -439,15 +439,15 @@ pub async fn setup_with_viewer(
     harness.connect_and_notify("viewer", "node").await?;
     tokio::time::sleep(ACTOR_SPAWN_DELAY).await;
 
-    // Viewer requests space (production flow: RequestSpaceAsViewer includes handshake)
+    // Viewer requests space (production flow: RequestSpace includes handshake)
     let viewer_coordinator = harness.peer("viewer").unwrap().coordinator.clone();
-    viewer_coordinator.cast(CoordinatorMessage::RequestSpaceAsViewer {
+    viewer_coordinator.cast(CoordinatorMessage::RequestSpace {
         node_id: node_node_id,
         space_id: space.id.clone(),
         viewer_permit,
     })?;
 
-    // Wait for viewer to have the page (synced after RequestSpaceAsViewer)
+    // Wait for viewer to have the page (synced after RequestSpace)
     harness.wait_for_page(&viewer_butler, &page.id).await?;
 
     Ok(MultiPartyContext {

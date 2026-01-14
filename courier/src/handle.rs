@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use ractor::{Actor, ActorRef};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use transport::{NodeId, Transport, TransportEvent};
 
 use crate::coordinator::{Coordinator, CoordinatorMessage, CourierMode};
@@ -63,7 +63,7 @@ pub enum CourierEvent {
         page_count: usize,
     },
     /// Viewer received a page from node
-    ViewerPageReceived {
+    PageReceived {
         node_id: String,
         page: butler::Page,
         is_last: bool,
@@ -164,12 +164,12 @@ impl CourierHandle {
             .map_err(|e| format!("Invalid node_id: {}", e))?;
 
         self.coordinator
-            .cast(CoordinatorMessage::RequestSpaceAsViewer {
+            .cast(CoordinatorMessage::RequestSpace {
                 node_id,
                 space_id: space_id.to_string(),
                 viewer_permit: viewer_permit.to_string(),
             })
-            .map_err(|e| format!("Failed to send RequestSpaceAsViewer: {:?}", e))?;
+            .map_err(|e| format!("Failed to send RequestSpace: {:?}", e))?;
 
         Ok(())
     }
@@ -267,17 +267,19 @@ impl Courier {
             .expect("HandshakeServices required");
 
         let (event_tx, event_rx) = mpsc::channel(100);
+        let (connect_tx, connect_rx) = mpsc::channel(16);
 
         let mut runner = CourierRunner {
             mode,
             transport: transport.clone(),
             butler,
             event_tx,
+            connect_rx,
             coordinator: None,
         };
 
         // Spawn coordinator and store in runner so run() uses the same actor
-        let coordinator = runner.spawn_coordinator_sync();
+        let coordinator = runner.spawn_coordinator_sync(connect_tx);
         runner.coordinator = Some(coordinator.clone());
 
         let handle = CourierHandle::new(coordinator, transport);
@@ -292,6 +294,7 @@ pub struct CourierRunner {
     transport: Arc<Transport>,
     butler: Arc<Butler>,
     event_tx: mpsc::Sender<CourierEvent>,
+    connect_rx: mpsc::Receiver<crate::coordinator::ConnectRequest>,
     coordinator: Option<ActorRef<CoordinatorMessage>>,
 }
 
@@ -300,7 +303,10 @@ impl CourierRunner {
     ///
     /// Uses block_in_place to spawn the actor synchronously so we can
     /// return the handle immediately from init_with_services.
-    fn spawn_coordinator_sync(&self) -> ActorRef<CoordinatorMessage> {
+    fn spawn_coordinator_sync(
+        &self,
+        connect_tx: mpsc::Sender<crate::coordinator::ConnectRequest>,
+    ) -> ActorRef<CoordinatorMessage> {
         let node_id = self.transport.node_id();
         let butler = self.butler.clone();
         let mode = self.mode;
@@ -312,7 +318,7 @@ impl CourierRunner {
                 let (actor_ref, _) = Actor::spawn(
                     Some("coordinator".to_string()),
                     coordinator,
-                    (node_id, mode, butler.clone(), Some(event_tx)),
+                    (node_id, mode, butler.clone(), Some(connect_tx), Some(event_tx)),
                 )
                 .await
                 .expect("Failed to spawn Coordinator");
@@ -324,7 +330,7 @@ impl CourierRunner {
 
     /// Run the courier event loop
     ///
-    /// Processes transport events and forwards them to the Coordinator.
+    /// Processes transport events and connection requests, forwarding to Coordinator.
     /// The Coordinator must have been spawned during init_with_services.
     pub async fn run(mut self, mut transport_rx: mpsc::Receiver<TransportEvent>) {
         // Use the coordinator that was spawned during init
@@ -335,12 +341,46 @@ impl CourierRunner {
 
         info!("Courier runner started");
 
-        // Process transport events
-        while let Some(event) = transport_rx.recv().await {
-            if let Some(msg) = Coordinator::from_transport_event(event) {
-                if let Err(e) = coordinator.cast(msg) {
-                    error!("Failed to send message to coordinator: {:?}", e);
+        loop {
+            tokio::select! {
+                // Handle transport events
+                Some(event) = transport_rx.recv() => {
+                    if let Some(msg) = Coordinator::from_transport_event(event) {
+                        if let Err(e) = coordinator.cast(msg) {
+                            error!("Failed to send message to coordinator: {:?}", e);
+                        }
+                    }
                 }
+
+                // Handle connection requests from Coordinator
+                Some(req) = self.connect_rx.recv() => {
+                    info!(node_id = %req.node_id, "Processing connection request");
+
+                    // Mark as outbound connection so Coordinator knows to initiate handshake
+                    if let Err(e) = coordinator.cast(CoordinatorMessage::OutboundConnection {
+                        node_id: req.node_id,
+                    }) {
+                        error!("Failed to mark outbound connection: {:?}", e);
+                        continue;
+                    }
+
+                    // Connect via transport (async, spawned to not block event loop)
+                    let transport = self.transport.clone();
+                    let node_id = req.node_id;
+                    tokio::spawn(async move {
+                        match transport.connect(node_id).await {
+                            Ok(_handle) => {
+                                info!(node_id = %node_id, "Auto-connect successful for sync");
+                            }
+                            Err(e) => {
+                                warn!(node_id = %node_id, error = %e, "Auto-connect failed for sync");
+                            }
+                        }
+                    });
+                }
+
+                // Both channels closed - exit
+                else => break,
             }
         }
 

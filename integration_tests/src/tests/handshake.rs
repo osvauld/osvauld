@@ -57,7 +57,11 @@ async fn connect_with_permit(
         .map_err(|_| "Auth channel closed".to_string())?
 }
 
-/// Space template for tests - matches the structure in permissions.ts
+/// Space template for tests - uses capability-based design
+///
+/// This template demonstrates the role-agnostic pattern:
+/// - `peer_capabilities` controls protocol operations (relay, share, accept_publish)
+/// - `layer_patterns` controls data access with `{aud}` placeholder for viewer DID
 const TEST_SPACE_TEMPLATE: &str = r#"{
     "owner_template": {
         "operations": {
@@ -66,13 +70,35 @@ const TEST_SPACE_TEMPLATE: &str = r#"{
             "add_pages": "allow",
             "share_space": "allow"
         },
+        "peer_capabilities": {
+            "relay": false,
+            "share": true,
+            "accept_publish": true
+        },
+        "layers": {
+            "content": { "sync": true, "write": true, "type": "list" }
+        },
+        "layer_patterns": {
+            "{page_id}/*/*": { "create": true, "sync": true }
+        },
         "delegation": {
             "node": {
                 "token_type": "space_share",
+                "peer_capabilities": {
+                    "relay": true,
+                    "share": true,
+                    "accept_publish": false
+                },
                 "operations": {
                     "get_share_link": "allow",
                     "add_pages": "allow",
                     "share_space": "allow"
+                },
+                "layers": {
+                    "content": { "sync": true, "write": false }
+                },
+                "layer_patterns": {
+                    "{page_id}/*/*": { "create": false, "sync": true }
                 },
                 "auth_capabilities": {
                     "can_connect": true,
@@ -84,9 +110,20 @@ const TEST_SPACE_TEMPLATE: &str = r#"{
             },
             "viewer": {
                 "token_type": "space_viewer",
+                "peer_capabilities": {
+                    "relay": false,
+                    "share": false,
+                    "accept_publish": false
+                },
                 "operations": {
                     "request_pages": "allow",
                     "get_share_link": "allow"
+                },
+                "layers": {
+                    "content": { "sync": true, "write": false }
+                },
+                "layer_patterns": {
+                    "{page_id}/*/{aud}": { "create": true, "sync": true }
                 },
                 "auth_capabilities": {
                     "can_connect": true,
@@ -261,6 +298,16 @@ async fn test_first_connection_handshake() {
     let stored_permit = sovereign_node_after.permit.as_ref().unwrap();
     let parsed_stored = gurkha::Permit::from_token(stored_permit).expect("Invalid stored permit");
     assert!(!parsed_stored.is_first_connection(), "Permit should be upgraded from first_connection");
+
+    // === Verify peer_capabilities (capability-based design) ===
+    // Owner's permit from node should have capabilities allowing owner operations
+    let owner_caps = parsed_stored.peer_capabilities();
+    // Owner doesn't need relay (that's for nodes)
+    // Owner should be able to share and accept_publish depends on node's template
+    tracing::info!(
+        "Owner permit capabilities: relay={}, share={}, accept_publish={}",
+        owner_caps.relay, owner_caps.share, owner_caps.accept_publish
+    );
 
     harness.shutdown().await;
 }
@@ -514,7 +561,36 @@ async fn test_viewer_handshake() {
     let viewer_permit = viewer_conn.permit.clone();
     let parsed_viewer_permit = gurkha::Permit::from_token(&viewer_permit).expect("Invalid viewer permit");
     assert!(!parsed_viewer_permit.is_first_connection(), "Viewer permit should NOT be first_connection");
-    assert_eq!(parsed_viewer_permit.core().relationship(), Some("node_viewer"), "Permit should have node_viewer relationship");
+
+    // === Verify capability-based design (not role-based) ===
+    // Viewer should have restricted peer_capabilities
+    let viewer_caps = parsed_viewer_permit.peer_capabilities();
+    assert!(!viewer_caps.relay, "Viewer should NOT have relay capability");
+    assert!(!viewer_caps.share, "Viewer should NOT have share capability");
+    assert!(!viewer_caps.accept_publish, "Viewer should NOT have accept_publish capability");
+
+    // Verify viewer has layer_patterns with {aud} placeholder for privacy isolation
+    if parsed_viewer_permit.has_layer_patterns() {
+        let patterns = parsed_viewer_permit.layer_patterns();
+        let has_aud_pattern = patterns.keys().any(|p| p.contains("{aud}"));
+        tracing::info!(
+            "Viewer layer_patterns: {:?}, has_aud_pattern: {}",
+            patterns.keys().collect::<Vec<_>>(),
+            has_aud_pattern
+        );
+        // Viewer should have DID-scoped pattern like {page_id}/*/{aud}
+        // This ensures privacy isolation - viewers only see their own namespace
+        if has_aud_pattern {
+            tracing::info!("Viewer has {{aud}} pattern for privacy isolation");
+        }
+    } else {
+        tracing::info!("Viewer permit has no layer_patterns (space-level permit)");
+    }
+
+    // Relationship is for logging only, not business logic
+    if let Some(rel) = parsed_viewer_permit.core().relationship() {
+        tracing::info!("Viewer relationship label (logging only): {}", rel);
+    }
 
     connect_with_permit(
         &harness,

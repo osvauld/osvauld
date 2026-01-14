@@ -2,19 +2,22 @@
 //!
 //! Flow:
 //! 1. User sends Hello → Node
-//! 2. Node validates (via gurkha decision), sends Welcome → User
-//! 3. User validates Welcome (via gurkha decision), sends PermitGrant → Node
-//! 4. Node validates PermitGrant (via gurkha decision), sends Ack → User
+//! 2. Node validates (via decision), sends Welcome → User
+//! 3. User validates Welcome (via decision), sends PermitGrant → Node
+//! 4. Node validates PermitGrant (via decision), sends Ack → User
 //! 5. Both sides authenticated
 //!
-//! Identity model:
-//! - User/Node have verifying_key (Ed25519, 32 bytes) + encryption_key (X25519, 32 bytes)
-//! - All keys are [u8; 32]
-//! - Single permit per owner<->node relationship
+//! ## Design (Capability-Based)
 //!
-//! Security model (gurkha decisions):
-//! - Node decides how to respond to Hello (owner/viewer, first/reconnect)
-//! - User validates Welcome permit matches expected role (prevents escalation)
+//! The protocol is completely role-agnostic. All handshake decisions are based on
+//! capabilities derived directly from the permit structure:
+//!
+//! - `accept_publish: true` → Peer can publish spaces to this node
+//! - `first_connection: true` → First time connecting (needs OwnerInfo stored)
+//!
+//! Security model (capability-based decisions):
+//! - Node decides how to respond to Hello based on capabilities
+//! - User validates Welcome permit audience
 //! - Node validates PermitGrant permit from user
 
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -22,9 +25,10 @@ use tracing::{debug, error, info, warn, instrument};
 
 use herald::Identity;
 use crate::handshake::{
-    HandshakeRole, HelloDecision, WelcomeDecision, PermitGrantDecision,
+    HelloDecision, WelcomeDecision, PermitGrantDecision,
     HelloContext, WelcomeContext, PermitGrantContext,
     decide_hello_response, decide_welcome_response, decide_permit_grant_response,
+    can_publish,
 };
 
 use crate::message::Message;
@@ -53,7 +57,7 @@ impl PeerActor {
             return;
         }
 
-        // Parse the permit to determine our role
+        // Parse the permit to extract capabilities
         let parsed_permit = match parse_permit(permit) {
             Ok(p) => p,
             Err(e) => {
@@ -63,17 +67,9 @@ impl PeerActor {
             }
         };
 
-        // Determine our role from the permit
-        let our_role = match HandshakeRole::from_permit(parsed_permit.core()) {
-            Some(role) => role,
-            None => {
-                error!("Cannot determine role from permit");
-                state.state = PeerState::fail("Unknown role in permit");
-                return;
-            }
-        };
-
-        debug!(?our_role, "Determined role from permit");
+        // Extract capability from permit
+        let our_can_publish = can_publish(parsed_permit.core());
+        debug!(can_publish = our_can_publish, "Extracted capabilities from permit");
 
         // Get our identity from Butler
         let user_info = match state.butler.user_info().await {
@@ -102,7 +98,7 @@ impl PeerActor {
                 }
             }
             Ok(None) => {
-                // Viewer flow - might not have sovereign node record
+                // Peer flow - might not have sovereign node record
                 // Use empty vec, validation will be done differently
                 warn!("No sovereign node record, proceeding without node pubkey validation");
                 vec![]
@@ -135,16 +131,17 @@ impl PeerActor {
             permit: permit.to_string(),
         };
 
-        info!(?our_role, "Sending Hello to {} as {}", self.node_id, user_info.username);
+        info!(can_publish = our_can_publish, "Sending Hello to {} as {}", self.node_id, user_info.username);
         self.send_message(&hello, state).await;
 
-        // Transition to AwaitingWelcome with role tracking
+        // Transition to AwaitingWelcome with capability tracking
         state.state = PeerState::AwaitingWelcome {
             our_did: user_info.did,
             our_username: user_info.username,
             sent_at: timestamp,
-            our_role,
+            can_publish: our_can_publish,
             expected_node_pubkey,
+            our_permit: permit.to_string(),
         };
     }
 
@@ -152,9 +149,9 @@ impl PeerActor {
 
     /// Handle Hello message (Node mode receives this)
     ///
-    /// **Context**: Owner/User/Viewer connects to us (the Node)
+    /// **Context**: Peer connects to us (the Node)
     /// **Peer sends**: Hello with identity and permit
-    /// **We call**: gurkha::decide_hello_response() for decision
+    /// **We call**: decide_hello_response() for decision
     /// **We execute**: Accept (store info, issue permit) or Reject
     /// **We send**: Welcome with permit_for_peer
     #[instrument(skip(self, state, public_key, encryption_key, permit), fields(peer_did = %did, peer_username = %username))]
@@ -190,9 +187,9 @@ impl PeerActor {
             }
         };
 
-        let relationship = parsed_permit.relationship().unwrap_or("unknown");
+        let peer_can_publish = can_publish(parsed_permit.core());
         let is_first_connection = parsed_permit.is_first_connection();
-        debug!(relationship, is_first_connection, "Permit parsed");
+        debug!(can_publish = peer_can_publish, is_first_connection, "Permit capabilities parsed");
 
         // Check if we already have an owner
         let existing_owner = match state.butler.get_owner() {
@@ -204,7 +201,7 @@ impl PeerActor {
             }
         };
 
-        // Build context for gurkha decision
+        // Build context for decision
         let ctx = HelloContext {
             incoming_permit: parsed_permit.core(),
             incoming_did: did,
@@ -212,20 +209,20 @@ impl PeerActor {
             existing_owner_permit: existing_owner.as_ref().and_then(|o| o.permit.as_deref()),
         };
 
-        // Get decision from gurkha
+        // Get decision
         let decision = decide_hello_response(&ctx);
-        debug!(?decision, "Hello decision from gurkha");
+        debug!(?decision, "Hello decision");
 
         // Execute decision
         match decision {
-            HelloDecision::AcceptOwnerFirstConnection => {
-                self.handle_owner_first_connection(did, username, public_key, encryption_key, state).await;
+            HelloDecision::AcceptFirstConnection { can_publish } => {
+                self.handle_first_connection(did, username, public_key, encryption_key, can_publish, state).await;
             }
-            HelloDecision::AcceptOwnerReconnection { stored_permit } => {
-                self.handle_owner_reconnection(did, username, &stored_permit, state).await;
+            HelloDecision::AcceptReconnection { stored_permit, can_publish } => {
+                self.handle_reconnection(did, username, &stored_permit, can_publish, state).await;
             }
-            HelloDecision::AcceptViewer => {
-                self.handle_viewer_connection(did, username, public_key, encryption_key, state).await;
+            HelloDecision::AcceptPeer => {
+                self.handle_peer_connection(did, username, public_key, encryption_key, state).await;
             }
             HelloDecision::RejectAlreadyHasOwner => {
                 self.reject("Node already has an owner", state).await;
@@ -233,48 +230,50 @@ impl PeerActor {
             HelloDecision::RejectOwnerMismatch => {
                 self.reject("Owner DID mismatch", state).await;
             }
-            HelloDecision::RejectUnknownRole { relationship } => {
-                self.reject(&format!("Unknown relationship: {}", relationship), state).await;
-            }
             HelloDecision::RejectNoOwnerForReconnection => {
                 self.reject("No owner registered for reconnection", state).await;
             }
         }
     }
 
-    /// Handle owner first connection (Node mode)
+    /// Handle first connection from peer who can publish (Node mode)
     ///
-    /// **Context**: New owner connecting for the first time
-    /// **We store**: OwnerInfo
-    /// **We issue**: node_to_owner permit
+    /// **Context**: New peer connecting for the first time with publish capability
+    /// **We store**: OwnerInfo (if can_publish)
+    /// **We issue**: peer_connection permit
     /// **We send**: Welcome
-    async fn handle_owner_first_connection(
+    async fn handle_first_connection(
         &self,
         did: &str,
         username: &str,
         public_key: &[u8; 32],
         encryption_key: &[u8; 32],
+        peer_can_publish: bool,
         state: &mut PeerActorState,
     ) {
-        // Store owner info
-        let encryption_key_base64 = STANDARD.encode(encryption_key);
-        let owner_info = OwnerInfo::new(
-            did.to_string(),
-            encryption_key_base64,
-            username.to_string(),
-        );
+        // Store owner info if peer can publish
+        if peer_can_publish {
+            let encryption_key_base64 = STANDARD.encode(encryption_key);
+            let owner_info = OwnerInfo::new(
+                did.to_string(),
+                encryption_key_base64,
+                username.to_string(),
+            );
 
-        if let Err(e) = state.butler.set_owner(&owner_info) {
-            error!("Failed to store owner info: {}", e);
-            self.reject("Failed to store owner", state).await;
-            return;
+            if let Err(e) = state.butler.set_owner(&owner_info) {
+                error!("Failed to store owner info: {}", e);
+                self.reject("Failed to store owner", state).await;
+                return;
+            }
+
+            info!("Stored owner info for first connection");
         }
 
-        info!("Stored owner info for first connection");
-
-        // Issue new permit for the owner
+        // Issue new permit for the peer
+        // Relationship determines permit type - gurkha expects node_owner or node_viewer
+        let relationship = if peer_can_publish { "node_owner" } else { "node_viewer" };
         let peer_pubkey = STANDARD.encode(public_key);
-        let (permit_for_owner, _our_pubkey) = match state.butler.issue_peer_connection_permit(&peer_pubkey, "node_owner").await {
+        let (permit_for_peer, _our_pubkey) = match state.butler.issue_peer_connection_permit(&peer_pubkey, relationship).await {
             Ok(result) => result,
             Err(e) => {
                 error!("Failed to issue permit: {}", e);
@@ -283,36 +282,41 @@ impl PeerActor {
             }
         };
 
-        // Store the permit we issued
-        if let Err(e) = state.butler.set_owner_permit(permit_for_owner.clone()) {
-            warn!("Failed to store owner permit: {}", e);
+        // Store the permit we issued (for reconnection)
+        if peer_can_publish {
+            if let Err(e) = state.butler.set_owner_permit(permit_for_peer.clone()) {
+                warn!("Failed to store owner permit: {}", e);
+            }
         }
 
         // Send Welcome
-        self.send_welcome_message(&permit_for_owner, state).await;
+        self.send_welcome_message(&permit_for_peer, state).await;
 
         // Transition to AwaitingPermitGrant
         state.state = PeerState::AwaitingPermitGrant {
             their_did: did.to_string(),
             their_username: username.to_string(),
             is_first_connection: true,
-            their_role: HandshakeRole::Owner,
+            can_publish: peer_can_publish,
         };
     }
 
-    /// Handle owner reconnection (Node mode)
+    /// Handle reconnection from known peer (Node mode)
     ///
-    /// **Context**: Known owner reconnecting
+    /// **Context**: Known peer reconnecting
     /// **We send**: Welcome with stored permit
-    async fn handle_owner_reconnection(
+    async fn handle_reconnection(
         &self,
         did: &str,
         username: &str,
         stored_permit: &str,
+        peer_can_publish: bool,
         state: &mut PeerActorState,
     ) {
-        debug!("Reconnection from known owner");
-        let _ = state.butler.update_owner_last_connected();
+        debug!(can_publish = peer_can_publish, "Reconnection from known peer");
+        if peer_can_publish {
+            let _ = state.butler.update_owner_last_connected();
+        }
 
         // Send Welcome with stored permit
         self.send_welcome_message(stored_permit, state).await;
@@ -322,17 +326,17 @@ impl PeerActor {
             their_did: did.to_string(),
             their_username: username.to_string(),
             is_first_connection: false,
-            their_role: HandshakeRole::Owner,
+            can_publish: peer_can_publish,
         };
     }
 
-    /// Handle viewer connection (Node mode)
+    /// Handle peer connection (Node mode)
     ///
-    /// **Context**: Viewer connecting to access shared content
+    /// **Context**: Peer connecting without publish capability
     /// **We store**: Contact record (as Node type contact)
-    /// **We issue**: node_to_viewer permit
+    /// **We issue**: peer_connection permit
     /// **We send**: Welcome
-    async fn handle_viewer_connection(
+    async fn handle_peer_connection(
         &self,
         did: &str,
         username: &str,
@@ -340,32 +344,32 @@ impl PeerActor {
         _encryption_key: &[u8; 32],
         state: &mut PeerActorState,
     ) {
-        info!("Accepting viewer connection from {} ({})", username, did);
+        info!("Accepting peer connection from {} ({})", username, did);
 
-        // Issue permit for viewer
+        // Issue permit for peer - gurkha expects node_viewer for non-publishing peers
         let peer_pubkey = STANDARD.encode(public_key);
-        let (permit_for_viewer, _our_pubkey) = match state.butler.issue_peer_connection_permit(&peer_pubkey, "node_viewer").await {
+        let (permit_for_peer, _our_pubkey) = match state.butler.issue_peer_connection_permit(&peer_pubkey, "node_viewer").await {
             Ok(result) => result,
             Err(e) => {
-                error!("Failed to issue viewer permit: {}", e);
+                error!("Failed to issue peer permit: {}", e);
                 self.reject("Failed to issue permit", state).await;
                 return;
             }
         };
 
-        // TODO: Store viewer as contact with ContactType::Node
+        // TODO: Store peer as contact with ContactType::Node
         // For now just log
-        debug!("Viewer permit issued, contact storage TODO");
+        debug!("Peer permit issued, contact storage TODO");
 
         // Send Welcome
-        self.send_welcome_message(&permit_for_viewer, state).await;
+        self.send_welcome_message(&permit_for_peer, state).await;
 
         // Transition to AwaitingPermitGrant
         state.state = PeerState::AwaitingPermitGrant {
             their_did: did.to_string(),
             their_username: username.to_string(),
             is_first_connection: true,
-            their_role: HandshakeRole::Viewer,
+            can_publish: false,
         };
     }
 
@@ -406,9 +410,9 @@ impl PeerActor {
     /// Handle Welcome message (User mode receives this)
     ///
     /// **Context**: Node responded to our Hello
-    /// **We call**: gurkha::decide_welcome_response() for decision
-    /// **We validate**: Node identity, permit type matches our role (security!)
-    /// **We issue**: Reciprocal permit based on our role
+    /// **We call**: decide_welcome_response() for decision
+    /// **We validate**: Node identity, permit audience
+    /// **We issue**: Reciprocal permit
     /// **We send**: PermitGrant
     #[instrument(skip(self, myself, state, permit_for_us))]
     pub(super) async fn on_welcome(
@@ -424,9 +428,9 @@ impl PeerActor {
         }
 
         // Extract state data
-        let (our_did, our_username, our_role, expected_node_pubkey) = match &state.state {
-            PeerState::AwaitingWelcome { our_did, our_username, our_role, expected_node_pubkey, .. } => {
-                (our_did.clone(), our_username.clone(), *our_role, expected_node_pubkey.clone())
+        let (our_did, our_username, our_can_publish, expected_node_pubkey, our_permit) = match &state.state {
+            PeerState::AwaitingWelcome { our_did, our_username, can_publish, expected_node_pubkey, our_permit, .. } => {
+                (our_did.clone(), our_username.clone(), *can_publish, expected_node_pubkey.clone(), our_permit.clone())
             }
             _ => {
                 warn!("Unexpected Welcome in state {}", state.state.name());
@@ -449,6 +453,16 @@ impl PeerActor {
             }
         };
 
+        // Parse our original permit for WelcomeContext
+        let our_parsed_permit = match parse_permit(&our_permit) {
+            Ok(p) => p,
+            Err(e) => {
+                error!("Failed to parse our stored permit: {}", e);
+                state.state = PeerState::fail("Internal error");
+                return;
+            }
+        };
+
         // Get our public key for audience validation
         // Permits use base64-encoded pubkey as audience, not DID
         let our_pubkey_b64 = match state.butler.user_info().await {
@@ -460,9 +474,9 @@ impl PeerActor {
             }
         };
 
-        // Build context for gurkha decision
+        // Build context for decision
         let ctx = WelcomeContext {
-            our_role,
+            our_permit: our_parsed_permit.core(),
             our_did: &our_did,
             our_pubkey_b64: &our_pubkey_b64,
             expected_node_pubkey: &expected_node_pubkey,
@@ -470,20 +484,19 @@ impl PeerActor {
             received_permit: parsed_permit.core(),
         };
 
-        // Get decision from gurkha
+        // Get decision
         let decision = decide_welcome_response(&ctx);
-        debug!(?decision, "Welcome decision from gurkha");
+        debug!(?decision, "Welcome decision");
 
         // Execute decision
         match decision {
-            WelcomeDecision::Accept { reciprocal_permit_type, our_role } => {
+            WelcomeDecision::Accept { can_publish } => {
                 self.complete_welcome_flow(
                     myself,
                     permit_for_us,
                     &our_did,
                     &our_username,
-                    our_role,
-                    &reciprocal_permit_type,
+                    can_publish,
                     node_public_key,
                     state,
                 ).await;
@@ -491,10 +504,6 @@ impl PeerActor {
             WelcomeDecision::RejectNodeMismatch => {
                 warn!("Node public key mismatch - possible MITM attack");
                 state.state = PeerState::fail("Node identity mismatch");
-            }
-            WelcomeDecision::RejectPermitTypeMismatch { expected, received } => {
-                warn!("Privilege escalation attempt: expected {} got {}", expected, received);
-                state.state = PeerState::fail("Invalid permit type - possible privilege escalation");
             }
             WelcomeDecision::RejectAudienceMismatch => {
                 warn!("Permit audience mismatch");
@@ -505,7 +514,7 @@ impl PeerActor {
 
     /// Complete Welcome flow after successful validation
     ///
-    /// **Context**: gurkha approved the Welcome
+    /// **Context**: Decision approved the Welcome
     /// **We store**: Node's permit
     /// **We issue**: Reciprocal permit
     /// **We send**: PermitGrant
@@ -516,8 +525,7 @@ impl PeerActor {
         permit_for_us: &str,
         _our_did: &str,
         _our_username: &str,
-        our_role: HandshakeRole,
-        reciprocal_permit_type: &str,
+        our_can_publish: bool,
         node_public_key: &[u8],
         state: &mut PeerActorState,
     ) {
@@ -549,10 +557,7 @@ impl PeerActor {
                 self.send_message(&Message::Ack, state).await;
 
                 // Transition directly to Authenticated
-                let peer_type = match our_role {
-                    HandshakeRole::Owner => PeerType::MyNode,
-                    HandshakeRole::Viewer => PeerType::MyNode, // Viewer's node is still "MyNode" from their perspective
-                };
+                let peer_type = PeerType::MyNode;
 
                 state.state = PeerState::Authenticated {
                     peer_type,
@@ -561,7 +566,7 @@ impl PeerActor {
                 };
 
                 self.notify_authenticated(state, peer_type, &node_did, "node");
-                info!(?our_role, "Reconnection handshake complete with node {}", self.node_id);
+                info!(can_publish = our_can_publish, "Reconnection handshake complete with node {}", self.node_id);
 
                 // Subscribe peer to our active Scribes for live sync
                 self.subscribe_to_active_scribes(myself, state).await;
@@ -572,7 +577,7 @@ impl PeerActor {
         }
 
         // First connection flow
-        debug!(?our_role, "First connection: issuing {} permit for node", reciprocal_permit_type);
+        debug!(can_publish = our_can_publish, "First connection: issuing permit for node");
 
         // Store the permit from node
         if let Err(e) = state.butler.set_sovereign_node_permit(&node_id_str, permit_for_us.to_string()) {
@@ -580,10 +585,10 @@ impl PeerActor {
         }
 
         // Issue reciprocal permit for the node using its base64-encoded public key as audience
-        // Owner issues owner_node, viewer issues viewer_node - bidirectional naming
+        // Relationship based on our capability - gurkha expects owner_node or viewer_node
+        let relationship = if our_can_publish { "owner_node" } else { "viewer_node" };
         let node_pubkey_b64 = STANDARD.encode(node_public_key);
-        let role_str = our_role.relationship_for_node();
-        let (permit_for_node, _our_pubkey) = match state.butler.issue_peer_connection_permit(&node_pubkey_b64, role_str).await {
+        let (permit_for_node, _our_pubkey) = match state.butler.issue_peer_connection_permit(&node_pubkey_b64, relationship).await {
             Ok(result) => result,
             Err(e) => {
                 error!("Failed to issue permit for node: {}", e);
@@ -597,7 +602,7 @@ impl PeerActor {
             permit_for_node: permit_for_node.clone(),
         };
 
-        info!(?our_role, "Sending PermitGrant to {}", self.node_id);
+        info!(can_publish = our_can_publish, "Sending PermitGrant to {}", self.node_id);
         self.send_message(&permit_grant, state).await;
 
         // Transition to AwaitingPermitGrant (waiting for Ack)
@@ -606,7 +611,7 @@ impl PeerActor {
             their_did: node_did,
             their_username: "node".to_string(),
             is_first_connection: true,
-            their_role: our_role, // From user's perspective, track our role
+            can_publish: our_can_publish,
         };
     }
 
@@ -615,7 +620,7 @@ impl PeerActor {
     /// Handle PermitGrant message (Node mode receives this)
     ///
     /// **Context**: User sent us their permit after Welcome
-    /// **We call**: gurkha::decide_permit_grant_response() for decision
+    /// **We call**: decide_permit_grant_response() for decision
     /// **We store**: The permit they gave us
     /// **We send**: Ack
     /// **Result**: Both sides authenticated
@@ -632,9 +637,9 @@ impl PeerActor {
         }
 
         // Extract state data
-        let (their_did, their_username, their_role) = match &state.state {
-            PeerState::AwaitingPermitGrant { their_did, their_username, their_role, .. } => {
-                (their_did.clone(), their_username.clone(), *their_role)
+        let (their_did, their_username, peer_can_publish) = match &state.state {
+            PeerState::AwaitingPermitGrant { their_did, their_username, can_publish, .. } => {
+                (their_did.clone(), their_username.clone(), *can_publish)
             }
             _ => {
                 warn!("Unexpected PermitGrant in state {}", state.state.name());
@@ -664,36 +669,31 @@ impl PeerActor {
             }
         };
 
-        // Build context for gurkha decision
+        // Build context for decision
         let ctx = PermitGrantContext {
-            expected_role: their_role,
+            peer_can_publish,
             our_pubkey_b64: &our_pubkey_b64,
             their_did: &their_did,
             received_permit: parsed_permit.core(),
         };
 
-        // Get decision from gurkha
+        // Get decision
         let decision = decide_permit_grant_response(&ctx);
-        debug!(?decision, "PermitGrant decision from gurkha");
+        debug!(?decision, "PermitGrant decision");
 
         // Execute decision
         match decision {
-            PermitGrantDecision::Accept { peer_role } => {
-                // Note: permit_for_owner was already stored in handle_owner_first_connection
-                // permit_for_node is the reciprocal permit (for node to auth to owner if needed)
-                // We don't overwrite the stored permit here - that would break reconnection!
-                match peer_role {
-                    HandshakeRole::Owner => {
-                        debug!("Owner handshake complete - received reciprocal permit");
-                    }
-                    HandshakeRole::Viewer => {
-                        // TODO: Store viewer permit in contact record
-                        debug!("Viewer permit storage TODO");
-                    }
+            PermitGrantDecision::Accept { can_publish } => {
+                // Log completion
+                if can_publish {
+                    debug!("Owner handshake complete - received reciprocal permit");
+                } else {
+                    // TODO: Store peer permit in contact record
+                    debug!("Peer permit storage TODO");
                 }
 
                 // Transition to Authenticated
-                let peer_type: PeerType = peer_role.into();
+                let peer_type = PeerType::from_can_publish(can_publish);
                 state.state = PeerState::Authenticated {
                     peer_type,
                     did: their_did.clone(),
@@ -706,14 +706,10 @@ impl PeerActor {
                 // Send Ack
                 self.send_message(&Message::Ack, state).await;
 
-                info!(?peer_role, "Handshake complete with {} ({})", their_username, self.node_id);
+                info!(can_publish = can_publish, "Handshake complete with {} ({})", their_username, self.node_id);
 
                 // Subscribe peer to our active Scribes for live sync
                 self.subscribe_to_active_scribes(myself, state).await;
-            }
-            PermitGrantDecision::RejectPermitTypeMismatch { expected, received } => {
-                warn!("PermitGrant type mismatch: expected {} got {}", expected, received);
-                self.reject("Invalid permit type", state).await;
             }
             PermitGrantDecision::RejectAudienceMismatch => {
                 warn!("PermitGrant audience mismatch");
@@ -740,9 +736,9 @@ impl PeerActor {
         state: &mut PeerActorState,
     ) {
         // Extract state data
-        let (their_did, their_username, is_first_connection, their_role) = match &state.state {
-            PeerState::AwaitingPermitGrant { their_did, their_username, is_first_connection, their_role } => {
-                (their_did.clone(), their_username.clone(), *is_first_connection, *their_role)
+        let (their_did, their_username, is_first_connection, peer_can_publish) = match &state.state {
+            PeerState::AwaitingPermitGrant { their_did, their_username, is_first_connection, can_publish } => {
+                (their_did.clone(), their_username.clone(), *is_first_connection, *can_publish)
             }
             _ => {
                 warn!("Unexpected Ack in state {}", state.state.name());
@@ -759,17 +755,17 @@ impl PeerActor {
                 username: their_username.clone(),
             };
             self.notify_authenticated(state, peer_type, &their_did, &their_username);
-            info!(?their_role, "First connection handshake complete with node {}", self.node_id);
+            info!(can_publish = peer_can_publish, "First connection handshake complete with node {}", self.node_id);
         } else {
             // Node mode: Reconnection complete - peer verified our stored permit
-            let peer_type: PeerType = their_role.into();
+            let peer_type = PeerType::from_can_publish(peer_can_publish);
             state.state = PeerState::Authenticated {
                 peer_type,
                 did: their_did.clone(),
                 username: their_username.clone(),
             };
             self.notify_authenticated(state, peer_type, &their_did, &their_username);
-            info!(?their_role, "Reconnection handshake complete with {}", their_username);
+            info!(can_publish = peer_can_publish, "Reconnection handshake complete with {}", their_username);
         }
 
         // Subscribe peer to our active Scribes for live sync (both paths)

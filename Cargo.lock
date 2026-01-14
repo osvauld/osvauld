@@ -302,8 +302,6 @@ name = "app_runtime"
 version = "0.1.0"
 dependencies = [
  "butler",
- "gurkha",
- "im",
  "loro",
  "mlua",
  "parking_lot",
@@ -1051,7 +1049,9 @@ dependencies = [
  "gurkha",
  "herald",
  "log",
+ "logging_utils",
  "loro",
+ "mlua",
  "ractor",
  "redb",
  "serde",
@@ -1566,6 +1566,7 @@ dependencies = [
  "chrono",
  "gurkha",
  "herald",
+ "logging_utils",
  "ractor",
  "serde",
  "serde_json",
@@ -6318,19 +6319,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "query_bridge"
-version = "0.1.0"
-dependencies = [
- "butler",
- "ractor",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "quick-error"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7494,6 +7482,7 @@ dependencies = [
  "clap",
  "courier",
  "dirs",
+ "logging_utils",
  "ractor",
  "rfd",
  "serde",
@@ -7503,8 +7492,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "tracing-subscriber",
- "walkdir",
 ]
 
 [[package]]

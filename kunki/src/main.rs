@@ -269,7 +269,7 @@ async fn handle_start(
                         space.id, space.name, node_id, page_count
                     );
                 }
-                CourierEvent::ViewerPageReceived { node_id, page, is_last } => {
+                CourierEvent::PageReceived { node_id, page, is_last } => {
                     info!(
                         "📄 Viewer received page {} ({}) from {} for space {} (last: {})",
                         page.id, page.name, node_id, page.space_id, is_last

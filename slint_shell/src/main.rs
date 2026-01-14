@@ -24,13 +24,16 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    // Initialize tracing for logs from Butler, Scribe, and app_runtime
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,butler=debug".into()),
-        )
-        .init();
+    // Suppress Qt/Wayland text input warnings
+    std::env::set_var("QT_LOGGING_RULES", "qt.qpa.wayland.textinput=false");
+
+    // Initialize rich tracing (hierarchical tree format)
+    let _log_guard = logging_utils::init_rich_tracing(logging_utils::LogConfig {
+        level: "info".to_string(),
+        log_to_stdout: true,
+        use_tree_format: true,
+        ..Default::default()
+    }).expect("Failed to initialize logging");
 
     println!("Sthalam Shell starting...");
 

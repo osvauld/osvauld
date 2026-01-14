@@ -15,29 +15,22 @@
 //! - `types` - Domain types (Capability, DocType, SyncDecision, SyncFacts)
 //! - `parser` - Permit, DelegationTemplate, PermitCore (facts-based parsing)
 //! - `decision` - Decision/inference logic (pure facts-based logic)
-//! - `crypto` - Crypto operations (signing, verification)
-//! - `verification` - Proof chain validation (stateless, self-contained)
-//! - `builder` - Execution layer (builds tokens from decisions)
+//! - `crypto` - UCAN token signing (Ed25519 + CID)
 //! - `service` - Stateless permit functions (takes key bytes, returns permits)
 //! - `errors` - GurkhaError types
-//!
-//! Note: handshake module moved to courier
-//! Note: merge and sync modules moved to butler
 
 pub mod types;
 pub mod parser;
 pub mod decision;
 pub mod crypto;
-pub mod verification;
 pub mod builder;
 pub mod service;
 pub mod errors;
+
 // Re-export commonly used items
 pub use types::*;
-pub use parser::{Permit, DelegationTemplate, PermitCore, PermitError, PermitResult, LayerPatternConfig};
-pub use decision::{TokenDecision, DelegationDecision, SyncContext, should_send_updates, can_receive_updates, can_access_layer};
-pub use verification::{ProofCache, ProofChainTracer};
-pub use builder::GurkhaPermitBuilder;
+pub use parser::{Permit, DelegationTemplate, PermitCore, PermitError, PermitResult, LayerPatternConfig, PeerCapabilities, LayerConfig};
+pub use decision::{TokenDecision, DelegationDecision, SyncContext, should_send_updates, can_receive_updates, can_access_layer, extract_issue_template};
 
 // Re-export stateless permit functions
 pub use service::{
@@ -59,8 +52,4 @@ pub use service::{
     // Utilities
     get_public_key,
     extract_space_id,
-    extract_page_id,
-    extract_capabilities,
-    validate_permit_structure,
 };
-

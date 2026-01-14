@@ -223,7 +223,7 @@ pub enum Message {
     /// Node responds to viewer with space metadata (Node → Viewer)
     ///
     /// **Context**: Node validated aud:* permit, delegated real permit
-    /// **Flow**: SpaceRequest → SpaceData → SpaceDataAck → ViewerPage (x N)
+    /// **Flow**: SpaceRequest → SpaceData → SpaceDataAck → PageData (x N)
     /// **Note**: Pages sent separately after viewer acknowledges
     SpaceData {
         request_id: String,
@@ -240,7 +240,7 @@ pub enum Message {
     ///
     /// **Context**: Viewer received SpaceData, ready to receive pages
     /// **Node stores**: Delegated permit in VIEWER_PERMITS table
-    /// **Node then**: Streams ViewerPage messages one by one
+    /// **Node then**: Streams PageData messages one by one
     SpaceDataAck {
         request_id: String,
         space_id: String,
@@ -253,7 +253,7 @@ pub enum Message {
     /// **Context**: Viewer acknowledged SpaceData, node streams pages
     /// **Encryption**: Layers are transit-encrypted with ephemeral ECDH
     /// **Viewer stores**: Page with source_node_id for future sync
-    ViewerPage {
+    PageData {
         request_id: String,
         space_id: String,
         /// Page metadata
@@ -283,7 +283,7 @@ pub enum Message {
     /// to express consent for receiving sync updates. These are viewer-issued
     /// permits that the node will attach to future sync messages.
     ///
-    /// **Flow**: After receiving all ViewerPage messages, viewer issues:
+    /// **Flow**: After receiving all PageData messages, viewer issues:
     /// - 1 space consent permit (consent to sync space + accept new pages)
     /// - N page consent permits (consent to sync each page's layers)
     ///
@@ -322,6 +322,35 @@ pub enum Message {
 }
 
 impl Message {
+    /// Get the message variant name (for logging without binary data)
+    pub fn name(&self) -> &'static str {
+        match self {
+            Message::Hello { .. } => "Hello",
+            Message::Welcome { .. } => "Welcome",
+            Message::PermitGrant { .. } => "PermitGrant",
+            Message::Ack => "Ack",
+            Message::Rejected { .. } => "Rejected",
+            Message::SyncOffer { .. } => "SyncOffer",
+            Message::SyncAccept { .. } => "SyncAccept",
+            Message::SyncAck { .. } => "SyncAck",
+            Message::PublishSpace { .. } => "PublishSpace",
+            Message::PublishSpaceAck { .. } => "PublishSpaceAck",
+            Message::PublishPage { .. } => "PublishPage",
+            Message::PublishPageAck { .. } => "PublishPageAck",
+            Message::PublishError { .. } => "PublishError",
+            Message::GetShareableLinkRequest { .. } => "GetShareableLinkRequest",
+            Message::GetShareableLinkResponse { .. } => "GetShareableLinkResponse",
+            Message::SpaceRequest { .. } => "SpaceRequest",
+            Message::SpaceData { .. } => "SpaceData",
+            Message::SpaceDataAck { .. } => "SpaceDataAck",
+            Message::SpaceRequestError { .. } => "SpaceRequestError",
+            Message::PageData { .. } => "PageData",
+            Message::SyncConsentGrant { .. } => "SyncConsentGrant",
+            Message::SyncConsentAck { .. } => "SyncConsentAck",
+            Message::Error { .. } => "Error",
+        }
+    }
+
     /// Serialize message to bytes using bincode
     pub fn to_bytes(&self) -> Result<Vec<u8>, bincode::Error> {
         bincode::serialize(self)

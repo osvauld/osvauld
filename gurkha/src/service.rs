@@ -4,7 +4,7 @@
 //! All functions take signing key bytes and return signed permits.
 //!
 //! Usage:
-//! ```rust
+//! ```ignore
 //! let secret_key: [u8; 32] = identity.secret_signing_key();
 //! let (token, cid) = gurkha::issue_one_time(&secret_key, "owner").await?;
 //! ```
@@ -15,7 +15,7 @@ use crate::errors::{ServiceError, ServiceResult};
 use crate::parser::Permit;
 use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::SigningKey;
-use tracing::{debug, info, instrument};
+use tracing::{info, instrument, trace};
 
 // ==================== CONNECTION TOKENS ====================
 
@@ -32,13 +32,13 @@ pub async fn issue_one_time(
     signing_key_bytes: &[u8; 32],
     relationship: &str,
 ) -> ServiceResult<(String, String)> {
-    debug!("Issuing one-time connection token");
+    trace!("Issuing one-time connection token");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
 
     let decision = decision::decide_one_time_token(&verifying_key, relationship)?;
-    debug!("Token decision created");
+    trace!("Token decision created");
 
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
 
@@ -61,7 +61,7 @@ pub async fn issue_peer_connection(
     peer_pubkey: &str,
     relationship: &str,
 ) -> ServiceResult<String> {
-    debug!("Issuing peer connection token");
+    trace!("Issuing peer connection token");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
@@ -86,7 +86,7 @@ pub async fn issue_page_viewer_auth(
     signing_key_bytes: &[u8; 32],
     page_id: &str,
 ) -> ServiceResult<String> {
-    debug!("Issuing page viewer authentication token");
+    trace!("Issuing page viewer authentication token");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
@@ -113,13 +113,13 @@ pub async fn issue_space_viewer_auth(
     signing_key_bytes: &[u8; 32],
     space_id: &str,
 ) -> ServiceResult<(String, String)> {
-    debug!("Issuing space viewer authentication token");
+    trace!("Issuing space viewer authentication token");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
 
     let decision = decision::decide_space_viewer_auth(&verifying_key, space_id)?;
-    debug!("Token decision created");
+    trace!("Token decision created");
 
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
 
@@ -144,15 +144,15 @@ pub async fn issue_page_owner_token(
     page_id: &str,
     permit_template_json: &str,
 ) -> ServiceResult<(String, String)> {
-    debug!("Issuing page owner token");
+    trace!("Issuing page owner token");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
 
-    debug!("Parsing page template");
+    trace!("Parsing page template");
     let decision =
         decision::decide_page_owner_token(&verifying_key, page_id, permit_template_json)?;
-    debug!("Token decision created");
+    trace!("Token decision created");
 
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
 
@@ -163,26 +163,30 @@ pub async fn issue_page_owner_token(
 /// Unified page delegation
 ///
 /// Delegates a page to any audience using a template key.
-/// Template key determines the delegation pattern (e.g., "node", "viewer").
+/// Template key determines the delegation pattern (e.g., "node", "viewer", "page_request").
 ///
 /// # Arguments
 /// * `signing_key_bytes` - 32-byte Ed25519 secret key
 /// * `delegator_token` - Token of the delegator (must have share_page capability)
-/// * `template_key` - Template key to use for delegation ("node", "viewer", etc.)
+/// * `action` - The issue_on action to use (e.g., "node", "viewer", "page_request")
 /// * `audience_pubkey` - Public key of the delegatee
 ///
 /// # Returns
 /// * `Ok((token_string, cid))` - The delegated token and its CID
+///
+/// # Self-Describing Permits
+/// Permit must have `issue_on.{action}` defining what to issue.
+/// No role-based lookup - the permit carries its own delegation template.
 pub async fn delegate_page(
     signing_key_bytes: &[u8; 32],
     delegator_token: &str,
-    template_key: &str,
+    action: &str,
     audience_pubkey: &str,
 ) -> ServiceResult<(String, String)> {
     let _signing_key = SigningKey::from_bytes(signing_key_bytes);
 
-    // Extract delegation template from delegator token
-    let template = decision::extract_template_from_token(delegator_token, template_key)?;
+    // Self-describing: permit must have issue_on.{action}
+    let template = decision::extract_issue_template(delegator_token, action)?;
 
     let parsed_permit = Permit::from_token(delegator_token)?;
 
@@ -242,15 +246,15 @@ pub async fn issue_space_owner_token(
     space_id: &str,
     permit_template_json: &str,
 ) -> ServiceResult<(String, String)> {
-    debug!("Issuing space owner token");
+    trace!("Issuing space owner token");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
 
-    debug!("Parsing space template");
+    trace!("Parsing space template");
     let decision =
         decision::decide_space_owner_token(&verifying_key, space_id, permit_template_json)?;
-    debug!("Token decision created");
+    trace!("Token decision created");
 
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
 
@@ -273,7 +277,7 @@ pub async fn issue_space_node_to_owner(
     space_id: &str,
     owner_pubkey: &str,
 ) -> ServiceResult<(String, String)> {
-    debug!("Issuing space node-to-owner token");
+    trace!("Issuing space node-to-owner token");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
@@ -298,21 +302,25 @@ pub async fn issue_space_node_to_owner(
 /// # Arguments
 /// * `signing_key_bytes` - 32-byte Ed25519 secret key
 /// * `delegator_token` - Token of the delegator (must have add_pages capability)
-/// * `template_key` - Template key to use for delegation ("node", "viewer", etc.)
+/// * `action` - The issue_on action to use (e.g., "node", "viewer", "space_request")
 /// * `audience_pubkey` - Public key of the delegatee
 ///
 /// # Returns
 /// * `Ok((token_string, cid))` - The delegated token and its CID
+///
+/// # Self-Describing Permits
+/// Permit must have `issue_on.{action}` defining what to issue.
+/// No role-based lookup - the permit carries its own delegation template.
 pub async fn delegate_space(
     signing_key_bytes: &[u8; 32],
     delegator_token: &str,
-    template_key: &str,
+    action: &str,
     audience_pubkey: &str,
 ) -> ServiceResult<(String, String)> {
     let _signing_key = SigningKey::from_bytes(signing_key_bytes);
 
-    // Extract delegation template from delegator token
-    let template = decision::extract_template_from_token(delegator_token, template_key)?;
+    // Self-describing: permit must have issue_on.{action}
+    let template = decision::extract_issue_template(delegator_token, action)?;
 
     let parsed_permit = Permit::from_token(delegator_token)?;
 
@@ -368,7 +376,7 @@ pub fn get_public_key(signing_key_bytes: &[u8; 32]) -> String {
 /// Extract space ID from token
 #[instrument(skip(permit_token))]
 pub fn extract_space_id(permit_token: &str) -> ServiceResult<String> {
-    debug!("Extracting space ID from token");
+    trace!("Extracting space ID from token");
     let permit = Permit::from_token(permit_token)?;
 
     let space_id = permit.get_fact("space_id")
@@ -377,61 +385,8 @@ pub fn extract_space_id(permit_token: &str) -> ServiceResult<String> {
             ServiceError::InvalidPermit("Cannot extract space_id".to_string())
         })?;
 
-    debug!("Space ID extracted: {}", space_id);
+    trace!("Space ID extracted: {}", space_id);
     Ok(space_id.to_string())
-}
-
-/// Extract page ID from token
-#[instrument(skip(permit_token))]
-pub fn extract_page_id(permit_token: &str) -> ServiceResult<String> {
-    debug!("Extracting page ID from token");
-    let permit = Permit::from_token(permit_token)?;
-
-    let page_id = permit.get_fact("page_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ServiceError::InvalidPermit("Cannot extract page_id".to_string())
-        })?;
-
-    debug!("Page ID extracted: {}", page_id);
-    Ok(page_id.to_string())
-}
-
-/// Extract layer capabilities from token
-///
-/// Reads from facts.layers map
-#[instrument(skip(permit_token))]
-pub async fn extract_capabilities(permit_token: &str) -> ServiceResult<Vec<(String, String)>> {
-    debug!("Extracting document capabilities from token facts");
-    let permit = Permit::from_token(permit_token)?;
-
-    let mut doc_capabilities = Vec::new();
-
-    // V3: Extract from facts.documents map
-    // Format: { doc_name: { type: "crdt"|"asset", capability: "collaborator"|"viewer" } }
-    if let Some(documents) = permit.get_fact("documents").and_then(|v| v.as_object()) {
-        for (doc_name, doc_info) in documents {
-            if let Some(capability) = doc_info
-                .as_object()
-                .and_then(|obj| obj.get("capability"))
-                .and_then(|v| v.as_str())
-            {
-                doc_capabilities.push((doc_name.clone(), capability.to_string()));
-            }
-        }
-    }
-
-    debug!("Extracted {} document capabilities", doc_capabilities.len());
-    Ok(doc_capabilities)
-}
-
-/// Validate permit structure
-#[instrument(skip(permit_token))]
-pub async fn validate_permit_structure(permit_token: &str) -> ServiceResult<()> {
-    debug!("Validating permit structure");
-    Permit::from_token(permit_token)?;
-    debug!("Permit structure valid");
-    Ok(())
 }
 
 // Helper trait to convert DelegationDecision to TokenDecision
@@ -476,7 +431,7 @@ pub async fn issue_sync_space_consent(
     node_viewer_permit: &str,
     template_json: &str,
 ) -> ServiceResult<(String, String)> {
-    debug!("Issuing space sync consent permit");
+    trace!("Issuing space sync consent permit");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
@@ -521,7 +476,7 @@ pub async fn issue_sync_page_consent(
     node_viewer_permit: &str,
     template_json: &str,
 ) -> ServiceResult<(String, String)> {
-    debug!("Issuing page sync consent permit");
+    trace!("Issuing page sync consent permit");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();

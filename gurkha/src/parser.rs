@@ -1,4 +1,4 @@
-use super::types::{Capability, DocMetadata, DocType, ResourceAction, SyncFacts};
+use super::types::Capability;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::result::Result as StdResult;
@@ -12,10 +12,52 @@ use ucan::Ucan;
 /// Patterns support `{aud}` placeholder for viewer DID substitution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayerPatternConfig {
-    /// Can create new layers matching this pattern
+    /// Can create new layers matching this pattern (node-side)
+    #[serde(default)]
     pub create: bool,
     /// Can sync layers matching this pattern
+    #[serde(default)]
     pub sync: bool,
+    /// Can write to existing layers matching this pattern (client-side)
+    #[serde(default)]
+    pub write: bool,
+}
+
+/// Explicit protocol capabilities (role-agnostic)
+///
+/// These capabilities control what protocol operations a peer can perform.
+/// They are explicitly defined in permits, not derived from role labels.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PeerCapabilities {
+    /// Can relay/forward data to other peers (node needs this)
+    #[serde(default)]
+    pub relay: bool,
+    /// Can issue delegated permits to others (node needs this for sharing)
+    #[serde(default)]
+    pub share: bool,
+    /// Can accept published spaces from this peer
+    #[serde(default)]
+    pub accept_publish: bool,
+}
+
+impl PeerCapabilities {
+    /// Parse capabilities from a JSON object
+    pub fn from_json(obj: &serde_json::Map<String, serde_json::Value>) -> Self {
+        Self {
+            relay: obj.get("relay").and_then(|v| v.as_bool()).unwrap_or(false),
+            share: obj.get("share").and_then(|v| v.as_bool()).unwrap_or(false),
+            accept_publish: obj.get("accept_publish").and_then(|v| v.as_bool()).unwrap_or(false),
+        }
+    }
+
+    /// Convert to JSON value for permit facts
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "relay": self.relay,
+            "share": self.share,
+            "accept_publish": self.accept_publish
+        })
+    }
 }
 
 /// Error type for Permit token operations
@@ -167,385 +209,201 @@ impl PermitCore {
     }
 }
 
-/// Delegation template for a specific role
+/// Delegation template for a specific role (role-agnostic design)
+///
+/// Roles like "customer", "admin", "node" are just labels that map to
+/// different capability and pattern sets. The protocol only sees capabilities.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DelegationTemplate {
-    pub token_type: String,                      // Token type for delegated token (e.g., "resource_share")
-    pub capabilities: HashMap<String, String>,  // doc_name -> capability
-    pub sync: Option<SyncFacts>,
+    /// Token type for delegated token (e.g., "page_viewer", "page_share")
+    pub token_type: String,
+    /// Explicit protocol capabilities (relay, share, accept_publish)
+    #[serde(default)]
+    pub peer_capabilities: PeerCapabilities,
+    /// Operations that this role can perform (e.g., "add_pages", "share_page")
+    /// operation_name -> "allow" | "deny"
+    #[serde(default)]
+    pub operations: HashMap<String, String>,
+    /// Auth capabilities (can_connect, sync_enabled, etc.)
+    #[serde(default)]
+    pub auth_capabilities: HashMap<String, serde_json::Value>,
+    /// Layer patterns with placeholders like {page_id}, {aud}
+    /// Pattern -> { create: bool, sync: bool }
+    #[serde(default)]
+    pub layer_patterns: HashMap<String, LayerPatternConfig>,
+    /// Fixed layers (non-pattern) with their capabilities
+    /// layer_name -> { capability: "viewer"|"collaborator", sync: bool }
+    #[serde(default)]
+    pub layers: HashMap<String, LayerConfig>,
+    /// Relationship label (for logging/debugging only, NOT for business logic)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub doc_types: Option<HashMap<String, String>>,  // doc_name -> doc_type (crdt/asset)
-    // Simple authorization fields
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub operations: Option<HashMap<String, serde_json::Value>>,          // Operations (own, read, write)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub relationship: Option<String>,                                     // Relationship label (owner, node, viewer)
+    pub relationship: Option<String>,
+    /// Self-describing templates: what to issue when holder takes actions
+    /// Keys: "page_request", "share_link", etc.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub issue_on: HashMap<String, Box<DelegationTemplate>>,
+}
+
+/// Configuration for a fixed (non-pattern) layer
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayerConfig {
+    /// Whether to sync this layer
+    #[serde(default)]
+    pub sync: bool,
+    /// Whether holder can write to this layer
+    #[serde(default)]
+    pub write: bool,
+    /// Layer type: "list", "map", "text"
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub layer_type: Option<String>,
 }
 
 impl DelegationTemplate {
     /// Convert template to permit facts JSON
     ///
     /// This creates the facts structure that will be embedded in the delegated token.
-    /// Includes token_type, sync facts, and CEL-related fields if present.
-    ///
-    /// Note: Document capabilities go into permit capability URIs (via build_capabilities()),
-    /// not into facts. The `capabilities` field in facts is for CEL auth capabilities.
+    /// Role-agnostic: only includes capabilities and patterns, no role-based logic.
     pub fn to_facts(&self) -> serde_json::Map<String, serde_json::Value> {
         let mut facts = serde_json::Map::new();
 
-        // Add token_type (data-driven from template)
+        // Add token_type
         facts.insert("token_type".to_string(), serde_json::Value::String(self.token_type.clone()));
 
-        // Add sync facts if present
-        if let Some(sync) = &self.sync {
-            let mut sync_json = serde_json::Map::new();
+        // Add peer_capabilities
+        facts.insert("peer_capabilities".to_string(), self.peer_capabilities.to_json());
 
-            if !sync.local_only.is_empty() {
-                sync_json.insert(
-                    "local_only".to_string(),
-                    serde_json::Value::Array(
-                        sync.local_only.iter().map(|s| serde_json::Value::String(s.clone())).collect()
-                    )
-                );
-            }
-
-            if !sync.no_incoming_updates.is_empty() {
-                sync_json.insert(
-                    "no_incoming_updates".to_string(),
-                    serde_json::Value::Array(
-                        sync.no_incoming_updates.iter().map(|s| serde_json::Value::String(s.clone())).collect()
-                    )
-                );
-            }
-
-            if !sync.send_full_snapshot.is_empty() {
-                sync_json.insert(
-                    "send_full_snapshot".to_string(),
-                    serde_json::Value::Array(
-                        sync.send_full_snapshot.iter().map(|s| serde_json::Value::String(s.clone())).collect()
-                    )
-                );
-            }
-
-            if !sync_json.is_empty() {
-                facts.insert("sync".to_string(), serde_json::Value::Object(sync_json));
-            }
-        }
-
-        // Add doc_types as doc_metadata (converts to DocMetadata format expected by parser)
-        if let Some(doc_types) = &self.doc_types {
-            let mut doc_metadata_json = serde_json::Map::new();
-            for (doc_name, doc_type_str) in doc_types {
-                let mut meta = serde_json::Map::new();
-                meta.insert("type".to_string(), serde_json::Value::String(doc_type_str.clone()));
-                doc_metadata_json.insert(doc_name.clone(), serde_json::Value::Object(meta));
-            }
-            if !doc_metadata_json.is_empty() {
-                facts.insert("doc_metadata".to_string(), serde_json::Value::Object(doc_metadata_json));
-            }
-        }
-
-        // Add layers map (combines capabilities and doc_types)
-        // Format: { layer_name: { capability: "collaborator"|"viewer", type: "crdt"|"asset" } }
-        if !self.capabilities.is_empty() {
-            let mut layers_json = serde_json::Map::new();
-            for (layer_name, capability) in &self.capabilities {
-                let mut layer_info = serde_json::Map::new();
-                layer_info.insert("capability".to_string(), serde_json::Value::String(capability.clone()));
-
-                // Add type if available from doc_types
-                if let Some(doc_types) = &self.doc_types {
-                    if let Some(doc_type) = doc_types.get(layer_name) {
-                        layer_info.insert("type".to_string(), serde_json::Value::String(doc_type.clone()));
-                    }
-                }
-
-                layers_json.insert(layer_name.clone(), serde_json::Value::Object(layer_info));
-            }
-            facts.insert("layers".to_string(), serde_json::Value::Object(layers_json));
-        }
-
-        // Add operations
-        if let Some(ops) = &self.operations {
-            let ops_json: serde_json::Map<String, serde_json::Value> = ops
+        // Add operations (required for delegation chain - e.g., add_pages permission)
+        if !self.operations.is_empty() {
+            let ops_json: serde_json::Map<String, serde_json::Value> = self.operations
                 .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
                 .collect();
             facts.insert("operations".to_string(), serde_json::Value::Object(ops_json));
         }
 
-        // Add relationship
+        // Add auth_capabilities
+        if !self.auth_capabilities.is_empty() {
+            let auth_json: serde_json::Map<String, serde_json::Value> = self.auth_capabilities
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            facts.insert("auth_capabilities".to_string(), serde_json::Value::Object(auth_json));
+        }
+
+        // Add layer_patterns
+        if !self.layer_patterns.is_empty() {
+            let patterns_json: serde_json::Map<String, serde_json::Value> = self.layer_patterns
+                .iter()
+                .map(|(pattern, config)| {
+                    (pattern.clone(), serde_json::json!({
+                        "create": config.create,
+                        "sync": config.sync,
+                        "write": config.write
+                    }))
+                })
+                .collect();
+            facts.insert("layer_patterns".to_string(), serde_json::Value::Object(patterns_json));
+        }
+
+        // Add fixed layers
+        if !self.layers.is_empty() {
+            let layers_json: serde_json::Map<String, serde_json::Value> = self.layers
+                .iter()
+                .map(|(name, config)| {
+                    let mut layer_obj = serde_json::Map::new();
+                    layer_obj.insert("sync".to_string(), serde_json::Value::Bool(config.sync));
+                    layer_obj.insert("write".to_string(), serde_json::Value::Bool(config.write));
+                    if let Some(ref t) = config.layer_type {
+                        layer_obj.insert("type".to_string(), serde_json::Value::String(t.clone()));
+                    }
+                    (name.clone(), serde_json::Value::Object(layer_obj))
+                })
+                .collect();
+            facts.insert("layers".to_string(), serde_json::Value::Object(layers_json));
+        }
+
+        // Add relationship (for logging only)
         if let Some(rel) = &self.relationship {
             facts.insert("relationship".to_string(), serde_json::Value::String(rel.clone()));
+        }
+
+        // Add issue_on (self-describing templates for what to issue on actions)
+        if !self.issue_on.is_empty() {
+            let issue_on_json: serde_json::Map<String, serde_json::Value> = self.issue_on
+                .iter()
+                .map(|(action, template)| {
+                    (action.clone(), serde_json::Value::Object(template.to_facts()))
+                })
+                .collect();
+            facts.insert("issue_on".to_string(), serde_json::Value::Object(issue_on_json));
         }
 
         facts
     }
 }
 
-/// Parsed Permit token with domain logic (for resources and folders).
+/// Parsed Permit token with domain logic (role-agnostic design).
 ///
-/// Facts-only approach - identity is derived from facts, not stored as enum.
+/// The protocol only sees capabilities and patterns, not role labels.
 #[derive(Debug, Clone)]
 pub struct Permit {
     /// Core permit data (raw token, parsed, facts)
     core: PermitCore,
-    /// Document capabilities (doc_name -> capability)
-    capabilities: HashMap<String, Capability>,
-    /// Document metadata (doc_name -> metadata)
-    doc_metadata: HashMap<String, DocMetadata>,
-    /// Sync behavior configuration
-    sync_facts: SyncFacts,
-    /// Allowed resource actions
-    resource_actions: Option<Vec<ResourceAction>>,
-    /// Delegation templates (template_key -> template)
+    /// Explicit protocol capabilities (relay, share, accept_publish)
+    peer_capabilities: PeerCapabilities,
+    /// Fixed layer capabilities (layer_name -> capability)
+    layer_capabilities: HashMap<String, Capability>,
+    /// Fixed layer configs (layer_name -> config)
+    layers: HashMap<String, LayerConfig>,
+    /// Layer patterns for identity-based access (pattern -> config)
+    /// Patterns support `{aud}`, `{page_id}` placeholders
+    layer_patterns: HashMap<String, LayerPatternConfig>,
+    /// Delegation templates (template_key -> template) - legacy lookup by role
     delegation_templates: HashMap<String, DelegationTemplate>,
+    /// Self-describing templates: what to issue when holder takes actions
+    /// Keys: "page_request", "share_link", etc.
+    issue_on: HashMap<String, DelegationTemplate>,
     /// Parent permit CIDs for delegation chain
     proof_chain: Vec<String>,
-    /// Layer patterns for identity-based access (pattern -> config)
-    /// Patterns support `{aud}` placeholder for viewer DID substitution
-    layer_patterns: HashMap<String, LayerPatternConfig>,
 }
 
 impl Permit {
     /// Parse permit token and extract all domain information.
     ///
-    /// Identity is derived from facts, not stored as enum.
+    /// Role-agnostic: extracts capabilities and patterns, not role labels.
     pub fn from_token(token: &str) -> PermitResult<Self> {
-        use tracing::debug;
+        use tracing::trace;
 
-        debug!("Parsing permit token (len={})", token.len());
+        trace!("Parsing permit token (len={})", token.len());
 
         // Parse permit token (uses ucan library internally)
         let parsed = Ucan::try_from(token)
             .map_err(|e| PermitError::ParsingFailed(format!("Permit parsing error: {}", e)))?;
 
-        debug!("JWT decoded - issuer: {}, audience: {}", parsed.issuer(), parsed.audience());
+        trace!("JWT decoded - issuer: {}, audience: {}", parsed.issuer(), parsed.audience());
 
         // Extract facts as raw JSON (source of truth)
         let facts_ref = parsed.facts().as_ref().ok_or_else(|| {
             PermitError::MissingField("Permit facts not found".to_string())
         })?;
 
-        // Clone facts for storage (we'll keep the raw JSON)
         // Convert BTreeMap to serde_json::Map
         let facts: serde_json::Map<String, serde_json::Value> = facts_ref
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
 
-        debug!(facts = ?facts.keys().collect::<Vec<_>>(), "Facts extracted");
+        trace!(facts = ?facts.keys().collect::<Vec<_>>(), "Facts extracted");
 
-        // Log key facts for debugging
-        if let Some(rel) = facts.get("relationship") {
-            debug!(relationship = %rel);
-        }
-        if let Some(token_type) = facts.get("token_type") {
-            debug!(token_type = %token_type);
-        }
-        if let Some(first_conn) = facts.get("first_connection") {
-            debug!(first_connection = %first_conn);
-        }
-        if let Some(user_id) = facts.get("user_id") {
-            debug!(user_id = %user_id);
-        }
-
-        // Extract capabilities from facts.documents (facts-only approach)
-        // Documents should be in facts, not in the cap field
-        let mut capabilities = HashMap::new();
-        if let Some(documents_obj) = facts.get("documents").and_then(|v| v.as_object()) {
-            debug!(count = documents_obj.len(), "Documents found in facts");
-            for (doc_name, doc_val) in documents_obj {
-                if let Some(doc_obj) = doc_val.as_object() {
-                    if let Some(cap_str) = doc_obj.get("capability").and_then(|v| v.as_str()) {
-                        if let Ok(capability) = Capability::from_str(cap_str) {
-                            capabilities.insert(doc_name.clone(), capability);
-                            debug!(doc = %doc_name, capability = ?capability, "Parsed document capability");
-                        }
-                    }
-                }
-            }
-        } else {
-            debug!("No documents found in facts");
-        }
-
-        // Extract sync facts
-        let sync_facts = if let Some(sync_obj) = facts.get("sync").and_then(|v| v.as_object()) {
-            let local_only = sync_obj
-                .get("local_only")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                .unwrap_or_default();
-
-            let no_incoming_updates = sync_obj
-                .get("no_incoming_updates")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                .unwrap_or_default();
-
-            let send_full_snapshot = sync_obj
-                .get("send_full_snapshot")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                .unwrap_or_default();
-
-            SyncFacts {
-                local_only,
-                no_incoming_updates,
-                send_full_snapshot,
-            }
-        } else {
-            SyncFacts::default()
-        };
-
-        // Extract doc_metadata
-        let mut doc_metadata = HashMap::new();
-        if let Some(metadata_obj) = facts.get("doc_metadata").and_then(|v| v.as_object()) {
-            for (doc_name, meta_val) in metadata_obj {
-                if let Some(meta_obj) = meta_val.as_object() {
-                    if let Some(doc_type_str) = meta_obj.get("type").and_then(|v| v.as_str()) {
-                        if let Ok(doc_type) = DocType::from_str(doc_type_str) {
-                            let allowed_mimes = meta_obj
-                                .get("allowed_mimes")
-                                .and_then(|v| v.as_array())
-                                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
-
-                            let max_size_mb = meta_obj
-                                .get("max_size_mb")
-                                .and_then(|v| v.as_u64());
-
-                            doc_metadata.insert(
-                                doc_name.clone(),
-                                DocMetadata {
-                                    name: doc_name.clone(),
-                                    doc_type,
-                                    allowed_mimes,
-                                    max_size_mb,
-                                },
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        // Extract resource actions
-        let resource_actions = facts
-            .get("actions")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str())
-                    .filter_map(|s| ResourceAction::from_str(s).ok())
-                    .collect()
-            });
-
-        // Extract delegation templates
-        let mut delegation_templates = HashMap::new();
-        if let Some(delegation_obj) = facts.get("delegation").and_then(|v| v.as_object()) {
-            for (role_key, template_val) in delegation_obj {
-                if let Some(template_obj) = template_val.as_object() {
-                    // Extract token_type (data-driven from template)
-                    let token_type = template_obj
-                        .get("token_type")
-                        .and_then(|v| v.as_str())
-                        .map(String::from)
-                        .unwrap_or_else(|| format!("resource_{}", role_key)); // Fallback for backward compatibility
-
-                    // Extract capabilities map from "layers" field
-                    // Template format: { layers: { layer_name: { capability: "collaborator", type: "crdt" } } }
-                    let mut capabilities_map = HashMap::new();
-                    if let Some(layers_obj) = template_obj.get("layers").and_then(|v| v.as_object()) {
-                        for (layer_name, layer_val) in layers_obj {
-                            if let Some(layer_obj) = layer_val.as_object() {
-                                if let Some(cap_str) = layer_obj.get("capability").and_then(|v| v.as_str()) {
-                                    capabilities_map.insert(layer_name.clone(), cap_str.to_string());
-                                }
-                            }
-                        }
-                    }
-
-                    // Extract sync facts if present
-                    let sync = if let Some(sync_obj) = template_obj.get("sync").and_then(|v| v.as_object()) {
-                        let local_only = sync_obj
-                            .get("local_only")
-                            .and_then(|v| v.as_array())
-                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                            .unwrap_or_default();
-
-                        let no_incoming_updates = sync_obj
-                            .get("no_incoming_updates")
-                            .and_then(|v| v.as_array())
-                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                            .unwrap_or_default();
-
-                        let send_full_snapshot = sync_obj
-                            .get("send_full_snapshot")
-                            .and_then(|v| v.as_array())
-                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                            .unwrap_or_default();
-
-                        Some(SyncFacts {
-                            local_only,
-                            no_incoming_updates,
-                            send_full_snapshot,
-                        })
-                    } else {
-                        None
-                    };
-
-                    // Extract doc_types from "layers" field (same source as capabilities)
-                    // Template format: { layers: { layer_name: { capability: "collaborator", type: "crdt" } } }
-                    let doc_types = if let Some(layers_obj) = template_obj.get("layers").and_then(|v| v.as_object()) {
-                        let mut types_map = HashMap::new();
-                        for (layer_name, layer_val) in layers_obj {
-                            if let Some(layer_obj) = layer_val.as_object() {
-                                if let Some(type_str) = layer_obj.get("type").and_then(|v| v.as_str()) {
-                                    types_map.insert(layer_name.clone(), type_str.to_string());
-                                }
-                            }
-                        }
-                        if types_map.is_empty() { None } else { Some(types_map) }
-                    } else {
-                        None
-                    };
-
-                    // Extract operations
-                    let operations = template_obj
-                        .get("operations")
-                        .and_then(|v| v.as_object())
-                        .map(|obj| {
-                            obj.iter()
-                                .map(|(k, v)| (k.clone(), v.clone()))
-                                .collect()
-                        });
-
-                    // Extract relationship
-                    let relationship = template_obj
-                        .get("relationship")
-                        .and_then(|v| v.as_str())
-                        .map(String::from);
-
-                    delegation_templates.insert(
-                        role_key.clone(),
-                        DelegationTemplate {
-                            token_type,
-                            capabilities: capabilities_map,
-                            sync,
-                            doc_types,
-                            operations,
-                            relationship,
-                        },
-                    );
-                }
-            }
-        }
-
-        // Extract proof chain
-        let proof_chain = parsed.proofs().clone().unwrap_or_default();
+        // Extract peer_capabilities (role-agnostic protocol capabilities)
+        let peer_capabilities = facts
+            .get("peer_capabilities")
+            .and_then(|v| v.as_object())
+            .map(PeerCapabilities::from_json)
+            .unwrap_or_default();
 
         // Extract layer_patterns for identity-based access
-        // Format: { "{aud}:*": { "create": true, "sync": true } }
+        // Format: { "{page_id}/*/{aud}": { "create": true, "sync": true } }
         let mut layer_patterns = HashMap::new();
         if let Some(patterns_obj) = facts.get("layer_patterns").and_then(|v| v.as_object()) {
             for (pattern, config) in patterns_obj {
@@ -555,31 +413,177 @@ impl Permit {
                         LayerPatternConfig {
                             create: config_obj.get("create").and_then(|v| v.as_bool()).unwrap_or(false),
                             sync: config_obj.get("sync").and_then(|v| v.as_bool()).unwrap_or(false),
+                            write: config_obj.get("write").and_then(|v| v.as_bool()).unwrap_or(false),
                         },
                     );
                 }
             }
         }
 
-        // Create PermitCore with parsed data (facts-only, no role/token_type enums)
-        let core = PermitCore::new(token.to_string(), parsed, facts.clone());
+        // Extract fixed layers
+        // Format: { "products": { "sync": true, "write": false, "type": "list" } }
+        let mut layers = HashMap::new();
+        let mut layer_capabilities = HashMap::new();
+        if let Some(layers_obj) = facts.get("layers").and_then(|v| v.as_object()) {
+            for (layer_name, layer_val) in layers_obj {
+                if let Some(layer_obj) = layer_val.as_object() {
+                    let sync = layer_obj
+                        .get("sync")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let write = layer_obj
+                        .get("write")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let layer_type = layer_obj
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
 
-        // Log parsed permit facts for debugging
-        use tracing::trace;
-        trace!(
-            "Permit parsed:\n{}",
-            serde_json::to_string_pretty(&facts).unwrap_or_else(|_| format!("{:?}", facts))
-        );
+                    layers.insert(layer_name.clone(), LayerConfig {
+                        sync,
+                        write,
+                        layer_type,
+                    });
+
+                    // Also populate layer_capabilities for backward compat
+                    let cap = if write { Capability::ReadWrite } else { Capability::ReadOnly };
+                    layer_capabilities.insert(layer_name.clone(), cap);
+                }
+            }
+        }
+
+        // Extract delegation templates (using helper function for consistency)
+        let mut delegation_templates = HashMap::new();
+        if let Some(delegation_obj) = facts.get("delegation").and_then(|v| v.as_object()) {
+            for (role_key, template_val) in delegation_obj {
+                if let Some(template) = Self::parse_delegation_template(role_key, template_val) {
+                    delegation_templates.insert(role_key.clone(), template);
+                }
+            }
+        }
+
+        // Extract issue_on templates (self-describing: what to issue on actions)
+        // Format: { "page_request": { token_type, layers, layer_patterns, ... }, "share_link": { ... } }
+        let mut issue_on = HashMap::new();
+        if let Some(issue_on_obj) = facts.get("issue_on").and_then(|v| v.as_object()) {
+            for (action_key, template_val) in issue_on_obj {
+                if let Some(template) = Self::parse_delegation_template(action_key, template_val) {
+                    issue_on.insert(action_key.clone(), template);
+                }
+            }
+        }
+
+        // Extract proof chain
+        let proof_chain = parsed.proofs().clone().unwrap_or_default();
+
+        // Create PermitCore with parsed data
+        let core = PermitCore::new(token.to_string(), parsed, facts.clone());
 
         Ok(Self {
             core,
-            capabilities,
-            doc_metadata,
-            sync_facts,
-            resource_actions,
-            delegation_templates,
-            proof_chain,
+            peer_capabilities,
+            layer_capabilities,
+            layers,
             layer_patterns,
+            delegation_templates,
+            issue_on,
+            proof_chain,
+        })
+    }
+
+    /// Parse a DelegationTemplate from a JSON value
+    fn parse_delegation_template(key: &str, template_val: &serde_json::Value) -> Option<DelegationTemplate> {
+        let template_obj = template_val.as_object()?;
+
+        // Extract token_type
+        let token_type = template_obj
+            .get("token_type")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| format!("delegated_{}", key));
+
+        // Extract peer_capabilities
+        let peer_capabilities = template_obj
+            .get("peer_capabilities")
+            .and_then(|v| v.as_object())
+            .map(PeerCapabilities::from_json)
+            .unwrap_or_default();
+
+        // Extract layer_patterns
+        let mut layer_patterns = HashMap::new();
+        if let Some(patterns_obj) = template_obj.get("layer_patterns").and_then(|v| v.as_object()) {
+            for (pattern, config) in patterns_obj {
+                if let Some(config_obj) = config.as_object() {
+                    layer_patterns.insert(
+                        pattern.clone(),
+                        LayerPatternConfig {
+                            create: config_obj.get("create").and_then(|v| v.as_bool()).unwrap_or(false),
+                            sync: config_obj.get("sync").and_then(|v| v.as_bool()).unwrap_or(false),
+                            write: config_obj.get("write").and_then(|v| v.as_bool()).unwrap_or(false),
+                        },
+                    );
+                }
+            }
+        }
+
+        // Extract fixed layers
+        let mut layers = HashMap::new();
+        if let Some(layers_obj) = template_obj.get("layers").and_then(|v| v.as_object()) {
+            for (layer_name, layer_val) in layers_obj {
+                if let Some(layer_obj) = layer_val.as_object() {
+                    layers.insert(layer_name.clone(), LayerConfig {
+                        sync: layer_obj.get("sync").and_then(|v| v.as_bool()).unwrap_or(false),
+                        write: layer_obj.get("write").and_then(|v| v.as_bool()).unwrap_or(false),
+                        layer_type: layer_obj.get("type").and_then(|v| v.as_str()).map(String::from),
+                    });
+                }
+            }
+        }
+
+        // Extract relationship (for logging only)
+        let relationship = template_obj
+            .get("relationship")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        // Extract operations (e.g., add_pages, share_page)
+        let mut operations = HashMap::new();
+        if let Some(ops_obj) = template_obj.get("operations").and_then(|v| v.as_object()) {
+            for (op_name, op_val) in ops_obj {
+                if let Some(op_str) = op_val.as_str() {
+                    operations.insert(op_name.clone(), op_str.to_string());
+                }
+            }
+        }
+
+        // Extract auth_capabilities (can_connect, sync_enabled, etc.)
+        let mut auth_capabilities = HashMap::new();
+        if let Some(auth_obj) = template_obj.get("auth_capabilities").and_then(|v| v.as_object()) {
+            for (cap_name, cap_val) in auth_obj {
+                auth_capabilities.insert(cap_name.clone(), cap_val.clone());
+            }
+        }
+
+        // Extract issue_on (recursive - templates for what to issue on actions)
+        let mut issue_on = HashMap::new();
+        if let Some(issue_on_obj) = template_obj.get("issue_on").and_then(|v| v.as_object()) {
+            for (action_key, nested_template_val) in issue_on_obj {
+                if let Some(nested_template) = Self::parse_delegation_template(action_key, nested_template_val) {
+                    issue_on.insert(action_key.clone(), Box::new(nested_template));
+                }
+            }
+        }
+
+        Some(DelegationTemplate {
+            token_type,
+            peer_capabilities,
+            operations,
+            auth_capabilities,
+            layer_patterns,
+            layers,
+            relationship,
+            issue_on,
         })
     }
 
@@ -639,114 +643,49 @@ impl Permit {
         self.core.relationship()
     }
 
-    // Capability queries
-    pub fn has_capability(&self, doc: &str) -> bool {
-        self.capabilities.contains_key(doc)
+    // ==================== Peer Capabilities (Role-Agnostic) ====================
+
+    /// Get explicit protocol capabilities
+    pub fn peer_capabilities(&self) -> &PeerCapabilities {
+        &self.peer_capabilities
     }
 
-    pub fn get_capability(&self, doc: &str) -> Option<Capability> {
-        self.capabilities.get(doc).copied()
+    /// Check if peer can relay data to others
+    pub fn can_relay(&self) -> bool {
+        self.peer_capabilities.relay
     }
 
-    pub fn capabilities(&self) -> &HashMap<String, Capability> {
-        &self.capabilities
+    /// Check if peer can issue delegated permits
+    pub fn can_share(&self) -> bool {
+        self.peer_capabilities.share
     }
 
-    // Sync behavior queries
-    pub fn is_local_only(&self, doc: &str) -> bool {
-        self.sync_facts.local_only.contains(&doc.to_string())
+    /// Check if peer can accept published spaces
+    pub fn can_accept_publish(&self) -> bool {
+        self.peer_capabilities.accept_publish
     }
 
-    pub fn has_no_incoming_updates(&self, doc: &str) -> bool {
-        self.sync_facts.no_incoming_updates.contains(&doc.to_string())
+    // ==================== Layer Access ====================
+
+    /// Get fixed layer capability
+    pub fn get_layer_capability(&self, layer: &str) -> Option<Capability> {
+        self.layer_capabilities.get(layer).copied()
     }
 
-    pub fn should_send_full_snapshot(&self, doc: &str) -> bool {
-        self.sync_facts.send_full_snapshot.contains(&doc.to_string())
+    /// Get fixed layer config
+    pub fn get_layer_config(&self, layer: &str) -> Option<&LayerConfig> {
+        self.layers.get(layer)
     }
 
-    pub fn sync_facts(&self) -> &SyncFacts {
-        &self.sync_facts
+    /// Get all fixed layers
+    pub fn layers(&self) -> &HashMap<String, LayerConfig> {
+        &self.layers
     }
-
-    // Document type queries
-    pub fn get_doc_type(&self, doc: &str) -> Option<DocType> {
-        self.doc_metadata.get(doc).map(|m| m.doc_type)
-    }
-
-    pub fn supports_merge(&self, doc: &str) -> bool {
-        self.get_doc_type(doc)
-            .map(|dt| dt.supports_merge())
-            .unwrap_or(false)
-    }
-
-    pub fn doc_metadata(&self) -> &HashMap<String, DocMetadata> {
-        &self.doc_metadata
-    }
-
-    // Template access (for delegation)
-    pub fn get_delegation_template(&self, role: &str) -> Option<&DelegationTemplate> {
-        self.delegation_templates.get(role)
-    }
-
-    pub fn delegation_templates(&self) -> &HashMap<String, DelegationTemplate> {
-        &self.delegation_templates
-    }
-
-    // Resource-level actions
-    pub fn can_get_share_link(&self) -> bool {
-        self.resource_actions
-            .as_ref()
-            .map(|actions| actions.contains(&ResourceAction::GetShareLink))
-            .unwrap_or(false)
-    }
-
-    pub fn can_delete(&self) -> bool {
-        self.resource_actions
-            .as_ref()
-            .map(|actions| actions.contains(&ResourceAction::Delete))
-            .unwrap_or(false)
-    }
-
-    pub fn resource_actions(&self) -> Option<&Vec<ResourceAction>> {
-        self.resource_actions.as_ref()
-    }
-
-    // Space-level actions
-    /// Check if the token has get_share_link operation (v3 facts-based)
-    /// Checks operations.get_share_link == "allow" in facts
-    pub fn can_get_space_share_link(&self) -> bool {
-        self.get_fact("operations")
-            .and_then(|ops| ops.as_object())
-            .and_then(|obj| obj.get("get_share_link"))
-            .and_then(|v| v.as_str())
-            .map(|s| s == "allow")
-            .unwrap_or(false)
-    }
-
-    // ==================== ID Extraction (V3: Facts-Only) ====================
-    // V3 Migration: These methods now read from facts instead of parsing URIs
-
-    /// Extract page_id from token facts
-    ///
-    /// V3: Reads from facts.page_id (facts-only architecture)
-    pub fn page_id(&self) -> Option<String> {
-        self.get_fact_string("page_id").map(String::from)
-    }
-
-    /// Extract space_id from token facts
-    ///
-    /// V3: Reads from facts.space_id (facts-only architecture)
-    pub fn space_id(&self) -> Option<String> {
-        self.get_fact_string("space_id").map(String::from)
-    }
-
-    // ==================== Layer Pattern Access ====================
 
     /// Get layer patterns for identity-based access control
     ///
-    /// Patterns support `{aud}` placeholder for viewer DID substitution.
-    /// Example: `{aud}:*` expands to `did:key:viewer123:*`
+    /// Patterns support `{aud}`, `{page_id}` placeholders.
+    /// Example: `{page_id}/*/{aud}` expands to `shop123/orders/did:key:viewer123`
     pub fn layer_patterns(&self) -> &HashMap<String, LayerPatternConfig> {
         &self.layer_patterns
     }
@@ -754,5 +693,84 @@ impl Permit {
     /// Check if permit has any layer patterns defined
     pub fn has_layer_patterns(&self) -> bool {
         !self.layer_patterns.is_empty()
+    }
+
+    /// Get layers that are local-only (sync=false)
+    ///
+    /// These layers should not be sent to peers during sync.
+    pub fn local_only_layers(&self) -> Vec<String> {
+        self.layers
+            .iter()
+            .filter(|(_, config)| !config.sync)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    /// Get layers that don't accept incoming updates (no_incoming_updates)
+    ///
+    /// Derived from layers where the peer has no write permission.
+    pub fn no_incoming_update_layers(&self) -> Vec<String> {
+        self.layers
+            .iter()
+            .filter(|(_, config)| {
+                // No write permission = no incoming updates
+                !config.write
+            })
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    // ==================== Delegation Templates ====================
+
+    /// Get delegation template by role key (legacy lookup)
+    pub fn get_delegation_template(&self, role: &str) -> Option<&DelegationTemplate> {
+        self.delegation_templates.get(role)
+    }
+
+    /// Get all delegation templates
+    pub fn delegation_templates(&self) -> &HashMap<String, DelegationTemplate> {
+        &self.delegation_templates
+    }
+
+    // ==================== Self-Describing Templates (issue_on) ====================
+
+    /// Get template for what to issue when an action occurs
+    ///
+    /// Self-describing permits carry embedded templates for what to issue next.
+    /// This eliminates role-based lookups - the permit knows what it can delegate.
+    ///
+    /// # Arguments
+    /// * `action` - The action triggering delegation: "page_request", "share_link", etc.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // When viewer requests a page, use embedded template
+    /// let template = permit.get_issue_template("page_request")?;
+    /// issue_permit_from_template(template, viewer_did)
+    /// ```
+    pub fn get_issue_template(&self, action: &str) -> Option<&DelegationTemplate> {
+        self.issue_on.get(action)
+    }
+
+    /// Get all issue_on templates
+    pub fn issue_on_templates(&self) -> &HashMap<String, DelegationTemplate> {
+        &self.issue_on
+    }
+
+    /// Check if permit has any issue_on templates
+    pub fn has_issue_templates(&self) -> bool {
+        !self.issue_on.is_empty()
+    }
+
+    // ==================== ID Extraction ====================
+
+    /// Extract page_id from token facts
+    pub fn page_id(&self) -> Option<String> {
+        self.get_fact_string("page_id").map(String::from)
+    }
+
+    /// Extract space_id from token facts
+    pub fn space_id(&self) -> Option<String> {
+        self.get_fact_string("space_id").map(String::from)
     }
 }

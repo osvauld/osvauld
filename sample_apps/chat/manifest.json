@@ -1,7 +1,0 @@
-{
-    "name": "Chat",
-    "version": "1.0.0",
-    "entry_ui": "app.slint",
-    "entry_logic": "app.lua",
-    "permit_template": "permit_template.json"
-}

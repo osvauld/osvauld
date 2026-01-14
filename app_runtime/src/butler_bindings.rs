@@ -7,6 +7,7 @@ use mlua::{UserData, UserDataMethods, Value as LuaValue, Error as LuaError};
 use tokio::sync::oneshot;
 use butler::ScribeMessage;
 use ractor::ActorRef;
+use crate::json_to_lua;
 
 /// Butler bindings - main entry point for Lua to access Butler/Scribe
 ///
@@ -112,37 +113,5 @@ impl UserData for ButlerBindings {
                 }
             }
         });
-    }
-}
-
-/// Convert serde_json::Value to Lua value
-fn json_to_lua(lua: &mlua::Lua, value: &serde_json::Value) -> Result<LuaValue, LuaError> {
-    match value {
-        serde_json::Value::Null => Ok(LuaValue::Nil),
-        serde_json::Value::Bool(b) => Ok(LuaValue::Boolean(*b)),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Ok(LuaValue::Integer(i))
-            } else if let Some(f) = n.as_f64() {
-                Ok(LuaValue::Number(f))
-            } else {
-                Err(LuaError::RuntimeError(format!("Invalid number: {}", n)))
-            }
-        }
-        serde_json::Value::String(s) => Ok(LuaValue::String(lua.create_string(s)?)),
-        serde_json::Value::Array(arr) => {
-            let table = lua.create_table()?;
-            for (i, item) in arr.iter().enumerate() {
-                table.set(i + 1, json_to_lua(lua, item)?)?;
-            }
-            Ok(LuaValue::Table(table))
-        }
-        serde_json::Value::Object(obj) => {
-            let table = lua.create_table()?;
-            for (key, val) in obj {
-                table.set(key.as_str(), json_to_lua(lua, val)?)?;
-            }
-            Ok(LuaValue::Table(table))
-        }
     }
 }

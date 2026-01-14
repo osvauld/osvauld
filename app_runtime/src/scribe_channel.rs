@@ -7,6 +7,7 @@
 use mlua::{UserData, UserDataMethods, Value as LuaValue};
 use serde_json::Value as JsonValue;
 use tokio::sync::mpsc;
+use crate::lua_to_json;
 
 /// Commands that Lua scripts can send to Scribe
 #[derive(Debug, Clone)]
@@ -134,59 +135,5 @@ impl UserData for ScribeChannel {
                 Ok(())
             },
         );
-    }
-}
-
-/// Convert Lua value to JSON value
-fn lua_to_json(value: &LuaValue) -> Result<JsonValue, mlua::Error> {
-    match value {
-        LuaValue::Nil => Ok(JsonValue::Null),
-        LuaValue::Boolean(b) => Ok(JsonValue::Bool(*b)),
-        LuaValue::Integer(i) => Ok(JsonValue::Number((*i).into())),
-        LuaValue::Number(n) => {
-            if let Some(num) = serde_json::Number::from_f64(*n) {
-                Ok(JsonValue::Number(num))
-            } else {
-                Ok(JsonValue::Null)
-            }
-        }
-        LuaValue::String(s) => Ok(JsonValue::String(s.to_str()?.to_string())),
-        LuaValue::Table(t) => {
-            // Check if it's an array (sequential integer keys starting from 1)
-            let mut is_array = true;
-            let mut max_index = 0;
-
-            for pair in t.clone().pairs::<LuaValue, LuaValue>() {
-                let (key, _) = pair?;
-                match key {
-                    LuaValue::Integer(i) if i > 0 => {
-                        max_index = max_index.max(i as usize);
-                    }
-                    _ => {
-                        is_array = false;
-                        break;
-                    }
-                }
-            }
-
-            if is_array && max_index > 0 {
-                // Convert as array
-                let mut arr = Vec::with_capacity(max_index);
-                for i in 1..=max_index {
-                    let val: LuaValue = t.get(i)?;
-                    arr.push(lua_to_json(&val)?);
-                }
-                Ok(JsonValue::Array(arr))
-            } else {
-                // Convert as object
-                let mut map = serde_json::Map::new();
-                for pair in t.clone().pairs::<String, LuaValue>() {
-                    let (key, val) = pair?;
-                    map.insert(key, lua_to_json(&val)?);
-                }
-                Ok(JsonValue::Object(map))
-            }
-        }
-        _ => Ok(JsonValue::Null),
     }
 }

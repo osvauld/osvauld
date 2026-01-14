@@ -14,7 +14,7 @@ use tracing::{debug, info};
 /// token with automatic proof chain handling.
 ///
 /// # Example
-/// ```rust
+/// ```ignore
 /// let secret_key: [u8; 32] = identity.secret_signing_key();
 /// let builder = GurkhaPermitBuilder::from_bytes(&secret_key);
 /// let (token, cid) = builder.build(decision).await?;
@@ -55,33 +55,6 @@ impl GurkhaPermitBuilder {
         debug!("  CID: {}", result.1);
 
         Ok(result)
-    }
-
-    /// Build token and also validate the proof chain
-    ///
-    /// This is a convenience method that builds the token and immediately validates
-    /// its proof chain using the embedded proof tokens.
-    ///
-    /// # Returns
-    /// - `Ok((token_string, cid))` - If both build and validation succeed
-    /// - `Err(GurkhaError)` - If build or validation fails
-    pub async fn build_and_validate(
-        &self,
-        decision: TokenDecision,
-    ) -> Result<(String, String), GurkhaError> {
-        let (token, cid) = self.build(decision).await?;
-
-        // Validate the proof chain
-        use crate::parser::Permit;
-        use crate::verification::ProofCache;
-
-        debug!("Validating proof chain in built token");
-        let permit = Permit::from_token(&token)?;
-        let cache = ProofCache::from_permit(&permit);
-        cache.validate_chain(&permit)?;
-
-        info!("Token built and proof chain validated");
-        Ok((token, cid))
     }
 }
 

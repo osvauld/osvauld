@@ -7,29 +7,77 @@
             "share": "allow",
             "share_page": "allow"
         },
+        "peer_capabilities": {
+            "relay": false,
+            "share": true,
+            "accept_publish": true
+        },
         "layers": {
-            "products": {
+            "{page_id}/products": {
                 "type": "list",
                 "sync": true,
-                "capability": "owner"
+                "write": true
             },
-            "*:order": {
+            "{page_id}/derived/orders_summary": {
                 "type": "map",
                 "sync": true,
-                "capability": "viewer"
+                "write": false
+            },
+            "{page_id}/drafts": {
+                "type": "map",
+                "sync": false,
+                "create": true
+            },
+            "app:Shop Owner": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "app:Shop Customer": {
+                "type": "map",
+                "sync": true,
+                "write": true
             }
         },
-        "delegation": {
+        "layer_patterns": {
+            "{page_id}/orders/*": {
+                "sync": true,
+                "write": true
+            }
+        },
+        "issue_on": {
             "node": {
                 "token_type": "page_share",
+                "peer_capabilities": {
+                    "relay": true,
+                    "share": true,
+                    "accept_publish": true
+                },
                 "operations": {
-                    "share_page": "allow"
+                    "share_page": "allow",
+                    "add_pages": "allow"
                 },
                 "layers": {
-                    "products": {
+                    "{page_id}/products": {
                         "type": "list",
                         "sync": true,
-                        "capability": "viewer"
+                        "write": false
+                    },
+                    "{page_id}/derived/orders_summary": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    },
+                    "app:Shop Customer": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
+                    }
+                },
+                "layer_patterns": {
+                    "{page_id}/orders/*": {
+                        "sync": true,
+                        "create": true
                     }
                 },
                 "auth_capabilities": {
@@ -38,24 +86,81 @@
                     "can_delegate": true,
                     "sync_enabled": true
                 },
-                "relationship": "node"
+                "relationship": "node",
+                "issue_on": {
+                    "viewer": {
+                        "token_type": "page_viewer",
+                        "peer_capabilities": {
+                            "relay": false,
+                            "share": false,
+                            "accept_publish": false
+                        },
+                        "operations": {
+                            "read": "allow",
+                            "write": "allow"
+                        },
+                        "layers": {
+                            "{page_id}/products": {
+                                "type": "list",
+                                "sync": true,
+                                "write": false
+                            },
+                            "{page_id}/drafts": {
+                                "type": "map",
+                                "sync": false,
+                                "create": true
+                            },
+                            "app:Shop Customer": {
+                                "type": "map",
+                                "sync": true,
+                                "write": false
+                            }
+                        },
+                        "layer_patterns": {
+                            "{page_id}/orders/{aud}": {
+                                "write": true,
+                                "sync": true
+                            }
+                        },
+                        "auth_capabilities": {
+                            "can_connect": true,
+                            "sync_enabled": true
+                        },
+                        "relationship": "customer"
+                    }
+                }
             },
             "customer": {
                 "token_type": "page_viewer",
+                "peer_capabilities": {
+                    "relay": false,
+                    "share": false,
+                    "accept_publish": false
+                },
                 "operations": {
                     "read": "allow",
                     "write": "allow"
                 },
                 "layers": {
-                    "products": {
+                    "{page_id}/products": {
                         "type": "list",
                         "sync": true,
-                        "capability": "viewer"
+                        "write": false
+                    },
+                    "{page_id}/drafts": {
+                        "type": "map",
+                        "sync": false,
+                        "create": true
+                    },
+                    "app:Shop Customer": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
                     }
                 },
                 "layer_patterns": {
-                    "{aud}:order": {
-                        "create": true,
+                    "{page_id}/orders/{aud}": {
+                        "write": true,
                         "sync": true
                     }
                 },
@@ -63,20 +168,63 @@
                     "can_connect": true,
                     "sync_enabled": true
                 },
-                "relationship": "viewer"
+                "relationship": "customer"
+            },
+            "admin": {
+                "token_type": "page_admin",
+                "peer_capabilities": {
+                    "relay": false,
+                    "share": false,
+                    "accept_publish": false
+                },
+                "operations": {
+                    "read": "allow",
+                    "write": "allow"
+                },
+                "layers": {
+                    "{page_id}/products": {
+                        "type": "list",
+                        "sync": true,
+                        "write": true
+                    }
+                },
+                "layer_patterns": {
+                    "{page_id}/orders/*": {
+                        "sync": true
+                    }
+                },
+                "auth_capabilities": {
+                    "can_connect": true,
+                    "sync_enabled": true
+                },
+                "relationship": "admin"
             }
         }
     },
     "consent_template": {
         "token_type": "sync_page_consent",
+        "peer_capabilities": {
+            "relay": false,
+            "share": false,
+            "accept_publish": false
+        },
         "operations": {
             "receive_layer_updates": "allow",
             "send_layer_updates": "allow"
         },
         "layers": {
-            "products": {
+            "{page_id}/products": {
                 "sync": true,
-                "capability": "viewer"
+                "write": false
+            },
+            "app:Shop Customer": {
+                "sync": true,
+                "write": false
+            }
+        },
+        "layer_patterns": {
+            "{page_id}/orders/*": {
+                "sync": true
             }
         },
         "auth_capabilities": {

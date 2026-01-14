@@ -5,27 +5,34 @@
 //!     │                                                   │
 //!     └──────────────────────────────────────────────────→ Failed
 //! ```
-
-use crate::handshake::HandshakeRole;
+//!
+//! ## Design (Capability-Based)
+//!
+//! The protocol is completely role-agnostic. State tracks capabilities
+//! derived directly from the permit structure:
+//!
+//! - `can_publish: true` → Peer can publish spaces to this node
 
 /// Type of peer connection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PeerType {
-    /// Peer is the owner (Node receives connection from Owner)
+    /// Peer can publish spaces (has accept_publish capability)
     Owner,
-    /// Peer is our node (Owner connected to this Node)
+    /// Peer is our node (we connected to this Node)
     MyNode,
-    /// Peer is a viewer with delegated permit
+    /// Peer cannot publish, sync only
     Viewer,
     /// Peer is a submitter with push-only access
     Submitter,
 }
 
-impl From<HandshakeRole> for PeerType {
-    fn from(role: HandshakeRole) -> Self {
-        match role {
-            HandshakeRole::Owner => PeerType::Owner,
-            HandshakeRole::Viewer => PeerType::Viewer,
+impl PeerType {
+    /// Derive PeerType from capability
+    pub fn from_can_publish(can_publish: bool) -> Self {
+        if can_publish {
+            PeerType::Owner
+        } else {
+            PeerType::Viewer
         }
     }
 }
@@ -55,10 +62,12 @@ pub enum PeerState {
         our_did: String,
         our_username: String,
         sent_at: i64,
-        /// Our role in this connection (Owner or Viewer) - derived from our permit
-        our_role: HandshakeRole,
+        /// Whether we can publish spaces to this node (from our permit)
+        can_publish: bool,
         /// Expected node public key from connection string (for validation)
         expected_node_pubkey: Vec<u8>,
+        /// Our original permit (for capability extraction in WelcomeContext)
+        our_permit: String,
     },
 
     /// Sent Welcome, waiting for PermitGrant (Node mode)
@@ -67,8 +76,8 @@ pub enum PeerState {
         their_did: String,
         their_username: String,
         is_first_connection: bool,
-        /// Their role in this connection (Owner or Viewer) - determined from their permit
-        their_role: HandshakeRole,
+        /// Whether peer can publish spaces (determined from their permit)
+        can_publish: bool,
     },
 
     /// Handshake complete, ready for sync operations

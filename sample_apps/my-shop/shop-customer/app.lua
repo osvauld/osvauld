@@ -47,8 +47,10 @@ local function can_transition_to(current_status, new_status)
 end
 
 -- Local state
+local page_id = nil
 local products_layer = nil
-local orders_layer = nil  -- LIST of orders
+local orders_layer = nil  -- LIST of orders (synced)
+local drafts_layer = nil  -- MAP of draft orders (local-only, sync:false)
 local my_did = nil
 
 -- Product cache (read from owner's layer)
@@ -62,17 +64,20 @@ local selected_order_id = nil
 
 -- Initialize the app
 function on_init()
-    -- Get my DID from permit
+    -- Get page_id and my DID
+    page_id = permit:page_id()
     my_did = permit:my_did()
 
-    -- Get products layer (read-only, from owner) - specify "list" type
-    products_layer = loro:get_layer("products", "list")
+    -- Get products layer (read-only, from owner) - namespaced under page_id
+    products_layer = loro:get_layer(page_id .. "/products", "list")
     if products_layer then
         refresh_products_ui()
     end
 
-    -- Get or create my personal orders layer (LIST)
-    -- Layer name: {page_id}/orders/{my_did}
+    -- Local drafts layer: {page_id}/drafts (sync:false in permit - never syncs)
+    drafts_layer = loro:get_or_create_layer(page_id .. "/drafts", "map")
+
+    -- Synced orders layer: {page_id}/orders/{my_did} (sync:true in permit)
     local orders_layer_name = permit:my_layer("orders")
     orders_layer = loro:get_or_create_layer(orders_layer_name, "list")
 
@@ -81,9 +86,11 @@ end
 
 -- Called when any Loro layer changes
 function on_loro_change(layer_name, change_type)
-    if layer_name == "products" then
+    if layer_name == page_id .. "/products" then
         refresh_products_ui()
     elseif layer_name == permit:my_layer("orders") then
+        refresh_orders_ui()
+    elseif layer_name == page_id .. "/drafts" then
         refresh_orders_ui()
     end
 end
@@ -99,7 +106,7 @@ function select_product(product_id, product_name, product_price)
     log_info("Selected product: " .. product_name)
 end
 
--- UI callback: Create a new order (adds to orders list)
+-- UI callback: Create a new order draft (stored in local drafts map, never syncs)
 function create_order(product_id, quantity_str, notes, shipping_address)
     -- Only customers can create orders
     if permit:role() ~= "customer" then
@@ -107,8 +114,8 @@ function create_order(product_id, quantity_str, notes, shipping_address)
         return
     end
 
-    if not orders_layer then
-        log_warn("Orders layer not available")
+    if not drafts_layer then
+        log_warn("Drafts layer not available")
         return
     end
 
@@ -142,17 +149,17 @@ function create_order(product_id, quantity_str, notes, shipping_address)
         product_id = selected_product.id
     }
 
-    -- Push to orders list
-    orders_layer:push(order)
+    -- Store draft in map by order ID (local only, won't sync)
+    drafts_layer:set(order.id, order)
     selected_order_id = order.id
 
-    log_info("Order created in draft state: " .. order.id)
+    log_info("Order draft created (local only): " .. order.id)
 
     -- Update UI immediately
     refresh_orders_ui()
 end
 
--- UI callback: Submit order (draft -> pending)
+-- UI callback: Submit order (move from drafts map to orders list, draft -> pending)
 function submit_order(order_id)
     -- Only customers can submit orders
     if permit:role() ~= "customer" then
@@ -160,7 +167,7 @@ function submit_order(order_id)
         return
     end
 
-    if not orders_layer then return end
+    if not orders_layer or not drafts_layer then return end
 
     -- Use provided order_id or selected_order_id
     local target_id = order_id or selected_order_id
@@ -169,14 +176,13 @@ function submit_order(order_id)
         return
     end
 
-    -- Find order by ID
-    local order_index = find_order_index(target_id)
-    if not order_index then
-        log_warn("Order not found: " .. target_id)
+    -- Get draft from drafts map
+    local order = drafts_layer:get(target_id)
+    if not order then
+        log_warn("Draft not found: " .. target_id)
         return
     end
 
-    local order = orders_layer:get(order_index)
     local status = order.status
 
     -- Use state machine to check transition
@@ -196,12 +202,17 @@ function submit_order(order_id)
         return
     end
 
-    -- Update order status
+    -- Update order status and move to synced orders layer
     order.status = "pending"
     order.submitted_at = os.date("%Y-%m-%d %H:%M:%S")
-    orders_layer:set(order_index, order)
 
-    log_info("Order submitted: " .. target_id)
+    -- Push to synced orders list (this will sync to node/owner)
+    orders_layer:push(order)
+
+    -- Remove from local drafts map
+    drafts_layer:delete(target_id)
+
+    log_info("Order submitted and syncing: " .. target_id)
 
     -- Update UI immediately
     refresh_orders_ui()
@@ -215,8 +226,6 @@ function cancel_order(order_id)
         return
     end
 
-    if not orders_layer then return end
-
     -- Use provided order_id or selected_order_id
     local target_id = order_id or selected_order_id
     if not target_id then
@@ -224,7 +233,22 @@ function cancel_order(order_id)
         return
     end
 
-    -- Find order by ID
+    -- First check if it's a draft (in drafts map)
+    if drafts_layer then
+        local draft = drafts_layer:get(target_id)
+        if draft then
+            -- Just delete from drafts (local only)
+            drafts_layer:delete(target_id)
+            log_info("Draft order deleted: " .. target_id)
+            refresh_orders_ui()
+            return
+        end
+    end
+
+    -- Otherwise check synced orders
+    if not orders_layer then return end
+
+    -- Find order by ID in synced orders
     local order_index = find_order_index(target_id)
     if not order_index then
         log_warn("Order not found: " .. target_id)
@@ -252,7 +276,7 @@ function cancel_order(order_id)
     refresh_orders_ui()
 end
 
--- Find order index by ID
+-- Find order index by ID in synced orders
 function find_order_index(order_id)
     if not orders_layer then return nil end
     local len = orders_layer:length()
@@ -297,28 +321,49 @@ function refresh_products_ui()
     ui:set("products", products_cache)
 end
 
--- Refresh orders UI (shows all orders)
+-- Refresh orders UI (shows drafts + synced orders)
 function refresh_orders_ui()
-    if not orders_layer then
-        ui:set("my_orders", {})
-        return
+    local orders = {}
+
+    -- First add drafts (local only)
+    if drafts_layer then
+        local keys = drafts_layer:keys()
+        if keys then
+            for _, key in ipairs(keys) do
+                local draft = drafts_layer:get(key)
+                if draft then
+                    table.insert(orders, {
+                        id = draft.id or "",
+                        items = draft.items or "",
+                        quantity = draft.quantity or 0,
+                        notes = draft.notes or "",
+                        shipping_address = draft.shipping_address or "",
+                        status = draft.status or "draft",
+                        total = draft.total or 0,
+                        created_at = draft.created_at or ""
+                    })
+                end
+            end
+        end
     end
 
-    local orders = {}
-    local len = orders_layer:length()
-    for i = 0, len - 1 do
-        local order = orders_layer:get(i)
-        if order then
-            table.insert(orders, {
-                id = order.id or "",
-                items = order.items or "",
-                quantity = order.quantity or 0,
-                notes = order.notes or "",
-                shipping_address = order.shipping_address or "",
-                status = order.status or "draft",
-                total = order.total or 0,
-                created_at = order.created_at or ""
-            })
+    -- Then add synced orders
+    if orders_layer then
+        local len = orders_layer:length()
+        for i = 0, len - 1 do
+            local order = orders_layer:get(i)
+            if order then
+                table.insert(orders, {
+                    id = order.id or "",
+                    items = order.items or "",
+                    quantity = order.quantity or 0,
+                    notes = order.notes or "",
+                    shipping_address = order.shipping_address or "",
+                    status = order.status or "pending",
+                    total = order.total or 0,
+                    created_at = order.created_at or ""
+                })
+            end
         end
     end
 
@@ -333,6 +378,79 @@ end
 -- Generate a simple ID
 function generate_id()
     return string.format("%x", os.time()) .. "-" .. string.format("%04x", math.random(0, 65535))
+end
+
+-- Get total count of products (for testing)
+function get_products_count()
+    if products_layer then
+        return products_layer:length()
+    end
+    return 0
+end
+
+-- Get all products as a table (for testing)
+function get_products()
+    return products_cache
+end
+
+-- Get total count of synced orders (for testing)
+function get_orders_count()
+    if orders_layer then
+        return orders_layer:length()
+    end
+    return 0
+end
+
+-- Get total count of drafts (for testing)
+function get_drafts_count()
+    if drafts_layer then
+        local keys = drafts_layer:keys()
+        return keys and #keys or 0
+    end
+    return 0
+end
+
+-- Check if orders_summary derived layer exists (for testing)
+-- Customer should NOT have this layer (not in their permit)
+function has_orders_summary()
+    local summary_layer_name = page_id .. "/derived/orders_summary"
+    local layer = loro:get_layer(summary_layer_name, "map")
+    return layer ~= nil
+end
+
+-- Get the last created order ID (for testing)
+function get_last_order_id()
+    return selected_order_id
+end
+
+-- Get all orders (drafts + synced) as a table (for testing)
+function get_all_orders()
+    local orders = {}
+
+    -- Add drafts
+    if drafts_layer then
+        local keys = drafts_layer:keys()
+        if keys then
+            for _, key in ipairs(keys) do
+                local draft = drafts_layer:get(key)
+                if draft then
+                    table.insert(orders, draft)
+                end
+            end
+        end
+    end
+
+    -- Add synced orders
+    if orders_layer then
+        local len = orders_layer:length()
+        for i = 0, len - 1 do
+            local order = orders_layer:get(i)
+            if order then
+                table.insert(orders, order)
+            end
+        end
+    end
+    return orders
 end
 
 -- Logging helpers

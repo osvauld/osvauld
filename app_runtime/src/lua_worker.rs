@@ -14,9 +14,9 @@ use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use parking_lot::Mutex;
 use crate::vecmodel_ops::{UiMutation, VecModelOp, PropertyUpdate};
-use crate::loro_bindings::LoroBindings;
 use crate::butler_bindings::ButlerBindings;
-use crate::permit_bindings::PermitBindings;
+// Re-exported from butler
+use crate::{LoroBindings, PermitBindings, json_to_lua, lua_to_json, matches_layer_pattern};
 
 /// Commands sent to Lua worker thread
 ///
@@ -68,11 +68,11 @@ impl UserData for UiBindings {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // ui:set(key, value) - Set a property or replace model data
         // Note: Slint uses kebab-case for property names
-        methods.add_method("set", |lua, this, (key, value): (String, LuaValue)| {
+        methods.add_method("set", |_lua, this, (key, value): (String, LuaValue)| {
             // Use property name as-is (Slint expects kebab-case)
             let prop_name = key;
 
-            let json_value = lua_to_json(lua, &value)
+            let json_value = lua_to_json(&value)
                 .map_err(|e| LuaError::RuntimeError(e.to_string()))?;
 
             // Check if value is an array (for VecModel operations)
@@ -122,11 +122,17 @@ pub struct LuaWorker {
     /// Owned Lua VM (mlua::Lua is NOT Send, stays on this thread)
     lua: Lua,
 
-    /// Page identifier (e.g., "my-shop")
+    /// Page identifier (UUID, e.g., "bf57890c-70ce-46e3-b205-f419163ab0f4")
     page_id: String,
 
-    /// App name (e.g., "Shop Customer") - used for role detection
+    /// App name (e.g., "Shop Customer") - for logging
     app_name: String,
+
+    /// User's DID (e.g., "did:key:z6Mk...")
+    user_did: String,
+
+    /// User's role from permit (e.g., "owner", "viewer")
+    user_role: String,
 
     /// Channel to send UI mutations to Slint thread (wrapped for sharing with UiBindings)
     ui_tx: Arc<Mutex<mpsc::Sender<UiMutation>>>,
@@ -136,14 +142,19 @@ pub struct LuaWorker {
 
     /// Channel to receive commands from Slint thread
     cmd_rx: mpsc::Receiver<LuaWorkerCommand>,
+
+    /// Registered page:on_change() handlers (shared with PageBindings)
+    page_handlers: Arc<std::sync::RwLock<Vec<PageHandler>>>,
 }
 
 impl LuaWorker {
     /// Spawn Lua worker thread
     ///
     /// **Parameters**:
-    /// - `page_id`: Page identifier (e.g., "my-shop")
-    /// - `app_name`: App name (e.g., "Shop Customer") - used for role detection
+    /// - `page_id`: Page UUID (e.g., "bf57890c-70ce-46e3-b205-f419163ab0f4")
+    /// - `app_name`: App name (e.g., "Shop Customer") - for logging
+    /// - `user_did`: User's DID (e.g., "did:key:z6Mk...") - for permit bindings
+    /// - `user_role`: User's role from permit (e.g., "owner", "viewer") - for permit bindings
     /// - `lua_code`: Lua source code to execute
     /// - `scribe_ref`: Reference to Scribe actor
     /// - `ui_tx`: Channel to send UI mutations
@@ -153,6 +164,8 @@ impl LuaWorker {
     pub fn spawn(
         page_id: String,
         app_name: String,
+        user_did: String,
+        user_role: String,
         lua_code: String,
         scribe_ref: ActorRef<ScribeMessage>,
         ui_tx: mpsc::Sender<UiMutation>,
@@ -177,13 +190,19 @@ impl LuaWorker {
             // Wrap ui_tx in Arc<Mutex> for sharing with UiBindings
             let ui_tx = Arc::new(Mutex::new(ui_tx));
 
+            // Create shared page handlers (shared between PageBindings and LuaWorker)
+            let page_handlers = Arc::new(std::sync::RwLock::new(Vec::new()));
+
             let mut worker = LuaWorker {
                 lua,
                 page_id,
                 app_name,
+                user_did,
+                user_role,
                 ui_tx,
                 scribe_ref,
                 cmd_rx,
+                page_handlers,
             };
 
             // Setup Lua globals (loro, butler, ui)
@@ -306,15 +325,27 @@ impl LuaWorker {
         globals.set("ui", ui_binding)?;
 
         // permit binding - provides identity and layer naming helpers
-        // page_id = page identifier (e.g., "my-shop")
-        // app_name = app name (e.g., "Shop Customer") - used for role detection
-        let permit_binding = PermitBindings::new(&self.page_id, &self.app_name);
+        // Uses real page_id (UUID), user_did, and role from permit
+        let permit_binding = PermitBindings::new(
+            self.page_id.clone(),
+            self.user_did.clone(),
+            self.user_role.clone(),
+        );
         globals.set("permit", permit_binding)?;
 
-        tracing::debug!(
+        // page binding - provides page:on_change() for registering layer event handlers
+        let page_binding = PageBindings {
+            handlers: self.page_handlers.clone(),
+            page_id: self.page_id.clone(),
+        };
+        globals.set("page", page_binding)?;
+
+        tracing::info!(
             page_id = %self.page_id,
+            user_did = %self.user_did,
+            user_role = %self.user_role,
             app_name = %self.app_name,
-            "Lua globals initialized (loro, butler, ui, permit)"
+            "Lua globals initialized (loro, butler, ui, permit, page)"
         );
 
         Ok(())
@@ -322,39 +353,50 @@ impl LuaWorker {
 
     /// Handle Loro change: convert delta to VecModelOps OR fallback to Lua
     ///
-    /// **Fast path**: Delta exists → convert directly to VecModelOps (skip Lua)
-    /// **Slow path**: No delta → call Lua with full_data
+    /// **Fast path**: Delta exists AND simple layer name → convert directly to VecModelOps
+    /// **Slow path**: Dynamic layers OR no delta → call Lua with full_data
+    ///
+    /// Dynamic layers (those with '/' like `{page_id}/orders/{did}`) require Lua
+    /// aggregation because multiple layers map to a single UI model.
     fn handle_loro_change(
         &self,
         layer_name: String,
         delta: Option<LoroDelta>,
         full_data: JsonValue,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Fast path: Convert delta directly to VecModelOps (skip Lua)
-        if let Some(ref delta) = delta {
-            let ops = convert_delta_to_vecmodel_ops(&layer_name, delta);
-            if !ops.is_empty() {
-                let mutation = UiMutation {
-                    app_id: self.page_id.clone(),
-                    properties: vec![],
-                    model_ops: ops,
-                };
+        // Dynamic layers require Lua aggregation - skip fast path
+        // Examples: "{page_id}/orders/{did}" needs Lua to aggregate all orders
+        // Simple layers like "products" can use fast path (1:1 layer→model mapping)
+        let is_dynamic_layer = layer_name.contains('/');
 
-                if let Err(e) = self.ui_tx.lock().try_send(mutation) {
-                    tracing::warn!(
-                        page_id = %self.page_id,
-                        layer_name = %layer_name,
-                        error = %e,
-                        "Failed to send delta-based UI mutation"
-                    );
-                } else {
-                    tracing::debug!(
-                        page_id = %self.page_id,
-                        layer_name = %layer_name,
-                        "Delta-based UI mutation sent (incremental update)"
-                    );
+        // Fast path: Convert delta directly to VecModelOps (skip Lua)
+        // Only for simple layer names where layer_name == model_name
+        if !is_dynamic_layer {
+            if let Some(ref delta) = delta {
+                let ops = convert_delta_to_vecmodel_ops(&layer_name, delta);
+                if !ops.is_empty() {
+                    let mutation = UiMutation {
+                        app_id: self.page_id.clone(),
+                        properties: vec![],
+                        model_ops: ops,
+                    };
+
+                    if let Err(e) = self.ui_tx.lock().try_send(mutation) {
+                        tracing::warn!(
+                            page_id = %self.page_id,
+                            layer_name = %layer_name,
+                            error = %e,
+                            "Failed to send delta-based UI mutation"
+                        );
+                    } else {
+                        tracing::debug!(
+                            page_id = %self.page_id,
+                            layer_name = %layer_name,
+                            "Delta-based UI mutation sent (incremental update)"
+                        );
+                    }
+                    return Ok(());
                 }
-                return Ok(());
             }
         }
 
@@ -441,6 +483,23 @@ impl LuaWorker {
             }
         }
 
+        // Dispatch to page:on_change() handlers
+        // These allow Lua apps to respond to layer changes (including derivations)
+        if let Err(e) = dispatch_page_handlers(
+            &self.lua,
+            &self.page_handlers,
+            &layer_name,
+            "updated",
+            &full_data,
+        ) {
+            tracing::error!(
+                page_id = %self.page_id,
+                layer_name = %layer_name,
+                error = %e,
+                "Failed to dispatch page handlers"
+            );
+        }
+
         Ok(())
     }
 
@@ -477,49 +536,53 @@ impl LuaWorker {
     /// Handle layer discovered event from peer sync
     ///
     /// **Context**: A new layer was synced from a peer
-    /// **Calls**: `on_layer_discovered(layer_name)` in Lua if defined
+    /// **Calls**: Legacy `on_layer_discovered(layer_name)` and new `page:on_change` handlers
     fn handle_layer_discovered(
         &self,
         layer_name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Get on_layer_discovered function from Lua (optional)
-        let func: mlua::Function = match self.lua.globals().get("on_layer_discovered") {
-            Ok(f) => f,
-            Err(_) => {
-                // No handler defined - that's OK for apps that don't need layer discovery
-                tracing::debug!(
-                    page_id = %self.page_id,
-                    layer = %layer_name,
-                    "No on_layer_discovered handler in Lua (skipping)"
-                );
-                return Ok(());
-            }
-        };
+        // Call legacy on_layer_discovered function if defined
+        if let Ok(func) = self.lua.globals().get::<mlua::Function>("on_layer_discovered") {
+            tracing::info!(
+                page_id = %self.page_id,
+                layer = %layer_name,
+                "Calling Lua on_layer_discovered"
+            );
 
-        tracing::info!(
-            page_id = %self.page_id,
-            layer = %layer_name,
-            "Calling Lua on_layer_discovered"
-        );
+            match func.call::<()>(layer_name.to_string()) {
+                Ok(()) => {
+                    tracing::debug!(
+                        page_id = %self.page_id,
+                        layer = %layer_name,
+                        "on_layer_discovered handler completed"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        page_id = %self.page_id,
+                        layer = %layer_name,
+                        error = %e,
+                        "on_layer_discovered handler failed"
+                    );
+                }
+            }
+        }
 
-        // Call Lua function with layer name
-        match func.call::<()>(layer_name.to_string()) {
-            Ok(()) => {
-                tracing::debug!(
-                    page_id = %self.page_id,
-                    layer = %layer_name,
-                    "on_layer_discovered handler completed"
-                );
-            }
-            Err(e) => {
-                tracing::error!(
-                    page_id = %self.page_id,
-                    layer = %layer_name,
-                    error = %e,
-                    "on_layer_discovered handler failed"
-                );
-                return Err(Box::new(e));
-            }
+        // Dispatch to page:on_change() handlers with "created" event type
+        // Note: full_data is empty for layer discovery - handlers should query the layer
+        if let Err(e) = dispatch_page_handlers(
+            &self.lua,
+            &self.page_handlers,
+            layer_name,
+            "created",
+            &serde_json::json!({}),
+        ) {
+            tracing::error!(
+                page_id = %self.page_id,
+                layer = %layer_name,
+                error = %e,
+                "Failed to dispatch page handlers for layer discovery"
+            );
         }
 
         Ok(())
@@ -641,7 +704,7 @@ impl LuaWorker {
                 let (_, prop_entry) = pair?;
                 let key: String = prop_entry.get("key")?;
                 let value_lua: LuaValue = prop_entry.get("value")?;
-                let value_json = lua_to_json(&self.lua, &value_lua)?;
+                let value_json = lua_to_json(&value_lua)?;
 
                 properties.push(PropertyUpdate { key, value: value_json });
             }
@@ -657,14 +720,14 @@ impl LuaWorker {
                     "push" => {
                         let model_name: String = model_entry.get("model")?;
                         let item_lua: LuaValue = model_entry.get("item")?;
-                        let item = lua_to_json(&self.lua, &item_lua)?;
+                        let item = lua_to_json(&item_lua)?;
                         VecModelOp::Push { model_name, item }
                     }
                     "insert" => {
                         let model_name: String = model_entry.get("model")?;
                         let index: usize = model_entry.get("index")?;
                         let item_lua: LuaValue = model_entry.get("item")?;
-                        let item = lua_to_json(&self.lua, &item_lua)?;
+                        let item = lua_to_json(&item_lua)?;
                         VecModelOp::Insert { model_name, index, item }
                     }
                     "remove" => {
@@ -676,7 +739,7 @@ impl LuaWorker {
                         let model_name: String = model_entry.get("model")?;
                         let index: usize = model_entry.get("index")?;
                         let item_lua: LuaValue = model_entry.get("item")?;
-                        let item = lua_to_json(&self.lua, &item_lua)?;
+                        let item = lua_to_json(&item_lua)?;
                         VecModelOp::Set { model_name, index, item }
                     }
                     "clear" => {
@@ -698,92 +761,6 @@ impl LuaWorker {
             properties,
             model_ops,
         })
-    }
-}
-
-/// Convert JSON to Lua value
-fn json_to_lua(lua: &Lua, value: &JsonValue) -> Result<LuaValue, LuaError> {
-    match value {
-        JsonValue::Null => Ok(LuaValue::Nil),
-        JsonValue::Bool(b) => Ok(LuaValue::Boolean(*b)),
-        JsonValue::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Ok(LuaValue::Integer(i))
-            } else if let Some(f) = n.as_f64() {
-                Ok(LuaValue::Number(f))
-            } else {
-                Err(LuaError::RuntimeError(format!("Invalid number: {}", n)))
-            }
-        }
-        JsonValue::String(s) => Ok(LuaValue::String(lua.create_string(s)?)),
-        JsonValue::Array(arr) => {
-            let table = lua.create_table()?;
-            for (i, item) in arr.iter().enumerate() {
-                table.set(i + 1, json_to_lua(lua, item)?)?;
-            }
-            Ok(LuaValue::Table(table))
-        }
-        JsonValue::Object(obj) => {
-            let table = lua.create_table()?;
-            for (key, val) in obj {
-                table.set(key.as_str(), json_to_lua(lua, val)?)?;
-            }
-            Ok(LuaValue::Table(table))
-        }
-    }
-}
-
-/// Convert Lua value to JSON
-fn lua_to_json(lua: &Lua, value: &LuaValue) -> Result<JsonValue, LuaError> {
-    match value {
-        LuaValue::Nil => Ok(JsonValue::Null),
-        LuaValue::Boolean(b) => Ok(JsonValue::Bool(*b)),
-        LuaValue::Integer(i) => Ok(serde_json::json!(*i)),
-        LuaValue::Number(f) => Ok(serde_json::json!(*f)),
-        LuaValue::String(s) => {
-            let str_val = s.to_str()?;
-            Ok(JsonValue::String(str_val.to_string()))
-        }
-        LuaValue::Table(table) => {
-            // Check if it's an array (sequential integer keys starting from 1)
-            let mut is_array = true;
-            let mut max_index = 0;
-
-            for pair in table.clone().pairs::<LuaValue, LuaValue>() {
-                let (key, _) = pair?;
-                match key {
-                    LuaValue::Integer(i) if i > 0 => {
-                        max_index = max_index.max(i as usize);
-                    }
-                    _ => {
-                        is_array = false;
-                        break;
-                    }
-                }
-            }
-
-            if is_array {
-                // Convert as array (including empty tables)
-                let mut arr = Vec::with_capacity(max_index);
-                for i in 1..=max_index {
-                    let val: LuaValue = table.get(i)?;
-                    arr.push(lua_to_json(lua, &val)?);
-                }
-                Ok(JsonValue::Array(arr))
-            } else {
-                // Convert as object (has non-integer keys)
-                let mut obj = serde_json::Map::new();
-                for pair in table.clone().pairs::<String, LuaValue>() {
-                    let (key, val) = pair?;
-                    obj.insert(key, lua_to_json(lua, &val)?);
-                }
-                Ok(JsonValue::Object(obj))
-            }
-        }
-        _ => Err(LuaError::RuntimeError(format!(
-            "Unsupported Lua type for JSON conversion: {:?}",
-            value
-        ))),
     }
 }
 
@@ -834,22 +811,15 @@ fn convert_delta_to_vecmodel_ops(model_name: &str, delta: &LoroDelta) -> Vec<Vec
         LoroDelta::Map { updated } => {
             // For maps, convert each updated key to a property update
             // This is less common - typically we use full_data for maps
-            let mut result = Vec::new();
-
-            for (key, value) in updated {
-                if let Some(val) = value {
-                    // Key was set/updated - we could emit a Set operation
-                    // but VecModelOp is designed for arrays
-                    // For now, return empty and let fallback handle maps
-                    tracing::debug!(
-                        model = %model_name,
-                        key = %key,
-                        "Map delta - falling back to full_data"
-                    );
-                }
+            // VecModelOp is designed for arrays, so return empty and let fallback handle maps
+            if !updated.is_empty() {
+                tracing::debug!(
+                    model = %model_name,
+                    keys = updated.len(),
+                    "Map delta - falling back to full_data"
+                );
             }
-
-            result
+            vec![]
         }
         LoroDelta::Text { .. } => {
             // Text deltas not yet supported for VecModel
@@ -860,4 +830,126 @@ fn convert_delta_to_vecmodel_ops(model_name: &str, delta: &LoroDelta) -> Vec<Vec
             vec![]
         }
     }
+}
+
+// =============================================================================
+// PageBindings - page:on_change() API
+// =============================================================================
+
+/// Registered page event handler
+pub(crate) struct PageHandler {
+    /// Pattern to match (e.g., "{page_id}/orders/*")
+    pub pattern: String,
+    /// Lua function reference (stored in registry)
+    pub callback: mlua::RegistryKey,
+}
+
+/// Page bindings providing `page:on_change()` API
+///
+/// **Usage in Lua**:
+/// ```lua
+/// page:on_change("{page_id}/orders/*", function(event)
+///     -- event.layer_name = "shop123/orders/did:key:customer"
+///     -- event.event_type = "created" | "updated"
+///     -- event.full_data = { ... }
+///     local summary_layer = loro:get_layer("{page_id}/derived/orders_summary", "map")
+///     summary_layer:set(event.full_data.id, transform(event.full_data))
+/// end)
+/// ```
+pub struct PageBindings {
+    /// Registered handlers (pattern → callback)
+    pub handlers: Arc<std::sync::RwLock<Vec<PageHandler>>>,
+    /// Page ID for pattern expansion
+    pub page_id: String,
+}
+
+impl UserData for PageBindings {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // page:on_change(pattern, callback)
+        methods.add_method("on_change", |lua, this, (pattern, callback): (String, mlua::Function)| {
+            // Expand {page_id} in pattern
+            let expanded_pattern = pattern.replace("{page_id}", &this.page_id);
+
+            // Store callback in Lua registry (keeps it alive)
+            let registry_key = lua.create_registry_value(callback)
+                .map_err(|e| LuaError::RuntimeError(format!("Failed to store callback: {}", e)))?;
+
+            // Add handler
+            let handler = PageHandler {
+                pattern: expanded_pattern.clone(),
+                callback: registry_key,
+            };
+
+            if let Ok(mut handlers) = this.handlers.write() {
+                handlers.push(handler);
+                tracing::info!(
+                    pattern = %expanded_pattern,
+                    handler_count = handlers.len(),
+                    "Registered page:on_change handler"
+                );
+            }
+
+            Ok(())
+        });
+    }
+}
+
+/// Dispatch page event to registered handlers
+///
+/// **Context**: Called from handle_loro_change after layer update
+/// **We do**: Find handlers matching the layer name, call their callbacks
+pub fn dispatch_page_handlers(
+    lua: &Lua,
+    handlers: &std::sync::RwLock<Vec<PageHandler>>,
+    layer_name: &str,
+    event_type: &str,
+    full_data: &JsonValue,
+) -> Result<(), LuaError> {
+    let handlers_guard = handlers.read()
+        .map_err(|e| LuaError::RuntimeError(format!("Lock error: {}", e)))?;
+
+    let mut matched_count = 0;
+
+    for handler in handlers_guard.iter() {
+        if matches_layer_pattern(&handler.pattern, layer_name) {
+            // Create event table
+            let event_table = lua.create_table()?;
+            event_table.set("layer_name", layer_name)?;
+            event_table.set("event_type", event_type)?;
+            event_table.set("full_data", json_to_lua(lua, full_data)?)?;
+
+            // Get callback from registry
+            let callback: mlua::Function = lua.registry_value(&handler.callback)?;
+
+            // Call handler
+            match callback.call::<()>(event_table) {
+                Ok(()) => {
+                    matched_count += 1;
+                    tracing::debug!(
+                        layer = %layer_name,
+                        pattern = %handler.pattern,
+                        "page:on_change handler executed"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        layer = %layer_name,
+                        pattern = %handler.pattern,
+                        error = %e,
+                        "page:on_change handler failed"
+                    );
+                }
+            }
+        }
+    }
+
+    if matched_count > 0 {
+        tracing::debug!(
+            layer = %layer_name,
+            matched_count = matched_count,
+            "Dispatched to page:on_change handlers"
+        );
+    }
+
+    Ok(())
 }

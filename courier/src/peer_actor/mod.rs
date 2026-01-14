@@ -32,6 +32,7 @@ mod sync;
 
 use std::sync::Arc;
 
+use logging_utils::short;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use tracing::{debug, error, info, warn, instrument};
 use transport::{ConnectionHandle, NodeId};
@@ -74,7 +75,7 @@ pub enum PeerMessage {
     ///
     /// **Context**: Viewer has aud:* permit from shareable link.
     /// **We do**: Send SpaceRequest to node with permit.
-    RequestSpaceAsViewer {
+    RequestSpace {
         space_id: String,
         viewer_permit: String,
     },
@@ -289,7 +290,7 @@ impl Actor for PeerActor {
                 self.initiate_get_shareable_link(&space_id, state).await;
             }
 
-            PeerMessage::RequestSpaceAsViewer { space_id, viewer_permit } => {
+            PeerMessage::RequestSpace { space_id, viewer_permit } => {
                 self.initiate_request_space_as_viewer(&space_id, &viewer_permit, state).await;
             }
 
@@ -345,14 +346,14 @@ impl Actor for PeerActor {
 
 impl PeerActor {
     /// Handle protocol message
-    #[instrument(skip(self, myself, state), fields(node_id = %self.node_id, peer_state = %state.state.name()))]
+    #[instrument(skip(self, myself, message, state), fields(node = %short(&self.node_id), peer_state = %state.state.name(), msg = %message.name()))]
     async fn handle_protocol_message(
         &self,
         myself: ActorRef<PeerMessage>,
         message: Message,
         state: &mut PeerActorState,
     ) {
-        debug!("Received {:?}", message);
+        // Message name logged in instrument fields above
 
         match message {
             Message::Hello {
@@ -449,7 +450,7 @@ impl PeerActor {
                 self.on_space_data_ack(&request_id, &space_id, &delegated_permit, state).await;
             }
 
-            Message::ViewerPage { request_id, space_id, meta, permit, ephemeral_public, layers, is_last } => {
+            Message::PageData { request_id, space_id, meta, permit, ephemeral_public, layers, is_last } => {
                 self.on_viewer_page(&request_id, &space_id, &meta, &permit, &ephemeral_public, &layers, is_last, state).await;
             }
 

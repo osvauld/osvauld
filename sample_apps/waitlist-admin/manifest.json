@@ -1,6 +1,0 @@
-{
-    "name": "waitlist-admin",
-    "version": "1.0.0",
-    "entry_ui": "app.slint",
-    "entry_logic": "app.lua"
-}

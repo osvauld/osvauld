@@ -35,7 +35,7 @@ pub mod handshake;
 
 pub use message::{Message, ErrorCode, PublishedSpace, PublishedPageMeta, ConnectionString};
 pub use state::PeerState;
-pub use coordinator::{Coordinator, CoordinatorMessage, CourierMode};
+pub use coordinator::{Coordinator, CoordinatorMessage, CourierMode, ConnectRequest};
 pub use handle::{CourierHandle, CourierEvent, Courier, HandshakeServices};
 
 // Re-export transport types for P2P initialization

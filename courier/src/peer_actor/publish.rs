@@ -194,13 +194,11 @@ impl PeerActor {
             }
         };
 
-        // Verify permit relationship is "node"
-        let relationship = permit.get_fact("relationship")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        if relationship != "node" {
-            warn!("Space permit relationship is '{}', expected 'node'", relationship);
-            self.send_publish_error(request_id, "Permit not delegated to node", state).await;
+        // Verify permit allows accepting publish (peer_capabilities.accept_publish)
+        let peer_caps = permit.peer_capabilities();
+        if !peer_caps.accept_publish {
+            warn!("Space permit lacks accept_publish capability");
+            self.send_publish_error(request_id, "Permit lacks accept_publish capability", state).await;
             return;
         }
 
@@ -253,7 +251,7 @@ impl PeerActor {
     ///
     /// **Context**: Owner sends page with transit-encrypted layers
     /// **Peer sends**: Page metadata, node permit, owner permit, ephemeral public, encrypted layers
-    /// **We verify**: Permit validity (relationship="node", issuer=authenticated peer)
+    /// **We verify**: Permit validity (accept_publish capability, issuer=authenticated peer)
     /// **We decrypt**: Layers using ECDH transit key
     /// **We re-encrypt**: Layers with our own AES key
     /// **We store**: Page + node permit + owner permit via Butler
@@ -289,13 +287,11 @@ impl PeerActor {
             }
         };
 
-        // Check relationship is "node"
-        let relationship = permit.get_fact("relationship")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        if relationship.as_deref() != Some("node") {
-            error!("Permit relationship is {:?}, expected 'node'", relationship);
-            self.send_publish_error(request_id, "Invalid permit relationship", state).await;
+        // Check permit allows accepting publish
+        let peer_caps = permit.peer_capabilities();
+        if !peer_caps.accept_publish {
+            error!("Permit lacks accept_publish capability");
+            self.send_publish_error(request_id, "Permit lacks accept_publish capability", state).await;
             return;
         }
 

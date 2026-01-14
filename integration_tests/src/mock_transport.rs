@@ -22,8 +22,8 @@ pub struct MockTransport {
     receiver: RwLock<mpsc::UnboundedReceiver<MockSendEvent>>,
     /// Channel sender for creating MockConnectionHandles
     sender: mpsc::UnboundedSender<MockSendEvent>,
-    /// Registry of peer Coordinators
-    peers: RwLock<HashMap<NodeId, ActorRef<CoordinatorMessage>>>,
+    /// Registry of peer Coordinators (public for test access)
+    pub peers: RwLock<HashMap<NodeId, ActorRef<CoordinatorMessage>>>,
     /// Track mock connections for getting handles
     connections: RwLock<HashMap<(NodeId, NodeId), MockSender>>,
 }

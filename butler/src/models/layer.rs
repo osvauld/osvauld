@@ -160,6 +160,20 @@ impl Layer {
         Ok(())
     }
 
+    /// Get an item at a specific index from a list by layer name
+    ///
+    /// **Context**: Used by derivation to fetch full item for field-level updates
+    /// **Note**: This uses the layer_name as the list container name (not path in root map)
+    pub fn list_get(&self, layer_name: &str, index: usize) -> Result<serde_json::Value, LayerError> {
+        let list = self.inner.get_list(layer_name);
+
+        let value = list.get(index)
+            .ok_or_else(|| LayerError::Import(format!("Index {} out of bounds", index)))?;
+
+        // Convert LoroValue to JSON
+        Ok(loro_value_to_json(value.into_value().unwrap_or(loro::LoroValue::Null)))
+    }
+
     /// Delete an item at a specific index from a list
     pub fn list_delete(&self, path: &str, index: usize) -> Result<(), LayerError> {
         let root = self.inner.get_map("root");

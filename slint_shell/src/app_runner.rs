@@ -23,10 +23,9 @@ pub struct RunningApp {
     pub lua_thread: std::thread::JoinHandle<()>,
     /// Channel to send commands to Lua worker
     pub lua_tx: tokio::sync::mpsc::Sender<app_runtime::LuaWorkerCommand>,
-    /// Receiver for Loro change events from Scribe
-    pub loro_rx: tokio::sync::mpsc::Receiver<butler::LoroChangeEvent>,
-    /// Receiver for Scribe events (LayerDiscovered, etc.)
-    pub scribe_event_rx: tokio::sync::mpsc::Receiver<butler::ScribeEvent>,
+    /// Unified page event receiver (replaces loro_rx + scribe_event_rx)
+    /// Receives all layer changes (Created/Updated) from Scribe
+    pub page_event_rx: tokio::sync::mpsc::Receiver<butler::PageEvent>,
     /// Receiver for tab switch requests
     pub tab_switch_rx: std::sync::mpsc::Receiver<String>,
 }

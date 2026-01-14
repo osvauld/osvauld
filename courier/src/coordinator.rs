@@ -21,6 +21,16 @@ use crate::peer_actor::{PeerActor, PeerActorArgs, PeerMessage};
 use crate::state::PeerType;
 use butler::Butler;
 
+/// Request for CourierRunner to initiate a connection
+///
+/// **Context**: Coordinator needs to connect to a peer but doesn't have Transport access.
+/// **CourierRunner will**: Call transport.connect() and notify Coordinator.
+#[derive(Debug, Clone)]
+pub struct ConnectRequest {
+    pub node_id: NodeId,
+    pub permit: String,
+}
+
 /// Messages received by Coordinator
 #[derive(Debug)]
 pub enum CoordinatorMessage {
@@ -146,7 +156,7 @@ pub enum CoordinatorMessage {
     },
 
     /// Viewer received a page from node (emit to app for UI updates)
-    ViewerPageReceived {
+    PageReceived {
         node_id: NodeId,
         page: butler::Page,
         is_last: bool,
@@ -156,7 +166,7 @@ pub enum CoordinatorMessage {
     ///
     /// **Context**: Viewer has aud:* permit from shareable link
     /// **We send**: SpaceRequest to node with permit
-    RequestSpaceAsViewer {
+    RequestSpace {
         node_id: NodeId,
         space_id: String,
         /// The aud:* permit from shareable link
@@ -230,6 +240,11 @@ pub struct CoordinatorState {
     pending_permits: HashMap<NodeId, String>,
     /// Channel to emit events to app layer (protocol-agnostic)
     event_tx: Option<mpsc::Sender<CourierEvent>>,
+    /// Channel to request connections (handled by CourierRunner)
+    ///
+    /// **Context**: Coordinator can't connect directly (no Transport access).
+    /// **CourierRunner will**: Listen on receiver and call transport.connect().
+    connect_tx: Option<mpsc::Sender<ConnectRequest>>,
 }
 
 /// Coordinator manages all PeerActors
@@ -286,14 +301,20 @@ impl Default for Coordinator {
 impl Actor for Coordinator {
     type Msg = CoordinatorMessage;
     type State = CoordinatorState;
-    type Arguments = (NodeId, CourierMode, Arc<Butler>, Option<mpsc::Sender<CourierEvent>>);
+    type Arguments = (
+        NodeId,
+        CourierMode,
+        Arc<Butler>,
+        Option<mpsc::Sender<ConnectRequest>>,
+        Option<mpsc::Sender<CourierEvent>>,
+    );
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        let (our_node_id, mode, butler, event_tx) = args;
+        let (our_node_id, mode, butler, connect_tx, event_tx) = args;
 
         info!("Coordinator started in {:?} mode (node_id={})", mode, our_node_id);
 
@@ -308,6 +329,7 @@ impl Actor for Coordinator {
             auth_waiters: HashMap::new(),
             pending_permits: HashMap::new(),
             event_tx,
+            connect_tx,
         })
     }
 
@@ -481,19 +503,19 @@ impl Actor for Coordinator {
                 });
             }
 
-            CoordinatorMessage::ViewerPageReceived { node_id, page, is_last } => {
+            CoordinatorMessage::PageReceived { node_id, page, is_last } => {
                 info!(
                     "Viewer received page {} ({}) from node {} (is_last: {})",
                     page.id, page.name, node_id, is_last
                 );
-                Self::emit_event(state, CourierEvent::ViewerPageReceived {
+                Self::emit_event(state, CourierEvent::PageReceived {
                     node_id: node_id.to_string(),
                     page,
                     is_last,
                 });
             }
 
-            CoordinatorMessage::RequestSpaceAsViewer { node_id, space_id, viewer_permit } => {
+            CoordinatorMessage::RequestSpace { node_id, space_id, viewer_permit } => {
                 self.on_request_space_as_viewer(node_id, space_id, viewer_permit, state).await;
             }
 
@@ -584,7 +606,7 @@ impl Coordinator {
             }
         };
 
-        debug!("Received {:?} from {}", message, node_id);
+        debug!("Received {} from {}", message.name(), node_id);
 
         // Route to PeerActor
         if let Some(peer_actor) = state.peer_actors.get(&node_id) {
@@ -831,7 +853,7 @@ impl Coordinator {
     /// Request space content as viewer (User mode only)
     ///
     /// **Context**: Viewer has aud:* permit from shareable link
-    /// **We do**: Send RequestSpaceAsViewer to PeerActor, which forwards SpaceRequest to node
+    /// **We do**: Send RequestSpace to PeerActor, which forwards SpaceRequest to node
     async fn on_request_space_as_viewer(
         &self,
         node_id: NodeId,
@@ -840,16 +862,16 @@ impl Coordinator {
         state: &mut CoordinatorState,
     ) {
         if state.mode != CourierMode::User {
-            warn!("RequestSpaceAsViewer called in Node mode - ignoring");
+            warn!("RequestSpace called in Node mode - ignoring");
             return;
         }
 
         if let Some(peer_actor) = state.peer_actors.get(&node_id) {
-            let _ = peer_actor.cast(PeerMessage::RequestSpaceAsViewer {
+            let _ = peer_actor.cast(PeerMessage::RequestSpace {
                 space_id: space_id.clone(),
                 viewer_permit,
             });
-            info!("Sent RequestSpaceAsViewer command to PeerActor for {}", node_id);
+            info!("Sent RequestSpace command to PeerActor for {}", node_id);
         } else {
             warn!("No PeerActor for {} - cannot request space as viewer", node_id);
         }
@@ -998,12 +1020,23 @@ impl Coordinator {
             return;
         }
 
-        // 5. Initiate connection (use ConnectAndAuth pattern but ignore result)
-        info!(user_did = %user_did, node_id = %node_id, "Initiating connection for sync");
+        // 5. Request connection via channel (CourierRunner will handle)
+        info!(user_did = %user_did, node_id = %node_id, "Requesting connection for sync");
 
         state.pending_connections.insert(node_id);
         state.pending_permits.insert(node_id, device_info.permit.clone());
 
+        // Send connection request to CourierRunner (which has Transport access)
+        if let Some(ref tx) = state.connect_tx {
+            if let Err(e) = tx.try_send(ConnectRequest {
+                node_id,
+                permit: device_info.permit.clone(),
+            }) {
+                warn!(node_id = %node_id, error = %e, "Failed to send connect request");
+            }
+        }
+
+        // Also emit event for visibility/logging (app layer can display "connecting...")
         Self::emit_event(state, CourierEvent::ConnectRequested {
             node_id: node_id.to_string(),
             permit: device_info.permit,

@@ -190,3 +190,26 @@ pub fn get_permit_cid(token: &str) -> Result<String, GurkhaError> {
 
     Ok(cid.to_string())
 }
+
+/// Convert base64-encoded public key to DID format
+///
+/// Input: "PvtlPXdb41VEPceTuviS/IrTl37daFmzyFjJicD1qDg=" (base64)
+/// Output: "did:key:z6MkiXXX..." (DID)
+///
+/// Used for pattern expansion in can_access_layer to match DID-based layer names.
+pub fn did_from_base64_pubkey(base64_pubkey: &str) -> Result<String, GurkhaError> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    let pubkey_bytes = STANDARD.decode(base64_pubkey)
+        .map_err(|e| GurkhaError::InvalidPermit(format!("Invalid base64 public key: {}", e)))?;
+
+    if pubkey_bytes.len() != 32 {
+        return Err(GurkhaError::InvalidPermit(format!(
+            "Public key must be 32 bytes, got {}",
+            pubkey_bytes.len()
+        )));
+    }
+
+    let did_bytes = [ED25519_MAGIC_BYTES, pubkey_bytes.as_slice()].concat();
+    Ok(format!("did:key:z{}", bs58::encode(&did_bytes).into_string()))
+}

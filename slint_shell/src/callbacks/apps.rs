@@ -309,7 +309,7 @@ fn setup_app_runtime(
         move || {
             // Handle ready apps
             while let Ok((prepared, scribe_ref)) = app_ready_rx.try_recv() {
-                if let Some(running_app) = create_app_runtime(prepared, scribe_ref) {
+                if let Some(running_app) = create_app_runtime(prepared, scribe_ref, butler_timer.clone()) {
                     running_apps_timer.borrow_mut().push(running_app);
                 }
             }
@@ -331,25 +331,26 @@ fn setup_app_runtime(
                     }
                 }
 
-                // Forward Loro events to Lua thread
-                while let Ok(event) = running_app.loro_rx.try_recv() {
-                    let _ = running_app.lua_tx.try_send(app_runtime::LuaWorkerCommand::LoroChanged {
-                        layer_name: event.layer_name.clone(),
-                        delta: event.delta.clone(),
-                        full_data: event.full_data.clone(),
-                    });
-                }
-
-                // Forward ScribeEvent (LayerDiscovered) to Lua thread
-                while let Ok(event) = running_app.scribe_event_rx.try_recv() {
-                    match event {
-                        butler::ScribeEvent::LayerDiscovered { layer_name } => {
+                // Forward unified page events to Lua thread
+                while let Ok(event) = running_app.page_event_rx.try_recv() {
+                    match event.event_type {
+                        butler::PageEventType::Created => {
+                            // New layer discovered - notify Lua
                             let _ = running_app.lua_tx.try_send(
-                                app_runtime::LuaWorkerCommand::LayerDiscovered { layer_name }
+                                app_runtime::LuaWorkerCommand::LayerDiscovered {
+                                    layer_name: event.layer_name.clone()
+                                }
                             );
                         }
-                        butler::ScribeEvent::LayerUpdated { .. } => {
-                            // LayerUpdated is handled via LoroChangeEvent (more detailed)
+                        butler::PageEventType::Updated => {
+                            // Layer updated - forward change to Lua
+                            let _ = running_app.lua_tx.try_send(
+                                app_runtime::LuaWorkerCommand::LoroChanged {
+                                    layer_name: event.layer_name.clone(),
+                                    delta: event.delta.clone(),
+                                    full_data: event.full_data.clone(),
+                                }
+                            );
                         }
                     }
                 }
@@ -419,11 +420,30 @@ fn setup_app_runtime(
 fn create_app_runtime(
     prepared: PreparedPage,
     scribe_ref: ActorRef<ScribeMessage>,
+    butler: Arc<Butler>,
 ) -> Option<RunningApp> {
     println!(
-        "Creating parallel app runtime for page: {}, app: {}",
-        prepared.page_name, prepared.app_name
+        "Creating parallel app runtime for page: {} ({}), app: {}",
+        prepared.page_name, prepared.page_id, prepared.app_name
     );
+
+    // Get user DID from Butler (sync call - no tokio runtime needed)
+    let user_did = butler.identity_data()
+        .ok()
+        .flatten()
+        .map(|data| data.did)
+        .unwrap_or_else(|| {
+            println!("WARNING: No identity data - using fallback DID (this will break sync!)");
+            format!("did:key:unknown-{}", &prepared.page_id[..8])
+        });
+
+    // Get role from page's permit (not hardcoded from app name)
+    let user_role = butler.get_page(&prepared.page_id)
+        .ok()
+        .flatten()
+        .and_then(|page| page.get_permit().cloned())
+        .map(|permit| butler::scribe::permit::extract_role_from_permit(&permit))
+        .unwrap_or_else(|| "owner".to_string());  // No permit = owner
 
     let lua_code = match std::fs::read_to_string(&prepared.lua_path) {
         Ok(code) => code,
@@ -437,17 +457,22 @@ fn create_app_runtime(
     let slint_path = prepared.shell_path.clone();
 
     let (ui_tx, ui_rx) = tokio::sync::mpsc::channel::<app_runtime::UiMutation>(32);
-    let (loro_tx, loro_rx) = tokio::sync::mpsc::channel::<butler::LoroChangeEvent>(32);
-    let (scribe_event_tx, scribe_event_rx) = tokio::sync::mpsc::channel::<butler::ScribeEvent>(32);
+    // Unified page event channel - replaces per-layer loro subscriptions + scribe events
+    let (page_event_tx, page_event_rx) = tokio::sync::mpsc::channel::<butler::PageEvent>(64);
     let (tab_switch_tx, tab_switch_rx) = std::sync::mpsc::channel::<String>();
 
     println!("SlintRuntime: spawning Lua worker thread first...");
+    println!("  page_id: {}", prepared.page_id);
+    println!("  user_did: {}", user_did);
+    println!("  user_role: {} (from permit)", user_role);
 
-    let page_id = prepared.page_name.clone();  // Page identifier (e.g., "my-shop")
+    let page_id = prepared.page_id.clone();     // Page UUID (e.g., "bf57890c-70ce-...")
     let app_name = prepared.app_name.clone();   // App name (e.g., "Shop Customer")
     let (lua_thread, lua_tx) = match app_runtime::LuaWorker::spawn(
         page_id.clone(),
         app_name.clone(),
+        user_did.clone(),
+        user_role.clone(),
         lua_code,
         scribe_ref.clone(),
         ui_tx,
@@ -495,25 +520,14 @@ fn create_app_runtime(
 
     println!("Lua worker thread spawned successfully");
 
-    // Subscribe to Loro changes for all data layers from permit template
-    for layer_name in &prepared.data_layers {
-        if let Err(e) = scribe_ref.cast(ScribeMessage::SubscribeToLoroChanges {
-            layer_name: layer_name.clone(),
-            event_tx: loro_tx.clone(),
-        }) {
-            println!("Failed to subscribe to '{}' layer: {}", layer_name, e);
-        } else {
-            println!("Subscribed to Loro changes for '{}' layer", layer_name);
-        }
-    }
-
-    // Subscribe to ScribeEvent for layer discovery notifications
-    if let Err(e) = scribe_ref.cast(ScribeMessage::SubscribeUI {
-        tx: scribe_event_tx,
+    // Subscribe to unified page events (replaces per-layer subscriptions + ScribeUI)
+    // This single subscription receives all layer changes (Created/Updated)
+    if let Err(e) = scribe_ref.cast(ScribeMessage::SubscribeToPageEvents {
+        event_tx: page_event_tx,
     }) {
-        println!("Failed to subscribe to ScribeEvent: {}", e);
+        println!("Failed to subscribe to page events: {}", e);
     } else {
-        println!("Subscribed to ScribeEvent (layer discovery)");
+        println!("Subscribed to unified page events for {} layers", prepared.data_layers.len());
     }
 
     // Send initial load events for all data layers
@@ -540,8 +554,7 @@ fn create_app_runtime(
         slint_runtime,
         lua_thread,
         lua_tx,
-        loro_rx,
-        scribe_event_rx,
+        page_event_rx,
         tab_switch_rx,
     })
 }

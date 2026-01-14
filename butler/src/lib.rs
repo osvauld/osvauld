@@ -22,6 +22,7 @@ pub mod services;
 pub mod scribe;
 pub mod merge;
 pub mod sync;
+pub mod runtime;
 
 pub use error::{ButlerError, Result};
 pub use models::*;
@@ -30,14 +31,26 @@ pub use storage::{RedbStore, LayerCache, CachedLayer, LayerCacheStats, AssetStor
 pub use services::{signup, login, is_signed_up, recover, change_passphrase, SignupResult, get_identity_data};
 // Scribe actor exports
 pub use scribe::{
-    Scribe, ScribeMessage, ScribeArgs, ScribeState, ScribeEvent, SyncEvent, LoroChangeEvent,
-    LoroDelta, ListOp,
-    BroadcastPayload, LayerCapability, SyncPolicy, SyncConfig,
+    Scribe, ScribeMessage, ScribeArgs, ScribeState, SyncEvent,
+    LoroDelta, ListOp, PageEvent, PageEventType,
+    BroadcastPayload, LayerWritePermission, SyncPolicy, SyncConfig,
     SaveLayerFn, LoadPeerVectorFn, SavePeerVectorFn, ListAuthorizedUsersFn, LoadUserPermitFn,
+};
+pub use runtime::{
+    HeadlessRuntime,
+    LoroBindings, PermitBindings, LuaLoroList, LuaLoroMap,
+    // Loro <-> Lua
+    loro_value_to_lua, lua_to_loro_value,
+    // JSON <-> Lua
+    json_to_lua, lua_to_json,
+    // JSON <-> Loro
+    json_to_loro_value, loro_value_to_json,
+    // Pattern matching
+    matches_layer_pattern,
 };
 
 // Stateless service modules
-use services::{space_service, node_service, contact_service};
+use services::{space_service, page_service, publish_service, node_service, contact_service};
 
 use herald::Identity;
 use ractor::ActorRef;
@@ -311,7 +324,7 @@ impl Butler {
     /// Returns the node_id that gave us this page's space, if any.
     /// Used by Scribe to know which node to sync edits back to.
     pub fn get_source_node_for_page(&self, page_id: &str) -> Result<Option<String>> {
-        space_service::get_source_node_for_page(&self.store, page_id)
+        page_service::get_source_node_for_page(&self.store, page_id)
     }
 
     /// Get sovereign node for owner sync
@@ -414,7 +427,7 @@ impl Butler {
         let owner_did = identity.did().to_string();
         let owner_public_key = identity.public_encryption_key();
         let signing_key = identity.secret_signing_key();
-        space_service::create_page(
+        page_service::create_page(
             &self.store,
             space_id.to_string(),
             name.to_string(),
@@ -427,20 +440,20 @@ impl Butler {
     }
 
     pub fn get_page(&self, page_id: &str) -> Result<Option<PageData>> {
-        space_service::find_page_by_id(&self.store, page_id)
+        page_service::find_page_by_id(&self.store, page_id)
     }
 
     pub fn list_pages(&self, space_id: &str) -> Result<Vec<Page>> {
-        space_service::list_pages(&self.store, space_id)
+        page_service::list_pages(&self.store, space_id)
     }
 
     pub fn delete_page(&self, space_id: &str, page_id: &str) -> Result<bool> {
-        space_service::delete_page(&self.store, space_id, page_id)
+        page_service::delete_page(&self.store, space_id, page_id)
     }
 
     /// Get all pages (no filtering - if stored, user has access)
     pub fn get_pages(&self) -> Result<Vec<Page>> {
-        space_service::get_pages(&self.store)
+        page_service::get_pages(&self.store)
     }
 
     // ==================== Encrypted Page Operations (need identity) ====================
@@ -449,7 +462,7 @@ impl Butler {
         let identity = self.get_identity().await?;
         let user_did = identity.did().to_string();
         let secret_key = identity.secret_encryption_key();
-        space_service::get_decrypted_page(&self.store, page_id, &user_did, &secret_key).await
+        page_service::get_decrypted_page(&self.store, page_id, &user_did, &secret_key).await
     }
 
     pub fn update_page_layers(
@@ -458,7 +471,7 @@ impl Butler {
         secret_key: &[u8; 32],
         layer_updates: &std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<Page> {
-        space_service::update_page_layers(&self.store, page_id, secret_key, layer_updates)
+        page_service::update_page_layers(&self.store, page_id, secret_key, layer_updates)
     }
 
     pub async fn update_page_layers_auto(
@@ -468,7 +481,7 @@ impl Butler {
     ) -> Result<Page> {
         let identity = self.get_identity().await?;
         let secret_key = identity.secret_encryption_key();
-        space_service::update_page_layers(&self.store, page_id, &secret_key, layer_updates)
+        page_service::update_page_layers(&self.store, page_id, &secret_key, layer_updates)
     }
 
     // ==================== App File Storage ====================
@@ -726,7 +739,7 @@ impl Butler {
     ) -> Result<(SpaceMeta, String)> {
         let identity = self.get_identity().await?;
         let owner_did = identity.did().to_string();
-        space_service::prepare_space_for_publish(
+        publish_service::prepare_space_for_publish(
             &self.store,
             space_id,
             &owner_did,
@@ -752,7 +765,7 @@ impl Butler {
     ) -> Result<PreparedPage> {
         let identity = self.get_identity().await?;
         let owner_did = identity.did().to_string();
-        space_service::prepare_page_for_publish(
+        publish_service::prepare_page_for_publish(
             &self.store,
             page_id,
             &owner_did,
@@ -765,7 +778,7 @@ impl Butler {
 
     /// Store a page received via publish (Node/Viewer mode)
     ///
-    /// **Context**: Node received PublishPage from owner, or Viewer received ViewerPage from node
+    /// **Context**: Node received PublishPage from owner, or Viewer received PageData from node
     /// **We do**: Decrypt transit layers, re-encrypt with new AES key, store
     /// **source_node_did**: For viewer side, tracks which node sent this page (for reconnection)
     /// **sender_did**: DID of the peer sending this page (for state vector storage)
@@ -781,7 +794,7 @@ impl Butler {
         sender_device_id: &str,
     ) -> Result<Page> {
         let identity = self.get_identity().await?;
-        space_service::store_published_page(
+        publish_service::store_published_page(
             &self.store,
             page_meta,
             permit,
@@ -797,7 +810,7 @@ impl Butler {
 
     /// Mark a page as published to a specific node
     pub fn mark_page_published(&self, page_id: &str, node_id: &str) -> Result<()> {
-        space_service::mark_page_published(&self.store, page_id, node_id)
+        publish_service::mark_page_published(&self.store, page_id, node_id)
     }
 
     /// Prepare page for viewer (Node mode)
@@ -816,7 +829,7 @@ impl Butler {
         viewer_encryption_key: &[u8; 32],
     ) -> Result<PreparedPage> {
         let identity = self.get_identity().await?;
-        space_service::prepare_page_for_viewer(
+        publish_service::prepare_page_for_viewer(
             &self.store,
             page_id,
             viewer_public_key,
@@ -1244,16 +1257,36 @@ impl Butler {
         let page_id_str = page_id.to_string();
         let (decrypted, aes_key) = self.get_decrypted_page(page_id).await?;
 
+        log::info!(
+            "open_page: page_id={} loaded {} docs from DB: {:?}",
+            page_id,
+            decrypted.docs.len(),
+            decrypted.docs.iter().map(|(n, b)| (n.as_str(), b.len())).collect::<Vec<_>>()
+        );
+
         // Convert DecryptedPage docs to Layer type
         let mut layers = HashMap::new();
         for (name, doc_bytes) in decrypted.docs {
             // doc_bytes is the raw decrypted LoroDoc snapshot
             let layer = if doc_bytes.is_empty() {
+                log::info!("open_page: layer {} is empty, creating new Layer", name);
                 Layer::new()
             } else {
                 // Create layer from snapshot bytes
-                Layer::from_snapshot(&doc_bytes)
-                    .unwrap_or_else(|_| Layer::new())
+                match Layer::from_snapshot(&doc_bytes) {
+                    Ok(l) => {
+                        let sv = l.version_vector();
+                        log::info!(
+                            "open_page: layer {} loaded from {} bytes, state_vector={} bytes {:02x?}",
+                            name, doc_bytes.len(), sv.len(), &sv[..sv.len().min(32)]
+                        );
+                        l
+                    }
+                    Err(e) => {
+                        log::error!("open_page: layer {} failed to load from snapshot: {} - creating new Layer", name, e);
+                        Layer::new()
+                    }
+                }
             };
             layers.insert(name, layer);
         }
@@ -1315,6 +1348,54 @@ impl Butler {
         // Get sync_event_tx (clone the inner Option's Sender)
         let sync_event_tx = self.sync_event_tx.read().await.clone();
 
+        // Load validation.lua and init.lua from app:shared layer (if exists)
+        // Debug: log all layers and their sizes
+        log::info!(
+            "open_page: checking for app:shared in {} layers: {:?}",
+            layers.len(),
+            layers.keys().collect::<Vec<_>>()
+        );
+
+        let (validation_code, init_code) = if let Some(shared_layer) = layers.get("app:shared") {
+            let files = shared_layer.get_all_files();
+            log::info!(
+                "open_page: app:shared layer has {} files: {:?}",
+                files.len(),
+                files.keys().collect::<Vec<_>>()
+            );
+            (
+                files.get("validation.lua").cloned(),
+                files.get("init.lua").cloned(),
+            )
+        } else {
+            log::info!("open_page: app:shared layer not found for page {}", page_id_str);
+            (None, None)
+        };
+
+        if validation_code.is_some() {
+            log::info!("Found validation.lua in app:shared layer for page {}", page_id_str);
+        }
+        if init_code.is_some() {
+            log::info!("Found init.lua ({} bytes) in app:shared layer for page {}",
+                init_code.as_ref().map(|c| c.len()).unwrap_or(0), page_id_str);
+        }
+
+        // Get our permit for this page (from page metadata)
+        let our_permit = self.get_page(page_id).ok()
+            .flatten()
+            .and_then(|p| p.permit);
+
+        // Get our DID (from identity)
+        let our_did = self.get_identity().await
+            .map(|id| id.did().to_string())
+            .unwrap_or_default();
+
+        // Determine if this Scribe runs on a node (enables derivation engine)
+        // Node mode uses SyncMode::Broadcast, owner/customer use SyncMode::ToSource
+        let is_node = sync_config.as_ref()
+            .map(|c| matches!(c.mode, scribe::state::SyncMode::Broadcast))
+            .unwrap_or(false);
+
         // Spawn Scribe actor
         let args = ScribeArgs {
             page_id: page_id_str.clone(),
@@ -1326,6 +1407,11 @@ impl Butler {
             sync_event_tx,
             list_authorized_users: Some(list_authorized_users),
             load_user_permit: Some(load_user_permit),
+            validation_code,
+            init_code,
+            our_permit,
+            our_did,
+            is_node,
         };
 
         let (actor, _handle) = ractor::Actor::spawn(
@@ -1416,39 +1502,50 @@ impl Butler {
     /// Resolve sync configuration from page permit
     ///
     /// **Context**: Parse permit to determine role-based sync behavior
-    /// **Returns**: SyncConfig with relationship and resolved sync_target
+    /// **Returns**: SyncConfig with mode and resolved sync_target
     async fn resolve_sync_config(&self, page_id: &str) -> Option<SyncConfig> {
+        use crate::scribe::state::SyncMode;
+
         // Get page data with permit
         let page_data = self.get_page(page_id).ok()??;
         let permit_str = page_data.permit.as_ref()?;
 
-        // Parse permit to get relationship
+        // Parse permit to check capabilities
         let parsed = gurkha::Permit::from_token(permit_str).ok()?;
-        let relationship = parsed.relationship()?.to_string();
 
-        // Resolve sync_target based on role
-        let sync_target = match relationship.as_str() {
-            "owner" => {
-                // Owner syncs to their sovereign node
-                self.get_sovereign_node_for_sync().ok().flatten()
-            }
-            "viewer" => {
-                // Viewer syncs to source node (where they got the space from)
+        // Derive sync mode from peer_capabilities
+        // If peer has relay capability (node), use Broadcast mode
+        // Otherwise use ToSource mode (sync to our node)
+        let peer_caps = parsed.peer_capabilities();
+        let mode = if peer_caps.relay {
+            // Node mode: broadcast to all authorized peers
+            SyncMode::Broadcast
+        } else {
+            // User mode: sync to source node
+            SyncMode::ToSource
+        };
+
+        // Resolve sync_target based on mode
+        let sync_target = match mode {
+            SyncMode::ToSource => {
+                // User syncs to source node (where they got the space from)
+                // Try source_node first, then sovereign_node
                 self.get_source_node_for_page(page_id).ok().flatten()
+                    .or_else(|| self.get_sovereign_node_for_sync().ok().flatten())
             }
-            "node" | _ => {
-                // Node broadcasts only - no outbound sync target
+            SyncMode::Broadcast => {
+                // Node broadcasts only - no single outbound sync target
                 None
             }
         };
 
         log::info!(
-            "Resolved SyncConfig for page {}: role={}, target={:?}",
-            page_id, relationship, sync_target
+            "Resolved SyncConfig for page {}: mode={:?}, target={:?}",
+            page_id, mode, sync_target
         );
 
         Some(SyncConfig {
-            relationship,
+            mode,
             sync_target,
         })
     }

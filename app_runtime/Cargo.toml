@@ -31,12 +31,8 @@ parking_lot = "0.12"
 # Butler integration for loading apps from storage
 butler = { path = "../butler" }
 
-# Gurkha for AuthSandbox (permit-based authorization)
-gurkha = { path = "../gurkha" }
-
 # Loro CRDT for direct FFI access
 loro = "1.5"
-im = "15"  # Immutable data structures (used by Loro)
 
 # Temp directory for Slint compilation
 tempfile = "3"

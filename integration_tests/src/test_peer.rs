@@ -52,11 +52,12 @@ impl TestPeer {
         let node_id = Self::node_id_from_name(name);
 
         // Spawn Coordinator actor with unique name (include node_id to avoid collisions)
+        // Tests don't use connect_tx or event_tx - connections are handled by TestHarness
         let coordinator_actor = Coordinator::new();
         let (coordinator, _handle) = Actor::spawn(
             Some(format!("coordinator-{}-{}", name, node_id)),
             coordinator_actor,
-            (node_id, mode, butler.clone(), None),
+            (node_id, mode, butler.clone(), None, None),
         )
         .await?;
 
@@ -109,13 +110,27 @@ impl TestPeer {
             }
         };
 
+        // Create connect channel for test harness to intercept connection requests
+        let (connect_tx, connect_rx) = tokio::sync::mpsc::channel::<courier::ConnectRequest>(16);
+
         let coordinator_actor = Coordinator::new();
         let (coordinator, _handle) = Actor::spawn(
             Some(format!("coordinator-{}-{}", name, node_id)),
             coordinator_actor,
-            (node_id, mode, butler.clone(), None),
+            (node_id, mode, butler.clone(), Some(connect_tx), None),
         )
         .await?;
+
+        // Spawn connect request handler - forwards to TestHarness for mock connection
+        let mock_transport_for_connect = mock_transport.clone();
+        let coordinator_for_connect = coordinator.clone();
+        let name_for_connect = name.to_string();
+        Self::spawn_connect_handler(
+            connect_rx,
+            mock_transport_for_connect,
+            coordinator_for_connect,
+            name_for_connect,
+        );
 
         // Wire sync events: Butler → Coordinator (mirrors production flow)
         // This allows Scribe actors to trigger sync when updates happen
@@ -171,6 +186,69 @@ impl TestPeer {
 
         // NodeId is just the 32-byte public key
         NodeId::from_bytes(public_key.as_bytes()).expect("Valid ed25519 public key")
+    }
+
+    /// Spawn handler for connection requests from Coordinator
+    ///
+    /// **Context**: When Scribe emits EnsureSync, Coordinator sends ConnectRequest.
+    /// **We do**: Create mock connection and notify both Coordinators.
+    fn spawn_connect_handler(
+        mut connect_rx: tokio::sync::mpsc::Receiver<courier::ConnectRequest>,
+        mock_transport: Arc<MockTransport>,
+        coordinator: ractor::ActorRef<CoordinatorMessage>,
+        peer_name: String,
+    ) {
+        tokio::spawn(async move {
+            while let Some(req) = connect_rx.recv().await {
+                info!(
+                    peer = %peer_name,
+                    target_node_id = %req.node_id,
+                    "Test: Processing connect request"
+                );
+
+                // Get our node_id from the coordinator (we need to look it up)
+                // For now, get connection from mock transport registry
+                let peers = mock_transport.peers.read().await;
+
+                // Find our node_id by finding which peer has this coordinator
+                let our_node_id = peers.iter()
+                    .find(|(_, coord)| coord.get_id() == coordinator.get_id())
+                    .map(|(node_id, _)| *node_id);
+
+                drop(peers);
+
+                if let Some(our_node_id) = our_node_id {
+                    // Create connection via MockTransport
+                    let conn_to_target = mock_transport.connect(our_node_id, req.node_id).await;
+
+                    // Get reverse connection
+                    if let Some(conn_to_us) = mock_transport.get_connection(req.node_id, our_node_id).await {
+                        // Notify our Coordinator
+                        let _ = coordinator.cast(CoordinatorMessage::Connected {
+                            node_id: req.node_id,
+                            conn: conn_to_target,
+                        });
+
+                        // Notify target's Coordinator
+                        let peers = mock_transport.peers.read().await;
+                        if let Some(target_coordinator) = peers.get(&req.node_id) {
+                            let _ = target_coordinator.cast(CoordinatorMessage::Connected {
+                                node_id: our_node_id,
+                                conn: conn_to_us,
+                            });
+                        }
+
+                        info!(
+                            peer = %peer_name,
+                            target_node_id = %req.node_id,
+                            "Test: Mock connection established"
+                        );
+                    }
+                } else {
+                    warn!(peer = %peer_name, "Could not find our node_id in registry");
+                }
+            }
+        });
     }
 
     /// Send a message to another peer via MockTransport

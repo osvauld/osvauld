@@ -1,6 +1,128 @@
+use std::fmt::{Display, Formatter};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use tracing_tree::HierarchicalLayer;
+
+// =============================================================================
+// ID Shortening Utilities
+// =============================================================================
+
+/// Wrapper for shortening long IDs in logs
+///
+/// Turns `00c02ee56d990e0a0a1ce0f12f963df121efb6efc51096ae324f5b9bf4bfa4c9`
+/// into `00c02e..a4c9` for cleaner log output.
+///
+/// # Example
+/// ```rust
+/// use tracing::info;
+/// use logging_utils::Short;
+///
+/// let node_id = "00c02ee56d990e0a0a1ce0f12f963df121efb6efc51096ae324f5b9bf4bfa4c9";
+/// info!(node = %Short(node_id), "Connected");
+/// // Output: node=00c02e..a4c9 Connected
+/// ```
+pub struct Short<'a>(pub &'a str);
+
+impl Display for Short<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = self.0;
+        if s.len() > 16 {
+            // Show first 6 and last 4 characters
+            write!(f, "{}..{}", &s[..6], &s[s.len()-4..])
+        } else {
+            write!(f, "{}", s)
+        }
+    }
+}
+
+/// Shorten a DID for logging
+///
+/// Turns `did:key:z6MkpYKu1RW6oXaT95YYXM2W9jvEU4PsRp9wGGGxMXfZcvwU`
+/// into `did:..vwU` for cleaner log output.
+///
+/// # Example
+/// ```rust
+/// use tracing::info;
+/// use logging_utils::ShortDid;
+///
+/// let did = "did:key:z6MkpYKu1RW6oXaT95YYXM2W9jvEU4PsRp9wGGGxMXfZcvwU";
+/// info!(peer = %ShortDid(did), "Peer connected");
+/// // Output: peer=did:..vwU Peer connected
+/// ```
+pub struct ShortDid<'a>(pub &'a str);
+
+impl Display for ShortDid<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = self.0;
+        if s.starts_with("did:") && s.len() > 12 {
+            // Show "did:.." + last 4 characters
+            write!(f, "did:..{}", &s[s.len()-4..])
+        } else if s.len() > 16 {
+            write!(f, "{}..{}", &s[..6], &s[s.len()-4..])
+        } else {
+            write!(f, "{}", s)
+        }
+    }
+}
+
+/// Shorten a layer name for logging
+///
+/// Turns `abc123/orders/did:key:z6MkpYKu1RW6oXaT95YYXM2W9jvEU4PsRp9wGGGxMXfZcvwU`
+/// into `abc123/orders/did:..vwU` for cleaner log output.
+pub struct ShortLayer<'a>(pub &'a str);
+
+impl Display for ShortLayer<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = self.0;
+        // If layer contains a DID segment, shorten it
+        if let Some(did_pos) = s.find("did:") {
+            let prefix = &s[..did_pos];
+            let did_part = &s[did_pos..];
+            if did_part.len() > 12 {
+                write!(f, "{}did:..{}", prefix, &did_part[did_part.len()-4..])
+            } else {
+                write!(f, "{}", s)
+            }
+        } else if s.len() > 24 {
+            // Just truncate long layer names
+            write!(f, "{}..{}", &s[..12], &s[s.len()-8..])
+        } else {
+            write!(f, "{}", s)
+        }
+    }
+}
+
+/// Shorten any Display-able value for logging
+///
+/// Convenience function for use in tracing macros.
+///
+/// # Example
+/// ```rust
+/// use tracing::info;
+/// use logging_utils::short;
+///
+/// let node_id = some_node_id; // implements Display
+/// info!(node = %short(&node_id), "Connected");
+/// ```
+pub fn short<T: Display>(value: &T) -> String {
+    let s = value.to_string();
+    if s.len() > 16 {
+        format!("{}..{}", &s[..6], &s[s.len()-4..])
+    } else {
+        s
+    }
+}
+
+/// Shorten a DID string
+pub fn short_did(did: &str) -> String {
+    if did.starts_with("did:") && did.len() > 12 {
+        format!("did:..{}", &did[did.len()-4..])
+    } else if did.len() > 16 {
+        format!("{}..{}", &did[..6], &did[did.len()-4..])
+    } else {
+        did.to_string()
+    }
+}
 
 /// Configuration for the logging system
 #[derive(Debug, Clone)]
@@ -73,6 +195,8 @@ pub fn init_rich_tracing(
              hyper_util=warn,\
              rustls=error,\
              iroh=warn,\
+             iroh::net_report=off,\
+             iroh::net_report::report=off,\
              quinn=warn,\
              netlink_proto=error,\
              netlink_sys=error,\
@@ -83,13 +207,17 @@ pub fn init_rich_tracing(
              tokio_tungstenite=warn,\
              tungstenite=warn,\
              netwatch=warn,\
-             iroh_net_report=warn,\
              iroh_quinn_proto::connection=warn,\
              iroh_relay=warn,\
              igd_next::aio::tokio=warn,\
              tantivy=warn,\
              reqwest=warn,\
              asset_protocol=warn,\
+             loro_internal=off,\
+             loro_internal::oplog=off,\
+             loro_internal::oplog::change_store=off,\
+             loro_internal::oplog::change_store::block_encode=off,\
+             loro_kv_store=off,\
              wgpu_core=warn,\
              wgpu_hal=off,\
              wgpu_hal::gles=off,\
