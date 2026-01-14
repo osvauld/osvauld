@@ -73,12 +73,8 @@ Connect with us on telegram and shape the roadmap
 
 ## Acknowledgments
 
-<p align="center">
-  <img align="center" src="https://raw.githubusercontent.com/osvauld/osvauld/dev/.github/assets/ksum.png" alt="KSUM logo" >
-</p>
-
-<p align="center">
-This project has received funding from the Kerala Startup Mission.
+<p align="start">
+This project has received funding from <a href="https://floss.fund">FLOSS fund</a> and  <a href="https://startupmission.kerala.gov.in/schemes/innovation-grant">Innovation grant </a>. 
 </p>
 
 
