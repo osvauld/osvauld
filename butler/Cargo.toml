@@ -1,0 +1,50 @@
+[package]
+name = "butler"
+version = "0.1.0"
+edition = "2021"
+description = "Storage and service layer for Osvauld (redb + LoroDoc cache)"
+license = "MIT"
+
+[dependencies]
+# Storage
+redb = "3"
+bincode = "1.3"
+loro = "1.5.4"
+base64 = "0.22"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Async
+tokio = { version = "1", features = ["sync", "time", "rt", "rt-multi-thread"] }
+
+# Actor framework
+ractor = "0.14"
+
+# Logging
+tracing = "0.1"
+log = "0.4"
+logging_utils = { path = "../logging_utils" }
+
+# Time
+chrono = "0.4"
+
+# UUID
+uuid = { version = "1", features = ["v4"] }
+
+# Internal crates
+herald = { path = "../herald" }
+gurkha = { path = "../gurkha" }
+# CEL is being replaced by Rune runtime
+futures = "0.3.31"
+
+# Directory traversal for app import
+walkdir = "2"
+
+# Lua scripting for validation layer
+mlua = { version = "0.10", features = ["lua54", "vendored", "send"] }

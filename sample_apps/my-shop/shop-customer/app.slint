@@ -1,0 +1,641 @@
+// Shop Customer App UI
+// Browse products and place multiple orders
+
+// Product data structure (from owner's products layer)
+export struct Product {
+    id: string,
+    name: string,
+    price: float,
+    description: string,
+    stock: int,
+}
+
+// Order data structure (customer's orders layer - LIST)
+export struct Order {
+    id: string,
+    items: string,
+    quantity: int,
+    notes: string,
+    shipping_address: string,
+    status: string,
+    total: float,
+    created_at: string,
+}
+
+// Theme colors
+global Theme {
+    out property<color> bg-primary: #0f172a;
+    out property<color> bg-secondary: #1e293b;
+    out property<color> bg-card: #334155;
+    out property<color> border: #475569;
+    out property<color> text-primary: #f1f5f9;
+    out property<color> text-secondary: #94a3b8;
+    out property<color> accent: #3b82f6;
+    out property<color> accent-hover: #60a5fa;
+    out property<color> success: #22c55e;
+    out property<color> warning: #f59e0b;
+    out property<color> danger: #ef4444;
+}
+
+// Status badge colors
+global StatusColors {
+    pure function get-color(status: string) -> color {
+        if status == "draft" { return #64748b; }
+        if status == "pending" { return #f59e0b; }
+        if status == "confirmed" { return #3b82f6; }
+        if status == "shipped" { return #8b5cf6; }
+        if status == "delivered" { return #22c55e; }
+        if status == "cancelled" { return #ef4444; }
+        return #64748b;
+    }
+}
+
+// App API - Lua/Runtime accesses this global directly
+export global AppAPI {
+    // Properties (Lua sets these via set_global_property)
+    in-out property<[Product]> products: [];
+    in-out property<[Order]> my_orders: [];  // LIST of orders
+
+    // Callbacks (Lua implements these via set_global_callback)
+    callback select_product(string, string, float);
+    callback create_order(string, string, string, string);
+    callback submit_order(string);  // Takes order_id
+    callback cancel_order(string);  // Takes order_id
+}
+
+export component App inherits Rectangle {
+    // Local form state (not exposed to Lua)
+    property<string> selected-product-id: "";
+    property<string> selected-product-name: "";
+    property<float> selected-product-price: 0;
+    property<string> order-quantity: "1";
+    property<string> order-notes: "";
+    property<string> order-address: "";
+    property<int> current-view: 0; // 0 = products, 1 = orders
+
+    background: Theme.bg-primary;
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 16px;
+
+        // Header
+        HorizontalLayout {
+            spacing: 16px;
+
+            Text {
+                text: "Shop";
+                font-size: 28px;
+                font-weight: 700;
+                color: Theme.text-primary;
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            // Orders count indicator
+            if AppAPI.my_orders.length > 0: Rectangle {
+                width: 100px;
+                height: 32px;
+                background: Theme.accent;
+                border-radius: 16px;
+
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 4px;
+
+                    Text {
+                        text: AppAPI.my_orders.length + " orders";
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: white;
+                        vertical-alignment: center;
+                    }
+                }
+
+                TouchArea {
+                    clicked => { current-view = 1; }
+                }
+            }
+        }
+
+        // Tab buttons
+        HorizontalLayout {
+            spacing: 8px;
+
+            Rectangle {
+                width: 120px;
+                height: 40px;
+                background: current-view == 0 ? Theme.accent : Theme.bg-secondary;
+                border-radius: 8px;
+
+                Text {
+                    text: "Products";
+                    color: Theme.text-primary;
+                    font-size: 14px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => { current-view = 0; }
+                }
+            }
+
+            Rectangle {
+                width: 120px;
+                height: 40px;
+                background: current-view == 1 ? Theme.accent : Theme.bg-secondary;
+                border-radius: 8px;
+
+                Text {
+                    text: "My Orders";
+                    color: Theme.text-primary;
+                    font-size: 14px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => { current-view = 1; }
+                }
+            }
+        }
+
+        // Separator
+        Rectangle {
+            height: 1px;
+            background: Theme.border;
+        }
+
+        // Products View
+        if current-view == 0: VerticalLayout {
+            spacing: 16px;
+
+            // Selected product / Order form
+            if selected-product-id != "": Rectangle {
+                background: Theme.bg-secondary;
+                border-radius: 12px;
+                height: 280px;
+
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        Text {
+                            text: selected-product-name;
+                            font-size: 18px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            horizontal-stretch: 1;
+                        }
+
+                        Text {
+                            text: "$" + selected-product-price;
+                            font-size: 20px;
+                            font-weight: 700;
+                            color: Theme.success;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        Text {
+                            text: "Qty:";
+                            font-size: 14px;
+                            color: Theme.text-secondary;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {
+                            width: 60px;
+                            height: 36px;
+                            background: Theme.bg-card;
+                            border-radius: 6px;
+
+                            TextInput {
+                                text <=> order-quantity;
+                                font-size: 14px;
+                                color: Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                x: 4px;
+                                width: parent.width - 8px;
+                            }
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+
+                    // Shipping Address
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Shipping Address *";
+                            font-size: 11px;
+                            color: Theme.text-secondary;
+                        }
+
+                        Rectangle {
+                            height: 36px;
+                            background: Theme.bg-card;
+                            border-radius: 6px;
+
+                            TextInput {
+                                text <=> order-address;
+                                font-size: 14px;
+                                color: Theme.text-primary;
+                                horizontal-alignment: left;
+                                vertical-alignment: center;
+                                x: 8px;
+                                width: parent.width - 16px;
+                            }
+
+                            if order-address == "": Text {
+                                text: "123 Main St, City, Country";
+                                font-size: 14px;
+                                color: Theme.text-secondary;
+                                opacity: 0.5;
+                                x: 8px;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    // Notes and Create Order button
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+
+                            Text {
+                                text: "Notes (optional)";
+                                font-size: 11px;
+                                color: Theme.text-secondary;
+                            }
+
+                            Rectangle {
+                                height: 36px;
+                                background: Theme.bg-card;
+                                border-radius: 6px;
+
+                                TextInput {
+                                    text <=> order-notes;
+                                    font-size: 14px;
+                                    color: Theme.text-primary;
+                                    horizontal-alignment: left;
+                                    vertical-alignment: center;
+                                    x: 8px;
+                                    width: parent.width - 16px;
+                                }
+
+                                if order-notes == "": Text {
+                                    text: "Any special instructions...";
+                                    font-size: 14px;
+                                    color: Theme.text-secondary;
+                                    opacity: 0.5;
+                                    x: 8px;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: 120px;
+                            height: 36px;
+                            background: Theme.accent;
+                            border-radius: 6px;
+
+                            Text {
+                                text: "Create Order";
+                                color: white;
+                                font-size: 14px;
+                                font-weight: 600;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => {
+                                    AppAPI.create_order(selected-product-id, order-quantity, order-notes, order-address);
+                                    selected-product-id = "";
+                                    selected-product-name = "";
+                                    selected-product-price = 0;
+                                    order-quantity = "1";
+                                    order-notes = "";
+                                    order-address = "";
+                                    current-view = 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Products list
+            Flickable {
+                vertical-stretch: 1;
+                viewport-height: AppAPI.products.length * 80px;
+
+                VerticalLayout {
+                    spacing: 8px;
+
+                    for product in AppAPI.products: Rectangle {
+                        height: 72px;
+                        background: Theme.bg-secondary;
+                        border-radius: 8px;
+
+                        HorizontalLayout {
+                            padding: 12px;
+                            spacing: 16px;
+
+                            VerticalLayout {
+                                horizontal-stretch: 2;
+                                spacing: 4px;
+
+                                Text {
+                                    text: product.name;
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                    color: Theme.text-primary;
+                                }
+
+                                Text {
+                                    text: product.description;
+                                    font-size: 12px;
+                                    color: Theme.text-secondary;
+                                }
+                            }
+
+                            Text {
+                                text: "$" + product.price;
+                                font-size: 18px;
+                                font-weight: 700;
+                                color: Theme.success;
+                                vertical-alignment: center;
+                            }
+
+                            Text {
+                                text: product.stock + " available";
+                                font-size: 12px;
+                                color: product.stock > 0 ? Theme.text-secondary : Theme.danger;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle {
+                                width: 80px;
+                                height: 32px;
+                                background: product.stock > 0 ? Theme.accent : Theme.bg-card;
+                                border-radius: 6px;
+
+                                Text {
+                                    text: "Select";
+                                    color: product.stock > 0 ? white : Theme.text-secondary;
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    clicked => {
+                                        if product.stock > 0 {
+                                            AppAPI.select_product(product.id, product.name, product.price);
+                                            selected-product-id = product.id;
+                                            selected-product-name = product.name;
+                                            selected-product-price = product.price;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Orders View - shows list of all orders
+        if current-view == 1: VerticalLayout {
+            spacing: 16px;
+
+            if AppAPI.my_orders.length == 0: Rectangle {
+                vertical-stretch: 1;
+                background: Theme.bg-secondary;
+                border-radius: 12px;
+
+                Text {
+                    text: "No orders yet. Browse products to create one!";
+                    font-size: 16px;
+                    color: Theme.text-secondary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            if AppAPI.my_orders.length > 0: Flickable {
+                vertical-stretch: 1;
+                viewport-height: AppAPI.my_orders.length * 160px;
+
+                VerticalLayout {
+                    spacing: 12px;
+
+                    for order in AppAPI.my_orders: Rectangle {
+                        height: 148px;
+                        background: Theme.bg-secondary;
+                        border-radius: 12px;
+
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 12px;
+
+                            // Order header
+                            HorizontalLayout {
+                                spacing: 12px;
+
+                                Text {
+                                    text: "#" + order.id;
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                    color: Theme.text-primary;
+                                }
+
+                                Rectangle {
+                                    width: 80px;
+                                    height: 24px;
+                                    background: StatusColors.get-color(order.status);
+                                    border-radius: 12px;
+
+                                    Text {
+                                        text: order.status;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        color: white;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                Rectangle { horizontal-stretch: 1; }
+
+                                Text {
+                                    text: order.created_at;
+                                    font-size: 11px;
+                                    color: Theme.text-secondary;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            // Order details
+                            HorizontalLayout {
+                                spacing: 16px;
+
+                                VerticalLayout {
+                                    spacing: 4px;
+                                    horizontal-stretch: 1;
+
+                                    Text {
+                                        text: order.items;
+                                        font-size: 16px;
+                                        font-weight: 600;
+                                        color: Theme.text-primary;
+                                    }
+
+                                    Text {
+                                        text: "Qty: " + order.quantity + " | " + order.shipping_address;
+                                        font-size: 12px;
+                                        color: Theme.text-secondary;
+                                    }
+                                }
+
+                                Text {
+                                    text: "$" + order.total;
+                                    font-size: 18px;
+                                    font-weight: 700;
+                                    color: Theme.success;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            // Action buttons
+                            HorizontalLayout {
+                                spacing: 8px;
+
+                                // Draft: can submit or delete
+                                if order.status == "draft": Rectangle {
+                                    horizontal-stretch: 1;
+                                    height: 32px;
+                                    background: Theme.accent;
+                                    border-radius: 6px;
+
+                                    Text {
+                                        text: "Submit Order";
+                                        color: white;
+                                        font-size: 13px;
+                                        font-weight: 600;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+
+                                    TouchArea {
+                                        clicked => { AppAPI.submit_order(order.id); }
+                                    }
+                                }
+
+                                if order.status == "draft": Rectangle {
+                                    width: 80px;
+                                    height: 32px;
+                                    background: Theme.danger;
+                                    border-radius: 6px;
+
+                                    Text {
+                                        text: "Delete";
+                                        color: white;
+                                        font-size: 13px;
+                                        font-weight: 600;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+
+                                    TouchArea {
+                                        clicked => { AppAPI.cancel_order(order.id); }
+                                    }
+                                }
+
+                                // Pending: can cancel
+                                if order.status == "pending": Rectangle {
+                                    width: 120px;
+                                    height: 32px;
+                                    background: Theme.danger;
+                                    border-radius: 6px;
+
+                                    Text {
+                                        text: "Cancel Order";
+                                        color: white;
+                                        font-size: 13px;
+                                        font-weight: 600;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+
+                                    TouchArea {
+                                        clicked => { AppAPI.cancel_order(order.id); }
+                                    }
+                                }
+
+                                if order.status == "pending": Text {
+                                    text: "Waiting for confirmation...";
+                                    font-size: 12px;
+                                    color: Theme.warning;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+
+                                // Status messages
+                                if order.status == "confirmed": Text {
+                                    text: "Being prepared...";
+                                    font-size: 12px;
+                                    color: Theme.accent;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+
+                                if order.status == "shipped": Text {
+                                    text: "On the way!";
+                                    font-size: 12px;
+                                    color: #8b5cf6;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+
+                                if order.status == "delivered": Text {
+                                    text: "Delivered";
+                                    font-size: 12px;
+                                    color: Theme.success;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+
+                                if order.status == "cancelled": Text {
+                                    text: "Cancelled";
+                                    font-size: 12px;
+                                    color: Theme.danger;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

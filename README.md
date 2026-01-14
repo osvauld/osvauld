@@ -17,6 +17,8 @@ Learn more at [osvauld.com](https://osvauld.com)
 
 Documentation at [docs.osvauld.com](https://docs.osvauld.com)
 
+**Developer Documentation:** See [docs/README.md](docs/README.md) for implementation status, architecture, and technical documentation
+
 ## Core features
 
 - **Server-Free P2P Networking**: Direct device-to-device communication - no servers needed to host or maintain
@@ -26,7 +28,7 @@ Documentation at [docs.osvauld.com](https://docs.osvauld.com)
 - **Offline-First Architecture**: Full functionality without internet connectivity, syncing when available
 - **CRDT Integration**: Conflict-free replicated data types for seamless collaborative editing
 - **Cross-Platform Support**: Works on Android, iOS, Linux, Windows, and macOS
-- **Granular access**: Share access on your terms with UCAN tokens 
+- **Granular access**: Share access on your terms with Permits (UCAN-based authorization) 
 - **Plug and play soverign node (optional)**: Run your own always-on node (even on a Raspberry Pi) to relay messages and keep projects in sync while others are offline.
 
 

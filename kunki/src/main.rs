@@ -1,28 +1,45 @@
 use clap::{Parser, Subcommand};
-use crypto_utils::CryptoUtils;
-use log::{error, info};
-use network::P2PService;
-use persistance::{database::initialize_repositories, initialize_database};
+use tracing::{error, info, warn};
 
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use serde_json::json;
-use services::{generate_one_time_ucan_token, handle_signup, is_signed_up, load_certificate};
 use std::sync::Arc;
+
+// Butler for storage and identity
+use butler::{Butler, RedbStore, LayerCache};
 use tokio::sync::RwLock;
 
+// Transport and Courier for P2P
+use courier::{Courier, CourierEvent, CourierMode, HandshakeServices};
+use transport::{Transport, TransportConfig};
+
+/// Helper function to get passphrase - either from argument or by prompting
+fn get_passphrase(
+    passphrase_opt: Option<String>,
+    prompt: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    match passphrase_opt {
+        Some(p) => Ok(p),
+        None => {
+            println!("{}", prompt);
+            let passphrase = rpassword::read_password()?;
+            if passphrase.is_empty() {
+                return Err("Passphrase cannot be empty".into());
+            }
+            Ok(passphrase)
+        }
+    }
+}
+
 #[derive(Parser)]
-#[command(author, version, about = "LivNote P2P CLI", long_about = None)]
+#[command(author, version, about = "Osvauld P2P CLI", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// Database path
-    #[arg(short, long, default_value = "cli.db")]
+    /// Database path (without extension)
+    #[arg(short, long, default_value = "cli")]
     db_path: String,
-
-    /// Domain for UCAN tokens
-    #[arg(short = 'o', long, default_value = "livnote")]
-    domain: String,
 }
 
 #[derive(Subcommand)]
@@ -33,73 +50,68 @@ enum Commands {
         #[arg(short, long)]
         username: String,
 
-        /// Passphrase for encryption
+        /// Passphrase for encryption (optional, will prompt if not provided)
         #[arg(short, long)]
-        passphrase: String,
+        passphrase: Option<String>,
     },
 
     /// Start the P2P listener and print connection token
     Start {
-        /// Passphrase to unlock the certificate
+        /// Passphrase to unlock the certificate (optional, will prompt if not provided)
         #[arg(short, long)]
-        passphrase: String,
-
-        /// Generate and print a one-time connection token
-        #[arg(short = 't', long)]
-        print_token: bool,
+        passphrase: Option<String>,
     },
 
-    /// Generate a connection token without starting the listener
-    Token {
-        /// Passphrase to unlock the certificate
+    /// Generate a folder share token for public viewing
+    FolderToken {
+        /// Passphrase to unlock the certificate (optional, will prompt if not provided)
         #[arg(short, long)]
-        passphrase: String,
+        passphrase: Option<String>,
+
+        /// Folder ID to generate token for
+        #[arg(short, long)]
+        folder_id: String,
     },
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // Initialize rich tracing with tree formatting
+    let _guard = logging_utils::init_dev()?;
+
+    info!("🚀 Kunki CLI starting");
 
     let cli = Cli::parse();
 
-    // Initialize database
-    let db_connection =
-        initialize_database(&cli.db_path)
-            .await
-            .map_err(|e| -> Box<dyn std::error::Error> {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
-    let repo_ctx = Arc::new(initialize_repositories(db_connection.clone()));
-    let crypto_utils = Arc::new(RwLock::new(CryptoUtils::new()));
-    let domain = Arc::new(cli.domain);
+    // Initialize Butler's RedbStore for storage
+    let redb_path = format!("{}.redb", cli.db_path);
+    let redb_store = RedbStore::open(&redb_path).map_err(|e| -> Box<dyn std::error::Error> {
+        Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to open RedbStore: {}", e),
+        ))
+    })?;
+    let redb_store = Arc::new(redb_store);
 
     match cli.command {
         Commands::Init {
             username,
             passphrase,
         } => {
-            handle_init(&username, &passphrase, repo_ctx.clone()).await?;
+            let pass = get_passphrase(passphrase, "Enter passphrase:")?;
+            handle_init(&username, &pass, redb_store.clone()).await?;
         }
-        Commands::Start {
+        Commands::Start { passphrase } => {
+            let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
+            handle_start(&pass, redb_store.clone()).await?;
+        }
+        Commands::FolderToken {
             passphrase,
-            print_token,
+            folder_id,
         } => {
-            handle_start(
-                &passphrase,
-                print_token,
-                repo_ctx.clone(),
-                crypto_utils.clone(),
-                domain.clone(),
-            )
-            .await?;
-        }
-        Commands::Token { passphrase } => {
-            handle_token(&passphrase, repo_ctx.clone(), crypto_utils.clone(), &domain).await?;
+            let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
+            handle_folder_token(&pass, &folder_id, redb_store.clone())
+                .await?;
         }
     }
 
@@ -109,23 +121,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn handle_init(
     username: &str,
     passphrase: &str,
-    repo_ctx: Arc<persistance::database::RepositoryContext>,
+    redb_store: Arc<RedbStore>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Check if already signed up
-    if is_signed_up(repo_ctx.clone()).await? {
+    // Check if already signed up using Butler
+    if butler::is_signed_up(&redb_store)? {
         error!("User already initialized. Use 'start' command to begin.");
         return Ok(());
     }
 
     info!("Initializing new user: {}", username);
 
-    // Create user and certificates
-    handle_signup(username, passphrase, repo_ctx.clone(), "livnote").await?;
+    // Create user using Butler (Herald-based identity)
+    let result = butler::signup(&redb_store, username, passphrase)?;
 
-    // Create default folder
+    info!("✔ Identity created");
+    info!("✔ DID: {}", result.identity.did());
+    info!("⚠️  IMPORTANT: Save your recovery phrase:");
+    println!("\n  {}\n", result.mnemonic);
 
     info!("✔ User '{}' created successfully", username);
-    info!("✔ Default folder created");
     info!("Use 'start' command with your passphrase to begin P2P service");
 
     Ok(())
@@ -133,166 +147,175 @@ async fn handle_init(
 
 async fn handle_start(
     passphrase: &str,
-    print_token: bool,
-    repo_ctx: Arc<persistance::database::RepositoryContext>,
-    crypto_utils: Arc<RwLock<CryptoUtils>>,
-    domain: Arc<String>,
+    redb_store: Arc<RedbStore>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Check if user exists
-    if !is_signed_up(repo_ctx.clone()).await? {
+    // Check if user exists in Butler
+    if !butler::is_signed_up(&redb_store)? {
         error!("No user found. Please run 'init' first.");
         return Ok(());
     }
 
-    info!("Loading user certificate...");
+    info!("Loading identity...");
 
-    // Load certificate and get user/device
-    let (user, device) = load_certificate(passphrase, repo_ctx.clone(), &crypto_utils).await?;
+    // Login with Butler (returns Herald Identity)
+    let identity = butler::login(&redb_store, passphrase)?;
+    let identity_data = butler::get_identity_data(&redb_store)?.ok_or("Identity data not found")?;
 
-    info!("✔ Logged in as: {}", user.username);
-    info!("✔ User ID: {}", user.id);
-    info!("✔ Device ID: {}", device.id);
+    info!("✔ Logged in as: {}", identity_data.username);
+    info!("✔ DID: {}", identity.did());
 
-    // Generate and print connection token if requested
-    if print_token {
-        let (token, pub_key) =
-            generate_one_time_ucan_token(&domain, &crypto_utils, repo_ctx.clone()).await?;
+    // Create Butler with LayerCache and set identity
+    let layer_cache = Arc::new(RwLock::new(LayerCache::new(redb_store.clone(), 100)));
+    let butler = Arc::new(Butler::new(redb_store.clone(), layer_cache));
+    butler.set_identity(identity.clone()).await;
 
-        println!("\n╔══════════════════════════════════════════╗");
-        println!("ONE-TIME CONNECTION TOKEN");
-        println!("╚══════════════════════════════════════════╝");
-        println!("Token: {}", token);
-        println!("╚══════════════════════════════════════════╝");
-        println!("Public Key: {}", pub_key);
-        println!("╚══════════════════════════════════════════╝");
 
-        // Create connection string JSON
-        let connection_details = json!({
-            "user_public_key": user.public_key,
-            "device_public_key": device.device_key,
-            "username": user.username,
-            "ucan_token": token,
-            "ucan_pub_key": pub_key,
-        });
+    // Initialize Transport layer using the device key from Butler
+    info!("Initializing transport layer...");
+    let device_key = butler.device_key().await
+        .map_err(|e| format!("Failed to get device key: {:?}", e))?;
+    let transport_config = TransportConfig::new(device_key);
+    let (transport, event_rx) = Transport::init(transport_config)
+        .await
+        .map_err(|e| format!("Failed to init transport: {}", e))?;
 
-        // Convert to string and base64 encode
-        let connection_json = connection_details.to_string();
-        let encoded_connection = general_purpose::STANDARD.encode(connection_json.as_bytes());
+    let transport = Arc::new(transport);
+    let node_id = transport.node_id();
 
-        println!("Connection String: {}", encoded_connection);
-        println!("╚══════════════════════════════════════════╝\n");
+    info!("✔ Transport initialized");
+    info!("✔ Node ID: {}", node_id);
+
+    // Get relay URLs
+    let relay_urls = transport.relay_urls();
+    if !relay_urls.is_empty() {
+        info!("✔ Relay: {}", relay_urls[0]);
     }
 
-    // Initialize P2P service
-    info!("Starting P2P service...");
-    let (p2p_service, mut p2p_receiver, _p2p_sender, incoming_receiver) =
-        P2PService::new(repo_ctx.clone(), crypto_utils.clone(), domain.clone());
+    // Create HandshakeServices with Butler
+    let handshake_services = Arc::new(HandshakeServices::new(butler.clone()));
 
-    let p2p_service = Arc::new(p2p_service);
+    // Initialize Courier with services for auto-processing
+    let (courier_handle, mut courier_events, courier) = Courier::init_with_services(
+        CourierMode::Node,
+        transport.clone(),
+        Some(handshake_services),
+    );
 
-    // Start P2P service
-    p2p_service.start_p2p_service(&device, &user).await?;
+    // Start accepting connections
+    transport.start_accepting();
 
-    info!("✔ P2P service started");
-    info!("✔ Node ID: {}", device.device_key);
-    info!("Listening for incoming connections...");
+    // Spawn Courier event processor
+    tokio::spawn(async move {
+        courier.run(event_rx).await;
+    });
 
-    let p2p_service_clone = p2p_service.clone();
-    let incoming_task = tokio::spawn(async move {
-        P2PService::start_processing_incoming_events(
-            (*p2p_service_clone).clone(),
-            incoming_receiver,
-        );
-        // Keep this task alive
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+    // Spawn application event handler
+    let _courier_handle = courier_handle.clone(); // Keep handle for future use
+    tokio::spawn(async move {
+        while let Some(event) = courier_events.recv().await {
+            match event {
+                CourierEvent::PeerAuthenticated {
+                    node_id,
+                    did,
+                    username,
+                } => {
+                    info!(
+                        "📱 Peer authenticated: {} ({}) - node={}",
+                        username, did, node_id
+                    );
+                }
+                CourierEvent::PeerDisconnected { node_id } => {
+                    info!("📴 Peer disconnected: {}", node_id);
+                }
+                CourierEvent::SpacePublished { node_id, space_id } => {
+                    info!("📤 Space published to {}: {}", node_id, space_id);
+                }
+                CourierEvent::PublishFailed {
+                    node_id,
+                    space_id,
+                    error,
+                } => {
+                    warn!("⚠️ Publish failed to {}: {} - {}", node_id, space_id, error);
+                }
+                CourierEvent::ViewerSyncComplete {
+                    node_id,
+                    space_id,
+                    pages_synced,
+                } => {
+                    info!(
+                        "📥 Viewer sync complete from {}: {} ({} pages)",
+                        node_id, space_id, pages_synced
+                    );
+                }
+                CourierEvent::ShareableLinkReceived {
+                    node_id,
+                    space_id,
+                    permit,
+                } => {
+                    info!(
+                        "🔗 Shareable link generated for {}: {} (permit: {}...)",
+                        node_id, space_id, &permit[..permit.len().min(20)]
+                    );
+                }
+                CourierEvent::ConnectRequested { node_id, permit } => {
+                    info!(
+                        "🔌 Connection requested to {}: permit={}...",
+                        node_id, &permit[..permit.len().min(20)]
+                    );
+                }
+                CourierEvent::ViewerSpaceReceived { node_id, space, page_count } => {
+                    info!(
+                        "📂 Viewer received space {} ({}) from {} ({} pages)",
+                        space.id, space.name, node_id, page_count
+                    );
+                }
+                CourierEvent::PageReceived { node_id, page, is_last } => {
+                    info!(
+                        "📄 Viewer received page {} ({}) from {} for space {} (last: {})",
+                        page.id, page.name, node_id, page.space_id, is_last
+                    );
+                }
+                CourierEvent::SyncConsentComplete { node_id, space_id } => {
+                    info!(
+                        "✅ Sync consent complete for space {} with node {}",
+                        space_id, node_id
+                    );
+                }
+            }
         }
     });
 
+    // Print connection string
+    println!("\n╔══════════════════════════════════════════╗");
+    println!("║     CONNECTION STRING                    ║");
+    println!("╚══════════════════════════════════════════╝");
+
+    // Generate connection string using Butler
+    let encoded_connection = butler.generate_connection_string(
+        relay_urls.first().map(|s| s.as_str()),
+    ).await.map_err(|e| format!("Failed to generate connection string: {:?}", e))?;
+
+    println!("{}", encoded_connection);
+    println!("╚══════════════════════════════════════════╝");
+    println!("\nℹ️  User: {}", identity_data.username);
+    println!("ℹ️  DID: {}", identity.did());
+    println!("ℹ️  Node ID: {}", node_id);
+    println!("╚══════════════════════════════════════════╝\n");
+
     // Print status
-    println!("\n🟢 SERVICE STATUS: ONLINE");
+    println!("🟢 SERVICE STATUS: ONLINE");
     println!("🔐 Press Ctrl+C to stop the service");
     println!("🔗 Service is ready to accept connections\n");
 
-    // Handle P2P events
-    let event_task = tokio::spawn(async move {
-        info!("🚀 Starting P2P event handler...");
-        loop {
-            match p2p_receiver.recv().await {
-                Some(event) => {
-                    use network::p2p::P2PEvent;
-                    match event {
-                        P2PEvent::Connected => {
-                            info!("📡 ✅ Peer connected");
-                        }
-                        P2PEvent::Disconnected => {
-                            info!("📡 ❌ Peer disconnected");
-                        }
-                        P2PEvent::HandshakeFailed { error } => {
-                            error!("🤝 ❌ Handshake failed: {}", error);
-                        }
-                        P2PEvent::SyncComplete => {
-                            info!("🔄 ✅ Sync completed");
-                        }
-                        P2PEvent::ShareComplete => {
-                            info!("📤 ✅ Share completed");
-                        }
-                        P2PEvent::Error { message, source } => {
-                            error!("⚠️  P2P error from {}: {}", source, message);
-                        }
-                        P2PEvent::LiveEditConnected { connection_id } => {
-                            info!("✏️  ✅ Live edit connected: {}", connection_id);
-                        }
-                        P2PEvent::ResourceAdded {
-                            resource_id,
-                            username: _,
-                        } => {
-                            info!("📄 ✅ Resource added: {}", resource_id);
-                        }
-                        _ => {
-                            info!("📨 Received P2P event: {:?}", event);
-                        }
-                    }
-                }
-                None => {
-                    info!("P2P event channel closed");
-                    break;
-                }
-            }
-        }
-        info!("P2P event handler stopped");
-    });
-
     // Setup signal handler for graceful shutdown
-    let shutdown_signal = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("Failed to listen for Ctrl+C");
-        info!("🛑 Shutdown signal received");
-    };
+    info!("🎯 Service is now running - waiting for shutdown signal");
 
-    // Keep the service running
-    info!("🎯 Service is now running - waiting for events or shutdown signal");
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to listen for Ctrl+C");
 
-    tokio::select! {
-        _ = shutdown_signal => {
-            info!("🛑 Initiating graceful shutdown...");
-        }
-        result = event_task => {
-            match result {
-                Ok(_) => info!("✅ P2P event handler completed"),
-                Err(e) => error!("❌ P2P event handler failed: {}", e),
-            }
-            info!("Service stopping due to event task completion");
-        }
-        result = incoming_task => {
-            match result {
-                Ok(_) => info!("✅ Incoming processor completed"),
-                Err(e) => error!("❌ Incoming processor failed: {}", e),
-            }
-            info!("Service stopping due to incoming task completion");
-        }
-    }
+    info!("🛑 Shutdown signal received");
+    info!("🛑 Initiating graceful shutdown...");
     info!("🔄 Cleaning up...");
     info!("✅ P2P service stopped gracefully");
     println!("\n🔴 SERVICE STATUS: OFFLINE");
@@ -300,37 +323,60 @@ async fn handle_start(
     Ok(())
 }
 
-async fn handle_token(
+async fn handle_folder_token(
     passphrase: &str,
-    repo_ctx: Arc<persistance::database::RepositoryContext>,
-    crypto_utils: Arc<RwLock<CryptoUtils>>,
-    domain: &str,
+    folder_id: &str,
+    redb_store: Arc<RedbStore>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Check if user exists
-    if !is_signed_up(repo_ctx.clone()).await? {
+    // Check if user exists using Butler
+    if !butler::is_signed_up(&redb_store)? {
         error!("No user found. Please run 'init' first.");
         return Ok(());
     }
 
-    info!("Loading user certificate...");
+    info!("Loading identity...");
 
-    // Load certificate to verify passphrase
-    let (user, _device) = load_certificate(passphrase, repo_ctx.clone(), &crypto_utils).await?;
+    // Login with Butler (returns Herald Identity)
+    let identity = butler::login(&redb_store, passphrase)?;
+    let identity_data = butler::get_identity_data(&redb_store)?.ok_or("Identity data not found")?;
 
-    info!("✔ Authenticated as: {}", user.username);
+    info!("✔ Authenticated as: {}", identity_data.username);
 
-    // Generate connection token
-    let (token, pub_key) =
-        generate_one_time_ucan_token(domain, &crypto_utils, repo_ctx.clone()).await?;
+    info!("Generating folder share token for folder: {}", folder_id);
+
+    // Generate space share token using gurkha's stateless function
+    let signing_key_bytes = identity.secret_signing_key();
+    let (token, _cid) = gurkha::issue_space_viewer_auth(&signing_key_bytes, folder_id)
+        .await
+        .map_err(|e| format!("Failed to create space permit: {:?}", e))?;
+    let pub_key = gurkha::get_public_key(&signing_key_bytes);
 
     println!("\n╔══════════════════════════════════════════╗");
-    println!("ONE-TIME CONNECTION TOKEN");
+    println!("║     FOLDER SHARE TOKEN                   ║");
     println!("╚══════════════════════════════════════════╝");
-    println!("{}", token);
+    println!("Folder ID: {}", folder_id);
+    println!("╚══════════════════════════════════════════╝");
+    println!("Token: {}", token);
     println!("╚══════════════════════════════════════════╝");
     println!("Public Key: {}", pub_key);
-    println!("User ID: {}", user.id);
-    println!("Username: {}", user.username);
+    println!("╚══════════════════════════════════════════╝");
+
+    // Create connection string JSON using Herald identity
+    let user_pub_key = general_purpose::STANDARD.encode(identity.public_signing_key());
+    let device_pub_key = general_purpose::STANDARD.encode(identity.public_device_key());
+
+    let connection_details = json!({
+        "user_public_key": user_pub_key,
+        "device_public_key": device_pub_key,
+        "username": identity_data.username,
+        "permit": token,
+    });
+
+    // Convert to string and base64 encode
+    let connection_json = connection_details.to_string();
+    let encoded_connection = general_purpose::STANDARD.encode(connection_json.as_bytes());
+
+    println!("Connection String: {}", encoded_connection);
     println!("╚══════════════════════════════════════════╝\n");
 
     Ok(())

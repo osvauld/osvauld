@@ -1,0 +1,162 @@
+// Node management screen
+
+import { Theme } from "../theme.slint";
+import { NodeInfo } from "../types.slint";
+import { NodeCard } from "../components/cards.slint";
+import { AddNodeModal } from "../components/modals.slint";
+
+// Node management screen
+export component NodeManagementScreen {
+    in property<[NodeInfo]> nodes: [];
+    in-out property<bool> show-add-modal: false;
+    in-out property<string> connection-string: "";
+    in property<bool> connecting: false;
+    in-out property<string> error-message: "";
+
+    callback request-nodes();
+    callback add-node(string);
+    callback delete-node(string);
+    callback connect-node(string);
+    callback go-back();
+
+    // Initialize
+    init => {
+        request-nodes();
+    }
+
+    VerticalLayout {
+        padding: 24px;
+        spacing: 24px;
+
+        // Header
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: space-between;
+
+            // Back button + title
+            HorizontalLayout {
+                spacing: 12px;
+
+                Rectangle {
+                    width: 36px;
+                    height: 36px;
+                    border-radius: 6px;
+                    background: back-area.has-hover ? Theme.side-list-highlight : transparent;
+
+                    Text {
+                        text: "\u{2190}";
+                        color: Theme.quarzo-white;
+                        font-size: 20px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    back-area := TouchArea {
+                        clicked => { go-back(); }
+                    }
+                }
+
+                Text {
+                    text: "Sovereign Nodes";
+                    color: Theme.quarzo-white;
+                    font-size: 24px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Add Node button
+            Rectangle {
+                width: 120px;
+                height: 36px;
+                border-radius: 6px;
+                background: add-area.has-hover ? Theme.active-border : Theme.grape-green;
+
+                Text {
+                    text: "+ Add Node";
+                    color: Theme.quarzo-white;
+                    font-size: 13px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                add-area := TouchArea {
+                    clicked => {
+                        show-add-modal = true;
+                        connection-string = "";
+                        error-message = "";
+                    }
+                }
+            }
+        }
+
+        // Node list or empty state
+        if nodes.length > 0: VerticalLayout {
+            spacing: 16px;
+
+            // Grid of nodes (3 per row)
+            for row-idx in Math.ceil(nodes.length / 3): HorizontalLayout {
+                spacing: 16px;
+
+                for col-idx in 3: Rectangle {
+                    width: 200px;
+                    height: 140px;
+
+                    property <int> node-idx: row-idx * 3 + col-idx;
+
+                    if node-idx < nodes.length: NodeCard {
+                        node-id: nodes[node-idx].id;
+                        name: nodes[node-idx].name;
+                        is-connected: nodes[node-idx].is-connected;
+                        last-connected: nodes[node-idx].last-connected;
+                        connection-type: nodes[node-idx].connection-type;
+
+                        clicked => {
+                            if !nodes[node-idx].is-connected {
+                                connect-node(nodes[node-idx].id);
+                            }
+                        }
+                        delete-clicked => { delete-node(nodes[node-idx].id); }
+                    }
+                }
+            }
+        }
+
+        // Empty state
+        if nodes.length == 0: VerticalLayout {
+            alignment: center;
+            spacing: 16px;
+
+            Text {
+                text: "No sovereign nodes yet";
+                color: Theme.text-passive;
+                font-size: 18px;
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: "Add your first node to start publishing content";
+                color: Theme.text-passive;
+                font-size: 13px;
+                horizontal-alignment: center;
+            }
+        }
+    }
+
+    // Add Node Modal
+    AddNodeModal {
+        show: show-add-modal;
+        connection-string <=> connection-string;
+        connecting: connecting;
+        error-message: error-message;
+
+        add(conn-str) => {
+            add-node(conn-str);
+        }
+        cancel => {
+            show-add-modal = false;
+            connection-string = "";
+            error-message = "";
+        }
+    }
+}

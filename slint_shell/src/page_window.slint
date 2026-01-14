@@ -1,0 +1,110 @@
+// Page Window - Container for app tabs
+// This is a TEMPLATE that gets combined with app.slint at runtime
+
+import { Button, HorizontalBox, VerticalBox } from "std-widgets.slint";
+
+// App tab info
+export struct AppTabInfo {
+    name: string,
+    active: bool,
+}
+
+// Page window shell with tabs
+export component PageWindow inherits Window {
+    title: "Page";
+    width: 800px;
+    height: 600px;
+    background: #1a1a2e;
+
+    // Tab state
+    in property <[AppTabInfo]> app_tabs: [];
+    in property <string> current_app: "";
+    in property <string> page_name: "";
+
+    // Callbacks
+    callback select_tab(string);
+    callback add_app();
+    callback close_window();
+
+    VerticalLayout {
+        // Tab bar
+        Rectangle {
+            height: 44px;
+            background: #0f0f1a;
+
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 4px;
+
+                // Page title
+                Text {
+                    text: page_name;
+                    color: #666;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { width: 16px; }
+
+                // App tabs
+                for tab in app_tabs: Rectangle {
+                    width: tab-text.preferred-width + 24px;
+                    height: 28px;
+                    background: tab.active ? #2a2a4a : transparent;
+                    border-radius: 6px;
+
+                    tab-text := Text {
+                        text: tab.name;
+                        color: tab.active ? #fff : #888;
+                        font-size: 13px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => { select_tab(tab.name); }
+                    }
+                }
+
+                // Add app button
+                Rectangle {
+                    width: 28px;
+                    height: 28px;
+                    background: add-area.has-hover ? #2a2a4a : transparent;
+                    border-radius: 6px;
+
+                    Text {
+                        text: "+";
+                        color: #666;
+                        font-size: 16px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    add-area := TouchArea {
+                        clicked => { add_app(); }
+                    }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+            }
+        }
+
+        // Separator
+        Rectangle {
+            height: 1px;
+            background: #333;
+        }
+
+        // App content area - placeholder
+        // The actual app UI will be injected here at runtime
+        Rectangle {
+            background: #1a1a2e;
+            vertical-stretch: 1;
+
+            app_content := VerticalLayout {
+                // APP_CONTENT_PLACEHOLDER
+            }
+        }
+    }
+}

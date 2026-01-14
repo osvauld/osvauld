@@ -1,0 +1,7 @@
+{
+    "name": "Shop Owner",
+    "version": "1.0.0",
+    "description": "E-commerce shop owner dashboard - manage products and orders",
+    "entry_ui": "app.slint",
+    "entry_logic": "app.lua"
+}

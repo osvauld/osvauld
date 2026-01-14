@@ -1,0 +1,38 @@
+// Shared data types
+
+// Tab data structure
+export struct TabInfo {
+    id: string,
+    title: string,
+}
+
+// Space data structure
+export struct SpaceInfo {
+    id: string,
+    name: string,
+    app-count: int,
+}
+
+// Page data structure (container for apps)
+export struct PageInfo {
+    id: string,
+    name: string,
+    app-count: int,
+}
+
+// App data structure (within a page)
+export struct AppInfo {
+    id: string,
+    name: string,
+    page-id: string,
+}
+
+// Node data structure
+export struct NodeInfo {
+    id: string,              // node_id
+    name: string,            // node name
+    is-connected: bool,      // connection status
+    last-connected: string,  // formatted timestamp ("2 hours ago")
+    connection-type: string, // "Owner" or "Viewer"
+    is-published: bool,      // space published to this node
+}

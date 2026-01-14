@@ -1,0 +1,93 @@
+// Grid components
+
+import { SpaceInfo, AppInfo, PageInfo } from "../types.slint";
+import { SpaceCard, AppCard, PageCard } from "cards.slint";
+
+// Space Grid Row component (reusable row for space cards)
+export component SpaceGridRow inherits HorizontalLayout {
+    in property<[SpaceInfo]> spaces;
+    in property<int> row-number;
+    in property<int> columns;
+    in property<length> card-width;
+    in property<length> card-spacing;
+
+    callback select-space(string);
+
+    horizontal-stretch: 1;
+    alignment: start;
+    spacing: 0px;
+
+    for space[idx] in spaces: Rectangle {
+        visible: idx >= columns * row-number && idx < columns * (row-number + 1);
+        width: (idx >= columns * row-number && idx < columns * (row-number + 1)) ? card-width + card-spacing : 0px;
+        height: (idx >= columns * row-number && idx < columns * (row-number + 1)) ? 120px : 0px;
+
+        SpaceCard {
+            width: card-width;
+            height: 120px;
+            space-id: space.id;
+            name: space.name;
+            app-count: space.app-count;
+            clicked => { root.select-space(space.id); }
+        }
+    }
+}
+
+// App Grid Row component (reusable row for app cards)
+export component AppGridRow inherits HorizontalLayout {
+    in property<[AppInfo]> apps;
+    in property<int> row-number;
+    in property<int> app-columns;
+    in property<length> app-card-width;
+    in property<length> app-card-spacing;
+
+    callback select-app(string);
+
+    horizontal-stretch: 1;
+    alignment: start;
+    spacing: 0px;
+
+    for app[idx] in apps: Rectangle {
+        visible: idx >= app-columns * row-number && idx < app-columns * (row-number + 1);
+        width: (idx >= app-columns * row-number && idx < app-columns * (row-number + 1)) ? app-card-width + app-card-spacing : 0px;
+        height: (idx >= app-columns * row-number && idx < app-columns * (row-number + 1)) ? 100px : 0px;
+
+        AppCard {
+            width: app-card-width;
+            height: 100px;
+            app-id: app.id;
+            name: app.name;
+            clicked => { root.select-app(app.id); }
+        }
+    }
+}
+
+// Page Grid Row component (reusable row for page cards)
+export component PageGridRow inherits HorizontalLayout {
+    in property<[PageInfo]> pages;
+    in property<int> row-number;
+    in property<int> page-columns;
+    in property<length> page-card-width;
+    in property<length> page-card-spacing;
+
+    callback select-page(string);
+
+    horizontal-stretch: 1;
+    alignment: start;
+    spacing: 0px;
+
+    for page[idx] in pages: Rectangle {
+        visible: idx >= page-columns * row-number && idx < page-columns * (row-number + 1);
+        width: (idx >= page-columns * row-number && idx < page-columns * (row-number + 1)) ? page-card-width + page-card-spacing : 0px;
+        height: (idx >= page-columns * row-number && idx < page-columns * (row-number + 1)) ? 100px : 0px;
+
+        PageCard {
+            width: page-card-width;
+            height: 100px;
+            page-id: page.id;
+            name: page.name;
+            app-count: page.app-count;
+            clicked => { root.select-page(page.id); }
+        }
+    }
+}

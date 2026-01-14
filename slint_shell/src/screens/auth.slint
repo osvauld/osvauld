@@ -1,0 +1,396 @@
+// Authentication screens
+
+import { Theme } from "../theme.slint";
+
+// Initiation screen (first launch)
+export component InitiationScreen {
+    callback import-key();
+    callback new-user();
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 40px;
+
+        // Hero text
+        VerticalLayout {
+            alignment: center;
+            spacing: 8px;
+
+            Text {
+                text: "Sovereign browsing and hosting";
+                font-size: 48px;
+                color: Theme.quarzo-white;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "Free, secure, and private";
+                font-size: 52px;
+                color: Theme.text-active;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "Build and share on your terms.";
+                font-size: 52px;
+                color: Theme.text-active;
+                horizontal-alignment: center;
+            }
+        }
+
+        // Buttons
+        HorizontalLayout {
+            alignment: center;
+            spacing: 24px;
+
+            // Secondary button - Import key
+            Rectangle {
+                width: 200px;
+                height: 48px;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: import-area.has-hover ? Theme.text-active : Theme.default-border;
+                background: transparent;
+
+                Text {
+                    text: "I already have the key";
+                    color: import-area.has-hover ? Theme.quarzo-white : Theme.text-active;
+                    font-size: 14px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                import-area := TouchArea {
+                    clicked => { import-key(); }
+                }
+
+                animate border-color { duration: 300ms; }
+            }
+
+            // Primary button - New user
+            Rectangle {
+                width: 200px;
+                height: 48px;
+                border-radius: 8px;
+                background: Theme.livnote-lavender;
+
+                Text {
+                    text: "I am new here";
+                    color: Theme.ninja-black;
+                    font-size: 14px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    clicked => { new-user(); }
+                }
+            }
+        }
+    }
+}
+
+// Sign Up screen (account creation)
+export component SignUpScreen {
+    in-out property<string> username: "";
+    in-out property<string> password: "";
+    in property<bool> loading: false;
+    in-out property<bool> show-password: false;
+
+    callback submit(string, string);
+    callback go-back();
+
+    property<bool> username-ok: username != "";
+    property<bool> password-ok: password.character-count >= 4;
+    property<bool> can-submit: username-ok && password-ok;
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 24px;
+
+        Rectangle {
+            width: 420px;
+            background: Theme.ninja-black;
+            border-radius: 12px;
+
+            VerticalLayout {
+                padding: 32px;
+                spacing: 20px;
+
+                // Back button and title row
+                HorizontalLayout {
+                    spacing: 16px;
+
+                    Rectangle {
+                        width: 32px;
+                        height: 32px;
+                        border-radius: 6px;
+                        background: back-area.has-hover ? Theme.cancel-background : transparent;
+
+                        Text {
+                            text: "\u{2190}";
+                            color: back-area.has-hover ? Theme.quarzo-white : Theme.text-passive;
+                            font-size: 20px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        back-area := TouchArea {
+                            clicked => { go-back(); }
+                        }
+                    }
+
+                    VerticalLayout {
+                        Text {
+                            text: "Create Account";
+                            color: Theme.quarzo-white;
+                            font-size: 20px;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: "Set up your identity";
+                            color: Theme.text-active;
+                            font-size: 13px;
+                        }
+                    }
+                }
+
+                // Username
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Username";
+                        color: Theme.quarzo-white;
+                        font-size: 14px;
+                    }
+
+                    Rectangle {
+                        height: 48px;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: user-input.has-focus ? Theme.livnote-lavender : Theme.default-border;
+                        background: Theme.frame-black;
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+
+                            user-input := TextInput {
+                                text <=> username;
+                                color: Theme.quarzo-white;
+                                font-size: 14px;
+                            }
+                        }
+
+                        animate border-color { duration: 150ms; }
+                    }
+                }
+
+                // Password
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Password";
+                        color: Theme.quarzo-white;
+                        font-size: 14px;
+                    }
+
+                    Rectangle {
+                        height: 48px;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: pass-input.has-focus ? Theme.livnote-lavender : Theme.default-border;
+                        background: Theme.frame-black;
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 8px;
+                            spacing: 8px;
+
+                            pass-input := TextInput {
+                                text <=> password;
+                                input-type: show-password ? InputType.text : InputType.password;
+                                color: Theme.quarzo-white;
+                                font-size: 14px;
+                                accepted => { if can-submit { submit(username, password); } }
+                            }
+
+                            Rectangle {
+                                width: 32px;
+                                height: 32px;
+                                background: pass-toggle.has-hover ? Theme.cancel-background : transparent;
+                                border-radius: 4px;
+
+                                Text {
+                                    text: show-password ? "\u{1F441}" : "\u{1F576}";
+                                    font-size: 16px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                                pass-toggle := TouchArea {
+                                    clicked => { show-password = !show-password; }
+                                }
+                            }
+                        }
+
+                        animate border-color { duration: 150ms; }
+                    }
+
+                    if password != "" && !password-ok: Text {
+                        text: "Minimum 4 characters";
+                        color: Theme.danger-red;
+                        font-size: 12px;
+                    }
+                }
+
+                // Submit button
+                Rectangle {
+                    height: 48px;
+                    border-radius: 8px;
+                    background: can-submit ? Theme.livnote-lavender : Theme.cancel-background;
+
+                    Text {
+                        text: loading ? "Creating..." : "Create Account";
+                        color: can-submit ? Theme.ninja-black : Theme.text-passive;
+                        font-size: 14px;
+                        font-weight: 500;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        enabled: can-submit && !loading;
+                        clicked => { submit(username, password); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Welcome/Login screen
+export component WelcomeScreen {
+    in-out property<string> passphrase: "";
+    in property<bool> loading: false;
+    in property<bool> error: false;
+    in-out property<bool> show-password: false;
+
+    callback submit();
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 16px;
+
+        Rectangle {
+            width: 400px;
+            height: 300px;
+            background: Theme.ninja-black;
+            border-radius: 12px;
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 16px;
+                padding: 32px;
+
+                Text {
+                    text: "Enter Passphrase";
+                    color: Theme.quarzo-white;
+                    font-size: 18px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                }
+
+                Rectangle {
+                    height: 48px;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: input-area.has-focus ? Theme.active-border : Theme.default-border;
+                    background: Theme.frame-black;
+
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 8px;
+
+                        input-area := TextInput {
+                            text <=> passphrase;
+                            input-type: show-password ? InputType.text : InputType.password;
+                            color: Theme.quarzo-white;
+                            font-size: 14px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            accepted => { submit(); }
+                        }
+
+                        Rectangle {
+                            width: 32px;
+                            height: 32px;
+                            background: toggle-area.has-hover ? Theme.cancel-background : transparent;
+                            border-radius: 4px;
+
+                            Text {
+                                text: show-password ? "\u{1F441}" : "\u{1F576}";
+                                font-size: 16px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            toggle-area := TouchArea {
+                                clicked => { show-password = !show-password; }
+                            }
+                        }
+                    }
+                }
+
+                if error: Text {
+                    text: "Wrong Passphrase";
+                    color: Theme.danger-red;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
+                if !error: HorizontalLayout {
+                    alignment: center;
+                    spacing: 8px;
+
+                    Text {
+                        text: "\u{1F512}";
+                        font-size: 14px;
+                    }
+                    Text {
+                        text: "End-to-end encrypted";
+                        color: Theme.text-active;
+                        font-size: 12px;
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+
+                    Rectangle {
+                        width: 150px;
+                        height: 44px;
+                        border-radius: 8px;
+                        background: Theme.livnote-lavender;
+
+                        if loading: Text {
+                            text: "...";
+                            color: Theme.ninja-black;
+                            font-size: 14px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        if !loading: Text {
+                            text: "Submit";
+                            color: Theme.ninja-black;
+                            font-size: 14px;
+                            font-weight: 500;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea {
+                            clicked => { submit(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

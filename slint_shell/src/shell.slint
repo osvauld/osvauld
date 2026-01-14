@@ -1,0 +1,262 @@
+// Sthalam Shell - Main window with tabs and app content area
+
+import { Theme } from "theme.slint";
+
+// Types (re-export for Rust bindings)
+export { TabInfo, SpaceInfo, AppInfo, PageInfo, NodeInfo } from "types.slint";
+import { TabInfo, SpaceInfo, AppInfo, PageInfo, NodeInfo } from "types.slint";
+
+// Components
+import { TabButton, NewTabButton } from "components/tabs.slint";
+import { Toast } from "components/modals.slint";
+
+// Screens
+import { InitiationScreen, SignUpScreen, WelcomeScreen } from "screens/auth.slint";
+import { SpacesDashboard, SpaceView } from "screens/spaces.slint";
+import { PageView } from "screens/pages.slint";
+import { NodeManagementScreen } from "screens/nodes.slint";
+
+// Main shell component
+export component Shell inherits Window {
+    title: "Sthalam";
+    background: Theme.ninja-black;
+    min-width: 800px;
+    min-height: 600px;
+
+    // Tab state
+    in property<[TabInfo]> tabs: [];
+    in property<string> active-tab-id: "";
+
+    // Shell state
+    in property<bool> authenticated: false;
+    in property<bool> initialized: false;
+
+    // Screen state: "initiation", "signup", "login", "spaces", "space-view", "page-view", "app"
+    in-out property<string> current-screen: "initiation";
+
+    // Space state
+    in property<[SpaceInfo]> spaces: [];
+    in-out property<string> current-space-id: "";
+    in property<[PageInfo]> pages: [];  // pages in current space
+    in property<string> current-space-name: "";
+
+    // Page state
+    in-out property<string> current-page-id: "";
+    in property<string> current-page-name: "";
+    in property<[AppInfo]> page-apps: [];  // apps in current page
+
+    // Node state
+    in property<[NodeInfo]> nodes: [];
+    in property<bool> connecting: false;
+    in-out property<bool> show-add-modal: false;
+    in-out property<string> connection-string: "";
+    in property<string> error-message: "";
+
+    // Publish state
+    in property<[NodeInfo]> connected-nodes: [];
+    in property<bool> publishing: false;
+    in-out property<bool> show-publish-modal: false;
+    in property<string> shareable-link: "";
+    in property<bool> requesting-link: false;
+
+    // Add Website state (viewer connection)
+    in-out property<bool> show-add-website-modal: false;
+    in property<bool> connecting-website: false;
+
+    // Toast state
+    in property<string> toast-message: "";
+    in property<bool> toast-visible: false;
+    in property<bool> toast-is-error: false;
+
+    // Callbacks
+    callback tab-selected(string);
+    callback tab-closed(string);
+    callback new-tab();
+
+    // Auth callbacks
+    callback login(string);
+    callback sign-up(string, string);  // username, password
+    callback import-key();
+
+    // Space callbacks
+    callback request-spaces();          // UI requests to load spaces
+    callback create-space(string);      // name
+    callback select-space(string);      // space_id
+    callback delete-space(string);      // space_id
+
+    // Page callbacks (pages within a space)
+    callback request-pages(string);      // UI requests pages for space_id
+    callback upload-page-clicked();      // User wants to upload a page directory (opens folder picker)
+    callback select-page(string);        // page_id - navigate to page-view
+    callback reload-page();              // Reload page from filesystem
+
+    // App callbacks (apps within a page)
+    callback request-page-apps(string);  // UI requests apps for page_id
+    callback select-app(string);         // app_id - launch app
+    callback delete-app(string);         // app_id
+
+    // Node callbacks
+    callback request-nodes();
+    callback add-node(string);
+    callback delete-node(string);
+    callback connect-node(string);
+    callback navigate-to-nodes();
+
+    // Publish callbacks
+    callback publish-space(string, string);  // space_id, node_id
+    callback request-connected-nodes();
+    callback get-shareable-link(string, string);  // space_id, node_id
+    callback copy-shareable-link();  // copy to clipboard
+
+    // Add Website callbacks (viewer connection)
+    callback add-website(string);  // connection_string
+
+    VerticalLayout {
+        // Tab bar (only show when authenticated)
+        if authenticated: Rectangle {
+            height: 52px;
+            background: Theme.frame-black;
+            border-width: 0px;
+            border-color: Theme.dark-separator;
+
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 8px;
+                alignment: start;
+
+                // Tabs
+                for tab in tabs: TabButton {
+                    title: tab.title;
+                    active: tab.id == active-tab-id;
+                    clicked => { tab-selected(tab.id); }
+                    close-clicked => { tab-closed(tab.id); }
+                }
+
+                // New tab button
+                NewTabButton {
+                    clicked => { new-tab(); }
+                }
+            }
+        }
+
+        // Separator
+        if authenticated: Rectangle {
+            height: 1px;
+            background: Theme.dark-separator;
+        }
+
+        // Content area
+        Rectangle {
+            background: Theme.ninja-black;
+
+            // Initiation screen
+            if current-screen == "initiation": InitiationScreen {
+                import-key => { import-key(); }
+                new-user => { current-screen = "signup"; }
+            }
+
+            // Sign up screen
+            if current-screen == "signup": SignUpScreen {
+                go-back => { current-screen = "initiation"; }
+                submit(username, password) => { sign-up(username, password); }
+            }
+
+            // Login screen
+            if current-screen == "login": WelcomeScreen {
+                submit => { login(self.passphrase); }
+            }
+
+            // Spaces dashboard (after login)
+            if current-screen == "spaces": SpacesDashboard {
+                width: 100%;
+                height: 100%;
+                spaces: spaces;
+                show-add-website-modal <=> show-add-website-modal;
+                connecting-website: connecting-website;
+                request-spaces => { request-spaces(); }
+                create-space(name) => {
+                    create-space(name);
+                }
+                select-space(space-id) => {
+                    current-space-id = space-id;
+                    select-space(space-id);
+                    current-screen = "space-view";
+                }
+                navigate-to-nodes => { navigate-to-nodes(); }
+                add-website(conn-str) => { add-website(conn-str); }
+            }
+
+            // Space view (inside a space - shows pages)
+            if current-screen == "space-view": SpaceView {
+                width: 100%;
+                height: 100%;
+                space-id: current-space-id;
+                space-name: current-space-name;
+                pages: pages;
+                connected-nodes: connected-nodes;
+                publishing: publishing;
+                show-publish-modal <=> show-publish-modal;
+                shareable-link: shareable-link;
+                requesting-link: requesting-link;
+                go-back => { current-screen = "spaces"; }
+                request-pages(space-id) => { request-pages(space-id); }
+                select-page(page-id) => {
+                    current-page-id = page-id;
+                    select-page(page-id);
+                    current-screen = "page-view";
+                }
+                upload-page-clicked => { upload-page-clicked(); }
+                publish-space(space-id, node-id) => { publish-space(space-id, node-id); }
+                request-connected-nodes => { request-connected-nodes(); }
+                get-shareable-link(space-id, node-id) => { get-shareable-link(space-id, node-id); }
+                copy-shareable-link => { copy-shareable-link(); }
+            }
+
+            // Page view (inside a page - shows apps)
+            if current-screen == "page-view": PageView {
+                width: 100%;
+                height: 100%;
+                page-id: current-page-id;
+                page-name: current-page-name;
+                apps: page-apps;
+                go-back => { current-screen = "space-view"; }
+                select-app(app-id) => { select-app(app-id); }
+                reload-page => { reload-page(); }
+            }
+
+            // Node management screen
+            if current-screen == "nodes": NodeManagementScreen {
+                width: 100%;
+                height: 100%;
+                nodes: nodes;
+                connecting: connecting;
+                show-add-modal: show-add-modal;
+                connection-string: connection-string;
+                error-message: error-message;
+                request-nodes => { request-nodes(); }
+                add-node(conn-str) => { add-node(conn-str); }
+                delete-node(node-id) => { delete-node(node-id); }
+                connect-node(node-id) => { connect-node(node-id); }
+                go-back => { current-screen = "spaces"; }
+            }
+
+            // App content placeholder (when authenticated and in app mode)
+            if current-screen == "app": Rectangle {
+                // App runtime will inject content here
+                Text {
+                    text: tabs.length > 0 ? "App content for: " + active-tab-id : "No tabs open. Click + to open a new tab.";
+                    color: Theme.text-passive;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+
+    // Toast notification (positioned at bottom center)
+    Toast {
+        message: toast-message;
+        is-error: toast-is-error;
+        show: toast-visible;
+    }
+}

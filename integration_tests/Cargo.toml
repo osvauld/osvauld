@@ -1,0 +1,47 @@
+[package]
+name = "integration_tests"
+version = "0.1.0"
+edition = "2021"
+description = "Integration tests for Osvauld P2P protocol"
+license = "MIT"
+
+[dependencies]
+# Internal crates
+courier = { path = "../courier" }
+butler = { path = "../butler" }
+transport = { path = "../transport" }
+gurkha = { path = "../gurkha" }
+herald = { path = "../herald" }
+
+
+# JSON
+serde_json = "1"
+
+# CRDT
+loro = "1.5.4"
+
+# Encoding
+base64 = "0.22"
+
+# Key generation
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+
+# Actor framework
+ractor = "0.14"
+
+# Async
+tokio = { version = "1", features = ["sync", "time", "macros", "rt-multi-thread"] }
+
+# Testing utilities
+tempfile = "3"
+
+# Error handling
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }

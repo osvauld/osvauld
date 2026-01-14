@@ -1,0 +1,90 @@
+// Tab components
+
+import { Theme } from "../theme.slint";
+
+// Tab button component
+export component TabButton {
+    in property<string> title;
+    in property<bool> active;
+    callback clicked();
+    callback close-clicked();
+
+    min-width: 120px;
+    height: 36px;
+
+    Rectangle {
+        background: active ? Theme.side-list-highlight : Theme.frame-black;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: active ? Theme.active-border : Theme.default-border;
+
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 8px;
+            spacing: 8px;
+            alignment: space-between;
+
+            Text {
+                text: title;
+                color: active ? Theme.side-list-active : Theme.text-passive;
+                font-size: 13px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            // Close button
+            Rectangle {
+                width: 20px;
+                height: 20px;
+                border-radius: 4px;
+                background: close-area.has-hover ? Theme.cancel-background : transparent;
+
+                Text {
+                    text: "\u{00D7}";
+                    color: close-area.has-hover ? Theme.quarzo-white : Theme.faded-cancel;
+                    font-size: 16px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                close-area := TouchArea {
+                    clicked => { close-clicked(); }
+                }
+            }
+        }
+
+        tab-area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+    }
+}
+
+// New tab button
+export component NewTabButton {
+    callback clicked();
+
+    width: 36px;
+    height: 36px;
+
+    Rectangle {
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: area.has-hover ? Theme.active-border : Theme.default-border;
+        background: area.has-hover ? Theme.side-list-highlight : Theme.frame-black;
+
+        Text {
+            text: "+";
+            color: area.has-hover ? Theme.quarzo-white : Theme.text-passive;
+            font-size: 18px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        area := TouchArea {
+            clicked => { clicked(); }
+        }
+
+        animate border-color { duration: 150ms; }
+    }
+}
