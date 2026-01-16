@@ -5,7 +5,12 @@ edition = "2021"
 description = "Integration tests for Osvauld P2P protocol"
 license = "MIT"
 
+[[bin]]
+name = "setup_test_dbs"
+path = "src/bin/setup_test_dbs.rs"
+
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 # Internal crates
 courier = { path = "../courier" }
 butler = { path = "../butler" }

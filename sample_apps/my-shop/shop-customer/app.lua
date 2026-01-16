@@ -62,6 +62,11 @@ local selected_product = nil
 -- Currently selected order (for editing/submitting)
 local selected_order_id = nil
 
+-- UI form state (tracked in Lua for submit_order_ui)
+local ui_order_quantity = "1"
+local ui_order_notes = ""
+local ui_order_address = ""
+
 -- Initialize the app
 function on_init()
     -- Get page_id and my DID
@@ -104,6 +109,66 @@ function select_product(product_id, product_name, product_price)
         price = product_price
     }
     log_info("Selected product: " .. product_name)
+end
+
+-- UI-driven product selection (shows form via debug socket)
+function select_product_ui(product_id, name, price)
+    select_product(product_id, name, price)
+    ui:set("selected_product_id", product_id)
+    ui:set("selected_product_name", name)
+    ui:set("selected_product_price", price)
+    ui:set("current_view", 0)  -- stay on products view to show form
+    log_info("UI: Selected product " .. name)
+end
+
+-- Set form fields from Lua (for debug socket control)
+function set_order_quantity(qty)
+    ui_order_quantity = tostring(qty)
+    ui:set("order_quantity", tostring(qty))
+end
+
+function set_order_notes(notes)
+    ui_order_notes = notes
+    ui:set("order_notes", notes)
+end
+
+function set_order_address(addr)
+    ui_order_address = addr
+    ui:set("order_address", addr)
+end
+
+-- Submit order and clear form (for debug socket)
+function submit_order_ui()
+    if not selected_product then
+        log_warn("No product selected")
+        return
+    end
+    -- Get form values from Lua state (set by set_* functions)
+    local qty = ui_order_quantity or "1"
+    local notes = ui_order_notes or ""
+    local addr = ui_order_address or ""
+
+    create_order(selected_product.id, qty, notes, addr)
+    submit_order()
+
+    -- Clear form
+    ui:set("selected_product_id", "")
+    ui:set("selected_product_name", "")
+    ui:set("selected_product_price", 0)
+    ui:set("order_quantity", "1")
+    ui:set("order_notes", "")
+    ui:set("order_address", "")
+    ui:set("current_view", 1)  -- switch to orders view
+    log_info("UI: Order submitted")
+end
+
+-- Switch views (for debug socket)
+function show_products_view()
+    ui:set("current_view", 0)
+end
+
+function show_orders_view()
+    ui:set("current_view", 1)
 end
 
 -- UI callback: Create a new order draft (stored in local drafts map, never syncs)

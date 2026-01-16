@@ -124,8 +124,98 @@ pub fn short_did(did: &str) -> String {
     }
 }
 
-/// Configuration for the logging system
+/// A log entry for debug capture
 #[derive(Debug, Clone)]
+pub struct DebugLogEntry {
+    pub ts: String,
+    pub level: String,
+    pub target: String,
+    pub msg: String,
+    pub instance: Option<String>,
+}
+
+// =============================================================================
+// Debug Capture Layer
+// =============================================================================
+
+use tracing::{Event, Subscriber};
+use tracing_subscriber::layer::Context;
+use tracing_subscriber::Layer;
+
+/// A tracing layer that captures log events and sends them to a broadcast channel
+///
+/// This layer intercepts all log events and sends them as `DebugLogEntry` to
+/// a tokio broadcast channel, allowing external consumers (like ai_interface)
+/// to access protocol-level logs from all libs.
+pub struct DebugCaptureLayer {
+    tx: tokio::sync::broadcast::Sender<DebugLogEntry>,
+    instance_name: Option<String>,
+}
+
+impl DebugCaptureLayer {
+    pub fn new(
+        tx: tokio::sync::broadcast::Sender<DebugLogEntry>,
+        instance_name: Option<String>,
+    ) -> Self {
+        Self { tx, instance_name }
+    }
+}
+
+impl<S> Layer<S> for DebugCaptureLayer
+where
+    S: Subscriber,
+{
+    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+        let metadata = event.metadata();
+        let level = metadata.level().to_string();
+        let target = metadata.target().to_string();
+
+        // Extract message from event fields
+        let mut msg = String::new();
+        let mut visitor = MessageVisitor(&mut msg);
+        event.record(&mut visitor);
+
+        let entry = DebugLogEntry {
+            ts: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            level,
+            target,
+            msg,
+            instance: self.instance_name.clone(),
+        };
+
+        // Send to channel - ignore errors (no receivers)
+        let _ = self.tx.send(entry);
+    }
+}
+
+/// Visitor to extract message field from tracing events
+struct MessageVisitor<'a>(&'a mut String);
+
+impl<'a> tracing::field::Visit for MessageVisitor<'a> {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            *self.0 = format!("{:?}", value);
+        } else if self.0.is_empty() {
+            // Capture first field if no message
+            self.0.push_str(&format!("{}={:?}", field.name(), value));
+        } else {
+            self.0.push_str(&format!(" {}={:?}", field.name(), value));
+        }
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name() == "message" {
+            *self.0 = value.to_string();
+        } else if self.0.is_empty() {
+            self.0.push_str(&format!("{}={}", field.name(), value));
+        } else {
+            self.0.push_str(&format!(" {}={}", field.name(), value));
+        }
+    }
+}
+
+/// Configuration for the logging system
+#[derive(Clone)]
 pub struct LogConfig {
     /// Log level (debug, info, warn, error)
     pub level: String,
@@ -149,6 +239,17 @@ pub struct LogConfig {
 
     /// Show thread information
     pub show_thread_info: bool,
+
+    /// Output JSON to stdout instead of tree/pretty format
+    /// Useful for machine parsing (ai_interface reads JSON log lines)
+    pub stdout_json: bool,
+
+    /// Optional broadcast sender for debug log capture
+    /// When set, all logs are also sent to this channel for debug server access
+    pub debug_tx: Option<tokio::sync::broadcast::Sender<DebugLogEntry>>,
+
+    /// Instance name for debug logs
+    pub instance_name: Option<String>,
 }
 
 impl Default for LogConfig {
@@ -159,10 +260,13 @@ impl Default for LogConfig {
             log_dir: None,
             file_prefix: None,
             log_to_stdout: true,
-            use_tree_format: true,      // Enable tree format by default
+            use_tree_format: true,       // Enable tree format by default
             show_span_events: false,     // Less noise by default
             show_source_location: false, // Available in tree mode when needed
             show_thread_info: false,     // Show when debugging multi-threading
+            stdout_json: false,          // Tree format by default, not JSON
+            debug_tx: None,              // No debug capture by default
+            instance_name: None,         // No instance name by default
         }
     }
 }
@@ -172,6 +276,9 @@ impl Default for LogConfig {
 /// This sets up a hierarchical logging system with optional file output.
 /// The tree format shows nested function calls with indentation, making it
 /// easy to trace execution flow through async code and multiple services.
+///
+/// When `debug_tx` is provided in config, all logs are also sent to that
+/// broadcast channel for external consumers (like ai_interface).
 ///
 /// # Example Output
 /// ```text
@@ -227,10 +334,42 @@ pub fn init_rich_tracing(
         ))
     })?;
 
-    let registry = tracing_subscriber::registry().with(filter);
+    // Create optional debug capture layer (sends logs to broadcast channel)
+    let debug_layer = config.debug_tx.map(|tx| {
+        DebugCaptureLayer::new(tx, config.instance_name.clone())
+    });
 
+    let registry = tracing_subscriber::registry().with(filter).with(debug_layer);
+
+    // JSON stdout mode (for ai_interface to parse)
+    if config.log_to_stdout && config.stdout_json {
+        let json_layer = fmt::Layer::new()
+            .json()
+            .with_ansi(false);
+
+        // Also add file layer if configured
+        if config.log_to_file {
+            if let (Some(dir), Some(prefix)) = (config.log_dir.as_ref(), config.file_prefix.as_ref())
+            {
+                let file_appender = tracing_appender::rolling::daily(dir, prefix);
+                let (file_writer, file_guard) = tracing_appender::non_blocking(file_appender);
+
+                let file_layer = fmt::Layer::new()
+                    .with_writer(file_writer)
+                    .json()
+                    .with_ansi(false);
+
+                let _ = registry.with(json_layer).with(file_layer).try_init();
+                guard = Some(file_guard);
+            } else {
+                return Err("Log directory and file prefix required when log_to_file is true".into());
+            }
+        } else {
+            let _ = registry.with(json_layer).try_init();
+        }
+    }
     // Tree layer for stdout (hierarchical, beautiful)
-    if config.log_to_stdout && config.use_tree_format {
+    else if config.log_to_stdout && config.use_tree_format {
         let tree_layer = HierarchicalLayer::new(2)
             .with_targets(true)  // Always show targets (lib/module prefix like "gurkha::parser")
             .with_bracketed_fields(true)

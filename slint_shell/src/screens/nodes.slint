@@ -81,6 +81,8 @@ export component NodeManagementScreen {
                 }
 
                 add-area := TouchArea {
+                    accessible-role: button;
+                    accessible-label: "add-node-button";
                     clicked => {
                         show-add-modal = true;
                         connection-string = "";

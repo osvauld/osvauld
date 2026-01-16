@@ -70,6 +70,8 @@ export component CreateSpaceModal {
                             alignment: center;
 
                             space-input := TextInput {
+                                accessible-role: text-input;
+                                accessible-label: "space-name-input";
                                 text <=> space-name;
                                 color: Theme.quarzo-white;
                                 font-size: 14px;
@@ -106,6 +108,8 @@ export component CreateSpaceModal {
                             }
 
                             cancel-btn := TouchArea {
+                                accessible-role: button;
+                                accessible-label: "create-space-cancel-button";
                                 clicked => { cancel(); }
                             }
                         }
@@ -126,6 +130,8 @@ export component CreateSpaceModal {
                             }
 
                             TouchArea {
+                                accessible-role: button;
+                                accessible-label: "create-space-submit";
                                 enabled: space-name != "";
                                 clicked => {
                                     if space-name != "" {
@@ -546,6 +552,8 @@ export component AddNodeModal {
                         border-color: Theme.default-border;
 
                         TextInput {
+                            accessible-role: text-input;
+                            accessible-label: "node-connection-input";
                             text <=> connection-string;
                             color: Theme.quarzo-white;
                             font-size: 12px;
@@ -585,6 +593,8 @@ export component AddNodeModal {
                             }
 
                             cancel-area := TouchArea {
+                                accessible-role: button;
+                                accessible-label: "add-node-cancel-button";
                                 clicked => { cancel(); }
                             }
                         }
@@ -604,6 +614,8 @@ export component AddNodeModal {
                             }
 
                             connect-area := TouchArea {
+                                accessible-role: button;
+                                accessible-label: "add-node-submit";
                                 enabled: !connecting && connection-string != "";
                                 clicked => { add(connection-string); }
                             }
@@ -685,6 +697,8 @@ export component AddWebsiteModal {
                         border-color: Theme.default-border;
 
                         TextInput {
+                            accessible-role: text-input;
+                            accessible-label: "add-website-connection-input";
                             text <=> connection-string;
                             color: Theme.quarzo-white;
                             font-size: 12px;
@@ -718,6 +732,8 @@ export component AddWebsiteModal {
                             }
 
                             cancel-area := TouchArea {
+                                accessible-role: button;
+                                accessible-label: "add-website-cancel-button";
                                 clicked => {
                                     connection-string = "";
                                     cancel();
@@ -741,6 +757,8 @@ export component AddWebsiteModal {
                             }
 
                             connect-area := TouchArea {
+                                accessible-role: button;
+                                accessible-label: "add-website-connect-button";
                                 enabled: !connecting && connection-string != "";
                                 clicked => { connect(connection-string); }
                             }

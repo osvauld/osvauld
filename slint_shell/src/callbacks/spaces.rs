@@ -4,11 +4,49 @@
 
 use std::sync::Arc;
 
+use butler::models::Space;
 use butler::Butler;
 use slint::ComponentHandle;
 
 use crate::templates::SPACE_TEMPLATE;
 use crate::Shell;
+
+/// Sort options for spaces list
+#[derive(Clone, Copy, Debug)]
+enum SpaceSortOption {
+    NameAsc,
+    NameDesc,
+    CreatedDesc,
+    CreatedAsc,
+    UpdatedDesc,
+}
+
+impl SpaceSortOption {
+    fn from_index(index: i32) -> Self {
+        match index {
+            0 => SpaceSortOption::NameAsc,
+            1 => SpaceSortOption::NameDesc,
+            2 => SpaceSortOption::CreatedDesc,
+            3 => SpaceSortOption::CreatedAsc,
+            4 => SpaceSortOption::UpdatedDesc,
+            _ => SpaceSortOption::NameAsc,
+        }
+    }
+}
+
+fn sort_spaces(spaces: &mut Vec<Space>, option: SpaceSortOption) {
+    match option {
+        SpaceSortOption::NameAsc => {
+            spaces.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        }
+        SpaceSortOption::NameDesc => {
+            spaces.sort_by(|a, b| b.name.to_lowercase().cmp(&a.name.to_lowercase()))
+        }
+        SpaceSortOption::CreatedDesc => spaces.sort_by(|a, b| b.created_at.cmp(&a.created_at)),
+        SpaceSortOption::CreatedAsc => spaces.sort_by(|a, b| a.created_at.cmp(&b.created_at)),
+        SpaceSortOption::UpdatedDesc => spaces.sort_by(|a, b| b.updated_at.cmp(&a.updated_at)),
+    }
+}
 
 /// Register space management callbacks on the shell
 pub fn register(shell: &Shell, butler: Arc<Butler>) {
@@ -20,10 +58,12 @@ pub fn register(shell: &Shell, butler: Arc<Butler>) {
 
 fn register_request_spaces(shell: &Shell, butler: Arc<Butler>) {
     let shell_weak = shell.as_weak();
-    shell.on_request_spaces(move || {
-        println!("Requesting spaces...");
+    shell.on_request_spaces(move |sort_index| {
+        let sort_option = SpaceSortOption::from_index(sort_index);
+        println!("Requesting spaces with sort: {:?}", sort_option);
 
-        let spaces = butler.list_spaces().unwrap_or_default();
+        let mut spaces = butler.list_spaces().unwrap_or_default();
+        sort_spaces(&mut spaces, sort_option);
         println!("Found {} spaces", spaces.len());
 
         if let Some(shell) = shell_weak.upgrade() {

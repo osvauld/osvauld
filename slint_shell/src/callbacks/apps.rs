@@ -12,6 +12,7 @@ use ractor::ActorRef;
 use slint::ComponentHandle;
 
 use crate::app_runner::{prepare_page, PreparedPage, RunningApp};
+use crate::debug_server::DebugServer;
 use crate::Shell;
 
 /// Register app management callbacks on the shell
@@ -21,6 +22,7 @@ pub fn register(
     shell: &Shell,
     butler: Arc<Butler>,
     tokio_handle: tokio::runtime::Handle,
+    debug_server: Option<Arc<DebugServer>>,
 ) -> slint::Timer {
     // Page-level callbacks (SpaceView shows pages)
     register_request_pages(shell, butler.clone());
@@ -33,7 +35,7 @@ pub fn register(
     register_delete_app(shell);
 
     // Setup app loading and runtime timer
-    setup_app_runtime(shell, butler, tokio_handle)
+    setup_app_runtime(shell, butler, tokio_handle, debug_server)
 }
 
 /// Register request_pages callback - loads pages for a space
@@ -227,6 +229,7 @@ fn setup_app_runtime(
     shell: &Shell,
     butler: Arc<Butler>,
     tokio_handle: tokio::runtime::Handle,
+    debug_server: Option<Arc<DebugServer>>,
 ) -> slint::Timer {
     // Channel to send loaded app data from tokio to Slint thread
     let (app_ready_tx, app_ready_rx) = std::sync::mpsc::channel::<(
@@ -302,6 +305,7 @@ fn setup_app_runtime(
     let butler_timer = butler.clone();
     let tokio_handle_timer = tokio_handle.clone();
     let app_ready_tx_timer = app_ready_tx.clone();
+    let debug_server_timer = debug_server.clone();
     let timer = slint::Timer::default();
     timer.start(
         slint::TimerMode::Repeated,
@@ -309,7 +313,7 @@ fn setup_app_runtime(
         move || {
             // Handle ready apps
             while let Ok((prepared, scribe_ref)) = app_ready_rx.try_recv() {
-                if let Some(running_app) = create_app_runtime(prepared, scribe_ref, butler_timer.clone()) {
+                if let Some(running_app) = create_app_runtime(prepared, scribe_ref, butler_timer.clone(), debug_server_timer.clone()) {
                     running_apps_timer.borrow_mut().push(running_app);
                 }
             }
@@ -421,6 +425,7 @@ fn create_app_runtime(
     prepared: PreparedPage,
     scribe_ref: ActorRef<ScribeMessage>,
     butler: Arc<Butler>,
+    debug_server: Option<Arc<DebugServer>>,
 ) -> Option<RunningApp> {
     println!(
         "Creating parallel app runtime for page: {} ({}), app: {}",
@@ -483,6 +488,34 @@ fn create_app_runtime(
             return None;
         }
     };
+
+    // Connect debug server's eval channel to this app's LuaWorker
+    if let Some(ref debug_server) = debug_server {
+        // Create bridge channel for forwarding DebugEvalRequest -> LuaWorkerCommand
+        let (bridge_tx, mut bridge_rx) = tokio::sync::mpsc::channel::<crate::debug_server::DebugEvalRequest>(100);
+
+        // Set the bridge sender on debug server
+        debug_server.set_eval_channel(bridge_tx);
+
+        // Spawn forwarding thread: receives DebugEvalRequest, sends LuaWorkerCommand::DebugEval
+        let lua_tx_for_debug = lua_tx.clone();
+        std::thread::spawn(move || {
+            while let Some(req) = bridge_rx.blocking_recv() {
+                // Forward to LuaWorker as DebugEval command
+                let cmd = app_runtime::LuaWorkerCommand::DebugEval {
+                    code: req.code,
+                    response_tx: req.response_tx,
+                };
+                if lua_tx_for_debug.blocking_send(cmd).is_err() {
+                    println!("Debug eval bridge: LuaWorker channel closed");
+                    break;
+                }
+            }
+            println!("Debug eval bridge thread exiting");
+        });
+
+        println!("Debug eval bridge connected for app: {}", app_name);
+    }
 
     println!("Lua worker thread spawned, creating SlintRuntime...");
 

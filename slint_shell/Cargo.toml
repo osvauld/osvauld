@@ -4,8 +4,13 @@ version = "0.1.0"
 edition = "2021"
 description = "Sthalam shell UI built with Slint"
 
+[features]
+default = []
+testing = ["slint/backend-qt"]  # For headless testing
+
 [dependencies]
 slint = { version = "1.14", features = ["backend-winit", "renderer-skia"] }
+i-slint-backend-testing = "1.14"
 butler = { path = "../butler" }
 courier = { path = "../courier" }
 app_runtime = { path = "../app_runtime" }
@@ -19,6 +24,8 @@ tempfile = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 
 [build-dependencies]

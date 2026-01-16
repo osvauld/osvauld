@@ -7,7 +7,7 @@
 //! **Communication**: mpsc channels with serializable messages
 
 use mlua::{Lua, Value as LuaValue, Error as LuaError, Table, UserData, UserDataMethods};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use ractor::ActorRef;
 use butler::{ScribeMessage, LoroDelta, ListOp};
 use serde_json::Value as JsonValue;
@@ -51,6 +51,42 @@ pub enum LuaWorkerCommand {
 
     /// Shutdown worker thread
     Shutdown,
+
+    /// Debug: Execute Lua code and return result
+    ///
+    /// **Context**: Called from debug server for introspection
+    /// **Returns**: JSON-serialized result or error string
+    DebugEval {
+        code: String,
+        response_tx: oneshot::Sender<Result<JsonValue, String>>,
+    },
+
+    /// Debug: Get current state snapshot
+    ///
+    /// **Context**: Called from debug server for state inspection
+    /// **Returns**: Snapshot of Lua globals, registered handlers, etc.
+    DebugGetState {
+        response_tx: oneshot::Sender<DebugState>,
+    },
+}
+
+/// Debug state snapshot for introspection
+///
+/// **Context**: Returned by DebugGetState command
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DebugState {
+    /// Page/app identifier
+    pub page_id: String,
+    /// App name
+    pub app_name: String,
+    /// User's DID
+    pub user_did: String,
+    /// User's role
+    pub user_role: String,
+    /// Registered page:on_change handler patterns
+    pub page_handler_patterns: Vec<String>,
+    /// Global Lua variable names (excluding builtins)
+    pub lua_globals: Vec<String>,
 }
 
 /// UI Bindings for Lua - allows setting properties and model operations
@@ -282,6 +318,14 @@ impl LuaWorker {
                         "Lua worker shutting down"
                     );
                     break;
+                }
+                Some(LuaWorkerCommand::DebugEval { code, response_tx }) => {
+                    let result = self.handle_debug_eval(&code);
+                    let _ = response_tx.send(result);
+                }
+                Some(LuaWorkerCommand::DebugGetState { response_tx }) => {
+                    let state = self.get_debug_state();
+                    let _ = response_tx.send(state);
                 }
                 None => {
                     tracing::warn!(
@@ -761,6 +805,77 @@ impl LuaWorker {
             properties,
             model_ops,
         })
+    }
+
+    /// Debug: Execute arbitrary Lua code and return JSON result
+    ///
+    /// **Context**: Called from debug server for introspection
+    /// **Security**: Only enabled when debug server is active
+    fn handle_debug_eval(&self, code: &str) -> Result<JsonValue, String> {
+        tracing::debug!(
+            page_id = %self.page_id,
+            code_len = code.len(),
+            "Executing debug eval"
+        );
+
+        // Execute the Lua code
+        let result: LuaValue = self.lua.load(code)
+            .eval()
+            .map_err(|e| format!("Lua error: {}", e))?;
+
+        // Convert result to JSON
+        lua_to_json(&result)
+            .map_err(|e| format!("JSON conversion error: {}", e))
+    }
+
+    /// Debug: Get current state snapshot
+    ///
+    /// **Context**: Called from debug server for state inspection
+    fn get_debug_state(&self) -> DebugState {
+        // Collect page handler patterns
+        let page_handler_patterns = self.page_handlers
+            .read()
+            .map(|handlers| handlers.iter().map(|h| h.pattern.clone()).collect())
+            .unwrap_or_default();
+
+        // Collect Lua global names (excluding builtins)
+        let lua_globals = self.collect_lua_globals();
+
+        DebugState {
+            page_id: self.page_id.clone(),
+            app_name: self.app_name.clone(),
+            user_did: self.user_did.clone(),
+            user_role: self.user_role.clone(),
+            page_handler_patterns,
+            lua_globals,
+        }
+    }
+
+    /// Collect non-builtin Lua global variable names
+    fn collect_lua_globals(&self) -> Vec<String> {
+        let builtins = [
+            "_G", "_VERSION", "assert", "collectgarbage", "dofile", "error",
+            "getmetatable", "ipairs", "load", "loadfile", "next", "pairs",
+            "pcall", "print", "rawequal", "rawget", "rawlen", "rawset",
+            "require", "select", "setmetatable", "tonumber", "tostring",
+            "type", "warn", "xpcall", "coroutine", "debug", "io", "math",
+            "os", "package", "string", "table", "utf8",
+            // Our bindings (also skip these)
+            "loro", "butler", "ui", "permit", "page",
+        ];
+
+        let mut globals = Vec::new();
+
+        if let Ok(g) = self.lua.globals().pairs::<String, LuaValue>().collect::<Result<Vec<_>, _>>() {
+            for (name, _) in g {
+                if !builtins.contains(&name.as_str()) {
+                    globals.push(name);
+                }
+            }
+        }
+
+        globals.sort();
+        globals
     }
 }
 

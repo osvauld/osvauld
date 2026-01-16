@@ -59,6 +59,8 @@ export component InitiationScreen {
                     vertical-alignment: center;
                 }
                 import-area := TouchArea {
+                    accessible-role: button;
+                    accessible-label: "import-key-button";
                     clicked => { import-key(); }
                 }
 
@@ -81,6 +83,8 @@ export component InitiationScreen {
                     vertical-alignment: center;
                 }
                 TouchArea {
+                    accessible-role: button;
+                    accessible-label: "new-user-button";
                     clicked => { new-user(); }
                 }
             }
@@ -133,6 +137,8 @@ export component SignUpScreen {
                             vertical-alignment: center;
                         }
                         back-area := TouchArea {
+                            accessible-role: button;
+                            accessible-label: "signup-back-button";
                             clicked => { go-back(); }
                         }
                     }
@@ -174,6 +180,8 @@ export component SignUpScreen {
                             padding-right: 12px;
 
                             user-input := TextInput {
+                                accessible-role: text-input;
+                                accessible-label: "username-input";
                                 text <=> username;
                                 color: Theme.quarzo-white;
                                 font-size: 14px;
@@ -207,6 +215,8 @@ export component SignUpScreen {
                             spacing: 8px;
 
                             pass-input := TextInput {
+                                accessible-role: text-input;
+                                accessible-label: "password-input";
                                 text <=> password;
                                 input-type: show-password ? InputType.text : InputType.password;
                                 color: Theme.quarzo-white;
@@ -258,6 +268,8 @@ export component SignUpScreen {
                     }
 
                     TouchArea {
+                        accessible-role: button;
+                        accessible-label: "signup-submit-button";
                         enabled: can-submit && !loading;
                         clicked => { submit(username, password); }
                     }
@@ -312,6 +324,8 @@ export component WelcomeScreen {
                         spacing: 8px;
 
                         input-area := TextInput {
+                            accessible-role: text-input;
+                            accessible-label: "passphrase-input";
                             text <=> passphrase;
                             input-type: show-password ? InputType.text : InputType.password;
                             color: Theme.quarzo-white;
@@ -386,6 +400,8 @@ export component WelcomeScreen {
                             vertical-alignment: center;
                         }
                         TouchArea {
+                            accessible-role: button;
+                            accessible-label: "login-submit-button";
                             clicked => { submit(); }
                         }
                     }

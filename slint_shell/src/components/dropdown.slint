@@ -1,0 +1,91 @@
+// Sort dropdown component
+
+import { Theme } from "../theme.slint";
+
+export component SortDropdown {
+    in property<[string]> options: ["Name A-Z", "Name Z-A", "Newest", "Oldest", "Recently Modified"];
+    in-out property<int> selected-index: 0;
+
+    callback selection-changed(int);
+
+    width: 140px;
+    height: 32px;
+
+    // Dropdown button
+    Rectangle {
+        width: 100%;
+        height: 32px;
+        border-radius: 6px;
+        background: dropdown-area.has-hover ? Theme.side-list-highlight : Theme.frame-black;
+        border-width: 1px;
+        border-color: Theme.default-border;
+
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 8px;
+            spacing: 4px;
+
+            Text {
+                text: options[selected-index];
+                color: Theme.quarzo-white;
+                font-size: 12px;
+                vertical-alignment: center;
+                horizontal-alignment: left;
+            }
+
+            Text {
+                text: "\u{25BC}";
+                color: Theme.text-passive;
+                font-size: 8px;
+                vertical-alignment: center;
+            }
+        }
+
+        dropdown-area := TouchArea {
+            clicked => { popup.show(); }
+        }
+    }
+
+    // Popup menu (renders above all other content)
+    popup := PopupWindow {
+        x: 0;
+        y: 36px;
+        width: root.width;
+
+        Rectangle {
+            background: Theme.frame-black;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: Theme.default-border;
+
+            VerticalLayout {
+                padding-top: 4px;
+                padding-bottom: 4px;
+
+                for option[idx] in options: Rectangle {
+                    height: 28px;
+                    background: option-area.has-hover ? Theme.side-list-highlight : transparent;
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+
+                        Text {
+                            text: option;
+                            color: idx == selected-index ? Theme.livnote-lavender : Theme.quarzo-white;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    option-area := TouchArea {
+                        clicked => {
+                            selected-index = idx;
+                            selection-changed(idx);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

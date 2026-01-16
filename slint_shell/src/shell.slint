@@ -79,7 +79,7 @@ export component Shell inherits Window {
     callback import-key();
 
     // Space callbacks
-    callback request-spaces();          // UI requests to load spaces
+    callback request-spaces(int);       // UI requests to load spaces with sort option
     callback create-space(string);      // name
     callback select-space(string);      // space_id
     callback delete-space(string);      // space_id
@@ -173,7 +173,7 @@ export component Shell inherits Window {
                 spaces: spaces;
                 show-add-website-modal <=> show-add-website-modal;
                 connecting-website: connecting-website;
-                request-spaces => { request-spaces(); }
+                request-spaces(sort-opt) => { request-spaces(sort-opt); }
                 create-space(name) => {
                     create-space(name);
                 }

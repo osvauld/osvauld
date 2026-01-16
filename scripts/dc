@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""Debug Client - CLI for interacting with slint_shell debug socket.
+
+Usage:
+    dc <socket> signup <username> <passphrase>
+    dc <socket> login <passphrase>
+    dc <socket> screen
+    dc <socket> spaces                       # List all spaces
+    dc <socket> pages <space_id>             # List pages in a space
+    dc <socket> apps <page_id>               # List apps in a page
+    dc <socket> open_app <page_id> <app_name>
+    dc <socket> eval <lua_code>
+    dc <socket> eval-file <lua_file>
+    dc <socket> click <label>
+    dc <socket> type <label> <text>
+    dc <socket> elements
+    dc <socket> ping
+    dc <socket> raw <json>
+
+    # Node operations
+    dc <socket> nodes                        # List sovereign nodes
+    dc <socket> add_node <connection_string> # Add and connect to node
+    dc <socket> publish <space_id> <node_id> # Publish space to node
+    dc <socket> viewer_link <space_id> <node_id> # Get shareable viewer link
+    dc <socket> add_website <connection_string>  # Connect as viewer via link
+
+Examples:
+    ./scripts/dc /tmp/ai_test/owner.sock login test123
+    ./scripts/dc /tmp/ai_test/owner.sock spaces
+    ./scripts/dc /tmp/ai_test/owner.sock pages "space-uuid-here"
+    ./scripts/dc /tmp/ai_test/owner.sock apps "page-uuid-here"
+    ./scripts/dc /tmp/ai_test/owner.sock open_app "page-uuid" "Shop Owner"
+    ./scripts/dc /tmp/ai_test/owner.sock eval "return get_products_count()"
+
+    # Node workflow
+    ./scripts/dc /tmp/ai_test/owner.sock nodes           # List nodes
+    ./scripts/dc /tmp/ai_test/owner.sock add_node "sthalam://..."  # Add node
+    ./scripts/dc /tmp/ai_test/owner.sock publish "space-id" "node-id"
+    ./scripts/dc /tmp/ai_test/owner.sock viewer_link "space-id" "node-id"
+"""
+import socket
+import json
+import sys
+
+
+def send_command(sock_path, cmd):
+    """Send a JSON command to the debug socket and return the response."""
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.connect(sock_path)
+        s.settimeout(10)
+        s.send((json.dumps(cmd) + '\n').encode())
+        response = s.recv(65536).decode()
+        return json.loads(response)
+    finally:
+        s.close()
+
+
+def main():
+    if len(sys.argv) < 3:
+        print(__doc__)
+        sys.exit(1)
+
+    sock_path = sys.argv[1]
+    command = sys.argv[2]
+
+    commands = {
+        "signup": lambda: {
+            "method": "sign_up",
+            "params": {"username": sys.argv[3], "passphrase": sys.argv[4]},
+            "id": 1
+        },
+        "login": lambda: {
+            "method": "login",
+            "params": {"passphrase": sys.argv[3]},
+            "id": 1
+        },
+        "screen": lambda: {
+            "method": "ui_get_screen",
+            "id": 1
+        },
+        "spaces": lambda: {
+            "method": "list_spaces",
+            "id": 1
+        },
+        "create_space": lambda: {
+            "method": "create_space",
+            "params": {"name": sys.argv[3]},
+            "id": 1
+        },
+        "pages": lambda: {
+            "method": "list_pages",
+            "params": {"space_id": sys.argv[3]},
+            "id": 1
+        },
+        "apps": lambda: {
+            "method": "list_apps",
+            "params": {"page_id": sys.argv[3]},
+            "id": 1
+        },
+        "import_page": lambda: {
+            "method": "import_page",
+            "params": {"space_id": sys.argv[3], "page_dir": sys.argv[4]},
+            "id": 1
+        },
+        "click": lambda: {
+            "method": "ui_click",
+            "params": {"label": sys.argv[3]},
+            "id": 1
+        },
+        "type": lambda: {
+            "method": "ui_type",
+            "params": {"label": sys.argv[3], "text": sys.argv[4]},
+            "id": 1
+        },
+        "eval": lambda: {
+            "method": "eval",
+            "params": {"code": sys.argv[3] if len(sys.argv) > 3 else sys.stdin.read()},
+            "id": 1
+        },
+        "eval-file": lambda: {
+            "method": "eval",
+            "params": {"code": open(sys.argv[3]).read()},
+            "id": 1
+        },
+        "open_app": lambda: {
+            "method": "open_app",
+            "params": {"page_id": sys.argv[3], "app_name": sys.argv[4]},
+            "id": 1
+        },
+        "elements": lambda: {
+            "method": "ui_list_elements",
+            "id": 1
+        },
+        "ping": lambda: {
+            "method": "ping",
+            "id": 1
+        },
+        "nodes": lambda: {
+            "method": "list_nodes",
+            "id": 1
+        },
+        "p2p_status": lambda: {
+            "method": "p2p_status",
+            "id": 1
+        },
+        "add_node": lambda: {
+            "method": "add_node",
+            "params": {"connection_string": sys.argv[3]},
+            "id": 1
+        },
+        "publish": lambda: {
+            "method": "publish_space",
+            "params": {"space_id": sys.argv[3], "node_id": sys.argv[4]},
+            "id": 1
+        },
+        "viewer_link": lambda: {
+            "method": "get_shareable_link",
+            "params": {"space_id": sys.argv[3], "node_id": sys.argv[4]},
+            "id": 1
+        },
+        "add_website": lambda: {
+            "method": "add_website",
+            "params": {"connection_string": sys.argv[3]},
+            "id": 1
+        },
+        # Update node address with new relay URL and reconnect
+        "update_node_address": lambda: {
+            "method": "update_node_address",
+            "params": {"connection_string": sys.argv[3]},
+            "id": 1
+        },
+        # Kunki-specific commands
+        "get_connection_string": lambda: {
+            "method": "get_connection_string",
+            "id": 1
+        },
+        "raw": lambda: json.loads(sys.argv[3]),
+    }
+
+    if command not in commands:
+        print(f"Unknown command: {command}")
+        print(f"Available: {', '.join(commands.keys())}")
+        sys.exit(1)
+
+    try:
+        cmd = commands[command]()
+    except IndexError:
+        print(f"Missing argument for command: {command}")
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"Invalid JSON: {e}")
+        sys.exit(1)
+
+    try:
+        result = send_command(sock_path, cmd)
+    except FileNotFoundError:
+        print(f"Socket not found: {sock_path}")
+        sys.exit(1)
+    except ConnectionRefusedError:
+        print(f"Connection refused: {sock_path}")
+        sys.exit(1)
+    except socket.timeout:
+        print("Timeout waiting for response")
+        sys.exit(1)
+
+    # Pretty print result
+    if "result" in result:
+        print(json.dumps(result["result"], indent=2))
+    elif "error" in result:
+        err = result["error"]
+        if isinstance(err, dict):
+            print(f"Error: {err.get('message', err)}", file=sys.stderr)
+        else:
+            print(f"Error: {err}", file=sys.stderr)
+        sys.exit(1)
+    else:
+        print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()

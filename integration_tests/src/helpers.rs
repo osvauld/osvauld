@@ -34,6 +34,9 @@ pub fn init_tracing() {
 /// - [u8; 32] - the signing key bytes
 /// - TempDir - must be kept alive for the duration of the test
 ///
+/// If env var `PERSIST_DBS_DIR` is set, databases are saved there instead of tempdir.
+/// This allows integration tests to create databases for ai_interface to use.
+///
 /// # Example
 /// ```ignore
 /// let (butler, signing_key, _temp_dir) = setup_butler_with_identity("alice", "password").await?;
@@ -51,6 +54,62 @@ pub async fn setup_butler_with_identity(
     butler.set_identity(signup_result.identity.clone()).await;
     let signing_key = butler.signing_key().await?;
     Ok((butler, signing_key, temp_dir))
+}
+
+/// Database holder - either temp (auto-cleanup) or persistent (stays on disk)
+pub enum DbHolder {
+    Temp(tempfile::TempDir),
+    Persistent(std::path::PathBuf),
+}
+
+impl DbHolder {
+    pub fn path(&self) -> &std::path::Path {
+        match self {
+            DbHolder::Temp(t) => t.path(),
+            DbHolder::Persistent(p) => p.as_path(),
+        }
+    }
+}
+
+/// Setup Butler with identity at a specific persistent path.
+///
+/// Unlike setup_butler_with_identity, this saves the database to a persistent
+/// location that survives after the test ends. Use this to create databases
+/// for ai_interface to use.
+///
+/// # Arguments
+/// * `db_dir` - Directory to store database (e.g., "/tmp/ai_test")
+/// * `name` - Username (also used for db filename: {name}.db)
+/// * `passphrase` - Passphrase for encryption
+///
+/// # Example
+/// ```ignore
+/// let (butler, signing_key, _holder) = setup_butler_persistent(
+///     "/tmp/ai_test",
+///     "shop_owner",
+///     "test123"
+/// ).await?;
+/// // Database saved at /tmp/ai_test/shop_owner.db
+/// ```
+pub async fn setup_butler_persistent(
+    db_dir: &str,
+    name: &str,
+    passphrase: &str,
+) -> anyhow::Result<(Arc<Butler>, [u8; 32], DbHolder)> {
+    let db_dir_path = std::path::PathBuf::from(db_dir);
+    std::fs::create_dir_all(&db_dir_path)?;
+
+    let db_path = db_dir_path.join(format!("{}.db", name));
+    tracing::info!("Creating persistent database at: {:?}", db_path);
+
+    let store = Arc::new(RedbStore::open(&db_path)?);
+    let layer_cache = Arc::new(RwLock::new(LayerCache::new(store.clone(), 100)));
+    let butler = Arc::new(Butler::new(store.clone(), layer_cache));
+    let signup_result = signup(&store, name, passphrase)?;
+    butler.set_identity(signup_result.identity.clone()).await;
+    let signing_key = butler.signing_key().await?;
+
+    Ok((butler, signing_key, DbHolder::Persistent(db_dir_path)))
 }
 
 // =============================================================================

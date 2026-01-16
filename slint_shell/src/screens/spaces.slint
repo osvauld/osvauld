@@ -5,6 +5,7 @@ import { SpaceInfo, AppInfo, PageInfo, NodeInfo } from "../types.slint";
 import { SpaceCard, CreateSpaceCard, AppCard, UploadAppCard, PageCard, UploadPageCard } from "../components/cards.slint";
 import { CreateSpaceModal, PublishSpaceModal, AddWebsiteModal } from "../components/modals.slint";
 import { SpaceGridRow, AppGridRow, PageGridRow } from "../components/grids.slint";
+import { SortDropdown } from "../components/dropdown.slint";
 
 // Spaces Dashboard screen
 export component SpacesDashboard {
@@ -16,7 +17,10 @@ export component SpacesDashboard {
     in-out property<bool> show-add-website-modal: false;
     in property<bool> connecting-website: false;
 
-    callback request-spaces();          // Called to load/refresh spaces
+    // Sort state
+    in-out property<int> sort-option: 0;  // Default: Name A-Z
+
+    callback request-spaces(int);       // Called to load/refresh spaces with sort option
     callback create-space(string);
     callback select-space(string);
     callback navigate-to-nodes();
@@ -30,7 +34,7 @@ export component SpacesDashboard {
     property<int> columns: max(1, floor(available-width / (card-width + card-spacing)));
 
     // Request spaces when component is shown
-    init => { request-spaces(); }
+    init => { request-spaces(sort-option); }
 
     VerticalLayout {
         padding-top: 1rem;      // Minimal top padding
@@ -55,6 +59,15 @@ export component SpacesDashboard {
             HorizontalLayout {
                 spacing: 12px;
 
+                // Sort dropdown
+                SortDropdown {
+                    selected-index <=> sort-option;
+                    selection-changed(idx) => {
+                        sort-option = idx;
+                        request-spaces(idx);
+                    }
+                }
+
                 // Add Website button
                 Rectangle {
                     width: 110px;
@@ -72,6 +85,8 @@ export component SpacesDashboard {
                     }
 
                     add-website-btn := TouchArea {
+                        accessible-role: button;
+                        accessible-label: "add-website-button";
                         clicked => { show-add-website-modal = true; }
                     }
                 }
@@ -92,6 +107,8 @@ export component SpacesDashboard {
                     }
 
                     settings-btn := TouchArea {
+                        accessible-role: button;
+                        accessible-label: "settings-button";
                         clicked => { navigate-to-nodes(); }
                     }
                 }
@@ -345,6 +362,8 @@ export component SpaceView {
                     }
 
                     back-area := TouchArea {
+                        accessible-role: button;
+                        accessible-label: "space-back-button";
                         clicked => { go-back(); }
                     }
                 }
@@ -376,6 +395,8 @@ export component SpaceView {
                 }
 
                 publish-btn := TouchArea {
+                    accessible-role: button;
+                    accessible-label: "publish-space-button";
                     clicked => {
                         request-connected-nodes();
                         show-publish-modal = true;

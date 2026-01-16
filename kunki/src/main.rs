@@ -3,11 +3,15 @@ use tracing::{error, info, warn};
 
 use base64::{engine::general_purpose, Engine as _};
 use serde_json::json;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 // Butler for storage and identity
 use butler::{Butler, RedbStore, LayerCache};
 use tokio::sync::RwLock;
+
+mod debug_server;
+use debug_server::{KunkiDebugServer, NodeState};
 
 // Transport and Courier for P2P
 use courier::{Courier, CourierEvent, CourierMode, HandshakeServices};
@@ -60,6 +64,10 @@ enum Commands {
         /// Passphrase to unlock the certificate (optional, will prompt if not provided)
         #[arg(short, long)]
         passphrase: Option<String>,
+
+        /// Enable debug server on specified Unix socket path
+        #[arg(long)]
+        debug_socket: Option<String>,
     },
 
     /// Generate a folder share token for public viewing
@@ -76,16 +84,37 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize rich tracing with tree formatting
-    let _guard = logging_utils::init_dev()?;
+    // Initialize rich tracing
+    // Check for OSVAULD_LOG_FORMAT=json to output JSON logs (for ai_interface)
+    let use_json = std::env::var("OSVAULD_LOG_FORMAT")
+        .map(|v| v == "json")
+        .unwrap_or(false);
+
+    let _guard = logging_utils::init_rich_tracing(logging_utils::LogConfig {
+        level: "debug".to_string(),
+        log_to_stdout: true,
+        use_tree_format: !use_json,
+        stdout_json: use_json,
+        ..Default::default()
+    })?;
 
     info!("🚀 Kunki CLI starting");
 
     let cli = Cli::parse();
 
     // Initialize Butler's RedbStore for storage
-    let redb_path = format!("{}.redb", cli.db_path);
-    let redb_store = RedbStore::open(&redb_path).map_err(|e| -> Box<dyn std::error::Error> {
+    // Check for STHALAM_DATA_DIR env var (like slint_shell does for test automation)
+    let db_path = if let Ok(data_dir) = std::env::var("STHALAM_DATA_DIR") {
+        let dir = std::path::PathBuf::from(&data_dir);
+        std::fs::create_dir_all(&dir).expect("Failed to create data directory");
+        dir.join(format!("{}.db", cli.db_path))
+    } else {
+        // Default: use db_path directly with .db extension
+        std::path::PathBuf::from(format!("{}.db", cli.db_path))
+    };
+    info!("Using database: {:?}", db_path);
+
+    let redb_store = RedbStore::open(&db_path).map_err(|e| -> Box<dyn std::error::Error> {
         Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             format!("Failed to open RedbStore: {}", e),
@@ -101,9 +130,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let pass = get_passphrase(passphrase, "Enter passphrase:")?;
             handle_init(&username, &pass, redb_store.clone()).await?;
         }
-        Commands::Start { passphrase } => {
+        Commands::Start { passphrase, debug_socket } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
-            handle_start(&pass, redb_store.clone()).await?;
+            handle_start(&pass, redb_store.clone(), debug_socket).await?;
         }
         Commands::FolderToken {
             passphrase,
@@ -148,6 +177,7 @@ async fn handle_init(
 async fn handle_start(
     passphrase: &str,
     redb_store: Arc<RedbStore>,
+    debug_socket: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists in Butler
     if !butler::is_signed_up(&redb_store)? {
@@ -190,6 +220,35 @@ async fn handle_start(
     if !relay_urls.is_empty() {
         info!("✔ Relay: {}", relay_urls[0]);
     }
+
+    // Start debug server if requested (keep reference for updating state later)
+    let debug_server_arc: Option<Arc<KunkiDebugServer>> = if let Some(ref socket_path) = debug_socket {
+        let socket_path = PathBuf::from(socket_path);
+        let debug_server = Arc::new(KunkiDebugServer::new(socket_path.clone(), "kunki".to_string(), Some(butler.clone())));
+
+        // Set initial state (connection_string will be updated after generation)
+        debug_server.set_state(NodeState {
+            node_id: node_id.to_string(),
+            did: identity.did().to_string(),
+            username: identity_data.username.clone(),
+            connected_peers: vec![],
+            relay_url: relay_urls.first().cloned(),
+            connection_string: None,
+        }).await;
+
+        // Spawn debug server
+        let server = debug_server.clone();
+        tokio::spawn(async move {
+            if let Err(e) = server.start().await {
+                error!(error = %e, "Debug server error");
+            }
+        });
+
+        info!("✔ Debug server enabled on: {:?}", socket_path);
+        Some(debug_server)
+    } else {
+        None
+    };
 
     // Create HandshakeServices with Butler
     let handshake_services = Arc::new(HandshakeServices::new(butler.clone()));
@@ -297,6 +356,19 @@ async fn handle_start(
 
     println!("{}", encoded_connection);
     println!("╚══════════════════════════════════════════╝");
+
+    // Update debug server state with connection string
+    if let Some(ref debug_server) = debug_server_arc {
+        debug_server.set_state(NodeState {
+            node_id: node_id.to_string(),
+            did: identity.did().to_string(),
+            username: identity_data.username.clone(),
+            connected_peers: vec![],
+            relay_url: relay_urls.first().cloned(),
+            connection_string: Some(encoded_connection.clone()),
+        }).await;
+    }
+
     println!("\nℹ️  User: {}", identity_data.username);
     println!("ℹ️  DID: {}", identity.did());
     println!("ℹ️  Node ID: {}", node_id);

@@ -1,0 +1,1877 @@
+//! Debug Server for UI Testing Automation
+//!
+//! Provides a Unix socket interface for:
+//! - Executing Lua code via the LuaWorker
+//! - Inspecting application state
+//! - Streaming logs
+//! - UI automation commands (via Slint testing backend)
+
+use butler::Butler;
+use courier::CourierHandle;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::{broadcast, mpsc, oneshot, RwLock};
+use tracing::{debug, error, info, warn};
+
+/// Debug command received from client
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "method", rename_all = "snake_case")]
+pub enum DebugCommand {
+    /// Execute Lua code and return result
+    Eval {
+        params: EvalParams,
+        id: u64,
+    },
+    /// Get current state snapshot
+    State {
+        id: u64,
+    },
+    /// Subscribe to log stream
+    SubscribeLogs {
+        params: Option<LogSubscribeParams>,
+        id: u64,
+    },
+    /// Get recent logs
+    Logs {
+        params: LogQueryParams,
+        id: u64,
+    },
+    /// UI automation: click element by accessible-label
+    UiClick {
+        params: UiClickParams,
+        id: u64,
+    },
+    /// UI automation: type text into element
+    UiType {
+        params: UiTypeParams,
+        id: u64,
+    },
+    /// UI automation: get text from element
+    UiGetText {
+        params: UiGetTextParams,
+        id: u64,
+    },
+    /// UI automation: get current screen name
+    UiGetScreen {
+        id: u64,
+    },
+    /// Ping to check connection
+    Ping {
+        id: u64,
+    },
+    /// Reload the current app (re-read Lua code from disk)
+    Reload {
+        params: Option<ReloadParams>,
+        id: u64,
+    },
+    /// Get connection string for this instance (for inter-instance workflows)
+    GetConnectionString {
+        id: u64,
+    },
+    /// Debug: list all accessible elements in the UI
+    UiListElements {
+        id: u64,
+    },
+    /// Direct login command (bypasses UI automation limitation)
+    Login {
+        params: LoginParams,
+        id: u64,
+    },
+    /// Sign up a new user
+    SignUp {
+        params: SignUpParams,
+        id: u64,
+    },
+    /// Open an app programmatically (bypasses UI navigation)
+    OpenApp {
+        params: OpenAppParams,
+        id: u64,
+    },
+    /// List all spaces
+    ListSpaces {
+        id: u64,
+    },
+    /// List pages in a space
+    ListPages {
+        params: ListPagesParams,
+        id: u64,
+    },
+    /// List apps in a page
+    ListApps {
+        params: ListAppsParams,
+        id: u64,
+    },
+    /// Create a new space
+    CreateSpace {
+        params: CreateSpaceParams,
+        id: u64,
+    },
+    /// Import a page from a directory
+    ImportPage {
+        params: ImportPageParams,
+        id: u64,
+    },
+    /// Add a sovereign node by connection string
+    AddNode {
+        params: AddNodeParams,
+        id: u64,
+    },
+    /// Publish a space to a node
+    PublishSpace {
+        params: PublishSpaceParams,
+        id: u64,
+    },
+    /// Get shareable viewer link for a space
+    GetShareableLink {
+        params: GetShareableLinkParams,
+        id: u64,
+    },
+    /// Connect to a space as viewer (via connection string)
+    AddWebsite {
+        params: AddWebsiteParams,
+        id: u64,
+    },
+    /// List nodes
+    ListNodes {
+        id: u64,
+    },
+    /// Check P2P status
+    P2pStatus {
+        id: u64,
+    },
+    /// Update node address and reconnect
+    UpdateNodeAddress {
+        params: UpdateNodeAddressParams,
+        id: u64,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LoginParams {
+    pub passphrase: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SignUpParams {
+    pub username: String,
+    pub passphrase: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OpenAppParams {
+    pub page_id: String,
+    pub app_name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListPagesParams {
+    pub space_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListAppsParams {
+    pub page_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateSpaceParams {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ImportPageParams {
+    pub space_id: String,
+    pub page_dir: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AddNodeParams {
+    pub connection_string: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PublishSpaceParams {
+    pub space_id: String,
+    pub node_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetShareableLinkParams {
+    pub space_id: String,
+    pub node_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AddWebsiteParams {
+    pub connection_string: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateNodeAddressParams {
+    /// Connection string with new relay URL (from running kunki)
+    pub connection_string: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReloadParams {
+    /// Optional specific app/page to reload (default: current)
+    pub page_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EvalParams {
+    pub code: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LogSubscribeParams {
+    pub level: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LogQueryParams {
+    #[serde(default)]
+    pub last: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+    #[serde(default)]
+    pub count: Option<usize>,
+    #[serde(default)]
+    pub instance: Option<String>,
+    #[serde(default)]
+    pub level: Option<String>,
+    #[serde(default)]
+    pub search: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UiClickParams {
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UiTypeParams {
+    pub label: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UiGetTextParams {
+    pub label: String,
+}
+
+/// Debug response sent to client
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum DebugResponse {
+    Result {
+        result: serde_json::Value,
+        id: u64,
+    },
+    Error {
+        error: DebugError,
+        id: u64,
+    },
+    Stream {
+        stream: String,
+        data: serde_json::Value,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DebugError {
+    pub code: i32,
+    pub message: String,
+}
+
+/// Log entry for streaming
+#[derive(Debug, Clone, Serialize)]
+pub struct LogEntry {
+    pub ts: String,
+    pub level: String,
+    pub target: String,
+    pub msg: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+}
+
+/// State snapshot for debugging
+#[derive(Debug, Clone, Serialize)]
+pub struct DebugState {
+    pub layers: Vec<LayerInfo>,
+    pub ui_props: serde_json::Value,
+    pub permit: Option<PermitInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LayerInfo {
+    pub name: String,
+    pub size: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PermitInfo {
+    pub role: String,
+    pub page_id: String,
+    pub our_did: String,
+}
+
+/// Command to send to LuaWorker for debug evaluation
+pub struct DebugEvalRequest {
+    pub code: String,
+    pub response_tx: oneshot::Sender<Result<serde_json::Value, String>>,
+}
+
+/// UI automation command (processed on Slint main thread)
+#[derive(Debug)]
+pub enum UiCommand {
+    Click {
+        label: String,
+        response_tx: oneshot::Sender<Result<(), String>>,
+    },
+    Type {
+        label: String,
+        text: String,
+        response_tx: oneshot::Sender<Result<(), String>>,
+    },
+    GetText {
+        label: String,
+        response_tx: oneshot::Sender<Result<String, String>>,
+    },
+    GetScreen {
+        response_tx: oneshot::Sender<String>,
+    },
+    /// Debug: list all accessible elements
+    ListElements {
+        response_tx: oneshot::Sender<Vec<ElementInfo>>,
+    },
+    /// Direct login (bypasses UI automation)
+    DirectLogin {
+        passphrase: String,
+        response_tx: oneshot::Sender<Result<String, String>>,
+    },
+    /// Open app programmatically (sets page_id and invokes select_app)
+    OpenApp {
+        page_id: String,
+        app_name: String,
+        response_tx: oneshot::Sender<Result<String, String>>,
+    },
+    /// Sign up new user
+    SignUp {
+        username: String,
+        passphrase: String,
+        response_tx: oneshot::Sender<Result<String, String>>,
+    },
+}
+
+/// Information about an accessible element
+#[derive(Debug, Clone, Serialize)]
+pub struct ElementInfo {
+    pub id: String,
+    pub type_name: String,
+    pub accessible_label: Option<String>,
+    pub accessible_role: String,
+}
+
+/// Debug server handle for managing the server
+pub struct DebugServer {
+    socket_path: PathBuf,
+    /// Channel to send eval requests to LuaWorker (runtime-settable when app opens)
+    eval_tx: Arc<RwLock<Option<mpsc::Sender<DebugEvalRequest>>>>,
+    /// Channel to send UI commands to Slint main thread
+    ui_tx: Option<mpsc::Sender<UiCommand>>,
+    /// Channel to receive log entries
+    log_tx: broadcast::Sender<LogEntry>,
+    /// Ring buffer of recent logs
+    log_buffer: Arc<RwLock<Vec<LogEntry>>>,
+    /// Instance name for this debug server
+    instance_name: String,
+    /// Butler instance for connection string generation
+    butler: Option<Arc<Butler>>,
+    /// Courier handle for P2P operations
+    courier_handle: Option<Arc<RwLock<Option<CourierHandle>>>>,
+}
+
+impl DebugServer {
+    /// Create a new debug server
+    pub fn new(socket_path: PathBuf, instance_name: String) -> Self {
+        let (log_tx, _) = broadcast::channel(1000);
+        Self {
+            socket_path,
+            eval_tx: Arc::new(RwLock::new(None)),
+            ui_tx: None,
+            log_tx,
+            log_buffer: Arc::new(RwLock::new(Vec::with_capacity(10000))),
+            instance_name,
+            butler: None,
+            courier_handle: None,
+        }
+    }
+
+    /// Set the Butler instance for connection string generation
+    pub fn set_butler(&mut self, butler: Arc<Butler>) {
+        self.butler = Some(butler);
+    }
+
+    /// Set the Courier handle for P2P operations
+    pub fn set_courier_handle(&mut self, courier: Arc<RwLock<Option<CourierHandle>>>) {
+        self.courier_handle = Some(courier);
+    }
+
+    /// Set the eval channel for routing Lua commands (can be called after server starts)
+    pub fn set_eval_channel(&self, tx: mpsc::Sender<DebugEvalRequest>) {
+        // Use blocking_write since this is typically called from sync context
+        let mut guard = self.eval_tx.blocking_write();
+        *guard = Some(tx);
+    }
+
+    /// Set the UI command channel for routing UI automation commands
+    pub fn set_ui_channel(&mut self, tx: mpsc::Sender<UiCommand>) {
+        self.ui_tx = Some(tx);
+    }
+
+    /// Get log sender for broadcasting logs
+    pub fn log_sender(&self) -> broadcast::Sender<LogEntry> {
+        self.log_tx.clone()
+    }
+
+    /// Start the debug server
+    pub async fn start(self: Arc<Self>) -> Result<(), std::io::Error> {
+        // Remove existing socket file if present
+        if self.socket_path.exists() {
+            std::fs::remove_file(&self.socket_path)?;
+        }
+
+        let listener = UnixListener::bind(&self.socket_path)?;
+        info!(socket_path = ?self.socket_path, "Debug server listening");
+
+        loop {
+            match listener.accept().await {
+                Ok((stream, _addr)) => {
+                    let server = self.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = server.handle_connection(stream).await {
+                            error!(error = %e, "Debug connection error");
+                        }
+                    });
+                }
+                Err(e) => {
+                    error!(error = %e, "Failed to accept debug connection");
+                }
+            }
+        }
+    }
+
+    /// Handle a single client connection
+    async fn handle_connection(&self, stream: UnixStream) -> Result<(), std::io::Error> {
+        let (reader, mut writer) = stream.into_split();
+        let mut reader = BufReader::new(reader);
+        let mut line = String::new();
+
+        // Subscribe to log stream for this connection
+        let mut log_rx = self.log_tx.subscribe();
+
+        info!(instance = %self.instance_name, "Debug client connected");
+
+        loop {
+            tokio::select! {
+                // Handle incoming commands
+                result = reader.read_line(&mut line) => {
+                    match result {
+                        Ok(0) => {
+                            // EOF - client disconnected
+                            info!("Debug client disconnected");
+                            break;
+                        }
+                        Ok(_) => {
+                            let response = self.handle_command(&line).await;
+                            let response_json = serde_json::to_string(&response)
+                                .unwrap_or_else(|_| r#"{"error": "serialization failed"}"#.to_string());
+                            writer.write_all(response_json.as_bytes()).await?;
+                            writer.write_all(b"\n").await?;
+                            writer.flush().await?;
+                            line.clear();
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Read error");
+                            break;
+                        }
+                    }
+                }
+                // Forward logs to client
+                result = log_rx.recv() => {
+                    match result {
+                        Ok(entry) => {
+                            let response = DebugResponse::Stream {
+                                stream: "log".to_string(),
+                                data: serde_json::to_value(&entry).unwrap_or_default(),
+                            };
+                            let response_json = serde_json::to_string(&response)
+                                .unwrap_or_default();
+                            if writer.write_all(response_json.as_bytes()).await.is_err() {
+                                break;
+                            }
+                            let _ = writer.write_all(b"\n").await;
+                            let _ = writer.flush().await;
+                        }
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            warn!(skipped = n, "Log buffer lagged, some logs skipped");
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle a single command
+    async fn handle_command(&self, line: &str) -> DebugResponse {
+        let cmd: DebugCommand = match serde_json::from_str(line.trim()) {
+            Ok(cmd) => cmd,
+            Err(e) => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32700,
+                        message: format!("Parse error: {}", e),
+                    },
+                    id: 0,
+                };
+            }
+        };
+
+        match cmd {
+            DebugCommand::Ping { id } => DebugResponse::Result {
+                result: serde_json::json!({"status": "ok", "instance": self.instance_name}),
+                id,
+            },
+
+            DebugCommand::Eval { params, id } => {
+                self.handle_eval(params.code, id).await
+            }
+
+            DebugCommand::State { id } => {
+                self.handle_state(id).await
+            }
+
+            DebugCommand::Logs { params, id } => {
+                self.handle_logs(params, id).await
+            }
+
+            DebugCommand::SubscribeLogs { id, .. } => {
+                // Subscription is automatic - just acknowledge
+                DebugResponse::Result {
+                    result: serde_json::json!({"subscribed": true}),
+                    id,
+                }
+            }
+
+            DebugCommand::UiClick { params, id } => {
+                self.handle_ui_click(params.label, id).await
+            }
+
+            DebugCommand::UiType { params, id } => {
+                self.handle_ui_type(params.label, params.text, id).await
+            }
+
+            DebugCommand::UiGetText { params, id } => {
+                self.handle_ui_get_text(params.label, id).await
+            }
+
+            DebugCommand::UiGetScreen { id } => {
+                self.handle_ui_get_screen(id).await
+            }
+
+            DebugCommand::Reload { params, id } => {
+                self.handle_reload(params, id).await
+            }
+
+            DebugCommand::GetConnectionString { id } => {
+                self.handle_get_connection_string(id).await
+            }
+
+            DebugCommand::UiListElements { id } => {
+                self.handle_ui_list_elements(id).await
+            }
+
+            DebugCommand::Login { params, id } => {
+                self.handle_login(params.passphrase, id).await
+            }
+
+            DebugCommand::SignUp { params, id } => {
+                self.handle_signup(params.username, params.passphrase, id).await
+            }
+
+            DebugCommand::OpenApp { params, id } => {
+                self.handle_open_app(params.page_id, params.app_name, id).await
+            }
+
+            DebugCommand::ListSpaces { id } => {
+                self.handle_list_spaces(id).await
+            }
+
+            DebugCommand::ListPages { params, id } => {
+                self.handle_list_pages(params.space_id, id).await
+            }
+
+            DebugCommand::ListApps { params, id } => {
+                self.handle_list_apps(params.page_id, id).await
+            }
+
+            DebugCommand::CreateSpace { params, id } => {
+                self.handle_create_space(params.name, id).await
+            }
+
+            DebugCommand::ImportPage { params, id } => {
+                self.handle_import_page(params.space_id, params.page_dir, id).await
+            }
+
+            DebugCommand::AddNode { params, id } => {
+                self.handle_add_node(params.connection_string, id).await
+            }
+
+            DebugCommand::PublishSpace { params, id } => {
+                self.handle_publish_space(params.space_id, params.node_id, id).await
+            }
+
+            DebugCommand::GetShareableLink { params, id } => {
+                self.handle_get_shareable_link(params.space_id, params.node_id, id).await
+            }
+
+            DebugCommand::AddWebsite { params, id } => {
+                self.handle_add_website(params.connection_string, id).await
+            }
+
+            DebugCommand::ListNodes { id } => {
+                self.handle_list_nodes(id).await
+            }
+
+            DebugCommand::P2pStatus { id } => {
+                self.handle_p2p_status(id).await
+            }
+
+            DebugCommand::UpdateNodeAddress { params, id } => {
+                self.handle_update_node_address(params.connection_string, id).await
+            }
+        }
+    }
+
+    async fn handle_eval(&self, code: String, id: u64) -> DebugResponse {
+        // Read the eval channel from RwLock
+        let eval_tx = {
+            let guard = self.eval_tx.read().await;
+            guard.clone()
+        };
+
+        let Some(eval_tx) = eval_tx else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Lua eval not available - no app is open".to_string(),
+                },
+                id,
+            };
+        };
+
+        let (response_tx, response_rx) = oneshot::channel();
+        let request = DebugEvalRequest { code, response_tx };
+
+        if eval_tx.send(request).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send eval request".to_string(),
+                },
+                id,
+            };
+        }
+
+        match response_rx.await {
+            Ok(Ok(value)) => DebugResponse::Result { result: value, id },
+            Ok(Err(e)) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: e,
+                },
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Eval request dropped".to_string(),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_state(&self, id: u64) -> DebugResponse {
+        // TODO: Implement state inspection
+        // This will require access to Butler and LuaWorker state
+        DebugResponse::Result {
+            result: serde_json::json!({
+                "layers": [],
+                "ui_props": {},
+                "permit": null,
+                "note": "State inspection not yet implemented"
+            }),
+            id,
+        }
+    }
+
+    async fn handle_logs(&self, params: LogQueryParams, id: u64) -> DebugResponse {
+        let buffer = self.log_buffer.read().await;
+        let mut logs: Vec<&LogEntry> = buffer.iter().collect();
+
+        // Filter by level
+        if let Some(ref level) = params.level {
+            logs.retain(|l| l.level.to_lowercase() == level.to_lowercase());
+        }
+
+        // Filter by search term
+        if let Some(ref search) = params.search {
+            let search_lower = search.to_lowercase();
+            logs.retain(|l| l.msg.to_lowercase().contains(&search_lower));
+        }
+
+        // Apply pagination
+        let offset = params.offset.unwrap_or(0);
+        let count = params.last.or(params.count).unwrap_or(100);
+
+        let total = logs.len();
+        let logs: Vec<_> = logs
+            .into_iter()
+            .rev() // Most recent first
+            .skip(offset)
+            .take(count)
+            .collect();
+
+        DebugResponse::Result {
+            result: serde_json::json!({
+                "logs": logs,
+                "total": total,
+                "offset": offset,
+                "count": logs.len(),
+            }),
+            id,
+        }
+    }
+
+    async fn handle_ui_click(&self, label: String, id: u64) -> DebugResponse {
+        let Some(ref ui_tx) = self.ui_tx else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI automation not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::Click {
+            label: label.clone(),
+            response_tx,
+        };
+
+        if ui_tx.send(cmd).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send UI command".to_string(),
+                },
+                id,
+            };
+        }
+
+        match response_rx.await {
+            Ok(Ok(())) => DebugResponse::Result {
+                result: serde_json::json!({"clicked": label, "success": true}),
+                id,
+            },
+            Ok(Err(e)) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: e,
+                },
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI command dropped".to_string(),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_ui_type(&self, label: String, text: String, id: u64) -> DebugResponse {
+        let Some(ref ui_tx) = self.ui_tx else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI automation not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::Type {
+            label: label.clone(),
+            text: text.clone(),
+            response_tx,
+        };
+
+        if ui_tx.send(cmd).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send UI command".to_string(),
+                },
+                id,
+            };
+        }
+
+        match response_rx.await {
+            Ok(Ok(())) => DebugResponse::Result {
+                result: serde_json::json!({"typed": text, "into": label, "success": true}),
+                id,
+            },
+            Ok(Err(e)) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: e,
+                },
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI command dropped".to_string(),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_ui_get_text(&self, label: String, id: u64) -> DebugResponse {
+        let Some(ref ui_tx) = self.ui_tx else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI automation not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::GetText {
+            label: label.clone(),
+            response_tx,
+        };
+
+        if ui_tx.send(cmd).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send UI command".to_string(),
+                },
+                id,
+            };
+        }
+
+        match response_rx.await {
+            Ok(Ok(text)) => DebugResponse::Result {
+                result: serde_json::json!({"label": label, "text": text}),
+                id,
+            },
+            Ok(Err(e)) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: e,
+                },
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI command dropped".to_string(),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_ui_get_screen(&self, id: u64) -> DebugResponse {
+        let Some(ref ui_tx) = self.ui_tx else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI automation not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::GetScreen { response_tx };
+
+        if ui_tx.send(cmd).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send UI command".to_string(),
+                },
+                id,
+            };
+        }
+
+        match response_rx.await {
+            Ok(screen) => DebugResponse::Result {
+                result: serde_json::json!({"screen": screen}),
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI command dropped".to_string(),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_reload(&self, params: Option<ReloadParams>, id: u64) -> DebugResponse {
+        // TODO: Implement app reload
+        // This requires:
+        // 1. Access to the app runner to trigger reload
+        // 2. Shutdown current LuaWorker
+        // 3. Re-read app code from disk
+        // 4. Create new LuaWorker with fresh code
+        let page_id = params.and_then(|p| p.page_id);
+        debug!(page_id = ?page_id, "Reload requested");
+        DebugResponse::Result {
+            result: serde_json::json!({
+                "reload": "requested",
+                "page_id": page_id,
+                "note": "Reload not yet implemented - requires app runner integration"
+            }),
+            id,
+        }
+    }
+
+    async fn handle_get_connection_string(&self, id: u64) -> DebugResponse {
+        let Some(ref butler) = self.butler else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Butler not available - not logged in".to_string(),
+                },
+                id,
+            };
+        };
+
+        match butler.generate_connection_string(None).await {
+            Ok(connection_string) => DebugResponse::Result {
+                result: serde_json::json!({
+                    "connection_string": connection_string
+                }),
+                id,
+            },
+            Err(e) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Failed to generate connection string: {}", e),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_signup(&self, username: String, passphrase: String, id: u64) -> DebugResponse {
+        let Some(ref ui_tx) = self.ui_tx else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI automation not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::SignUp {
+            username,
+            passphrase,
+            response_tx,
+        };
+
+        if ui_tx.send(cmd).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send signup command".to_string(),
+                },
+                id,
+            };
+        }
+
+        match response_rx.await {
+            Ok(Ok(did)) => DebugResponse::Result {
+                result: serde_json::json!({"success": true, "did": did}),
+                id,
+            },
+            Ok(Err(e)) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: e,
+                },
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Signup command dropped".to_string(),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_login(&self, passphrase: String, id: u64) -> DebugResponse {
+        let Some(ref ui_tx) = self.ui_tx else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI automation not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::DirectLogin {
+            passphrase,
+            response_tx,
+        };
+
+        if ui_tx.send(cmd).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send login command".to_string(),
+                },
+                id,
+            };
+        }
+
+        match response_rx.await {
+            Ok(Ok(did)) => DebugResponse::Result {
+                result: serde_json::json!({"success": true, "did": did}),
+                id,
+            },
+            Ok(Err(e)) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: e,
+                },
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Login command dropped".to_string(),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_ui_list_elements(&self, id: u64) -> DebugResponse {
+        let Some(ref ui_tx) = self.ui_tx else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI automation not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::ListElements { response_tx };
+
+        if ui_tx.send(cmd).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send UI command".to_string(),
+                },
+                id,
+            };
+        }
+
+        match response_rx.await {
+            Ok(elements) => DebugResponse::Result {
+                result: serde_json::json!({"elements": elements, "count": elements.len()}),
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI command dropped".to_string(),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_list_spaces(&self, id: u64) -> DebugResponse {
+        let Some(ref butler) = self.butler else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Butler not available - not logged in".to_string(),
+                },
+                id,
+            };
+        };
+
+        match butler.list_spaces() {
+            Ok(spaces) => {
+                let spaces_json: Vec<serde_json::Value> = spaces
+                    .iter()
+                    .map(|s| serde_json::json!({
+                        "id": s.id,
+                        "name": s.name,
+                    }))
+                    .collect();
+                DebugResponse::Result {
+                    result: serde_json::json!({
+                        "spaces": spaces_json,
+                        "count": spaces_json.len()
+                    }),
+                    id,
+                }
+            }
+            Err(e) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Failed to list spaces: {}", e),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_list_pages(&self, space_id: String, id: u64) -> DebugResponse {
+        let Some(ref butler) = self.butler else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Butler not available - not logged in".to_string(),
+                },
+                id,
+            };
+        };
+
+        match butler.list_pages(&space_id) {
+            Ok(pages) => {
+                let pages_json: Vec<serde_json::Value> = pages
+                    .iter()
+                    .map(|p| serde_json::json!({
+                        "id": p.id,
+                        "name": p.name,
+                    }))
+                    .collect();
+                DebugResponse::Result {
+                    result: serde_json::json!({
+                        "space_id": space_id,
+                        "pages": pages_json,
+                        "count": pages_json.len()
+                    }),
+                    id,
+                }
+            }
+            Err(e) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Failed to list pages: {}", e),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_import_page(&self, space_id: String, page_dir: String, id: u64) -> DebugResponse {
+        let Some(ref butler) = self.butler else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Butler not available - not logged in".to_string(),
+                },
+                id,
+            };
+        };
+
+        let page_path = std::path::PathBuf::from(&page_dir);
+        if !page_path.exists() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Page directory not found: {}", page_dir),
+                },
+                id,
+            };
+        }
+
+        match butler.import_page(&space_id, &page_path).await {
+            Ok(page) => {
+                // Get apps in this page
+                let apps = butler.list_apps(&page.id).unwrap_or_default();
+                DebugResponse::Result {
+                    result: serde_json::json!({
+                        "page_id": page.id,
+                        "page_name": page.name,
+                        "apps": apps,
+                    }),
+                    id,
+                }
+            }
+            Err(e) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Failed to import page: {}", e),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_create_space(&self, name: String, id: u64) -> DebugResponse {
+        let Some(ref butler) = self.butler else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Butler not available - not logged in".to_string(),
+                },
+                id,
+            };
+        };
+
+        // Get owner DID from identity
+        let owner_did = match butler.identity_data() {
+            Ok(Some(data)) => data.did,
+            Ok(None) => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32603,
+                        message: "No identity - not logged in".to_string(),
+                    },
+                    id,
+                };
+            }
+            Err(e) => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32000,
+                        message: format!("Failed to get identity: {}", e),
+                    },
+                    id,
+                };
+            }
+        };
+
+        // Use minimal space permit template
+        let permit_template = r#"{
+            "owner_template": {
+                "operations": { "own": "allow", "add_pages": "allow" },
+                "peer_capabilities": { "relay": false, "share": true, "accept_publish": true }
+            }
+        }"#;
+
+        match butler.create_space(name.clone(), owner_did, permit_template).await {
+            Ok(space) => DebugResponse::Result {
+                result: serde_json::json!({
+                    "id": space.id,
+                    "name": space.name,
+                }),
+                id,
+            },
+            Err(e) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Failed to create space: {}", e),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_list_apps(&self, page_id: String, id: u64) -> DebugResponse {
+        let Some(ref butler) = self.butler else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Butler not available - not logged in".to_string(),
+                },
+                id,
+            };
+        };
+
+        match butler.list_apps(&page_id) {
+            Ok(apps) => {
+                // list_apps returns Vec<String> of app names
+                let apps_json: Vec<serde_json::Value> = apps
+                    .iter()
+                    .map(|name| serde_json::json!({
+                        "name": name,
+                    }))
+                    .collect();
+                DebugResponse::Result {
+                    result: serde_json::json!({
+                        "page_id": page_id,
+                        "apps": apps_json,
+                        "count": apps_json.len()
+                    }),
+                    id,
+                }
+            }
+            Err(e) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Failed to list apps: {}", e),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_open_app(&self, page_id: String, app_name: String, id: u64) -> DebugResponse {
+        let Some(ref ui_tx) = self.ui_tx else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI automation not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::OpenApp {
+            page_id: page_id.clone(),
+            app_name: app_name.clone(),
+            response_tx,
+        };
+
+        if ui_tx.send(cmd).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send open_app command".to_string(),
+                },
+                id,
+            };
+        }
+
+        match response_rx.await {
+            Ok(Ok(msg)) => DebugResponse::Result {
+                result: serde_json::json!({
+                    "success": true,
+                    "page_id": page_id,
+                    "app_name": app_name,
+                    "message": msg
+                }),
+                id,
+            },
+            Ok(Err(e)) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: e,
+                },
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Open app command dropped".to_string(),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_add_node(&self, connection_string: String, id: u64) -> DebugResponse {
+        let Some(ref butler) = self.butler else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Butler not available - not logged in".to_string(),
+                },
+                id,
+            };
+        };
+
+        // 1. Parse and store node via Butler
+        let node = match butler.add_sovereign_node(&connection_string) {
+            Ok(n) => n,
+            Err(e) => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32000,
+                        message: format!("Failed to add node: {}", e),
+                    },
+                    id,
+                };
+            }
+        };
+
+        // 2. Extract permit from node
+        let permit = match &node.permit {
+            Some(p) => p.clone(),
+            None => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32000,
+                        message: "No permit in connection string".to_string(),
+                    },
+                    id,
+                };
+            }
+        };
+
+        // 3. Connect via Courier
+        let Some(ref courier_arc) = self.courier_handle else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Courier not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let courier_guard = courier_arc.read().await;
+        let courier_handle = match courier_guard.as_ref() {
+            Some(h) => h.clone(),
+            None => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32603,
+                        message: "P2P not initialized - not logged in".to_string(),
+                    },
+                    id,
+                };
+            }
+        };
+        drop(courier_guard);
+
+        match courier_handle.connect_and_wait_for_auth(&node.node_id, &permit).await {
+            Ok(_) => {
+                let _ = butler.set_sovereign_node_connected(&node.node_id, true);
+                DebugResponse::Result {
+                    result: serde_json::json!({
+                        "success": true,
+                        "node_id": node.node_id,
+                        "name": node.name,
+                        "connected": true
+                    }),
+                    id,
+                }
+            }
+            Err(e) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Connection failed: {}", e),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_p2p_status(&self, id: u64) -> DebugResponse {
+        let butler_ready = self.butler.is_some();
+
+        let courier_ready = if let Some(ref courier_arc) = self.courier_handle {
+            courier_arc.read().await.is_some()
+        } else {
+            false
+        };
+
+        DebugResponse::Result {
+            result: serde_json::json!({
+                "butler_ready": butler_ready,
+                "courier_ready": courier_ready,
+                "p2p_ready": butler_ready && courier_ready
+            }),
+            id,
+        }
+    }
+
+    /// Update node's relay URL from new connection string and trigger reconnection
+    ///
+    /// **Context**: After setup_test_dbs, stored nodes may have invalid relay URLs.
+    /// This command updates the relay URL with the real one from running kunki.
+    async fn handle_update_node_address(&self, connection_string: String, id: u64) -> DebugResponse {
+        let Some(ref butler) = self.butler else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Butler not available - not logged in".to_string(),
+                },
+                id,
+            };
+        };
+
+        // Parse the connection string to get the new relay URL
+        let conn = match butler::models::node::ConnectionString::parse(&connection_string) {
+            Ok(c) => c,
+            Err(e) => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32602,
+                        message: format!("Invalid connection string: {}", e),
+                    },
+                    id,
+                };
+            }
+        };
+
+        let node_id = conn.node_id();
+        let relay_url = conn.relay.clone();
+
+        // Update the node's relay URL in storage
+        match butler.update_node_relay(&node_id, relay_url.clone()) {
+            Ok(_) => {
+                info!("Updated node {} relay to {:?}", node_id, relay_url);
+            }
+            Err(e) => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32000,
+                        message: format!("Failed to update node: {}", e),
+                    },
+                    id,
+                };
+            }
+        }
+
+        // Trigger reconnection via courier
+        if let Some(ref courier_arc) = self.courier_handle {
+            if let Some(courier) = courier_arc.read().await.as_ref() {
+                if let Err(e) = courier.reconnect(&node_id).await {
+                    // Don't fail - relay update succeeded
+                    warn!("Reconnect triggered but may not be immediate: {}", e);
+                }
+            }
+        }
+
+        DebugResponse::Result {
+            result: serde_json::json!({
+                "success": true,
+                "node_id": node_id,
+                "relay_url": relay_url
+            }),
+            id,
+        }
+    }
+
+    async fn handle_list_nodes(&self, id: u64) -> DebugResponse {
+        let Some(ref butler) = self.butler else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Butler not available - not logged in".to_string(),
+                },
+                id,
+            };
+        };
+
+        match butler.list_sovereign_nodes() {
+            Ok(nodes) => {
+                let nodes_json: Vec<serde_json::Value> = nodes
+                    .iter()
+                    .map(|n| serde_json::json!({
+                        "node_id": n.node_id,
+                        "name": n.name,
+                        "connected": n.is_connected,
+                    }))
+                    .collect();
+                DebugResponse::Result {
+                    result: serde_json::json!({
+                        "nodes": nodes_json,
+                        "count": nodes_json.len()
+                    }),
+                    id,
+                }
+            }
+            Err(e) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Failed to list nodes: {}", e),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_publish_space(&self, space_id: String, node_id: String, id: u64) -> DebugResponse {
+        let Some(ref butler) = self.butler else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Butler not available - not logged in".to_string(),
+                },
+                id,
+            };
+        };
+
+        // Get the node's pubkey
+        let node = match butler.get_sovereign_node(&node_id) {
+            Ok(Some(n)) => n,
+            Ok(None) => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32000,
+                        message: format!("Node not found: {}", node_id),
+                    },
+                    id,
+                };
+            }
+            Err(e) => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32000,
+                        message: format!("Failed to get node: {}", e),
+                    },
+                    id,
+                };
+            }
+        };
+
+        // Get courier handle for publishing
+        let Some(ref courier_arc) = self.courier_handle else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Courier not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let courier_guard = courier_arc.read().await;
+        let courier_handle = match courier_guard.as_ref() {
+            Some(h) => h.clone(),
+            None => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32603,
+                        message: "P2P not initialized".to_string(),
+                    },
+                    id,
+                };
+            }
+        };
+        drop(courier_guard);
+
+        // Publish via courier
+        match courier_handle.publish_space(&space_id, &node_id).await {
+            Ok(_) => {
+                let _ = butler.mark_space_published(&space_id, &node_id);
+                DebugResponse::Result {
+                    result: serde_json::json!({
+                        "success": true,
+                        "space_id": space_id,
+                        "node_id": node_id,
+                        "node_name": node.name
+                    }),
+                    id,
+                }
+            }
+            Err(e) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Failed to publish space: {}", e),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_get_shareable_link(&self, space_id: String, node_id: String, id: u64) -> DebugResponse {
+        let Some(ref butler) = self.butler else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Butler not available - not logged in".to_string(),
+                },
+                id,
+            };
+        };
+
+        // Generate viewer connection string (relay_url is optional)
+        // node_id is stored for reference but relay_url would need to be derived from node config
+        match butler.generate_viewer_connection_string(&space_id, None).await {
+            Ok(connection_string) => DebugResponse::Result {
+                result: serde_json::json!({
+                    "connection_string": connection_string,
+                    "space_id": space_id,
+                    "node_id": node_id
+                }),
+                id,
+            },
+            Err(e) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Failed to generate viewer link: {}", e),
+                },
+                id,
+            },
+        }
+    }
+
+    async fn handle_add_website(&self, connection_string: String, id: u64) -> DebugResponse {
+        let Some(ref butler) = self.butler else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Butler not available - not logged in".to_string(),
+                },
+                id,
+            };
+        };
+
+        // 1. Parse connection string
+        let conn = match butler.parse_connection_string(&connection_string) {
+            Ok(c) => c,
+            Err(e) => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32000,
+                        message: format!("Invalid connection string: {}", e),
+                    },
+                    id,
+                };
+            }
+        };
+
+        let node_id = conn.node_id();
+        let permit = conn.permit.clone();
+
+        // 2. Extract space_id from permit
+        let space_id = match conn.space_id() {
+            Ok(id) => id,
+            Err(e) => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32000,
+                        message: format!("Invalid permit: {}", e),
+                    },
+                    id,
+                };
+            }
+        };
+
+        // 3. Get courier handle
+        let Some(ref courier_arc) = self.courier_handle else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Courier not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let courier_guard = courier_arc.read().await;
+        let courier_handle = match courier_guard.as_ref() {
+            Some(h) => h.clone(),
+            None => {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32603,
+                        message: "P2P not initialized".to_string(),
+                    },
+                    id,
+                };
+            }
+        };
+        drop(courier_guard);
+
+        // 4. Connect and authenticate
+        if let Err(e) = courier_handle.connect_and_wait_for_auth(&node_id, &permit).await {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Connection failed: {}", e),
+                },
+                id,
+            };
+        }
+
+        // 5. Store node as Contact for future reconnection
+        if let Ok(node_did) = conn.node_did() {
+            if let Err(e) = butler.add_node_contact(
+                &node_did,
+                &conn.node_encryption_key,
+                &conn.name,
+                &node_id,
+                &permit,
+            ) {
+                debug!("Warning: Failed to store node contact: {}", e);
+            }
+        }
+
+        // 6. Request space as viewer
+        match courier_handle.request_space_as_viewer(&space_id, &node_id, &permit).await {
+            Ok(_) => DebugResponse::Result {
+                result: serde_json::json!({
+                    "success": true,
+                    "space_id": space_id,
+                    "node_id": node_id,
+                    "name": conn.name
+                }),
+                id,
+            },
+            Err(e) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: format!("Failed to request space: {}", e),
+                },
+                id,
+            },
+        }
+    }
+
+    /// Add a log entry to the buffer and broadcast it
+    pub async fn add_log(&self, entry: LogEntry) {
+        // Add to buffer
+        {
+            let mut buffer = self.log_buffer.write().await;
+            if buffer.len() >= 10000 {
+                buffer.remove(0);
+            }
+            buffer.push(entry.clone());
+        }
+
+        // Broadcast to subscribers
+        let _ = self.log_tx.send(entry);
+    }
+}
+
+/// Helper to create socket path from instance name
+pub fn socket_path_for_instance(instance_name: &str) -> PathBuf {
+    let tmp_dir = std::env::temp_dir();
+    tmp_dir.join(format!("osvauld-debug-{}.sock", instance_name))
+}

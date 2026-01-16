@@ -990,6 +990,14 @@ impl Butler {
         node_service::delete_sovereign_node(&self.store, node_id)
     }
 
+    /// Update relay URL for a sovereign node
+    ///
+    /// **Context**: After setup_test_dbs, stored nodes may have invalid relay URLs.
+    /// This updates the relay URL with the real one from running kunki.
+    pub fn update_node_relay(&self, node_id: &str, relay_url: Option<String>) -> Result<bool> {
+        self.store.update_sovereign_node_relay(node_id, relay_url)
+    }
+
     // ==================== Owner Operations (for Node mode) ====================
 
     pub fn get_owner(&self) -> Result<Option<OwnerInfo>> {
