@@ -33,11 +33,13 @@ pub use validation::{LuaValidator, JsonOp};
 pub use lua_runtime::ScribeLuaRuntime;
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use tokio::time::{interval, Duration};
 use tracing::{debug, info, warn};
+use walkdir::WalkDir;
 
 use crate::error::{ButlerError, Result};
 use crate::models::Layer;
@@ -609,6 +611,11 @@ impl Actor for Scribe {
                     loro_observer::setup_layer_observer(state, &target_layer);
                 }
             }
+
+            ScribeMessage::RefreshApp { app_name, app_dir, reply } => {
+                let result = handle_refresh_app(state, &app_name, &app_dir).await;
+                let _ = reply.send(result);
+            }
         }
 
         Ok(())
@@ -661,4 +668,111 @@ impl Scribe {
         debug!("Layer update from JSON complete, observer will broadcast");
         Ok(())
     }
+}
+
+// =============================================================================
+// App Refresh Handler
+// =============================================================================
+
+/// Refresh app from filesystem (owner only)
+///
+/// **Context**: Owner edited files on disk, wants to reload into Scribe
+/// **We do**: Read files, compare with current layer, update LoroMap, commit
+/// **Observer**: Loro observer broadcasts to peers + emits PageEvent
+async fn handle_refresh_app(
+    state: &mut ScribeState,
+    app_name: &str,
+    app_dir: &Path,
+) -> std::result::Result<Vec<String>, String> {
+    let layer_name = format!("app:{}", app_name);
+
+    info!(
+        page_id = %state.page_id,
+        app_name = %app_name,
+        app_dir = %app_dir.display(),
+        "Refreshing app from directory"
+    );
+
+    // 1. Collect new files from disk
+    let new_files = collect_app_files_for_refresh(app_dir)
+        .map_err(|e| format!("Failed to read app files: {}", e))?;
+
+    // 2. Get or create the app layer
+    let layer = state.layers
+        .entry(layer_name.clone())
+        .or_insert_with(Layer::new);
+
+    // 3. Get current files to compare
+    let old_files = layer.get_all_files();
+
+    // 4. Find changed files
+    let mut changed_files = Vec::new();
+    for (path, content) in &new_files {
+        if old_files.get(path) != Some(content) {
+            changed_files.push(path.clone());
+        }
+    }
+    // Track deleted files
+    for path in old_files.keys() {
+        if !new_files.contains_key(path) {
+            changed_files.push(path.clone());
+        }
+    }
+
+    if changed_files.is_empty() {
+        info!(
+            page_id = %state.page_id,
+            app_name = %app_name,
+            "No changes detected"
+        );
+        return Ok(changed_files);
+    }
+
+    // 5. Update layer with new files
+    layer.set_all_files(&new_files)
+        .map_err(|e| format!("Failed to update app layer: {}", e))?;
+
+    // 6. Commit to trigger Loro observer (broadcasts to peers + emits PageEvent)
+    layer.commit();
+
+    // 7. Mark as dirty for persistence
+    state.dirty_layers.insert(layer_name.clone());
+
+    info!(
+        page_id = %state.page_id,
+        app_name = %app_name,
+        changed_count = changed_files.len(),
+        files = ?changed_files,
+        "App refreshed, observer will broadcast"
+    );
+
+    Ok(changed_files)
+}
+
+/// Collect app files from a directory
+///
+/// Returns HashMap of relative_path -> content for text files.
+fn collect_app_files_for_refresh(app_dir: &Path) -> std::result::Result<std::collections::HashMap<String, String>, String> {
+    let mut files = std::collections::HashMap::new();
+
+    for entry in WalkDir::new(app_dir).into_iter().filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !["slint", "lua", "json"].contains(&ext) {
+            continue;
+        }
+
+        if let Ok(relative_path) = path.strip_prefix(app_dir) {
+            let relative_str = relative_path.to_string_lossy().to_string();
+            if let Ok(content) = std::fs::read_to_string(path) {
+                files.insert(relative_str, content);
+            }
+        }
+    }
+
+    Ok(files)
 }

@@ -2,6 +2,21 @@
 // Extracted from original sthalam frontend CSS
 
 export global Theme {
+    // Responsive breakpoints - window-width must be bound from shell.slint
+    in-out property<length> window-width: 800px;
+    out property<bool> is-mobile: window-width < 480px;
+    out property<bool> is-tablet: window-width >= 480px && window-width < 800px;
+    out property<bool> is-desktop: window-width >= 800px;
+
+    // Responsive spacing tokens
+    out property<length> page-padding-h: is-mobile ? 12px : 64px;
+    out property<length> touch-target-min: 44px;
+
+    // Responsive font tokens
+    out property<length> font-hero: is-mobile ? 28px : 48px;
+    out property<length> font-h1: is-mobile ? 22px : 28px;
+    out property<length> font-h2: is-mobile ? 18px : 24px;
+
     // Core backgrounds
     out property<color> ninja-black: #010409;        // Main background
     out property<color> frame-black: #0d0e13;        // Frame/panel background

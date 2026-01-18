@@ -1,0 +1,927 @@
+// Service Customer App UI - Google Calendar Style
+// Clean weekly view with time grid and event blocks
+
+// ============================================================================
+// DATA STRUCTURES
+// ============================================================================
+
+// Booking structure (customer view - own bookings have full details)
+export struct MyBooking {
+    id: string,
+    date: string,
+    start_time: string,
+    end_time: string,
+    service: string,
+    notes: string,
+    status: string,
+    created_at: string,
+}
+
+// Booked slot (from derived calendar - no customer details, privacy protected)
+export struct BookedSlot {
+    date: string,
+    start_time: string,
+    end_time: string,
+}
+
+// Schedule entry (read-only from provider)
+export struct ScheduleEntry {
+    day: string,
+    enabled: bool,
+    start_time: string,
+    end_time: string,
+    slot_duration: int,
+}
+
+// Day slot for single-day view
+export struct DaySlot {
+    slot_id: string,
+    minutes_from_grid_start: int,
+    duration_minutes: int,
+    status: string,  // "available" | "booked" | "blocked" | "pending"
+    label: string,   // "09:15 - 09:45"
+}
+
+// ============================================================================
+// THEME - Dark Mode
+// ============================================================================
+
+global Theme {
+    // Backgrounds
+    out property<color> bg-primary: #1a1a2e;
+    out property<color> bg-secondary: #16213e;
+    out property<color> bg-hover: #0f3460;
+
+    // Borders
+    out property<color> border: #3a3a5c;
+    out property<color> border-light: #2a2a4a;
+    out property<color> border-hover: #4a9eff;
+
+    // Text
+    out property<color> text-primary: #e8e8e8;
+    out property<color> text-secondary: #a0a0b0;
+    out property<color> text-muted: #707080;
+
+    // Accent & States
+    out property<color> accent: #4a9eff;
+    out property<color> accent-light: #1a3a5c;
+    out property<color> today-bg: #4a9eff;
+    out property<color> today-text: #ffffff;
+
+    // Events
+    out property<color> booked-bg: #e94560;
+    out property<color> booked-text: #ffffff;
+    out property<color> my-booking-pending: #f6bf26;
+    out property<color> my-booking-confirmed: #00d9a0;
+    out property<color> my-booking-draft: #6c757d;
+
+    // Current time
+    out property<color> current-time: #e94560;
+
+    // Selection
+    out property<color> selected-bg: #1a3a5c;
+    out property<color> selected-border: #4a9eff;
+}
+
+// Status badge colors
+global StatusColors {
+    pure function get-color(status: string) -> color {
+        if status == "draft" { return #9e9e9e; }
+        if status == "pending" { return #f6bf26; }
+        if status == "confirmed" { return #33b679; }
+        if status == "completed" { return #33b679; }
+        if status == "cancelled" { return #ea4335; }
+        return #9e9e9e;
+    }
+}
+
+// ============================================================================
+// APP API
+// ============================================================================
+
+export global AppAPI {
+    // Data
+    in-out property<[MyBooking]> my_bookings: [];
+    in-out property<[BookedSlot]> booked_slots: [];
+    in-out property<[string]> time_slots: [];
+
+    // Single day view
+    in-out property<string> current_date: "";           // "2026-01-20"
+    in-out property<string> current_day_label: "";      // "Monday, January 20, 2026"
+    in-out property<[DaySlot]> day_slots: [];           // Slots for current day
+    in-out property<int> grid_start_hour: 9;            // First hour in grid
+
+    // UI State
+    in-out property<bool> booking_modal_visible: false;
+    in-out property<string> selected_date: "";
+    in-out property<string> selected_time: "";
+    in-out property<string> selected_slot_id: "";
+    in-out property<int> current_tab: 0;
+    in-out property<int> slot_duration: 60;  // Duration in minutes: 15, 30, 45, 60
+
+    // Current time for indicator
+    in-out property<int> current_hour: 12;
+    in-out property<int> current_minute: 0;
+
+    // Callbacks
+    callback on_click(string);
+    callback on_field_changed(string, string);
+    callback on_modal_action(string, string);
+}
+
+// ============================================================================
+// COMPONENTS
+// ============================================================================
+
+
+// Time label in the gutter
+component TimeLabel inherits Rectangle {
+    in property<string> time: "9 AM";
+
+    width: 56px;
+
+    Text {
+        x: 0;
+        y: -8px;
+        text: time;
+        font-size: 10px;
+        color: Theme.text-secondary;
+        horizontal-alignment: right;
+        width: 48px;
+    }
+}
+
+
+// Current time indicator line
+component CurrentTimeLine inherits Rectangle {
+    in property<int> hour: 12;
+    in property<int> minute: 0;
+    in property<int> grid_start_hour: 9;
+    in property<length> cell_height: 60px;
+    in property<length> container_width: 800px;
+
+    // Calculate position based on cell height
+    property<length> offset: (hour - grid_start_hour) * cell_height + minute * cell_height / 60;
+
+    x: 64px;
+    y: offset;
+    width: container_width - 64px;
+    height: 2px;
+    background: Theme.current-time;
+
+    // Red dot at the start
+    Rectangle {
+        x: -5px;
+        y: -4px;
+        width: 10px;
+        height: 10px;
+        border-radius: 5px;
+        background: Theme.current-time;
+    }
+}
+
+// ============================================================================
+// MAIN APP
+// ============================================================================
+
+export component App inherits Rectangle {
+    property<int> current-tab <=> AppAPI.current_tab;
+    property<bool> show-booking-modal <=> AppAPI.booking_modal_visible;
+
+    background: Theme.bg-primary;
+
+    VerticalLayout {
+        // ====================================================================
+        // HEADER
+        // ====================================================================
+        Rectangle {
+            height: 64px;
+            background: Theme.bg-primary;
+
+            HorizontalLayout {
+                padding: 16px;
+                spacing: 16px;
+                alignment: space-between;
+
+                // Left: Day Navigation
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+
+                    // Today button
+                    Rectangle {
+                        width: 64px;
+                        height: 36px;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        background: touch-today.has-hover ? Theme.bg-hover : transparent;
+
+                        Text {
+                            text: "Today";
+                            font-size: 14px;
+                            font-weight: 500;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        touch-today := TouchArea {
+                            clicked => { AppAPI.on_click("go_today"); }
+                        }
+                    }
+
+                    // Prev day arrow
+                    Rectangle {
+                        width: 36px;
+                        height: 36px;
+                        border-radius: 18px;
+                        background: touch-prev.has-hover ? Theme.bg-hover : transparent;
+
+                        Text {
+                            text: "<";
+                            font-size: 18px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        touch-prev := TouchArea {
+                            clicked => { AppAPI.on_click("go_prev_day"); }
+                        }
+                    }
+
+                    // Next day arrow
+                    Rectangle {
+                        width: 36px;
+                        height: 36px;
+                        border-radius: 18px;
+                        background: touch-next.has-hover ? Theme.bg-hover : transparent;
+
+                        Text {
+                            text: ">";
+                            font-size: 18px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        touch-next := TouchArea {
+                            clicked => { AppAPI.on_click("go_next_day"); }
+                        }
+                    }
+
+                    // Day label
+                    Text {
+                        text: AppAPI.current_day_label;
+                        font-size: 22px;
+                        font-weight: 400;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Right: Tab buttons
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: end;
+
+                    Rectangle {
+                        width: 80px;
+                        height: 36px;
+                        border-radius: 4px;
+                        background: current-tab == 0 ? Theme.accent-light :
+                                    touch-cal.has-hover ? Theme.bg-hover : transparent;
+
+                        Text {
+                            text: "Calendar";
+                            font-size: 14px;
+                            font-weight: current-tab == 0 ? 600 : 400;
+                            color: current-tab == 0 ? Theme.accent : Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        touch-cal := TouchArea {
+                            clicked => { current-tab = 0; }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        border-radius: 4px;
+                        background: current-tab == 1 ? Theme.accent-light :
+                                    touch-book.has-hover ? Theme.bg-hover : transparent;
+
+                        Text {
+                            text: "My Bookings";
+                            font-size: 14px;
+                            font-weight: current-tab == 1 ? 600 : 400;
+                            color: current-tab == 1 ? Theme.accent : Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        touch-book := TouchArea {
+                            clicked => { current-tab = 1; }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Divider
+        Rectangle {
+            height: 1px;
+            background: Theme.border;
+        }
+
+        // ====================================================================
+        // CALENDAR TAB - Single Day View
+        // ====================================================================
+        if current-tab == 0: VerticalLayout {
+            vertical-stretch: 1;
+
+
+            // Selected slot action bar
+            if AppAPI.selected_slot_id != "": Rectangle {
+                height: 52px;
+                background: Theme.accent-light;
+
+                HorizontalLayout {
+                    padding: 12px;
+                    padding-left: 72px;
+                    spacing: 16px;
+                    alignment: space-between;
+
+                    Text {
+                        text: "Selected: " + AppAPI.selected_time;
+                        font-size: 14px;
+                        font-weight: 500;
+                        color: Theme.accent;
+                        vertical-alignment: center;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Rectangle {
+                            width: 80px;
+                            height: 32px;
+                            border-radius: 4px;
+                            background: Theme.bg-primary;
+                            border-width: 1px;
+                            border-color: Theme.border;
+
+                            Text {
+                                text: "Cancel";
+                                font-size: 13px;
+                                color: Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => {
+                                    AppAPI.selected_slot_id = "";
+                                    AppAPI.selected_date = "";
+                                    AppAPI.selected_time = "";
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: 80px;
+                            height: 32px;
+                            border-radius: 4px;
+                            background: Theme.accent;
+
+                            Text {
+                                text: "Book";
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: white;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.on_click("book_slot"); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Slots list (simple vertical layout, no background grid)
+            Flickable {
+                vertical-stretch: 1;
+                viewport-height: AppAPI.day_slots.length * 72px + 16px;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 4px;
+
+                    for slot in AppAPI.day_slots: Rectangle {
+                        height: 64px;
+                        border-radius: 6px;
+                        background: slot.status == "available" ? #4CAF50 :
+                                    slot.status == "booked" ? #f44336 :
+                                    slot.status == "blocked" ? #9e9e9e :
+                                    slot.status == "pending" ? #ff9800 : #9e9e9e;
+
+                        // Slot content
+                        HorizontalLayout {
+                            padding: 12px;
+                            spacing: 12px;
+
+                            Text {
+                                text: slot.label;
+                                font-size: 15px;
+                                font-weight: 500;
+                                color: white;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle { horizontal-stretch: 1; }
+
+                            // Status badge
+                            Text {
+                                text: slot.status == "available" ? "AVAILABLE" :
+                                      slot.status == "booked" ? "BOOKED" :
+                                      slot.status == "blocked" ? "BLOCKED" :
+                                      slot.status == "pending" ? "PENDING" : "";
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: white.with-alpha(0.8);
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // Selection highlight
+                        if AppAPI.selected_slot_id == slot.slot_id: Rectangle {
+                            x: 0;
+                            y: 0;
+                            width: 100%;
+                            height: 100%;
+                            border-radius: 6px;
+                            border-width: 3px;
+                            border-color: Theme.selected-border;
+                            background: transparent;
+                        }
+
+                        // Hover effect (only for available slots)
+                        Rectangle {
+                            x: 0;
+                            y: 0;
+                            width: 100%;
+                            height: 100%;
+                            border-radius: 6px;
+                            background: slot-touch.has-hover && slot.status == "available" ?
+                                        white.with-alpha(0.1) : transparent;
+                        }
+
+                        slot-touch := TouchArea {
+                            enabled: slot.status == "available";
+                            mouse-cursor: slot.status == "available" ? pointer : default;
+
+                            clicked => {
+                                AppAPI.on_click("select_slot:" + slot.slot_id);
+                            }
+                        }
+                    }
+
+                    // Empty state
+                    if AppAPI.day_slots.length == 0: Rectangle {
+                        height: 100px;
+
+                        Text {
+                            text: "No available slots for this day";
+                            font-size: 14px;
+                            color: Theme.text-muted;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // MY BOOKINGS TAB
+        // ====================================================================
+        if current-tab == 1: Rectangle {
+            vertical-stretch: 1;
+            background: Theme.bg-secondary;
+
+            Flickable {
+                width: 100%;
+                height: 100%;
+                viewport-height: AppAPI.my_bookings.length * 100px + 32px;
+
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+
+                    if AppAPI.my_bookings.length == 0: Rectangle {
+                        height: 200px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 8px;
+
+                            Text {
+                                text: "No bookings yet";
+                                font-size: 16px;
+                                color: Theme.text-secondary;
+                                horizontal-alignment: center;
+                            }
+
+                            Text {
+                                text: "Select a time slot to make a booking";
+                                font-size: 14px;
+                                color: Theme.text-muted;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+
+                    for booking in AppAPI.my_bookings: Rectangle {
+                        height: 88px;
+                        background: Theme.bg-primary;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        HorizontalLayout {
+                            padding: 16px;
+                            spacing: 16px;
+
+                            // Color indicator
+                            Rectangle {
+                                width: 4px;
+                                height: 100%;
+                                border-radius: 2px;
+                                background: StatusColors.get-color(booking.status);
+                            }
+
+                            // Content
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 4px;
+
+                                HorizontalLayout {
+                                    spacing: 12px;
+
+                                    Text {
+                                        text: booking.date;
+                                        font-size: 14px;
+                                        font-weight: 600;
+                                        color: Theme.text-primary;
+                                    }
+
+                                    Text {
+                                        text: booking.start_time + " - " + booking.end_time;
+                                        font-size: 14px;
+                                        color: Theme.text-secondary;
+                                    }
+
+                                    Rectangle { horizontal-stretch: 1; }
+
+                                    // Status badge
+                                    Rectangle {
+                                        width: 80px;
+                                        height: 24px;
+                                        border-radius: 12px;
+                                        background: StatusColors.get-color(booking.status);
+
+                                        Text {
+                                            text: booking.status;
+                                            font-size: 11px;
+                                            font-weight: 600;
+                                            color: white;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    text: booking.service;
+                                    font-size: 13px;
+                                    color: Theme.text-primary;
+                                }
+
+                                if booking.notes != "": Text {
+                                    text: booking.notes;
+                                    font-size: 12px;
+                                    color: Theme.text-muted;
+                                    overflow: elide;
+                                }
+                            }
+
+                            // Actions
+                            if booking.status == "draft" || booking.status == "pending": VerticalLayout {
+                                alignment: center;
+                                spacing: 8px;
+
+                                if booking.status == "draft": Rectangle {
+                                    width: 72px;
+                                    height: 28px;
+                                    border-radius: 4px;
+                                    background: Theme.accent;
+
+                                    Text {
+                                        text: "Submit";
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: white;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+
+                                    TouchArea {
+                                        clicked => { AppAPI.on_click("submit_booking:" + booking.id); }
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: 72px;
+                                    height: 28px;
+                                    border-radius: 4px;
+                                    border-width: 1px;
+                                    border-color: Theme.border;
+
+                                    Text {
+                                        text: "Cancel";
+                                        font-size: 12px;
+                                        color: Theme.text-secondary;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+
+                                    TouchArea {
+                                        clicked => { AppAPI.on_click("cancel_booking:" + booking.id); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ========================================================================
+    // BOOKING MODAL
+    // ========================================================================
+    if show-booking-modal: Rectangle {
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: 100%;
+        background: #000000aa;
+
+        // Backdrop click to close
+        TouchArea {
+            clicked => { AppAPI.on_modal_action("booking", "cancel"); }
+        }
+
+        // Modal dialog
+        Rectangle {
+            x: (parent.width - 420px) / 2;
+            y: (parent.height - 420px) / 2;
+            width: 420px;
+            height: 420px;
+            background: Theme.bg-secondary;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            // Prevent backdrop click
+            TouchArea { }
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+
+                // Header
+                HorizontalLayout {
+                    Text {
+                        text: "Book Appointment";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        horizontal-stretch: 1;
+                    }
+
+                    Rectangle {
+                        width: 32px;
+                        height: 32px;
+                        border-radius: 16px;
+                        background: close-touch.has-hover ? Theme.bg-hover : transparent;
+
+                        Text {
+                            text: "×";
+                            font-size: 20px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        close-touch := TouchArea {
+                            clicked => { AppAPI.on_modal_action("booking", "cancel"); }
+                        }
+                    }
+                }
+
+                // Selected time display
+                Rectangle {
+                    height: 60px;
+                    background: Theme.accent-light;
+                    border-radius: 8px;
+
+                    HorizontalLayout {
+                        padding: 12px;
+                        spacing: 12px;
+
+                        VerticalLayout {
+                            spacing: 4px;
+                            horizontal-stretch: 1;
+
+                            Text {
+                                text: AppAPI.selected_date;
+                                font-size: 16px;
+                                font-weight: 600;
+                                color: Theme.text-primary;
+                            }
+
+                            Text {
+                                text: "Starting at " + AppAPI.selected_time;
+                                font-size: 13px;
+                                color: Theme.text-secondary;
+                            }
+                        }
+                    }
+                }
+
+                // Duration selection
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Duration";
+                        font-size: 13px;
+                        font-weight: 500;
+                        color: Theme.text-secondary;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        // 15 min button
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 44px;
+                            border-radius: 8px;
+                            background: AppAPI.slot_duration == 15 ? Theme.accent : Theme.bg-hover;
+                            border-width: 1px;
+                            border-color: AppAPI.slot_duration == 15 ? Theme.accent : Theme.border;
+
+                            Text {
+                                text: "15 min";
+                                font-size: 14px;
+                                font-weight: AppAPI.slot_duration == 15 ? 600 : 400;
+                                color: AppAPI.slot_duration == 15 ? white : Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.slot_duration = 15; }
+                            }
+                        }
+
+                        // 30 min button
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 44px;
+                            border-radius: 8px;
+                            background: AppAPI.slot_duration == 30 ? Theme.accent : Theme.bg-hover;
+                            border-width: 1px;
+                            border-color: AppAPI.slot_duration == 30 ? Theme.accent : Theme.border;
+
+                            Text {
+                                text: "30 min";
+                                font-size: 14px;
+                                font-weight: AppAPI.slot_duration == 30 ? 600 : 400;
+                                color: AppAPI.slot_duration == 30 ? white : Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.slot_duration = 30; }
+                            }
+                        }
+
+                        // 45 min button
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 44px;
+                            border-radius: 8px;
+                            background: AppAPI.slot_duration == 45 ? Theme.accent : Theme.bg-hover;
+                            border-width: 1px;
+                            border-color: AppAPI.slot_duration == 45 ? Theme.accent : Theme.border;
+
+                            Text {
+                                text: "45 min";
+                                font-size: 14px;
+                                font-weight: AppAPI.slot_duration == 45 ? 600 : 400;
+                                color: AppAPI.slot_duration == 45 ? white : Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.slot_duration = 45; }
+                            }
+                        }
+
+                        // 60 min button
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 44px;
+                            border-radius: 8px;
+                            background: AppAPI.slot_duration == 60 ? Theme.accent : Theme.bg-hover;
+                            border-width: 1px;
+                            border-color: AppAPI.slot_duration == 60 ? Theme.accent : Theme.border;
+
+                            Text {
+                                text: "1 hour";
+                                font-size: 14px;
+                                font-weight: AppAPI.slot_duration == 60 ? 600 : 400;
+                                color: AppAPI.slot_duration == 60 ? white : Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.slot_duration = 60; }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { vertical-stretch: 1; }
+
+                // Actions
+                HorizontalLayout {
+                    spacing: 12px;
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 44px;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        background: cancel-modal.has-hover ? Theme.bg-hover : transparent;
+
+                        Text {
+                            text: "Cancel";
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        cancel-modal := TouchArea {
+                            clicked => { AppAPI.on_modal_action("booking", "cancel"); }
+                        }
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 44px;
+                        border-radius: 8px;
+                        background: Theme.accent;
+
+                        Text {
+                            text: "Confirm Booking";
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: white;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => { AppAPI.on_modal_action("booking", "submit"); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

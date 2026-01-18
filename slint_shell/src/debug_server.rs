@@ -147,6 +147,20 @@ pub enum DebugCommand {
         params: UpdateNodeAddressParams,
         id: u64,
     },
+    /// Refresh app from filesystem (reload Lua/Slint from disk)
+    RefreshApp {
+        params: RefreshAppParams,
+        id: u64,
+    },
+    /// Refresh entire page from filesystem (reload ALL apps from root directory)
+    RefreshPage {
+        params: RefreshPageParams,
+        id: u64,
+    },
+    /// Get current app loading status (for AI feedback)
+    GetAppStatus {
+        id: u64,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -179,6 +193,8 @@ pub struct ListAppsParams {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateSpaceParams {
     pub name: String,
+    /// Path to app folder containing space_permit_template.json (e.g., sample_apps/my-booking)
+    pub template_path: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -213,6 +229,20 @@ pub struct AddWebsiteParams {
 pub struct UpdateNodeAddressParams {
     /// Connection string with new relay URL (from running kunki)
     pub connection_string: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RefreshAppParams {
+    /// Name of the app to refresh
+    pub app_name: String,
+    /// Directory containing app source files
+    pub app_dir: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RefreshPageParams {
+    /// Root directory containing the page (with multiple app subdirectories)
+    pub page_dir: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -306,6 +336,29 @@ pub struct DebugState {
     pub permit: Option<PermitInfo>,
 }
 
+/// App loading status for AI feedback
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct AppStatus {
+    pub page_id: Option<String>,
+    pub app_name: Option<String>,
+    /// Status: "idle", "loading", "loaded", "failed"
+    pub status: String,
+    pub error: Option<String>,
+    pub loaded_at: Option<String>,
+}
+
+impl AppStatus {
+    pub fn new() -> Self {
+        Self {
+            page_id: None,
+            app_name: None,
+            status: "idle".to_string(),
+            error: None,
+            loaded_at: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct LayerInfo {
     pub name: String,
@@ -365,6 +418,33 @@ pub enum UiCommand {
         passphrase: String,
         response_tx: oneshot::Sender<Result<String, String>>,
     },
+    /// Refresh app from filesystem via Scribe
+    RefreshApp {
+        app_name: String,
+        app_dir: String,
+        response_tx: oneshot::Sender<Result<Vec<String>, String>>,
+    },
+    /// Refresh entire page from filesystem (all apps in directory)
+    RefreshPage {
+        page_dir: String,
+        response_tx: oneshot::Sender<Result<Vec<String>, String>>,
+    },
+    /// Create a new space (routes through shell callback to update UI)
+    CreateSpace {
+        name: String,
+        template_path: String,
+        response_tx: oneshot::Sender<Result<(String, String), String>>,  // (space_id, name)
+    },
+    /// Add a website/space as viewer (routes through shell callback to update UI)
+    AddWebsite {
+        connection_string: String,
+        response_tx: oneshot::Sender<Result<String, String>>,  // space_id
+    },
+    /// Add a sovereign node (routes through shell callback to update UI)
+    AddNode {
+        connection_string: String,
+        response_tx: oneshot::Sender<Result<String, String>>,  // node_id
+    },
 }
 
 /// Information about an accessible element
@@ -393,6 +473,8 @@ pub struct DebugServer {
     butler: Option<Arc<Butler>>,
     /// Courier handle for P2P operations
     courier_handle: Option<Arc<RwLock<Option<CourierHandle>>>>,
+    /// Current app loading status (for AI feedback)
+    app_status: Arc<RwLock<AppStatus>>,
 }
 
 impl DebugServer {
@@ -408,7 +490,13 @@ impl DebugServer {
             instance_name,
             butler: None,
             courier_handle: None,
+            app_status: Arc::new(RwLock::new(AppStatus::new())),
         }
+    }
+
+    /// Get a reference to the app status for external updates
+    pub fn app_status(&self) -> Arc<RwLock<AppStatus>> {
+        self.app_status.clone()
     }
 
     /// Set the Butler instance for connection string generation
@@ -625,7 +713,7 @@ impl DebugServer {
             }
 
             DebugCommand::CreateSpace { params, id } => {
-                self.handle_create_space(params.name, id).await
+                self.handle_create_space(params.name, &params.template_path, id).await
             }
 
             DebugCommand::ImportPage { params, id } => {
@@ -658,6 +746,18 @@ impl DebugServer {
 
             DebugCommand::UpdateNodeAddress { params, id } => {
                 self.handle_update_node_address(params.connection_string, id).await
+            }
+
+            DebugCommand::RefreshApp { params, id } => {
+                self.handle_refresh_app(params.app_name, params.app_dir, id).await
+            }
+
+            DebugCommand::RefreshPage { params, id } => {
+                self.handle_refresh_page(params.page_dir, id).await
+            }
+
+            DebugCommand::GetAppStatus { id } => {
+                self.handle_get_app_status(id).await
             }
         }
     }
@@ -1257,60 +1357,53 @@ impl DebugServer {
         }
     }
 
-    async fn handle_create_space(&self, name: String, id: u64) -> DebugResponse {
-        let Some(ref butler) = self.butler else {
+    async fn handle_create_space(&self, name: String, template_path: &str, id: u64) -> DebugResponse {
+        let Some(ref ui_tx) = self.ui_tx else {
             return DebugResponse::Error {
                 error: DebugError {
                     code: -32603,
-                    message: "Butler not available - not logged in".to_string(),
+                    message: "UI automation not available".to_string(),
                 },
                 id,
             };
         };
 
-        // Get owner DID from identity
-        let owner_did = match butler.identity_data() {
-            Ok(Some(data)) => data.did,
-            Ok(None) => {
-                return DebugResponse::Error {
-                    error: DebugError {
-                        code: -32603,
-                        message: "No identity - not logged in".to_string(),
-                    },
-                    id,
-                };
-            }
-            Err(e) => {
-                return DebugResponse::Error {
-                    error: DebugError {
-                        code: -32000,
-                        message: format!("Failed to get identity: {}", e),
-                    },
-                    id,
-                };
-            }
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::CreateSpace {
+            name: name.clone(),
+            template_path: template_path.to_string(),
+            response_tx,
         };
 
-        // Use minimal space permit template
-        let permit_template = r#"{
-            "owner_template": {
-                "operations": { "own": "allow", "add_pages": "allow" },
-                "peer_capabilities": { "relay": false, "share": true, "accept_publish": true }
-            }
-        }"#;
+        if ui_tx.send(cmd).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send create_space command".to_string(),
+                },
+                id,
+            };
+        }
 
-        match butler.create_space(name.clone(), owner_did, permit_template).await {
-            Ok(space) => DebugResponse::Result {
+        match response_rx.await {
+            Ok(Ok((space_id, space_name))) => DebugResponse::Result {
                 result: serde_json::json!({
-                    "id": space.id,
-                    "name": space.name,
+                    "id": space_id,
+                    "name": space_name,
                 }),
                 id,
             },
-            Err(e) => DebugResponse::Error {
+            Ok(Err(e)) => DebugResponse::Error {
                 error: DebugError {
                     code: -32000,
-                    message: format!("Failed to create space: {}", e),
+                    message: e,
+                },
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Create space command dropped".to_string(),
                 },
                 id,
             },
@@ -1367,6 +1460,16 @@ impl DebugServer {
             };
         };
 
+        // Set status to "loading" before sending command
+        {
+            let mut status = self.app_status.write().await;
+            status.page_id = Some(page_id.clone());
+            status.app_name = Some(app_name.clone());
+            status.status = "loading".to_string();
+            status.error = None;
+            status.loaded_at = None;
+        }
+
         let (response_tx, response_rx) = oneshot::channel();
         let cmd = UiCommand::OpenApp {
             page_id: page_id.clone(),
@@ -1412,87 +1515,52 @@ impl DebugServer {
     }
 
     async fn handle_add_node(&self, connection_string: String, id: u64) -> DebugResponse {
-        let Some(ref butler) = self.butler else {
+        let Some(ref ui_tx) = self.ui_tx else {
             return DebugResponse::Error {
                 error: DebugError {
                     code: -32603,
-                    message: "Butler not available - not logged in".to_string(),
+                    message: "UI automation not available".to_string(),
                 },
                 id,
             };
         };
 
-        // 1. Parse and store node via Butler
-        let node = match butler.add_sovereign_node(&connection_string) {
-            Ok(n) => n,
-            Err(e) => {
-                return DebugResponse::Error {
-                    error: DebugError {
-                        code: -32000,
-                        message: format!("Failed to add node: {}", e),
-                    },
-                    id,
-                };
-            }
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::AddNode {
+            connection_string: connection_string.clone(),
+            response_tx,
         };
 
-        // 2. Extract permit from node
-        let permit = match &node.permit {
-            Some(p) => p.clone(),
-            None => {
-                return DebugResponse::Error {
-                    error: DebugError {
-                        code: -32000,
-                        message: "No permit in connection string".to_string(),
-                    },
-                    id,
-                };
-            }
-        };
-
-        // 3. Connect via Courier
-        let Some(ref courier_arc) = self.courier_handle else {
+        if ui_tx.send(cmd).await.is_err() {
             return DebugResponse::Error {
                 error: DebugError {
                     code: -32603,
-                    message: "Courier not available".to_string(),
+                    message: "Failed to send add_node command".to_string(),
                 },
                 id,
             };
-        };
+        }
 
-        let courier_guard = courier_arc.read().await;
-        let courier_handle = match courier_guard.as_ref() {
-            Some(h) => h.clone(),
-            None => {
-                return DebugResponse::Error {
-                    error: DebugError {
-                        code: -32603,
-                        message: "P2P not initialized - not logged in".to_string(),
-                    },
-                    id,
-                };
-            }
-        };
-        drop(courier_guard);
-
-        match courier_handle.connect_and_wait_for_auth(&node.node_id, &permit).await {
-            Ok(_) => {
-                let _ = butler.set_sovereign_node_connected(&node.node_id, true);
-                DebugResponse::Result {
-                    result: serde_json::json!({
-                        "success": true,
-                        "node_id": node.node_id,
-                        "name": node.name,
-                        "connected": true
-                    }),
-                    id,
-                }
-            }
-            Err(e) => DebugResponse::Error {
+        match response_rx.await {
+            Ok(Ok(node_id)) => DebugResponse::Result {
+                result: serde_json::json!({
+                    "success": true,
+                    "node_id": node_id,
+                    "triggered": true
+                }),
+                id,
+            },
+            Ok(Err(e)) => DebugResponse::Error {
                 error: DebugError {
                     code: -32000,
-                    message: format!("Connection failed: {}", e),
+                    message: e,
+                },
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Add node command dropped".to_string(),
                 },
                 id,
             },
@@ -1710,80 +1778,7 @@ impl DebugServer {
     }
 
     async fn handle_get_shareable_link(&self, space_id: String, node_id: String, id: u64) -> DebugResponse {
-        let Some(ref butler) = self.butler else {
-            return DebugResponse::Error {
-                error: DebugError {
-                    code: -32603,
-                    message: "Butler not available - not logged in".to_string(),
-                },
-                id,
-            };
-        };
-
-        // Generate viewer connection string (relay_url is optional)
-        // node_id is stored for reference but relay_url would need to be derived from node config
-        match butler.generate_viewer_connection_string(&space_id, None).await {
-            Ok(connection_string) => DebugResponse::Result {
-                result: serde_json::json!({
-                    "connection_string": connection_string,
-                    "space_id": space_id,
-                    "node_id": node_id
-                }),
-                id,
-            },
-            Err(e) => DebugResponse::Error {
-                error: DebugError {
-                    code: -32000,
-                    message: format!("Failed to generate viewer link: {}", e),
-                },
-                id,
-            },
-        }
-    }
-
-    async fn handle_add_website(&self, connection_string: String, id: u64) -> DebugResponse {
-        let Some(ref butler) = self.butler else {
-            return DebugResponse::Error {
-                error: DebugError {
-                    code: -32603,
-                    message: "Butler not available - not logged in".to_string(),
-                },
-                id,
-            };
-        };
-
-        // 1. Parse connection string
-        let conn = match butler.parse_connection_string(&connection_string) {
-            Ok(c) => c,
-            Err(e) => {
-                return DebugResponse::Error {
-                    error: DebugError {
-                        code: -32000,
-                        message: format!("Invalid connection string: {}", e),
-                    },
-                    id,
-                };
-            }
-        };
-
-        let node_id = conn.node_id();
-        let permit = conn.permit.clone();
-
-        // 2. Extract space_id from permit
-        let space_id = match conn.space_id() {
-            Ok(id) => id,
-            Err(e) => {
-                return DebugResponse::Error {
-                    error: DebugError {
-                        code: -32000,
-                        message: format!("Invalid permit: {}", e),
-                    },
-                    id,
-                };
-            }
-        };
-
-        // 3. Get courier handle
+        // Get courier handle for requesting link from node
         let Some(ref courier_arc) = self.courier_handle else {
             return DebugResponse::Error {
                 error: DebugError {
@@ -1801,7 +1796,7 @@ impl DebugServer {
                 return DebugResponse::Error {
                     error: DebugError {
                         code: -32603,
-                        message: "P2P not initialized".to_string(),
+                        message: "P2P not initialized - not logged in".to_string(),
                     },
                     id,
                 };
@@ -1809,48 +1804,206 @@ impl DebugServer {
         };
         drop(courier_guard);
 
-        // 4. Connect and authenticate
-        if let Err(e) = courier_handle.connect_and_wait_for_auth(&node_id, &permit).await {
-            return DebugResponse::Error {
-                error: DebugError {
-                    code: -32000,
-                    message: format!("Connection failed: {}", e),
-                },
-                id,
-            };
-        }
-
-        // 5. Store node as Contact for future reconnection
-        if let Ok(node_did) = conn.node_did() {
-            if let Err(e) = butler.add_node_contact(
-                &node_did,
-                &conn.node_encryption_key,
-                &conn.name,
-                &node_id,
-                &permit,
-            ) {
-                debug!("Warning: Failed to store node contact: {}", e);
-            }
-        }
-
-        // 6. Request space as viewer
-        match courier_handle.request_space_as_viewer(&space_id, &node_id, &permit).await {
-            Ok(_) => DebugResponse::Result {
+        // Request shareable link from node (node generates viewer permit)
+        match courier_handle.get_shareable_link(&space_id, &node_id).await {
+            Ok(connection_string) => DebugResponse::Result {
                 result: serde_json::json!({
-                    "success": true,
+                    "connection_string": connection_string,
                     "space_id": space_id,
-                    "node_id": node_id,
-                    "name": conn.name
+                    "node_id": node_id
                 }),
                 id,
             },
             Err(e) => DebugResponse::Error {
                 error: DebugError {
                     code: -32000,
-                    message: format!("Failed to request space: {}", e),
+                    message: format!("Failed to get shareable link: {}", e),
                 },
                 id,
             },
+        }
+    }
+
+    async fn handle_add_website(&self, connection_string: String, id: u64) -> DebugResponse {
+        let Some(ref ui_tx) = self.ui_tx else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI automation not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::AddWebsite {
+            connection_string: connection_string.clone(),
+            response_tx,
+        };
+
+        if ui_tx.send(cmd).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send add_website command".to_string(),
+                },
+                id,
+            };
+        }
+
+        match response_rx.await {
+            Ok(Ok(space_id)) => DebugResponse::Result {
+                result: serde_json::json!({
+                    "success": true,
+                    "space_id": space_id,
+                    "triggered": true
+                }),
+                id,
+            },
+            Ok(Err(e)) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: e,
+                },
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Add website command dropped".to_string(),
+                },
+                id,
+            },
+        }
+    }
+
+    /// Refresh app from filesystem via Scribe
+    ///
+    /// **Context**: Developer edited files on disk, wants to reload via Scribe
+    /// **Flow**: Debug command → UiCommand → main thread → Scribe.RefreshApp
+    async fn handle_refresh_app(&self, app_name: String, app_dir: String, id: u64) -> DebugResponse {
+        let Some(ref ui_tx) = self.ui_tx else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI automation not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::RefreshApp {
+            app_name: app_name.clone(),
+            app_dir: app_dir.clone(),
+            response_tx,
+        };
+
+        if ui_tx.send(cmd).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send refresh_app command".to_string(),
+                },
+                id,
+            };
+        }
+
+        match response_rx.await {
+            Ok(Ok(changed_files)) => DebugResponse::Result {
+                result: serde_json::json!({
+                    "success": true,
+                    "app_name": app_name,
+                    "app_dir": app_dir,
+                    "changed_files": changed_files,
+                    "changed_count": changed_files.len()
+                }),
+                id,
+            },
+            Ok(Err(e)) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: e,
+                },
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "RefreshApp command dropped".to_string(),
+                },
+                id,
+            },
+        }
+    }
+
+    /// Refresh entire page from filesystem (all apps in root directory)
+    ///
+    /// **Context**: Developer edited files on disk, wants to reload ALL apps via Scribe
+    /// **Flow**: Debug command → UiCommand → main thread → Scribe.RefreshPage
+    async fn handle_refresh_page(&self, page_dir: String, id: u64) -> DebugResponse {
+        let Some(ref ui_tx) = self.ui_tx else {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "UI automation not available".to_string(),
+                },
+                id,
+            };
+        };
+
+        let (response_tx, response_rx) = oneshot::channel();
+        let cmd = UiCommand::RefreshPage {
+            page_dir: page_dir.clone(),
+            response_tx,
+        };
+
+        if ui_tx.send(cmd).await.is_err() {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "Failed to send refresh_page command".to_string(),
+                },
+                id,
+            };
+        }
+
+        match response_rx.await {
+            Ok(Ok(updated_apps)) => DebugResponse::Result {
+                result: serde_json::json!({
+                    "success": true,
+                    "page_dir": page_dir,
+                    "updated_apps": updated_apps,
+                    "updated_count": updated_apps.len()
+                }),
+                id,
+            },
+            Ok(Err(e)) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: e,
+                },
+                id,
+            },
+            Err(_) => DebugResponse::Error {
+                error: DebugError {
+                    code: -32603,
+                    message: "RefreshPage command dropped".to_string(),
+                },
+                id,
+            },
+        }
+    }
+
+    /// Get current app loading status
+    ///
+    /// **Context**: AI wants to know if an app loaded successfully or failed
+    /// **Returns**: Current status with page_id, app_name, status, and error (if any)
+    async fn handle_get_app_status(&self, id: u64) -> DebugResponse {
+        let status = self.app_status.read().await.clone();
+        DebugResponse::Result {
+            result: serde_json::to_value(status).unwrap_or(serde_json::json!({"error": "serialization failed"})),
+            id,
         }
     }
 

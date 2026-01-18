@@ -90,8 +90,8 @@ class DebugClient:
     def screen(self) -> str:
         return self.call("ui_get_screen").get("screen", "")
 
-    def create_space(self, name: str) -> Dict:
-        return self.call("create_space", {"name": name})
+    def create_space(self, name: str, template_path: str) -> Dict:
+        return self.call("create_space", {"name": name, "template_path": template_path})
 
     def import_page(self, space_id: str, page_dir: str) -> Dict:
         return self.call("import_page", {"space_id": space_id, "page_dir": page_dir})
@@ -244,7 +244,7 @@ def run_test(ctx: TestContext, fresh: bool = True):
     if fresh:
         # Create space and import app
         print_step("Creating space...")
-        space = dc.create_space("My Shop")
+        space = dc.create_space("My Shop", str(SAMPLE_APP_PATH))
         ctx.space_id = space["id"]
         print_ok(f"Space created: {ctx.space_id}")
 
@@ -278,10 +278,10 @@ def run_test(ctx: TestContext, fresh: bool = True):
     # ================================================================
     print_header("OWNER: ADDING PRODUCTS")
 
-    print_step("Adding products...")
-    dc.eval('add_product("Widget", 29.99, "A useful widget", 100)')
-    dc.eval('add_product("Gadget", 49.99, "A cool gadget", 50)')
-    dc.eval('add_product("Gizmo", 19.99, "A handy gizmo", 200)')
+    print_step("Adding products via UI...")
+    dc.eval('add_product_via_ui("Widget", 29.99, "A useful widget", 100)')
+    dc.eval('add_product_via_ui("Gadget", 49.99, "A cool gadget", 50)')
+    dc.eval('add_product_via_ui("Gizmo", 19.99, "A handy gizmo", 200)')
 
     count = dc.eval("return get_products_count()")
     assert_eq(count, 3, "Should have 3 products")

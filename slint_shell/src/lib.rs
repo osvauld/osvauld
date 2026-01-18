@@ -17,6 +17,5 @@ pub mod debug_logger;
 pub mod debug_server;
 pub mod events;
 pub mod setup;
-pub mod templates;
 pub mod ui_automation;
 pub mod utils;

@@ -1,5 +1,6 @@
 -- Shop Customer App Logic
 -- Browse products and manage orders (multiple orders as LIST)
+-- Uses Event Bus pattern for unified human/AI interaction
 
 -- Order State Machine
 -- Defines what customers can do in each order state
@@ -56,16 +57,18 @@ local my_did = nil
 -- Product cache (read from owner's layer)
 local products_cache = {}
 
+-- Form state tracking (synced with UI via Event Bus)
+local form_state = {
+    order_quantity = "1",
+    order_notes = "",
+    order_address = ""
+}
+
 -- Currently selected product (stored when user clicks Select)
 local selected_product = nil
 
 -- Currently selected order (for editing/submitting)
 local selected_order_id = nil
-
--- UI form state (tracked in Lua for submit_order_ui)
-local ui_order_quantity = "1"
-local ui_order_notes = ""
-local ui_order_address = ""
 
 -- Initialize the app
 function on_init()
@@ -100,79 +103,59 @@ function on_loro_change(layer_name, change_type)
     end
 end
 
--- UI callback: Select a product to order
-function select_product(product_id, product_name, product_price)
-    -- Store selected product for order form
-    selected_product = {
-        id = product_id,
-        name = product_name,
-        price = product_price
-    }
-    log_info("Selected product: " .. product_name)
-end
+-- ============================================================================
+-- EVENT BUS HANDLERS
+-- Unified event flow for human UI and AI automation
+-- ============================================================================
 
--- UI-driven product selection (shows form via debug socket)
-function select_product_ui(product_id, name, price)
-    select_product(product_id, name, price)
-    ui:set("selected_product_id", product_id)
-    ui:set("selected_product_name", name)
-    ui:set("selected_product_price", price)
-    ui:set("current_view", 0)  -- stay on products view to show form
-    log_info("UI: Selected product " .. name)
-end
+-- Handle button clicks
+function on_click(target)
+    -- Parse target: "action:id" or just "action"
+    local action, id = target:match("^([^:]+):?(.*)$")
 
--- Set form fields from Lua (for debug socket control)
-function set_order_quantity(qty)
-    ui_order_quantity = tostring(qty)
-    ui:set("order_quantity", tostring(qty))
-end
-
-function set_order_notes(notes)
-    ui_order_notes = notes
-    ui:set("order_notes", notes)
-end
-
-function set_order_address(addr)
-    ui_order_address = addr
-    ui:set("order_address", addr)
-end
-
--- Submit order and clear form (for debug socket)
-function submit_order_ui()
-    if not selected_product then
-        log_warn("No product selected")
-        return
+    if action == "select_product" then
+        do_select_product(id)
+    elseif action == "submit_order" then
+        do_submit_order(id)
+    elseif action == "cancel_order" then
+        do_cancel_order(id)
     end
-    -- Get form values from Lua state (set by set_* functions)
-    local qty = ui_order_quantity or "1"
-    local notes = ui_order_notes or ""
-    local addr = ui_order_address or ""
-
-    create_order(selected_product.id, qty, notes, addr)
-    submit_order()
-
-    -- Clear form
-    ui:set("selected_product_id", "")
-    ui:set("selected_product_name", "")
-    ui:set("selected_product_price", 0)
-    ui:set("order_quantity", "1")
-    ui:set("order_notes", "")
-    ui:set("order_address", "")
-    ui:set("current_view", 1)  -- switch to orders view
-    log_info("UI: Order submitted")
 end
 
--- Switch views (for debug socket)
-function show_products_view()
-    ui:set("current_view", 0)
+-- Handle field changes from UI
+function on_field_changed(field_name, value)
+    form_state[field_name] = value
 end
 
-function show_orders_view()
-    ui:set("current_view", 1)
+-- Handle modal actions (open/close/submit)
+function on_modal_action(modal_name, action)
+    if modal_name == "order" then
+        if action == "submit" then
+            do_create_order()
+        end
+    end
 end
 
--- UI callback: Create a new order draft (stored in local drafts map, never syncs)
-function create_order(product_id, quantity_str, notes, shipping_address)
+-- ============================================================================
+-- CORE LOGIC
+-- Business logic called by event handlers
+-- ============================================================================
+
+-- Select product when user clicks Select button
+function do_select_product(product_id)
+    local product = find_product(product_id)
+    if product then
+        selected_product = {
+            id = product.id,
+            name = product.name,
+            price = product.price
+        }
+        log_info("Selected product: " .. product.name)
+    end
+end
+
+-- Create a new order draft (stored in local drafts map, never syncs)
+function do_create_order()
     -- Only customers can create orders
     if permit:role() ~= "customer" then
         log_warn("Only customers can create orders")
@@ -184,12 +167,15 @@ function create_order(product_id, quantity_str, notes, shipping_address)
         return
     end
 
-    local quantity = tonumber(quantity_str) or 1
-    if quantity < 1 then quantity = 1 end
+    -- Get selected product from UI state
+    local product_id = ui:get("selected_product_id")
+    if not product_id or product_id == "" then
+        log_warn("No product selected")
+        return
+    end
 
-    -- Use stored selected product (from select_product callback)
+    -- Use stored selected product
     if not selected_product or selected_product.id ~= product_id then
-        -- Fallback: try to find in cache
         local product = find_product(product_id)
         if not product then
             log_warn("Product not found: " .. product_id)
@@ -197,6 +183,9 @@ function create_order(product_id, quantity_str, notes, shipping_address)
         end
         selected_product = product
     end
+
+    local quantity = tonumber(form_state.order_quantity) or 1
+    if quantity < 1 then quantity = 1 end
 
     -- Calculate total
     local total = selected_product.price * quantity
@@ -206,8 +195,8 @@ function create_order(product_id, quantity_str, notes, shipping_address)
         id = generate_id(),
         items = selected_product.name,
         quantity = quantity,
-        notes = notes or "",
-        shipping_address = shipping_address or "",
+        notes = form_state.order_notes or "",
+        shipping_address = form_state.order_address or "",
         status = "draft",
         total = total,
         created_at = os.date("%Y-%m-%d %H:%M:%S"),
@@ -220,12 +209,16 @@ function create_order(product_id, quantity_str, notes, shipping_address)
 
     log_info("Order draft created (local only): " .. order.id)
 
+    -- Clear form and switch to orders view
+    clear_order_form()
+    ui:set("current_view", 1)
+
     -- Update UI immediately
     refresh_orders_ui()
 end
 
--- UI callback: Submit order (move from drafts map to orders list, draft -> pending)
-function submit_order(order_id)
+-- Submit order (move from drafts map to orders list, draft -> pending)
+function do_submit_order(order_id)
     -- Only customers can submit orders
     if permit:role() ~= "customer" then
         log_warn("Only customers can submit orders")
@@ -235,7 +228,10 @@ function submit_order(order_id)
     if not orders_layer or not drafts_layer then return end
 
     -- Use provided order_id or selected_order_id
-    local target_id = order_id or selected_order_id
+    local target_id = order_id
+    if not target_id or target_id == "" then
+        target_id = selected_order_id
+    end
     if not target_id then
         log_warn("No order selected to submit")
         return
@@ -283,8 +279,8 @@ function submit_order(order_id)
     refresh_orders_ui()
 end
 
--- UI callback: Cancel order (customer can cancel draft or pending)
-function cancel_order(order_id)
+-- Cancel order (customer can cancel draft or pending)
+function do_cancel_order(order_id)
     -- Only customers can cancel their orders
     if permit:role() ~= "customer" then
         log_warn("Only customers can cancel orders")
@@ -292,7 +288,10 @@ function cancel_order(order_id)
     end
 
     -- Use provided order_id or selected_order_id
-    local target_id = order_id or selected_order_id
+    local target_id = order_id
+    if not target_id or target_id == "" then
+        target_id = selected_order_id
+    end
     if not target_id then
         log_warn("No order selected to cancel")
         return
@@ -341,28 +340,95 @@ function cancel_order(order_id)
     refresh_orders_ui()
 end
 
--- Find order index by ID in synced orders
-function find_order_index(order_id)
-    if not orders_layer then return nil end
-    local len = orders_layer:length()
-    for i = 0, len - 1 do
-        local order = orders_layer:get(i)
-        if order and order.id == order_id then
-            return i
-        end
-    end
-    return nil
+-- Clear order form
+function clear_order_form()
+    form_state.order_quantity = "1"
+    form_state.order_notes = ""
+    form_state.order_address = ""
+
+    ui:set("selected_product_id", "")
+    ui:set("selected_product_name", "")
+    ui:set("selected_product_price", 0)
+    ui:set("order_quantity", "1")
+    ui:set("order_notes", "")
+    ui:set("order_address", "")
+
+    selected_product = nil
 end
 
--- Find product by ID in cache
-function find_product(product_id)
-    for _, product in ipairs(products_cache) do
-        if product.id == product_id then
-            return product
-        end
+-- ============================================================================
+-- AI AUTOMATION API
+-- Same code path as human interaction
+-- ============================================================================
+
+-- Select product via UI simulation (for AI/testing)
+function select_product_via_ui(product_id)
+    local product = find_product(product_id)
+    if not product then
+        log_warn("Product not found: " .. product_id)
+        return false
     end
-    return nil
+
+    -- Set UI state
+    ui:set("selected_product_id", product.id)
+    ui:set("selected_product_name", product.name)
+    ui:set("selected_product_price", product.price)
+    ui:set("current_view", 0)  -- Products view
+
+    -- Call event handler
+    on_click("select_product:" .. product_id)
+    return true
 end
+
+-- Place order via UI simulation (for AI/testing)
+-- This is the complete flow: select product, fill form, create order, submit
+function place_order_via_ui(product_id, quantity, notes, address)
+    -- 1. Select product
+    if not select_product_via_ui(product_id) then
+        return false
+    end
+
+    -- 2. Fill form fields
+    quantity = tostring(quantity or 1)
+    notes = notes or ""
+    address = address or ""
+
+    ui:set("order_quantity", quantity)
+    ui:set("order_notes", notes)
+    ui:set("order_address", address)
+
+    form_state.order_quantity = quantity
+    form_state.order_notes = notes
+    form_state.order_address = address
+
+    -- 3. Create order (submit modal)
+    on_modal_action("order", "submit")
+
+    -- 4. Submit the order (draft -> pending)
+    if selected_order_id then
+        on_click("submit_order:" .. selected_order_id)
+    end
+
+    return true
+end
+
+-- Cancel order via UI simulation (for AI/testing)
+function cancel_order_via_ui(order_id)
+    on_click("cancel_order:" .. order_id)
+end
+
+-- Switch views (for AI/testing)
+function show_products_view()
+    ui:set("current_view", 0)
+end
+
+function show_orders_view()
+    ui:set("current_view", 1)
+end
+
+-- ============================================================================
+-- UI REFRESH
+-- ============================================================================
 
 -- Refresh products from owner's layer
 function refresh_products_ui()
@@ -440,10 +506,41 @@ function refresh_orders_ui()
     ui:set("my_orders", orders)
 end
 
+-- ============================================================================
+-- HELPERS
+-- ============================================================================
+
+-- Find order index by ID in synced orders
+function find_order_index(order_id)
+    if not orders_layer then return nil end
+    local len = orders_layer:length()
+    for i = 0, len - 1 do
+        local order = orders_layer:get(i)
+        if order and order.id == order_id then
+            return i
+        end
+    end
+    return nil
+end
+
+-- Find product by ID in cache
+function find_product(product_id)
+    for _, product in ipairs(products_cache) do
+        if product.id == product_id then
+            return product
+        end
+    end
+    return nil
+end
+
 -- Generate a simple ID
 function generate_id()
     return string.format("%x", os.time()) .. "-" .. string.format("%04x", math.random(0, 65535))
 end
+
+-- ============================================================================
+-- TEST HELPERS
+-- ============================================================================
 
 -- Get total count of products (for testing)
 function get_products_count()
@@ -518,7 +615,10 @@ function get_all_orders()
     return orders
 end
 
--- Logging helpers
+-- ============================================================================
+-- UTILITIES
+-- ============================================================================
+
 function log_info(msg)
     print("[INFO] " .. msg)
 end

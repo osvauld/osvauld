@@ -221,8 +221,18 @@ fn register_get_shareable_link(
             let courier_guard = courier.read().await;
             if let Some(handle) = courier_guard.as_ref() {
                 match handle.get_shareable_link(&space_id_str, &node_id_str).await {
-                    Ok(_) => {
-                        println!("Shareable link request sent for space {}", space_id_str);
+                    Ok(connection_string) => {
+                        println!("Shareable link received for space {}", space_id_str);
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(shell) = shell_weak.upgrade() {
+                                shell.set_requesting_link(false);
+                                shell.set_shareable_link(connection_string.into());
+                                shell.set_toast_message("Shareable link ready".into());
+                                shell.set_toast_is_error(false);
+                                shell.set_toast_visible(true);
+                            }
+                        })
+                        .ok();
                     }
                     Err(e) => {
                         println!("Get shareable link failed: {}", e);

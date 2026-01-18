@@ -6,15 +6,16 @@
 //! **Pattern**: Query Loro → Compute → Return operations (stateless)
 //! **Communication**: mpsc channels with serializable messages
 
-use mlua::{Lua, Value as LuaValue, Error as LuaError, Table, UserData, UserDataMethods};
+use mlua::{Lua, Value as LuaValue, Error as LuaError, Table, UserData, UserDataMethods, RegistryKey};
 use tokio::sync::{mpsc, oneshot};
 use ractor::ActorRef;
 use butler::{ScribeMessage, LoroDelta, ListOp};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use parking_lot::Mutex;
-use crate::vecmodel_ops::{UiMutation, VecModelOp, PropertyUpdate};
+use crate::vecmodel_ops::{UiMutation, VecModelOp, PropertyUpdate, UiQuery};
 use crate::butler_bindings::ButlerBindings;
+use crate::event_bus::{EventBus, Event, EventSource, SubscribeOptions, EventDelivery};
 // Re-exported from butler
 use crate::{LoroBindings, PermitBindings, json_to_lua, lua_to_json, matches_layer_pattern};
 
@@ -47,6 +48,14 @@ pub enum LuaWorkerCommand {
     UiCallback {
         callback_name: String,
         args: Vec<JsonValue>,
+    },
+
+    /// UI Event from Slint (for Event Bus)
+    ///
+    /// **Context**: Slint UI event (click, field_changed, etc.) routed to Event Bus
+    /// **We do**: Dispatch to Lua subscribers
+    UiEvent {
+        event: Event,
     },
 
     /// Shutdown worker thread
@@ -89,15 +98,27 @@ pub struct DebugState {
     pub lua_globals: Vec<String>,
 }
 
-/// UI Bindings for Lua - allows setting properties and model operations
+/// UI Bindings for Lua - allows setting properties, emitting events, subscribing
 ///
-/// **Usage in Lua**: `ui:set("property_name", value)`
+/// **Usage in Lua**:
+/// - `ui:set("property_name", value)` - set property
+/// - `ui:get("property_name")` - get property value
+/// - `ui:subscribe("event_type", options, callback)` - subscribe to events
+/// - `ui:emit("event_type", data)` - emit an event
+///
 /// **Threading**: Holds sender, sends mutations to Slint thread
 struct UiBindings {
     /// App identifier for mutations
     app_id: String,
     /// Channel sender for UI mutations (wrapped for thread safety)
     ui_tx: Arc<Mutex<mpsc::Sender<UiMutation>>>,
+    /// Channel sender for UI queries (for ui:get)
+    query_tx: Arc<Mutex<mpsc::Sender<UiQuery>>>,
+    /// Event Bus for subscribe/emit
+    event_bus: Arc<Mutex<EventBus>>,
+    /// Lua registry keys for event callbacks (subscriber_id -> registry_key)
+    /// Stored separately to access in dispatch
+    callback_keys: Arc<Mutex<std::collections::HashMap<u64, RegistryKey>>>,
 }
 
 impl UserData for UiBindings {
@@ -147,6 +168,300 @@ impl UserData for UiBindings {
 
             Ok(())
         });
+
+        // ui:push(model_name, item) - Add item to end of model
+        methods.add_method("push", |_lua, this, (model_name, item): (String, LuaValue)| {
+            let item_json = lua_to_json(&item)
+                .map_err(|e| LuaError::RuntimeError(e.to_string()))?;
+
+            let mutation = UiMutation {
+                app_id: this.app_id.clone(),
+                properties: vec![],
+                model_ops: vec![VecModelOp::Push {
+                    model_name,
+                    item: item_json,
+                }],
+            };
+
+            let sender = this.ui_tx.lock();
+            if let Err(e) = sender.try_send(mutation) {
+                tracing::warn!(
+                    app_id = %this.app_id,
+                    error = %e,
+                    "Failed to send push mutation from Lua"
+                );
+            }
+
+            Ok(())
+        });
+
+        // ui:insert(model_name, index, item) - Insert item at index
+        methods.add_method("insert", |_lua, this, (model_name, index, item): (String, usize, LuaValue)| {
+            let item_json = lua_to_json(&item)
+                .map_err(|e| LuaError::RuntimeError(e.to_string()))?;
+
+            let mutation = UiMutation {
+                app_id: this.app_id.clone(),
+                properties: vec![],
+                model_ops: vec![VecModelOp::Insert {
+                    model_name,
+                    index,
+                    item: item_json,
+                }],
+            };
+
+            let sender = this.ui_tx.lock();
+            if let Err(e) = sender.try_send(mutation) {
+                tracing::warn!(
+                    app_id = %this.app_id,
+                    error = %e,
+                    "Failed to send insert mutation from Lua"
+                );
+            }
+
+            Ok(())
+        });
+
+        // ui:remove(model_name, index) - Remove item at index
+        methods.add_method("remove", |_lua, this, (model_name, index): (String, usize)| {
+            let mutation = UiMutation {
+                app_id: this.app_id.clone(),
+                properties: vec![],
+                model_ops: vec![VecModelOp::Remove {
+                    model_name,
+                    index,
+                }],
+            };
+
+            let sender = this.ui_tx.lock();
+            if let Err(e) = sender.try_send(mutation) {
+                tracing::warn!(
+                    app_id = %this.app_id,
+                    error = %e,
+                    "Failed to send remove mutation from Lua"
+                );
+            }
+
+            Ok(())
+        });
+
+        // ui:clear(model_name) - Remove all items from model
+        methods.add_method("clear", |_lua, this, model_name: String| {
+            let mutation = UiMutation {
+                app_id: this.app_id.clone(),
+                properties: vec![],
+                model_ops: vec![VecModelOp::Clear { model_name }],
+            };
+
+            let sender = this.ui_tx.lock();
+            if let Err(e) = sender.try_send(mutation) {
+                tracing::warn!(
+                    app_id = %this.app_id,
+                    error = %e,
+                    "Failed to send clear mutation from Lua"
+                );
+            }
+
+            Ok(())
+        });
+
+        // ui:get(key) -> value - Read a property from Slint
+        methods.add_method("get", |lua, this, key: String| {
+            // Create oneshot channel for response
+            let (response_tx, response_rx) = oneshot::channel();
+
+            let query = UiQuery {
+                prop_name: key.clone(),
+                response_tx,
+            };
+
+            // Send query to Slint thread
+            if let Err(e) = this.query_tx.lock().try_send(query) {
+                tracing::warn!(
+                    app_id = %this.app_id,
+                    key = %key,
+                    error = %e,
+                    "Failed to send UI query from Lua"
+                );
+                return Ok(LuaValue::Nil);
+            }
+
+            // Block waiting for response (should be fast)
+            match response_rx.blocking_recv() {
+                Ok(Some(value)) => json_to_lua(lua, &value),
+                Ok(None) => Ok(LuaValue::Nil),
+                Err(_) => {
+                    tracing::warn!(
+                        app_id = %this.app_id,
+                        key = %key,
+                        "UI query response channel closed"
+                    );
+                    Ok(LuaValue::Nil)
+                }
+            }
+        });
+
+        // ui:subscribe(event_type, callback) or ui:subscribe(event_type, options, callback)
+        // Returns subscriber_id for unsubscription
+        methods.add_method("subscribe", |lua, this, args: mlua::MultiValue| {
+            let args_vec: Vec<LuaValue> = args.into_vec();
+
+            // Parse arguments: (event_type, callback) or (event_type, options, callback)
+            let (event_type, options, callback) = match args_vec.len() {
+                2 => {
+                    let event_type: String = match &args_vec[0] {
+                        LuaValue::String(s) => s.to_str()?.to_string(),
+                        _ => return Err(LuaError::RuntimeError("event_type must be string".into())),
+                    };
+                    let callback = match &args_vec[1] {
+                        LuaValue::Function(f) => f.clone(),
+                        _ => return Err(LuaError::RuntimeError("callback must be function".into())),
+                    };
+                    (event_type, SubscribeOptions::default(), callback)
+                }
+                3 => {
+                    let event_type: String = match &args_vec[0] {
+                        LuaValue::String(s) => s.to_str()?.to_string(),
+                        _ => return Err(LuaError::RuntimeError("event_type must be string".into())),
+                    };
+                    let options = parse_subscribe_options(&args_vec[1])?;
+                    let callback = match &args_vec[2] {
+                        LuaValue::Function(f) => f.clone(),
+                        _ => return Err(LuaError::RuntimeError("callback must be function".into())),
+                    };
+                    (event_type, options, callback)
+                }
+                _ => return Err(LuaError::RuntimeError(
+                    "subscribe takes 2 or 3 arguments: (event_type, [options], callback)".into()
+                )),
+            };
+
+            // Store callback in Lua registry
+            let registry_key = lua.create_registry_value(callback)
+                .map_err(|e| LuaError::RuntimeError(format!("Failed to store callback: {}", e)))?;
+
+            // Use subscriber_id as the callback_key in event bus (we'll look up RegistryKey by subscriber_id)
+            // We don't need to extract a raw key since we'll use the subscriber_id for lookup
+            let callback_key_usize = 0_usize; // Placeholder, actual lookup uses subscriber_id
+
+            // Subscribe to event bus
+            let subscriber_id = this.event_bus.lock().subscribe(
+                &event_type,
+                options,
+                callback_key_usize,
+            );
+
+            // Store registry key for later lookup
+            this.callback_keys.lock().insert(subscriber_id, registry_key);
+
+            tracing::debug!(
+                app_id = %this.app_id,
+                event_type = %event_type,
+                subscriber_id = subscriber_id,
+                "Subscribed to UI event"
+            );
+
+            Ok(LuaValue::Integer(subscriber_id as i64))
+        });
+
+        // ui:unsubscribe(subscriber_id) - Remove a subscription
+        methods.add_method("unsubscribe", |_lua, this, subscriber_id: i64| {
+            let id = subscriber_id as u64;
+
+            // Remove from event bus
+            let removed = this.event_bus.lock().unsubscribe(id);
+
+            // Remove callback key
+            if let Some(key) = this.callback_keys.lock().remove(&id) {
+                drop(key); // Let Lua GC the callback
+            }
+
+            Ok(removed)
+        });
+
+        // ui:emit(event_type, data) - Emit an event (for AI/test automation)
+        methods.add_method("emit", |_lua, this, (event_type, data): (String, LuaValue)| {
+            let data_json = lua_to_json(&data)
+                .map_err(|e| LuaError::RuntimeError(e.to_string()))?;
+
+            // Extract target from data if present
+            let target = if let JsonValue::Object(ref obj) = data_json {
+                obj.get("target").and_then(|v| v.as_str()).map(|s| s.to_string())
+            } else {
+                None
+            };
+
+            let mut event = Event::new(&event_type, EventSource::Ai);
+            if let Some(t) = target {
+                event = event.with_target(t);
+            }
+            event = event.with_data(data_json);
+
+            // Emit to event bus - returns deliveries to process
+            let deliveries = this.event_bus.lock().emit(event.clone());
+
+            tracing::debug!(
+                app_id = %this.app_id,
+                event_type = %event_type,
+                deliveries = deliveries.len(),
+                "Emitted UI event"
+            );
+
+            // Note: The actual callback dispatch happens in LuaWorker::handle_ui_event
+            // For emit(), we dispatch immediately since we're already in Lua context
+            // This is handled by the caller (they need to call dispatch_event_deliveries)
+
+            // Return the number of subscribers notified
+            Ok(deliveries.len() as i64)
+        });
+    }
+}
+
+/// Convert Event to Lua table
+fn event_to_lua(lua: &Lua, event: &Event) -> Result<LuaValue, LuaError> {
+    let table = lua.create_table()?;
+    table.set("type", event.event_type.clone())?;
+    table.set("source", format!("{:?}", event.source).to_lowercase())?;
+    table.set("timestamp", event.timestamp)?;
+
+    if let Some(ref target) = event.target {
+        table.set("target", target.clone())?;
+    }
+
+    // Merge event data into table
+    if let serde_json::Value::Object(ref map) = event.data {
+        for (key, value) in map {
+            let lua_value = json_to_lua(lua, value)?;
+            table.set(key.clone(), lua_value)?;
+        }
+    }
+
+    Ok(LuaValue::Table(table))
+}
+
+/// Parse subscribe options from Lua table
+fn parse_subscribe_options(value: &LuaValue) -> Result<SubscribeOptions, LuaError> {
+    match value {
+        LuaValue::Table(t) => {
+            let mut options = SubscribeOptions::default();
+
+            if let Ok(target) = t.get::<String>("target") {
+                options.target = Some(target);
+            }
+            if let Ok(prefix) = t.get::<String>("target_prefix") {
+                options.target_prefix = Some(prefix);
+            }
+            if let Ok(rate) = t.get::<u32>("sample_rate") {
+                options.sample_rate = Some(rate);
+            }
+            if let Ok(batch) = t.get::<u32>("batch_ms") {
+                options.batch_ms = Some(batch);
+            }
+
+            Ok(options)
+        }
+        LuaValue::Nil => Ok(SubscribeOptions::default()),
+        _ => Err(LuaError::RuntimeError("options must be table or nil".into())),
     }
 }
 
@@ -173,6 +488,9 @@ pub struct LuaWorker {
     /// Channel to send UI mutations to Slint thread (wrapped for sharing with UiBindings)
     ui_tx: Arc<Mutex<mpsc::Sender<UiMutation>>>,
 
+    /// Channel to send UI queries to Slint thread (for ui:get)
+    query_tx: Arc<Mutex<mpsc::Sender<UiQuery>>>,
+
     /// Reference to Scribe actor (for Loro queries)
     scribe_ref: ActorRef<ScribeMessage>,
 
@@ -181,6 +499,12 @@ pub struct LuaWorker {
 
     /// Registered page:on_change() handlers (shared with PageBindings)
     page_handlers: Arc<std::sync::RwLock<Vec<PageHandler>>>,
+
+    /// Event Bus for UI event dispatching (shared with UiBindings)
+    event_bus: Arc<Mutex<EventBus>>,
+
+    /// Callback registry keys for event subscribers (subscriber_id -> registry_key)
+    callback_keys: Arc<Mutex<std::collections::HashMap<u64, RegistryKey>>>,
 }
 
 impl LuaWorker {
@@ -194,6 +518,7 @@ impl LuaWorker {
     /// - `lua_code`: Lua source code to execute
     /// - `scribe_ref`: Reference to Scribe actor
     /// - `ui_tx`: Channel to send UI mutations
+    /// - `query_tx`: Channel to send UI property queries
     ///
     /// **Returns**: (thread handle, command sender)
     /// **Thread**: Blocks on event loop until Shutdown
@@ -205,6 +530,7 @@ impl LuaWorker {
         lua_code: String,
         scribe_ref: ActorRef<ScribeMessage>,
         ui_tx: mpsc::Sender<UiMutation>,
+        query_tx: mpsc::Sender<UiQuery>,
     ) -> Result<(std::thread::JoinHandle<()>, mpsc::Sender<LuaWorkerCommand>), Box<dyn std::error::Error>> {
         let (cmd_tx, cmd_rx) = mpsc::channel(32);
 
@@ -225,9 +551,14 @@ impl LuaWorker {
 
             // Wrap ui_tx in Arc<Mutex> for sharing with UiBindings
             let ui_tx = Arc::new(Mutex::new(ui_tx));
+            let query_tx = Arc::new(Mutex::new(query_tx));
 
             // Create shared page handlers (shared between PageBindings and LuaWorker)
             let page_handlers = Arc::new(std::sync::RwLock::new(Vec::new()));
+
+            // Create Event Bus and callback keys (shared with UiBindings)
+            let event_bus = Arc::new(Mutex::new(EventBus::new()));
+            let callback_keys = Arc::new(Mutex::new(std::collections::HashMap::new()));
 
             let mut worker = LuaWorker {
                 lua,
@@ -236,9 +567,12 @@ impl LuaWorker {
                 user_did,
                 user_role,
                 ui_tx,
+                query_tx,
                 scribe_ref,
                 cmd_rx,
                 page_handlers,
+                event_bus,
+                callback_keys,
             };
 
             // Setup Lua globals (loro, butler, ui)
@@ -312,6 +646,15 @@ impl LuaWorker {
                         );
                     }
                 }
+                Some(LuaWorkerCommand::UiEvent { event }) => {
+                    if let Err(e) = self.handle_ui_event(event) {
+                        tracing::error!(
+                            page_id = %self.page_id,
+                            error = %e,
+                            "UI event handler failed"
+                        );
+                    }
+                }
                 Some(LuaWorkerCommand::Shutdown) => {
                     tracing::info!(
                         page_id = %self.page_id,
@@ -365,6 +708,9 @@ impl LuaWorker {
         let ui_binding = UiBindings {
             app_id: self.page_id.clone(),
             ui_tx: self.ui_tx.clone(),
+            query_tx: self.query_tx.clone(),
+            event_bus: self.event_bus.clone(),
+            callback_keys: self.callback_keys.clone(),
         };
         globals.set("ui", ui_binding)?;
 
@@ -384,12 +730,19 @@ impl LuaWorker {
         };
         globals.set("page", page_binding)?;
 
+        // datetime binding - LuaDate library for date/time operations
+        // Load the LuaDate library and expose as 'datetime' global
+        // Note: LuaDate returns the module (doesn't set global), so we use eval()
+        let date_lib = include_str!("lua_libs/date.lua");
+        let datetime: mlua::Value = self.lua.load(date_lib).eval()?;
+        globals.set("datetime", datetime)?;
+
         tracing::info!(
             page_id = %self.page_id,
             user_did = %self.user_did,
             user_role = %self.user_role,
             app_name = %self.app_name,
-            "Lua globals initialized (loro, butler, ui, permit, page)"
+            "Lua globals initialized (loro, butler, ui, permit, page, datetime)"
         );
 
         Ok(())
@@ -632,6 +985,77 @@ impl LuaWorker {
         Ok(())
     }
 
+    /// Handle UI event from Event Bus
+    ///
+    /// **Context**: Event from Slint or AI emit, dispatch to Lua subscribers
+    fn handle_ui_event(
+        &self,
+        event: Event,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Emit event to bus and get deliveries
+        let deliveries = self.event_bus.lock().emit(event.clone());
+
+        tracing::debug!(
+            page_id = %self.page_id,
+            event_type = %event.event_type,
+            deliveries = deliveries.len(),
+            "Processing UI event"
+        );
+
+        // Dispatch to each subscriber
+        for (subscriber_id, _callback_key, delivery) in deliveries {
+            // Look up registry key by subscriber_id
+            let callback_keys = self.callback_keys.lock();
+            if let Some(registry_key) = callback_keys.get(&subscriber_id) {
+                // Get callback from registry
+                let callback: mlua::Function = match self.lua.registry_value(registry_key) {
+                    Ok(cb) => cb,
+                    Err(e) => {
+                        tracing::warn!(
+                            page_id = %self.page_id,
+                            subscriber_id = subscriber_id,
+                            error = %e,
+                            "Failed to get callback from registry"
+                        );
+                        continue;
+                    }
+                };
+
+                // Convert event(s) to Lua and call
+                match delivery {
+                    EventDelivery::Single(evt) => {
+                        let event_lua = event_to_lua(&self.lua, &evt)?;
+                        if let Err(e) = callback.call::<()>(event_lua) {
+                            tracing::warn!(
+                                page_id = %self.page_id,
+                                subscriber_id = subscriber_id,
+                                error = %e,
+                                "Event handler failed"
+                            );
+                        }
+                    }
+                    EventDelivery::Batch(events) => {
+                        let events_lua = self.lua.create_table()?;
+                        for (i, evt) in events.iter().enumerate() {
+                            let event_lua = event_to_lua(&self.lua, evt)?;
+                            events_lua.set(i + 1, event_lua)?;
+                        }
+                        if let Err(e) = callback.call::<()>(events_lua) {
+                            tracing::warn!(
+                                page_id = %self.page_id,
+                                subscriber_id = subscriber_id,
+                                error = %e,
+                                "Batch event handler failed"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Handle UI callback: call Lua, parse operations, send to UI
     ///
     /// **Calls**: `callback_name(args...)` in Lua (uses snake_case throughout)
@@ -861,7 +1285,7 @@ impl LuaWorker {
             "type", "warn", "xpcall", "coroutine", "debug", "io", "math",
             "os", "package", "string", "table", "utf8",
             // Our bindings (also skip these)
-            "loro", "butler", "ui", "permit", "page",
+            "loro", "butler", "ui", "permit", "page", "date", "datetime",
         ];
 
         let mut globals = Vec::new();

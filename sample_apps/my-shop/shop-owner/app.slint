@@ -57,19 +57,32 @@ export global AppAPI {
     in-out property<[Product]> products: [];
     in-out property<[Order]> orders: [];
 
-    // Callbacks (Lua implements these via set_global_callback)
-    callback add_product(string, string, string, string);
+    // Form state (exposed to Lua for AI automation)
+    in-out property<string> form_product_name: "";
+    in-out property<string> form_product_price: "";
+    in-out property<string> form_product_desc: "";
+    in-out property<string> form_product_stock: "";
+    in-out property<bool> form_modal_visible: false;
+    in-out property<int> current_tab: 0;
+
+    // Callbacks
     callback update_order_status(string, string, string);
+
+    // Event Bus callbacks (unified event flow for human/AI)
+    callback on_click(string);                           // target element ID
+    callback on_field_changed(string, string);           // field name, new value
+    callback on_modal_action(string, string);            // modal name, action (open/close/submit)
 }
 
 export component App inherits Rectangle {
-    // Local form state (not exposed to Lua)
-    property<string> new-product-name: "";
-    property<string> new-product-price: "";
-    property<string> new-product-desc: "";
-    property<string> new-product-stock: "";
-    property<int> current-tab: 0;
-    property<bool> show-add-modal: false;
+    // Bind to AppAPI form state (exposed to Lua for AI automation)
+    // Two-way binding allows both UI and Lua to modify
+    property<string> new-product-name <=> AppAPI.form_product_name;
+    property<string> new-product-price <=> AppAPI.form_product_price;
+    property<string> new-product-desc <=> AppAPI.form_product_desc;
+    property<string> new-product-stock <=> AppAPI.form_product_stock;
+    property<int> current-tab <=> AppAPI.current_tab;
+    property<bool> show-add-modal <=> AppAPI.form_modal_visible;
 
     background: Theme.bg-primary;
 
@@ -173,7 +186,10 @@ export component App inherits Rectangle {
                     }
 
                     TouchArea {
-                        clicked => { show-add-modal = true; }
+                        clicked => {
+                            show-add-modal = true;
+                            AppAPI.on_modal_action("add_product", "open");
+                        }
                     }
                 }
             }
@@ -481,6 +497,7 @@ export component App inherits Rectangle {
                             vertical-alignment: center;
                             x: 12px;
                             width: parent.width - 24px;
+                            edited => { AppAPI.on_field_changed("product_name", self.text); }
                         }
 
                         if new-product-name == "": Text {
@@ -521,6 +538,7 @@ export component App inherits Rectangle {
                                 vertical-alignment: center;
                                 x: 12px;
                                 width: parent.width - 24px;
+                                edited => { AppAPI.on_field_changed("product_price", self.text); }
                             }
 
                             if new-product-price == "": Text {
@@ -557,6 +575,7 @@ export component App inherits Rectangle {
                                 vertical-alignment: center;
                                 x: 12px;
                                 width: parent.width - 24px;
+                                edited => { AppAPI.on_field_changed("product_stock", self.text); }
                             }
 
                             if new-product-stock == "": Text {
@@ -594,6 +613,7 @@ export component App inherits Rectangle {
                             vertical-alignment: center;
                             x: 12px;
                             width: parent.width - 24px;
+                            edited => { AppAPI.on_field_changed("product_desc", self.text); }
                         }
 
                         if new-product-desc == "": Text {
@@ -630,11 +650,7 @@ export component App inherits Rectangle {
 
                         cancel-area := TouchArea {
                             clicked => {
-                                new-product-name = "";
-                                new-product-price = "";
-                                new-product-desc = "";
-                                new-product-stock = "";
-                                show-add-modal = false;
+                                AppAPI.on_modal_action("add_product", "cancel");
                             }
                         }
                     }
@@ -656,12 +672,8 @@ export component App inherits Rectangle {
 
                         TouchArea {
                             clicked => {
-                                AppAPI.add_product(new-product-name, new-product-price, new-product-desc, new-product-stock);
-                                new-product-name = "";
-                                new-product-price = "";
-                                new-product-desc = "";
-                                new-product-stock = "";
-                                show-add-modal = false;
+                                // Emit event for Event Bus pattern
+                                AppAPI.on_modal_action("add_product", "submit");
                             }
                         }
                     }

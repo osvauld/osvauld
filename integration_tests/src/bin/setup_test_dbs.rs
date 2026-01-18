@@ -158,12 +158,12 @@ async fn main() -> anyhow::Result<()> {
     owner_runtime.call_no_args::<()>("on_init")
         .map_err(|e| anyhow::anyhow!("Failed to call on_init: {}", e))?;
 
-    // Add products using call_with_args
-    owner_runtime.call_with_args::<_, ()>("add_product", ("Widget", 29.99, "A useful widget", 100))
+    // Add products using add_product_via_ui (Event Bus pattern)
+    owner_runtime.call_with_args::<_, ()>("add_product_via_ui", ("Widget", 29.99, "A useful widget", 100))
         .map_err(|e| anyhow::anyhow!("Failed to add product 1: {}", e))?;
-    owner_runtime.call_with_args::<_, ()>("add_product", ("Gadget", 49.99, "A cool gadget", 50))
+    owner_runtime.call_with_args::<_, ()>("add_product_via_ui", ("Gadget", 49.99, "A cool gadget", 50))
         .map_err(|e| anyhow::anyhow!("Failed to add product 2: {}", e))?;
-    owner_runtime.call_with_args::<_, ()>("add_product", ("Gizmo", 19.99, "A handy gizmo", 200))
+    owner_runtime.call_with_args::<_, ()>("add_product_via_ui", ("Gizmo", 19.99, "A handy gizmo", 200))
         .map_err(|e| anyhow::anyhow!("Failed to add product 3: {}", e))?;
 
     let product_count: i32 = owner_runtime.call_no_args("get_products_count")

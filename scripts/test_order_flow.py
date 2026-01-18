@@ -283,10 +283,10 @@ def main():
         # Add products if none exist
         count = owner.eval("return get_products_count()")
         if count == 0:
-            print_step("Adding products...")
-            owner.eval('add_product("Widget", 29.99, "A useful widget", 100)')
-            owner.eval('add_product("Gadget", 49.99, "A cool gadget", 50)')
-            owner.eval('add_product("Gizmo", 19.99, "A handy gizmo", 200)')
+            print_step("Adding products via UI...")
+            owner.eval('add_product_via_ui("Widget", 29.99, "A useful widget", 100)')
+            owner.eval('add_product_via_ui("Gadget", 49.99, "A cool gadget", 50)')
+            owner.eval('add_product_via_ui("Gizmo", 19.99, "A handy gizmo", 200)')
             count = owner.eval("return get_products_count()")
             # Wait for sync
             print_step(f"Waiting {SYNC_TIMEOUT}s for products to sync...")
@@ -384,26 +384,14 @@ def main():
             # ============================================================
             print_header("CUSTOMER: PLACING ORDER")
 
-            # Select product first
-            print_step("Selecting product...")
-            customer.eval(f'select_product("{product["id"]}", "{product["name"]}", {product["price"]})')
-
-            # Create draft order
-            print_step("Creating order...")
-            customer.eval(f'create_order("{product["id"]}", 2, "Test order", "123 Test St")')
-            print_ok("Draft order created")
-
-            drafts = customer.eval("return get_drafts_count()")
-            print_info(f"Customer drafts: {drafts}")
+            # Place order via UI (same code path as human)
+            print_step("Placing order via UI...")
+            customer.eval(f'place_order_via_ui("{product["id"]}", 2, "Test order", "123 Test St")')
+            print_ok("Order placed via UI")
 
             # Get order ID
             order_id = customer.eval("return get_last_order_id()")
             print_info(f"Order ID: {order_id}")
-
-            # Submit order
-            print_step("Submitting order...")
-            customer.eval(f'submit_order("{order_id}")')
-            print_ok("Order submitted")
 
             # Verify order moved to synced
             synced_orders = customer.eval("return get_orders_count()")

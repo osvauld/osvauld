@@ -8,7 +8,6 @@ use butler::models::Space;
 use butler::Butler;
 use slint::ComponentHandle;
 
-use crate::templates::SPACE_TEMPLATE;
 use crate::Shell;
 
 /// Sort options for spaces list
@@ -54,6 +53,7 @@ pub fn register(shell: &Shell, butler: Arc<Butler>) {
     register_create_space(shell, butler.clone());
     register_select_space(shell, butler.clone());
     register_delete_space(shell);
+    register_pick_space_template_folder(shell);
 }
 
 fn register_request_spaces(shell: &Shell, butler: Arc<Butler>) {
@@ -83,17 +83,25 @@ fn register_request_spaces(shell: &Shell, butler: Arc<Butler>) {
 fn register_create_space(shell: &Shell, butler: Arc<Butler>) {
     let shell_weak = shell.as_weak();
     let butler_create = butler.clone();
-    shell.on_create_space(move |name| {
-        println!("Creating space: {}", name);
+    shell.on_create_space(move |name, template_path| {
+        println!("Creating space: {} from {}", name, template_path);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let butler_inner = butler_create.clone();
         let name_str = name.to_string();
+        let template_path_str = template_path.to_string();
 
         let result = rt.block_on(async {
+            // Read space_permit_template.json from app folder
+            let template_file = std::path::Path::new(&template_path_str).join("space_permit_template.json");
+            let permit_template = std::fs::read_to_string(&template_file)
+                .map_err(|e| butler::error::ButlerError::Storage(
+                    format!("Failed to read space_permit_template.json from {}: {}", template_path_str, e)
+                ))?;
+
             let user_info = butler_inner.user_info().await?;
             butler_inner
-                .create_space(name_str, user_info.did, SPACE_TEMPLATE)
+                .create_space(name_str, user_info.did, &permit_template)
                 .await
         });
 
@@ -138,5 +146,20 @@ fn register_delete_space(shell: &Shell) {
     shell.on_delete_space(|space_id| {
         println!("Delete space: {}", space_id);
         // TODO: Implement space deletion
+    });
+}
+
+fn register_pick_space_template_folder(shell: &Shell) {
+    let shell_weak = shell.as_weak();
+    shell.on_pick_space_template_folder(move || {
+        let folder = rfd::FileDialog::new()
+            .set_title("Select App Folder")
+            .pick_folder();
+
+        if let Some(folder_path) = folder {
+            if let Some(shell) = shell_weak.upgrade() {
+                shell.set_space_template_path(folder_path.to_string_lossy().to_string().into());
+            }
+        }
     });
 }

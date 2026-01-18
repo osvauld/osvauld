@@ -318,10 +318,10 @@ def main():
                     print_info(f"Current products: {count}")
 
                     if count == 0:
-                        print_step("Adding initial products...")
-                        owner.eval('add_product("Widget", 29.99, "A useful widget", 100)')
-                        owner.eval('add_product("Gadget", 49.99, "A cool gadget", 50)')
-                        owner.eval('add_product("Gizmo", 19.99, "A handy gizmo", 200)')
+                        print_step("Adding initial products via UI...")
+                        owner.eval('add_product_via_ui("Widget", 29.99, "A useful widget", 100)')
+                        owner.eval('add_product_via_ui("Gadget", 49.99, "A cool gadget", 50)')
+                        owner.eval('add_product_via_ui("Gizmo", 19.99, "A handy gizmo", 200)')
                         count = owner.eval("return get_products_count()")
                         print_ok(f"Added products (total: {count})")
                 except Exception as e:
@@ -405,8 +405,8 @@ def main():
 
   TRY THESE COMMANDS:
 
-  # Add more products (owner)
-  ./scripts/dc {DB_DIR}/owner.sock eval 'add_product("New Item", 99.99, "Brand new", 10)'
+  # Add more products (owner - via UI automation)
+  ./scripts/dc {DB_DIR}/owner.sock eval 'add_product_via_ui("New Item", 99.99, "Brand new", 10)'
 
   # Check product count (owner)
   ./scripts/dc {DB_DIR}/owner.sock eval 'return get_products_count()'

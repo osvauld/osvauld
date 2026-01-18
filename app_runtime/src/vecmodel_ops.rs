@@ -84,6 +84,18 @@ pub struct PropertyUpdate {
     pub value: JsonValue,
 }
 
+/// Query for reading UI property values (Lua → Slint → Lua)
+///
+/// **Usage**: Lua calls ui:get("property_name"), blocks for response
+/// **Threading**: Sent via channel, response via oneshot
+#[derive(Debug)]
+pub struct UiQuery {
+    /// Property name to read
+    pub prop_name: String,
+    /// Response channel (Slint sends value back)
+    pub response_tx: tokio::sync::oneshot::Sender<Option<JsonValue>>,
+}
+
 impl UiMutation {
     /// Create empty mutation (no-op)
     pub fn empty(app_id: String) -> Self {

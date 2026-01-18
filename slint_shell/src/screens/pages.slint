@@ -16,39 +16,39 @@ export component PageView {
     callback reload-page();           // Reload all apps from filesystem
 
     // Responsive grid properties for apps
-    property<length> app-card-width: 10rem;      // ~160px at default font
-    property<length> app-card-spacing: 1rem;     // ~16px responsive
-    property<length> padding-horizontal: 4rem;   // ~64px
+    property<length> app-card-width: Theme.is-mobile ? 8rem : 10rem;     // ~128px mobile, ~160px desktop
+    property<length> app-card-spacing: Theme.is-mobile ? 0.75rem : 1rem;
+    property<length> padding-horizontal: Theme.page-padding-h * 2;
     property<length> available-width: root.width - padding-horizontal;
     property<int> app-columns: max(1, floor(available-width / (app-card-width + app-card-spacing)));
 
     VerticalLayout {
-        padding-top: 1rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
+        padding-top: Theme.is-mobile ? 12px : 1rem;
+        padding-left: Theme.page-padding-h;
+        padding-right: Theme.page-padding-h;
         padding-bottom: 2rem;
-        spacing: 1rem;
+        spacing: Theme.is-mobile ? 12px : 1rem;
 
         // Header with back button
         HorizontalLayout {
-            spacing: 16px;
+            spacing: Theme.is-mobile ? 8px : 16px;
             alignment: space-between;
 
             // Left side: Back button + Page name
             HorizontalLayout {
-                spacing: 16px;
+                spacing: Theme.is-mobile ? 8px : 16px;
 
                 // Back button
                 Rectangle {
-                    width: 40px;
-                    height: 40px;
+                    width: Theme.touch-target-min;
+                    height: Theme.touch-target-min;
                     border-radius: 8px;
                     background: back-area.has-hover ? Theme.cancel-background : transparent;
 
                     Text {
                         text: "\u{2190}";
                         color: back-area.has-hover ? Theme.quarzo-white : Theme.text-passive;
-                        font-size: 24px;
+                        font-size: Theme.is-mobile ? 20px : 24px;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
@@ -62,7 +62,7 @@ export component PageView {
                 Text {
                     text: page-name;
                     color: Theme.quarzo-white;
-                    font-size: 28px;
+                    font-size: Theme.font-h1;
                     font-weight: 600;
                     vertical-alignment: center;
                 }

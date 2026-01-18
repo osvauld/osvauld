@@ -56,7 +56,7 @@ export global AppAPI {
     in-out property<[Product]> products: [];
     in-out property<[Order]> my_orders: [];  // LIST of orders
 
-    // Form state (exposed to Lua for debug socket control)
+    // Form state (exposed to Lua for AI automation)
     in-out property<string> selected_product_id: "";
     in-out property<string> selected_product_name: "";
     in-out property<float> selected_product_price: 0;
@@ -65,11 +65,10 @@ export global AppAPI {
     in-out property<string> order_address: "";
     in-out property<int> current_view: 0;  // 0=products, 1=orders
 
-    // Callbacks (Lua implements these via set_global_callback)
-    callback select_product(string, string, float);
-    callback create_order(string, string, string, string);
-    callback submit_order(string);  // Takes order_id
-    callback cancel_order(string);  // Takes order_id
+    // Event Bus callbacks (unified event flow for human/AI)
+    callback on_click(string);                           // target element ID
+    callback on_field_changed(string, string);           // field name, new value
+    callback on_modal_action(string, string);            // modal name, action (open/close/submit)
 }
 
 export component App inherits Rectangle {
@@ -230,6 +229,7 @@ export component App inherits Rectangle {
                                 vertical-alignment: center;
                                 x: 4px;
                                 width: parent.width - 8px;
+                                edited => { AppAPI.on_field_changed("order_quantity", self.text); }
                             }
                         }
 
@@ -259,6 +259,7 @@ export component App inherits Rectangle {
                                 vertical-alignment: center;
                                 x: 8px;
                                 width: parent.width - 16px;
+                                edited => { AppAPI.on_field_changed("order_address", self.text); }
                             }
 
                             if AppAPI.order_address == "": Text {
@@ -299,6 +300,7 @@ export component App inherits Rectangle {
                                     vertical-alignment: center;
                                     x: 8px;
                                     width: parent.width - 16px;
+                                    edited => { AppAPI.on_field_changed("order_notes", self.text); }
                                 }
 
                                 if AppAPI.order_notes == "": Text {
@@ -329,14 +331,7 @@ export component App inherits Rectangle {
 
                             TouchArea {
                                 clicked => {
-                                    AppAPI.create_order(AppAPI.selected_product_id, AppAPI.order_quantity, AppAPI.order_notes, AppAPI.order_address);
-                                    AppAPI.selected_product_id = "";
-                                    AppAPI.selected_product_name = "";
-                                    AppAPI.selected_product_price = 0;
-                                    AppAPI.order_quantity = "1";
-                                    AppAPI.order_notes = "";
-                                    AppAPI.order_address = "";
-                                    AppAPI.current_view = 1;
+                                    AppAPI.on_modal_action("order", "submit");
                                 }
                             }
                         }
@@ -412,10 +407,12 @@ export component App inherits Rectangle {
                                 TouchArea {
                                     clicked => {
                                         if product.stock > 0 {
-                                            AppAPI.select_product(product.id, product.name, product.price);
+                                            // Set UI state directly (two-way binding)
                                             AppAPI.selected_product_id = product.id;
                                             AppAPI.selected_product_name = product.name;
                                             AppAPI.selected_product_price = product.price;
+                                            // Notify Lua of click
+                                            AppAPI.on_click("select_product:" + product.id);
                                         }
                                     }
                                 }
@@ -549,7 +546,7 @@ export component App inherits Rectangle {
                                     }
 
                                     TouchArea {
-                                        clicked => { AppAPI.submit_order(order.id); }
+                                        clicked => { AppAPI.on_click("submit_order:" + order.id); }
                                     }
                                 }
 
@@ -569,7 +566,7 @@ export component App inherits Rectangle {
                                     }
 
                                     TouchArea {
-                                        clicked => { AppAPI.cancel_order(order.id); }
+                                        clicked => { AppAPI.on_click("cancel_order:" + order.id); }
                                     }
                                 }
 
@@ -590,7 +587,7 @@ export component App inherits Rectangle {
                                     }
 
                                     TouchArea {
-                                        clicked => { AppAPI.cancel_order(order.id); }
+                                        clicked => { AppAPI.on_click("cancel_order:" + order.id); }
                                     }
                                 }
 

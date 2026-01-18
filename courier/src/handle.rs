@@ -4,6 +4,7 @@
 //! and expose a simpler async API for the Tauri handlers.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use ractor::{Actor, ActorRef};
 use tokio::sync::{mpsc, oneshot};
@@ -137,19 +138,30 @@ impl CourierHandle {
     }
 
     /// Get shareable link for a space
-    pub async fn get_shareable_link(&self, space_id: &str, node_id: &str) -> Result<(), String> {
+    ///
+    /// **Context**: Request node to generate viewer permit with aud:* (wildcard audience)
+    /// **Returns**: Connection string containing node_id and viewer permit
+    pub async fn get_shareable_link(&self, space_id: &str, node_id: &str) -> Result<String, String> {
         let node_id: NodeId = node_id
             .parse()
             .map_err(|e| format!("Invalid node_id: {}", e))?;
+
+        let (tx, rx) = oneshot::channel();
 
         self.coordinator
             .cast(CoordinatorMessage::GetShareableLink {
                 node_id,
                 space_id: space_id.to_string(),
+                response: Some(tx),
             })
             .map_err(|e| format!("Failed to send GetShareableLink: {:?}", e))?;
 
-        Ok(())
+        // Wait for response with timeout
+        match tokio::time::timeout(Duration::from_secs(10), rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err("Response channel closed".to_string()),
+            Err(_) => Err("Timeout waiting for shareable link".to_string()),
+        }
     }
 
     /// Request space as viewer

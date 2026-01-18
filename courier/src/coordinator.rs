@@ -115,6 +115,8 @@ pub enum CoordinatorMessage {
     GetShareableLink {
         node_id: NodeId,
         space_id: String,
+        /// Optional response channel - if present, response is sent directly to caller
+        response: Option<oneshot::Sender<Result<String, String>>>,
     },
 
     /// Shareable link response (from PeerActor)
@@ -238,6 +240,8 @@ pub struct CoordinatorState {
     /// Permits for pending outbound connections
     /// Used by connect_and_wait_for_auth to pass permit to on_connected
     pending_permits: HashMap<NodeId, String>,
+    /// Pending shareable link requests awaiting response from node
+    pending_link_requests: HashMap<(NodeId, String), oneshot::Sender<Result<String, String>>>,
     /// Channel to emit events to app layer (protocol-agnostic)
     event_tx: Option<mpsc::Sender<CourierEvent>>,
     /// Channel to request connections (handled by CourierRunner)
@@ -328,6 +332,7 @@ impl Actor for Coordinator {
             pending_connections: HashSet::new(),
             auth_waiters: HashMap::new(),
             pending_permits: HashMap::new(),
+            pending_link_requests: HashMap::new(),
             event_tx,
             connect_tx,
         })
@@ -452,8 +457,8 @@ impl Actor for Coordinator {
                 info!("Page {} published to node {}", page_id, node_id);
             }
 
-            CoordinatorMessage::GetShareableLink { node_id, space_id } => {
-                self.on_get_shareable_link(node_id, space_id, state).await;
+            CoordinatorMessage::GetShareableLink { node_id, space_id, response } => {
+                self.on_get_shareable_link(node_id, space_id, response, state).await;
             }
 
             CoordinatorMessage::ShareableLinkReceived { node_id, space_id, permit } => {
@@ -461,6 +466,14 @@ impl Actor for Coordinator {
                     "Shareable link received for space {} from node {} (permit len: {})",
                     space_id, node_id, permit.len()
                 );
+
+                // Check for pending request and send response
+                if let Some(tx) = state.pending_link_requests.remove(&(node_id, space_id.clone())) {
+                    info!("Sending shareable link response to pending request");
+                    let _ = tx.send(Ok(permit.clone()));
+                }
+
+                // Also emit event for other listeners (UI)
                 Self::emit_event(state, CourierEvent::ShareableLinkReceived {
                     node_id: node_id.to_string(),
                     space_id,
@@ -825,28 +838,43 @@ impl Coordinator {
     ///
     /// **Context**: Owner wants to share a space with a viewer
     /// **We do**: Send GetShareableLink to PeerActor, which forwards to node
+    /// **Response**: If response channel provided, store for later notification
     async fn on_get_shareable_link(
         &self,
         node_id: NodeId,
         space_id: String,
+        response: Option<oneshot::Sender<Result<String, String>>>,
         state: &mut CoordinatorState,
     ) {
         if state.mode != CourierMode::User {
             warn!("GetShareableLink called in Node mode - ignoring");
+            if let Some(tx) = response {
+                let _ = tx.send(Err("GetShareableLink not supported in Node mode".to_string()));
+            }
             return;
         }
 
         // Verify peer is authenticated
         if !state.authenticated_peers.contains_key(&node_id) {
             warn!("Cannot request shareable link from unauthenticated peer: {}", node_id);
+            if let Some(tx) = response {
+                let _ = tx.send(Err(format!("Peer {} not authenticated", node_id)));
+            }
             return;
         }
 
         if let Some(peer_actor) = state.peer_actors.get(&node_id) {
+            // Store response channel if provided
+            if let Some(tx) = response {
+                state.pending_link_requests.insert((node_id, space_id.clone()), tx);
+            }
             let _ = peer_actor.cast(PeerMessage::GetShareableLink { space_id: space_id.clone() });
             info!("Sent GetShareableLink command to PeerActor for {}", node_id);
         } else {
             warn!("No PeerActor for {} - cannot request shareable link", node_id);
+            if let Some(tx) = response {
+                let _ = tx.send(Err(format!("No PeerActor for {}", node_id)));
+            }
         }
     }
 

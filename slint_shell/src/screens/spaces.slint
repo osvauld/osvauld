@@ -11,6 +11,7 @@ import { SortDropdown } from "../components/dropdown.slint";
 export component SpacesDashboard {
     in property<[SpaceInfo]> spaces: [];
     in-out property<string> new-space-name: "";
+    in-out property<string> new-space-template-path: "";  // App folder path
     in-out property<bool> show-create-form: false;
 
     // Add Website modal state
@@ -21,15 +22,16 @@ export component SpacesDashboard {
     in-out property<int> sort-option: 0;  // Default: Name A-Z
 
     callback request-spaces(int);       // Called to load/refresh spaces with sort option
-    callback create-space(string);
+    callback create-space(string, string);  // name, template_path
     callback select-space(string);
     callback navigate-to-nodes();
     callback add-website(string);       // connection_string
+    callback pick-space-template-folder();  // Opens folder picker for app template
 
     // Responsive grid properties
-    property<length> card-width: 12.5rem;     // ~200px at default font
-    property<length> card-spacing: 1rem;      // ~16px responsive
-    property<length> padding-horizontal: 4rem; // ~64px
+    property<length> card-width: Theme.is-mobile ? 9rem : 12.5rem;     // ~144px mobile, ~200px desktop
+    property<length> card-spacing: Theme.is-mobile ? 0.75rem : 1rem;   // ~12px mobile, ~16px desktop
+    property<length> padding-horizontal: Theme.page-padding-h * 2;
     property<length> available-width: root.width - padding-horizontal;
     property<int> columns: max(1, floor(available-width / (card-width + card-spacing)));
 
@@ -37,27 +39,112 @@ export component SpacesDashboard {
     init => { request-spaces(sort-option); }
 
     VerticalLayout {
-        padding-top: 1rem;      // Minimal top padding
-        padding-left: 1rem;     // Minimal left padding
-        padding-right: 1rem;
+        padding-top: Theme.is-mobile ? 12px : 1rem;
+        padding-left: Theme.page-padding-h;
+        padding-right: Theme.page-padding-h;
         padding-bottom: 2rem;
-        spacing: 1rem;          // Reduce from 24px
+        spacing: Theme.is-mobile ? 12px : 1rem;
 
-        // Header
-        HorizontalLayout {
-            spacing: 16px;
-            alignment: space-between;
+        // Header - stacks vertically on mobile
+        VerticalLayout {
+            spacing: Theme.is-mobile ? 8px : 0px;
 
-            Text {
-                text: "Your Spaces";
-                color: Theme.quarzo-white;
-                font-size: 28px;
-                font-weight: 600;
+            HorizontalLayout {
+                spacing: Theme.is-mobile ? 8px : 16px;
+                alignment: space-between;
+
+                Text {
+                    text: "Your Spaces";
+                    color: Theme.quarzo-white;
+                    font-size: Theme.font-h1;
+                    font-weight: 600;
+                }
+
+                // Desktop: all buttons in header row
+                if !Theme.is-mobile: HorizontalLayout {
+                    spacing: 12px;
+
+                    // Sort dropdown
+                    SortDropdown {
+                        selected-index <=> sort-option;
+                        selection-changed(idx) => {
+                            sort-option = idx;
+                            request-spaces(idx);
+                        }
+                    }
+
+                    // Add Website button
+                    Rectangle {
+                        width: 110px;
+                        height: 36px;
+                        border-radius: 6px;
+                        background: add-website-btn.has-hover ? Theme.active-border : Theme.livnote-lavender;
+
+                        Text {
+                            text: "Add Website";
+                            color: Theme.ninja-black;
+                            font-size: 13px;
+                            font-weight: 500;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        add-website-btn := TouchArea {
+                            accessible-role: button;
+                            accessible-label: "add-website-button";
+                            clicked => { show-add-website-modal = true; }
+                        }
+                    }
+
+                    // Settings/Nodes button
+                    Rectangle {
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 8px;
+                        background: settings-btn.has-hover ? Theme.side-list-highlight : transparent;
+
+                        Text {
+                            text: "\u{2699}";
+                            font-size: 20px;
+                            color: Theme.quarzo-white;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        settings-btn := TouchArea {
+                            accessible-role: button;
+                            accessible-label: "settings-button";
+                            clicked => { navigate-to-nodes(); }
+                        }
+                    }
+                }
+
+                // Mobile: just settings gear in header
+                if Theme.is-mobile: Rectangle {
+                    width: Theme.touch-target-min;
+                    height: Theme.touch-target-min;
+                    border-radius: 8px;
+                    background: settings-btn-m.has-hover ? Theme.side-list-highlight : transparent;
+
+                    Text {
+                        text: "\u{2699}";
+                        font-size: 20px;
+                        color: Theme.quarzo-white;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    settings-btn-m := TouchArea {
+                        accessible-role: button;
+                        accessible-label: "settings-button";
+                        clicked => { navigate-to-nodes(); }
+                    }
+                }
             }
 
-            // Right side buttons
-            HorizontalLayout {
-                spacing: 12px;
+            // Mobile: action buttons row
+            if Theme.is-mobile: HorizontalLayout {
+                spacing: 8px;
 
                 // Sort dropdown
                 SortDropdown {
@@ -70,10 +157,10 @@ export component SpacesDashboard {
 
                 // Add Website button
                 Rectangle {
-                    width: 110px;
-                    height: 36px;
+                    horizontal-stretch: 1;
+                    height: Theme.touch-target-min;
                     border-radius: 6px;
-                    background: add-website-btn.has-hover ? Theme.active-border : Theme.livnote-lavender;
+                    background: add-website-btn-m.has-hover ? Theme.active-border : Theme.livnote-lavender;
 
                     Text {
                         text: "Add Website";
@@ -84,32 +171,10 @@ export component SpacesDashboard {
                         vertical-alignment: center;
                     }
 
-                    add-website-btn := TouchArea {
+                    add-website-btn-m := TouchArea {
                         accessible-role: button;
                         accessible-label: "add-website-button";
                         clicked => { show-add-website-modal = true; }
-                    }
-                }
-
-                // Settings/Nodes button
-                Rectangle {
-                    width: 40px;
-                    height: 40px;
-                    border-radius: 8px;
-                    background: settings-btn.has-hover ? Theme.side-list-highlight : transparent;
-
-                    Text {
-                        text: "\u{2699}";
-                        font-size: 20px;
-                        color: Theme.quarzo-white;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-
-                    settings-btn := TouchArea {
-                        accessible-role: button;
-                        accessible-label: "settings-button";
-                        clicked => { navigate-to-nodes(); }
                     }
                 }
             }
@@ -278,13 +343,19 @@ export component SpacesDashboard {
     CreateSpaceModal {
         show: show-create-form;
         space-name <=> new-space-name;
-        create(name) => {
-            create-space(name);
+        template-path <=> new-space-template-path;
+        create(name, template-path) => {
+            create-space(name, template-path);
             new-space-name = "";
+            new-space-template-path = "";
             show-create-form = false;
+        }
+        pick-template-folder => {
+            pick-space-template-folder();
         }
         cancel() => {
             new-space-name = "";
+            new-space-template-path = "";
             show-create-form = false;
         }
     }
@@ -321,9 +392,9 @@ export component SpaceView {
     callback copy-shareable-link();     // Copy link to clipboard
 
     // Responsive grid properties for pages
-    property<length> page-card-width: 10rem;      // ~160px at default font
-    property<length> page-card-spacing: 1rem;     // ~16px responsive
-    property<length> padding-horizontal: 4rem;    // ~64px
+    property<length> page-card-width: Theme.is-mobile ? 8rem : 10rem;     // ~128px mobile, ~160px desktop
+    property<length> page-card-spacing: Theme.is-mobile ? 0.75rem : 1rem;
+    property<length> padding-horizontal: Theme.page-padding-h * 2;
     property<length> available-width: root.width - padding-horizontal;
     property<int> page-columns: max(1, floor(available-width / (page-card-width + page-card-spacing)));
 
@@ -331,32 +402,32 @@ export component SpaceView {
     init => { request-pages(space-id); }
 
     VerticalLayout {
-        padding-top: 1rem;      // Minimal top padding
-        padding-left: 1rem;     // Minimal left padding
-        padding-right: 1rem;
+        padding-top: Theme.is-mobile ? 12px : 1rem;
+        padding-left: Theme.page-padding-h;
+        padding-right: Theme.page-padding-h;
         padding-bottom: 2rem;
-        spacing: 1rem;          // Reduce from 24px
+        spacing: Theme.is-mobile ? 12px : 1rem;
 
         // Header with back button
         HorizontalLayout {
-            spacing: 16px;
+            spacing: Theme.is-mobile ? 8px : 16px;
             alignment: space-between;
 
             // Left side: Back button + Space name
             HorizontalLayout {
-                spacing: 16px;
+                spacing: Theme.is-mobile ? 8px : 16px;
 
                 // Back button
                 Rectangle {
-                    width: 40px;
-                    height: 40px;
+                    width: Theme.touch-target-min;
+                    height: Theme.touch-target-min;
                     border-radius: 8px;
                     background: back-area.has-hover ? Theme.cancel-background : transparent;
 
                     Text {
                         text: "\u{2190}";
                         color: back-area.has-hover ? Theme.quarzo-white : Theme.text-passive;
-                        font-size: 24px;
+                        font-size: Theme.is-mobile ? 20px : 24px;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
@@ -372,7 +443,7 @@ export component SpaceView {
                 Text {
                     text: space-name;
                     color: Theme.quarzo-white;
-                    font-size: 28px;
+                    font-size: Theme.font-h1;
                     font-weight: 600;
                     vertical-alignment: center;
                 }

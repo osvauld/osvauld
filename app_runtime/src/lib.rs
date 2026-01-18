@@ -20,17 +20,19 @@ mod lua_worker;
 mod slint_runtime;
 mod slint_model_bindings;
 mod page_runtime;
+mod event_bus;
 
 // Existing modules
 mod scribe_channel;
 mod butler_bindings;
 
 // New architecture exports
-pub use vecmodel_ops::{VecModelOp, UiMutation, PropertyUpdate};
+pub use vecmodel_ops::{VecModelOp, UiMutation, PropertyUpdate, UiQuery};
 pub use lua_worker::{LuaWorker, LuaWorkerCommand};
 pub use slint_runtime::SlintRuntime;
 pub use slint_model_bindings::LuaSlintModel;
 pub use page_runtime::{generate_page_shell, write_shell_slint, AppTab};
+pub use event_bus::{EventBus, Event, EventSource, EventDelivery, SubscribeOptions, Recording};
 
 // Re-export shared bindings from butler
 pub use butler::{
@@ -82,4 +84,8 @@ pub struct Manifest {
     pub version: String,
     pub entry_ui: String,
     pub entry_logic: String,
+    /// Array properties that need VecModel tracking for incremental updates
+    /// Example: ["products", "orders"]
+    #[serde(default)]
+    pub models: Vec<String>,
 }

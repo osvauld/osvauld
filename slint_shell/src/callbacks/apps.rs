@@ -4,6 +4,7 @@
 //! Flow: Spaces → Pages → Apps
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -11,9 +12,17 @@ use butler::{Butler, ScribeMessage};
 use ractor::ActorRef;
 use slint::ComponentHandle;
 
+use tokio::sync::RwLock;
+
 use crate::app_runner::{prepare_page, PreparedPage, RunningApp};
-use crate::debug_server::DebugServer;
+use crate::debug_server::{AppStatus, DebugServer};
 use crate::Shell;
+
+/// Request to refresh an app from filesystem via Scribe
+pub struct RefreshAppRequest {
+    pub app_name: String,
+    pub app_dir: PathBuf,
+}
 
 /// Register app management callbacks on the shell
 ///
@@ -34,8 +43,13 @@ pub fn register(
     register_request_page_apps(shell, butler.clone());
     register_delete_app(shell);
 
-    // Setup app loading and runtime timer
-    setup_app_runtime(shell, butler, tokio_handle, debug_server)
+    // Setup app loading and runtime timer (returns refresh_tx for refresh_app callback)
+    let (timer, refresh_tx) = setup_app_runtime(shell, butler, tokio_handle, debug_server);
+
+    // Register refresh_app callback (needs refresh_tx from timer setup)
+    register_refresh_app(shell, refresh_tx);
+
+    timer
 }
 
 /// Register request_pages callback - loads pages for a space
@@ -224,18 +238,37 @@ fn register_delete_app(shell: &Shell) {
     });
 }
 
+/// Register refresh_app callback - sends refresh request to timer loop
+fn register_refresh_app(shell: &Shell, refresh_tx: std::sync::mpsc::Sender<RefreshAppRequest>) {
+    shell.on_refresh_app(move |app_name, app_dir| {
+        println!("Refresh app: {} from {}", app_name, app_dir);
+        let request = RefreshAppRequest {
+            app_name: app_name.to_string(),
+            app_dir: PathBuf::from(app_dir.to_string()),
+        };
+        if refresh_tx.send(request).is_err() {
+            println!("Failed to send refresh request - channel closed");
+        }
+    });
+}
+
 /// Setup app runtime with select_app callback and timer loop
+///
+/// Returns (timer, refresh_tx) - timer must be kept alive, refresh_tx used for refresh_app callback
 fn setup_app_runtime(
     shell: &Shell,
     butler: Arc<Butler>,
     tokio_handle: tokio::runtime::Handle,
     debug_server: Option<Arc<DebugServer>>,
-) -> slint::Timer {
+) -> (slint::Timer, std::sync::mpsc::Sender<RefreshAppRequest>) {
     // Channel to send loaded app data from tokio to Slint thread
     let (app_ready_tx, app_ready_rx) = std::sync::mpsc::channel::<(
         PreparedPage,                 // prepared page with shell path
         ActorRef<ScribeMessage>,
     )>();
+
+    // Channel for refresh app requests (from refresh_app callback)
+    let (refresh_tx, refresh_rx) = std::sync::mpsc::channel::<RefreshAppRequest>();
 
     // Store running apps on Slint thread
     let running_apps: Rc<RefCell<Vec<RunningApp>>> = Rc::new(RefCell::new(vec![]));
@@ -313,13 +346,17 @@ fn setup_app_runtime(
         move || {
             // Handle ready apps
             while let Ok((prepared, scribe_ref)) = app_ready_rx.try_recv() {
-                if let Some(running_app) = create_app_runtime(prepared, scribe_ref, butler_timer.clone(), debug_server_timer.clone()) {
+                // Get app_status from debug_server for AI feedback
+                let app_status = debug_server_timer.as_ref().map(|ds| ds.app_status());
+                if let Some(running_app) = create_app_runtime(prepared, scribe_ref, butler_timer.clone(), debug_server_timer.clone(), app_status) {
                     running_apps_timer.borrow_mut().push(running_app);
                 }
             }
 
             // Collect tab switch requests (process after iteration to avoid borrow issues)
             let mut tab_switch_requests: Vec<(String, String)> = vec![]; // (page_id, new_app_name)
+            // Collect app restart requests (triggered by app layer updates)
+            let mut app_restart_requests: Vec<(String, String)> = vec![]; // (page_id, app_name)
 
             // Process updates for all running apps
             for running_app in running_apps_timer.borrow_mut().iter_mut() {
@@ -337,6 +374,22 @@ fn setup_app_runtime(
 
                 // Forward unified page events to Lua thread
                 while let Ok(event) = running_app.page_event_rx.try_recv() {
+                    // Check if this is an app layer update (triggers restart)
+                    let expected_app_layer = format!("app:{}", running_app.app_name);
+                    if event.layer_name == expected_app_layer {
+                        if matches!(event.event_type, butler::PageEventType::Updated) {
+                            println!(
+                                "App layer '{}' updated - scheduling restart",
+                                event.layer_name
+                            );
+                            app_restart_requests.push((
+                                running_app.page_id.clone(),
+                                running_app.app_name.clone(),
+                            ));
+                            continue; // Don't forward this event to Lua - we're restarting
+                        }
+                    }
+
                     match event.event_type {
                         butler::PageEventType::Created => {
                             // New layer discovered - notify Lua
@@ -363,6 +416,58 @@ fn setup_app_runtime(
                 if let Err(e) = running_app.slint_runtime.process_ui_mutations() {
                     println!("Failed to process UI mutations: {}", e);
                 }
+
+                // Process UI queries (for ui:get from Lua)
+                running_app.slint_runtime.process_ui_queries();
+            }
+
+            // Process app restart requests (from app layer updates)
+            for (page_id, app_name) in app_restart_requests {
+                println!("Restarting app '{}' due to app layer update", app_name);
+                // Find and close the existing app
+                let mut apps = running_apps_timer.borrow_mut();
+                if let Some(pos) = apps.iter().position(|a| a.page_id == page_id && a.app_name == app_name) {
+                    println!("Closing app '{}' for restart", apps[pos].app_name);
+                    // Hide the window
+                    let _ = apps[pos].slint_runtime.slint_instance().hide();
+                    // Send shutdown to Lua worker
+                    let _ = apps[pos].lua_tx.try_send(app_runtime::LuaWorkerCommand::Shutdown);
+                    // Remove from running apps
+                    apps.remove(pos);
+                }
+                drop(apps);
+
+                // Queue re-loading the same app (will get updated files from Scribe)
+                let butler = butler_timer.clone();
+                let tx = app_ready_tx_timer.clone();
+
+                tokio_handle_timer.spawn(async move {
+                    // Open the page to get scribe ref (page is already open, this just gets ref)
+                    let scribe_ref = match butler.open_page(&page_id).await {
+                        Ok(scribe) => scribe,
+                        Err(e) => {
+                            println!("Failed to open page for app restart: {}", e);
+                            return;
+                        }
+                    };
+
+                    // Prepare page with same app (will extract updated files from layer)
+                    let prepared = match prepare_page(&butler, &page_id, Some(&app_name)).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            println!("Failed to prepare page for app restart: {}", e);
+                            return;
+                        }
+                    };
+
+                    println!("App restart: reloaded app '{}'", prepared.app_name);
+
+                    if tx.send((prepared, scribe_ref)).is_err() {
+                        println!("Failed to send app data for restart");
+                    }
+
+                    slint::invoke_from_event_loop(|| {}).ok();
+                });
             }
 
             // Process tab switch requests
@@ -414,18 +519,78 @@ fn setup_app_runtime(
                     slint::invoke_from_event_loop(|| {}).ok();
                 });
             }
+
+            // Process refresh app requests
+            while let Ok(request) = refresh_rx.try_recv() {
+                println!("Processing refresh request for app: {}", request.app_name);
+                // Find ANY running app to get the page_id (all apps on a page share the same Scribe)
+                // First try exact match, then fall back to any running app
+                let apps = running_apps_timer.borrow();
+                let page_id = apps.iter()
+                    .find(|a| a.app_name == request.app_name)
+                    .or_else(|| apps.first())
+                    .map(|a| a.page_id.clone());
+                drop(apps);
+
+                if let Some(page_id) = page_id {
+                    let butler = butler_timer.clone();
+                    let app_name = request.app_name;
+                    let app_dir = request.app_dir;
+
+                    tokio_handle_timer.spawn(async move {
+                        // Get the scribe for this page
+                        match butler.open_page(&page_id).await {
+                            Ok(scribe_ref) => {
+                                // Send RefreshApp message to Scribe
+                                let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+                                if let Err(e) = scribe_ref.cast(ScribeMessage::RefreshApp {
+                                    app_name: app_name.clone(),
+                                    app_dir,
+                                    reply: reply_tx,
+                                }) {
+                                    println!("Failed to send RefreshApp to Scribe: {}", e);
+                                    return;
+                                }
+
+                                // Wait for result
+                                match reply_rx.await {
+                                    Ok(Ok(changed_files)) => {
+                                        println!("App '{}' refreshed, {} files changed: {:?}",
+                                            app_name, changed_files.len(), changed_files);
+                                    }
+                                    Ok(Err(e)) => {
+                                        println!("RefreshApp failed: {}", e);
+                                    }
+                                    Err(_) => {
+                                        println!("RefreshApp reply channel closed");
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                println!("Failed to get scribe for page {}: {}", page_id, e);
+                            }
+                        }
+                    });
+                } else {
+                    println!("No running apps found - cannot refresh");
+                }
+            }
         },
     );
 
-    timer
+    (timer, refresh_tx)
 }
 
 /// Create app runtime from prepared page data
+///
+/// **Context**: Called when an app needs to be loaded
+/// **Updates**: app_status with "loaded" on success or "failed" with error on failure
 fn create_app_runtime(
     prepared: PreparedPage,
     scribe_ref: ActorRef<ScribeMessage>,
     butler: Arc<Butler>,
     debug_server: Option<Arc<DebugServer>>,
+    app_status: Option<Arc<RwLock<AppStatus>>>,
 ) -> Option<RunningApp> {
     println!(
         "Creating parallel app runtime for page: {} ({}), app: {}",
@@ -453,7 +618,14 @@ fn create_app_runtime(
     let lua_code = match std::fs::read_to_string(&prepared.lua_path) {
         Ok(code) => code,
         Err(e) => {
-            println!("Failed to read Lua code from {:?}: {}", prepared.lua_path, e);
+            let error_msg = format!("Failed to read Lua code from {:?}: {}", prepared.lua_path, e);
+            println!("{}", error_msg);
+            if let Some(ref status) = app_status {
+                if let Ok(mut s) = status.try_write() {
+                    s.status = "failed".to_string();
+                    s.error = Some(error_msg);
+                }
+            }
             return None;
         }
     };
@@ -462,6 +634,7 @@ fn create_app_runtime(
     let slint_path = prepared.shell_path.clone();
 
     let (ui_tx, ui_rx) = tokio::sync::mpsc::channel::<app_runtime::UiMutation>(32);
+    let (query_tx, query_rx) = tokio::sync::mpsc::channel::<app_runtime::UiQuery>(32);
     // Unified page event channel - replaces per-layer loro subscriptions + scribe events
     let (page_event_tx, page_event_rx) = tokio::sync::mpsc::channel::<butler::PageEvent>(64);
     let (tab_switch_tx, tab_switch_rx) = std::sync::mpsc::channel::<String>();
@@ -481,10 +654,18 @@ fn create_app_runtime(
         lua_code,
         scribe_ref.clone(),
         ui_tx,
+        query_tx,
     ) {
         Ok((thread, tx)) => (thread, tx),
         Err(e) => {
-            println!("Failed to spawn Lua worker: {}", e);
+            let error_msg = format!("Failed to spawn Lua worker: {}", e);
+            println!("{}", error_msg);
+            if let Some(ref status) = app_status {
+                if let Ok(mut s) = status.try_write() {
+                    s.status = "failed".to_string();
+                    s.error = Some(error_msg);
+                }
+            }
             return None;
         }
     };
@@ -523,11 +704,19 @@ fn create_app_runtime(
         slint_path,
         app_name.clone(),  // SlintRuntime uses app_name for logging
         ui_rx,
+        query_rx,
         lua_tx.clone(),
     ) {
         Ok(runtime) => runtime,
         Err(e) => {
-            println!("Failed to create SlintRuntime: {}", e);
+            let error_msg = format!("Failed to create SlintRuntime: {}", e);
+            println!("{}", error_msg);
+            if let Some(ref status) = app_status {
+                if let Ok(mut s) = status.try_write() {
+                    s.status = "failed".to_string();
+                    s.error = Some(error_msg);
+                }
+            }
             return None;
         }
     };
@@ -536,18 +725,45 @@ fn create_app_runtime(
     slint_runtime.set_tab_switch_channel(tab_switch_tx);
 
     if let Err(e) = slint_runtime.slint_instance().show() {
-        println!("Failed to show app window: {:?}", e);
+        let error_msg = format!("Failed to show app window: {:?}", e);
+        println!("{}", error_msg);
+        if let Some(ref status) = app_status {
+            if let Ok(mut s) = status.try_write() {
+                s.status = "failed".to_string();
+                s.error = Some(error_msg);
+            }
+        }
         return None;
     }
 
     if let Err(e) = slint_runtime.setup_callbacks() {
-        println!("Failed to setup shell callbacks: {}", e);
+        let error_msg = format!("Failed to setup shell callbacks: {}", e);
+        println!("{}", error_msg);
+        if let Some(ref status) = app_status {
+            if let Ok(mut s) = status.try_write() {
+                s.status = "failed".to_string();
+                s.error = Some(error_msg);
+            }
+        }
         return None;
     }
 
-    // Setup AppAPI global callbacks (app-specific callbacks)
+    // Initialize VecModels for models declared in manifest
+    if let Err(e) = slint_runtime.init_models(&prepared.models) {
+        println!("Failed to init models from manifest: {}", e);
+        // Continue anyway - models can be created on-demand
+    }
+
+    // Setup AppAPI global callbacks (generic Event Bus callbacks)
     if let Err(e) = slint_runtime.setup_global_callbacks() {
-        println!("Failed to setup global callbacks: {}", e);
+        let error_msg = format!("Failed to setup global callbacks: {}", e);
+        println!("{}", error_msg);
+        if let Some(ref status) = app_status {
+            if let Ok(mut s) = status.try_write() {
+                s.status = "failed".to_string();
+                s.error = Some(error_msg);
+            }
+        }
         return None;
     }
 
@@ -578,6 +794,15 @@ fn create_app_runtime(
         "App '{}' loaded successfully with parallel Lua worker!",
         prepared.app_name
     );
+
+    // Update status to "loaded" on success
+    if let Some(ref status) = app_status {
+        if let Ok(mut s) = status.try_write() {
+            s.status = "loaded".to_string();
+            s.error = None;
+            s.loaded_at = Some(chrono::Utc::now().to_rfc3339());
+        }
+    }
 
     Some(RunningApp {
         app_name: prepared.app_name,

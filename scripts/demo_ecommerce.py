@@ -262,11 +262,11 @@ def main():
             sys.exit(1)
         ok("Shop Owner app loaded")
 
-        # Add products
-        step("Adding products...")
-        call(owner_sock, "eval", {"code": 'add_product("Widget", 29.99, "A useful widget", 100)'})
-        call(owner_sock, "eval", {"code": 'add_product("Gadget", 49.99, "A cool gadget", 50)'})
-        call(owner_sock, "eval", {"code": 'add_product("Gizmo", 19.99, "A handy gizmo", 200)'})
+        # Add products via UI automation (same code path as human)
+        step("Adding products via UI...")
+        call(owner_sock, "eval", {"code": 'add_product_via_ui("Widget", 29.99, "A useful widget", 100)'})
+        call(owner_sock, "eval", {"code": 'add_product_via_ui("Gadget", 49.99, "A cool gadget", 50)'})
+        call(owner_sock, "eval", {"code": 'add_product_via_ui("Gizmo", 19.99, "A handy gizmo", 200)'})
 
         count = call(owner_sock, "eval", {"code": "return get_products_count()"})
         ok(f"Owner has {count} products")
@@ -371,19 +371,12 @@ def main():
             product = products[0]
             info(f"Ordering: {product.get('name')} @ ${product.get('price')}")
 
-            # Select and create order
-            step("Creating order...")
+            # Place order via UI automation (same code path as human)
+            step("Placing order via UI...")
             call(customer_sock, "eval", {
-                "code": f'select_product("{product.get("id", "")}", "{product.get("name")}", {product.get("price", 0)})'
+                "code": f'place_order_via_ui("{product.get("id", "")}", 2, "Demo order", "123 Demo St")'
             })
-            call(customer_sock, "eval", {
-                "code": f'create_order("{product.get("id", "")}", 2, "Demo order", "123 Demo St")'
-            })
-
-            # Submit order
-            step("Submitting order...")
-            call(customer_sock, "eval", {"code": "submit_order()"})
-            ok("Order submitted")
+            ok("Order placed via UI")
 
             order_id = call(customer_sock, "eval", {"code": "return get_last_order_id()"})
             info(f"Order ID: {order_id}")

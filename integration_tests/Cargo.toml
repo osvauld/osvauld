@@ -9,6 +9,10 @@ license = "MIT"
 name = "setup_test_dbs"
 path = "src/bin/setup_test_dbs.rs"
 
+[[bin]]
+name = "setup_booking_db"
+path = "src/bin/setup_booking_db.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 # Internal crates

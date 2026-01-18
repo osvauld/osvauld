@@ -9,7 +9,7 @@ default = []
 testing = ["slint/backend-qt"]  # For headless testing
 
 [dependencies]
-slint = { version = "1.14", features = ["backend-winit", "renderer-skia"] }
+slint = { version = "1.14", features = ["backend-winit", "renderer-femtovg"] }
 i-slint-backend-testing = "1.14"
 butler = { path = "../butler" }
 courier = { path = "../courier" }

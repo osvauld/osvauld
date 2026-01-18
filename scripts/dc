@@ -9,6 +9,7 @@ Usage:
     dc <socket> pages <space_id>             # List pages in a space
     dc <socket> apps <page_id>               # List apps in a page
     dc <socket> open_app <page_id> <app_name>
+    dc <socket> refresh_app <app_name> <app_dir>  # Refresh app from filesystem via Scribe
     dc <socket> eval <lua_code>
     dc <socket> eval-file <lua_file>
     dc <socket> click <label>
@@ -85,7 +86,7 @@ def main():
         },
         "create_space": lambda: {
             "method": "create_space",
-            "params": {"name": sys.argv[3]},
+            "params": {"name": sys.argv[3], "template_path": sys.argv[4] if len(sys.argv) > 4 else ""},
             "id": 1
         },
         "pages": lambda: {
@@ -126,6 +127,11 @@ def main():
         "open_app": lambda: {
             "method": "open_app",
             "params": {"page_id": sys.argv[3], "app_name": sys.argv[4]},
+            "id": 1
+        },
+        "refresh_app": lambda: {
+            "method": "refresh_app",
+            "params": {"app_name": sys.argv[3], "app_dir": sys.argv[4]},
             "id": 1
         },
         "elements": lambda: {

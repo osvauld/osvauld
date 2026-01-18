@@ -3,6 +3,7 @@
 //! All messages received by the Scribe actor.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use ractor::RpcReplyPort;
 use tokio::sync::mpsc;
 use serde::{Serialize, Deserialize};
@@ -336,6 +337,21 @@ pub enum ScribeMessage {
     /// **Context**: When registering a derivation rule, create target layer
     CreateDerivedLayer {
         target_layer: String,
+    },
+
+    // =========================================================================
+    // App Refresh Operations
+    // =========================================================================
+
+    /// Refresh app from filesystem (owner only)
+    ///
+    /// **Context**: Owner wants to reload app code from disk (development workflow)
+    /// **We do**: Read files from app_dir, update app layer, commit (triggers broadcast)
+    /// **Consumers**: UI Reload button, Debug socket command
+    RefreshApp {
+        app_name: String,
+        app_dir: PathBuf,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<Vec<String>, String>>,
     },
 }
 
