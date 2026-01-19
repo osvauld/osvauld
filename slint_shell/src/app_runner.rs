@@ -26,6 +26,11 @@ pub struct RunningApp {
     /// Unified page event receiver (replaces loro_rx + scribe_event_rx)
     /// Receives all layer changes (Created/Updated) from Scribe
     pub page_event_rx: tokio::sync::mpsc::Receiver<butler::PageEvent>,
+    /// Ephemeral event receiver (cursor, typing, presence from peers)
+    /// Received via datagrams, forwarded to Lua for rendering
+    pub ephemeral_event_rx: tokio::sync::mpsc::Receiver<butler::EphemeralEvent>,
+    // Note: ephemeral_broadcast_rx removed - outbound ephemeral now goes directly via
+    // Scribe → PeerActor channels (SubscriberInfo.ephemeral_tx)
     /// Receiver for tab switch requests
     pub tab_switch_rx: std::sync::mpsc::Receiver<String>,
 }

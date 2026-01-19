@@ -1,0 +1,172 @@
+{
+    "owner_template": {
+        "operations": {
+            "own": "allow",
+            "read": "allow",
+            "write": "allow",
+            "share": "allow",
+            "share_page": "allow"
+        },
+        "peer_capabilities": {
+            "relay": false,
+            "share": true,
+            "accept_publish": true
+        },
+        "layers": {
+            "{page_id}/shapes": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/connectors": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "app:Canvas": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            }
+        },
+        "issue_on": {
+            "node": {
+                "token_type": "page_share",
+                "peer_capabilities": {
+                    "relay": true,
+                    "share": true,
+                    "accept_publish": true
+                },
+                "operations": {
+                    "share_page": "allow",
+                    "add_pages": "allow"
+                },
+                "layers": {
+                    "{page_id}/shapes": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    },
+                    "{page_id}/connectors": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    },
+                    "app:Canvas": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
+                    }
+                },
+                "auth_capabilities": {
+                    "can_connect": true,
+                    "persist_share": true,
+                    "can_delegate": true,
+                    "sync_enabled": true
+                },
+                "relationship": "node",
+                "issue_on": {
+                    "viewer": {
+                        "token_type": "page_viewer",
+                        "peer_capabilities": {
+                            "relay": false,
+                            "share": false,
+                            "accept_publish": false
+                        },
+                        "operations": {
+                            "read": "allow",
+                            "write": "allow"
+                        },
+                        "layers": {
+                            "{page_id}/shapes": {
+                                "type": "map",
+                                "sync": true,
+                                "write": true
+                            },
+                            "{page_id}/connectors": {
+                                "type": "map",
+                                "sync": true,
+                                "write": true
+                            },
+                            "app:Canvas": {
+                                "type": "map",
+                                "sync": true,
+                                "write": false
+                            }
+                        },
+                        "auth_capabilities": {
+                            "can_connect": true,
+                            "sync_enabled": true
+                        },
+                        "relationship": "collaborator"
+                    }
+                }
+            },
+            "collaborator": {
+                "token_type": "page_viewer",
+                "peer_capabilities": {
+                    "relay": false,
+                    "share": false,
+                    "accept_publish": false
+                },
+                "operations": {
+                    "read": "allow",
+                    "write": "allow"
+                },
+                "layers": {
+                    "{page_id}/shapes": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    },
+                    "{page_id}/connectors": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    },
+                    "app:Canvas": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
+                    }
+                },
+                "auth_capabilities": {
+                    "can_connect": true,
+                    "sync_enabled": true
+                },
+                "relationship": "collaborator"
+            }
+        }
+    },
+    "consent_template": {
+        "token_type": "sync_page_consent",
+        "peer_capabilities": {
+            "relay": false,
+            "share": false,
+            "accept_publish": false
+        },
+        "operations": {
+            "receive_layer_updates": "allow",
+            "send_layer_updates": "allow"
+        },
+        "layers": {
+            "{page_id}/shapes": {
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/connectors": {
+                "sync": true,
+                "write": true
+            },
+            "app:Canvas": {
+                "sync": true,
+                "write": false
+            }
+        },
+        "auth_capabilities": {
+            "accept_sync": true,
+            "can_send": true
+        },
+        "relationship": "sync_consent"
+    }
+}

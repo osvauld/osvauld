@@ -38,9 +38,9 @@ use tracing::{debug, error, info, warn, instrument};
 use transport::{ConnectionHandle, NodeId};
 
 use crate::coordinator::{CoordinatorMessage, CourierMode};
-use crate::message::Message;
+use crate::message::{Message, EphemeralDatagram};
 use crate::state::{PeerState, PeerType};
-use butler::{Butler, BroadcastPayload};
+use butler::{Butler, BroadcastPayload, ScribeMessage};
 
 /// Messages received by PeerActor
 #[derive(Debug)]
@@ -110,6 +110,14 @@ pub enum PeerMessage {
     /// **Context**: Page opened after connection established
     /// **We do**: Re-run subscribe_to_active_scribes to pick up new pages
     RefreshSubscriptions,
+
+    /// Raw datagram received from peer (ephemeral data)
+    ///
+    /// **Context**: PeerActor owns the datagram read loop
+    /// **We do**: Deserialize, route to Scribe via page_subscriptions
+    Datagram {
+        data: Vec<u8>,
+    },
 }
 
 /// Arguments for spawning PeerActor
@@ -245,10 +253,32 @@ impl Actor for PeerActor {
 
     async fn pre_start(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         info!("PeerActor started for {} in {:?} mode", self.node_id, args.mode);
+
+        // Spawn datagram read loop - routes ephemeral data to self
+        let conn_for_datagrams = args.conn.clone();
+        let myself_for_datagrams = myself.clone();
+        let node_id = self.node_id;
+        tokio::spawn(async move {
+            loop {
+                match conn_for_datagrams.read_datagram().await {
+                    Ok(data) => {
+                        if myself_for_datagrams.cast(PeerMessage::Datagram { data }).is_err() {
+                            debug!("PeerActor gone, stopping datagram read loop for {}", node_id);
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        // Connection closed
+                        debug!("Datagram read loop ending for {} (connection closed)", node_id);
+                        break;
+                    }
+                }
+            }
+        });
 
         Ok(PeerActorState {
             mode: args.mode,
@@ -308,6 +338,10 @@ impl Actor for PeerActor {
 
             PeerMessage::RefreshSubscriptions => {
                 self.subscribe_to_active_scribes(myself, state).await;
+            }
+
+            PeerMessage::Datagram { data } => {
+                self.handle_datagram(&data, state).await;
             }
         }
 
@@ -473,6 +507,44 @@ impl PeerActor {
                     self.node_id, code, message, id
                 );
             }
+        }
+    }
+
+    /// Handle ephemeral datagram received from peer
+    ///
+    /// **Context**: Datagram received via PeerActor's read loop
+    /// **We do**: Deserialize, route to Scribe via existing page_subscriptions
+    /// **Scribe then**: Emits to local app AND relays to other subscribers (node mode)
+    async fn handle_datagram(&self, data: &[u8], state: &PeerActorState) {
+        // Deserialize the datagram
+        let datagram: EphemeralDatagram = match EphemeralDatagram::from_bytes(data) {
+            Ok(d) => d,
+            Err(e) => {
+                debug!("Failed to deserialize ephemeral datagram from {}: {}", self.node_id, e);
+                return;
+            }
+        };
+
+        // Route to Scribe via existing page_subscriptions
+        if let Some(subscription) = state.page_subscriptions.get(&datagram.page_id) {
+            // Get peer's DID from state (set during handshake)
+            let user_did = state.state.did().map(|s| s.to_string());
+            // Use node_id as device_id for sender exclusion during relay
+            let device_id = Some(self.node_id.to_string());
+
+            // Send to Scribe - it will forward to app layer AND relay to other peers
+            if let Err(e) = subscription.scribe.cast(ScribeMessage::RemoteEphemeral {
+                user_did,
+                device_id,
+                payload: datagram.payload,
+            }) {
+                debug!("Failed to forward ephemeral to Scribe for page {}: {}", datagram.page_id, e);
+            }
+        } else {
+            debug!(
+                "No subscription for page {} - dropping ephemeral from {}",
+                datagram.page_id, self.node_id
+            );
         }
     }
 }

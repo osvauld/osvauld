@@ -1,29 +1,42 @@
-//! Courier - Actor-based P2P Protocol Layer
+//! Courier - P2P Protocol Layer
 //!
-//! This crate owns all protocol message types and handles serialization.
+//! This crate owns all protocol message types and handles peer connections.
 //!
-//! # Architecture
+//! # Architecture (v3 - Simplified Ephemeral)
 //!
 //! ```text
-//! Transport (dumb byte pipe)
+//! Transport (dumb primitives)
 //!     │
+//!     │ TransportEvent::Connected { node_id, conn }
 //!     ▼
 //! ┌─────────────────────────────────────┐
 //! │         Coordinator                  │
-//! │   - Deserializes bytes → Message    │
-//! │   - Routes to PeerActors            │
-//! │   - Supervises child actors         │
+//! │   - Receives lifecycle events       │
+//! │   - Spawns PeerActor per peer       │
+//! │   - Provides broadcast APIs         │
 //! └─────────────────────────────────────┘
 //!     │
-//!     ├──────────────────┬──────────────────┐
-//!     ▼                  ▼                  ▼
+//!     │ Spawns with ConnectionHandle
+//!     ▼
 //! ┌──────────┐    ┌──────────┐    ┌──────────┐
-//! │PeerActor │    │PeerActor │    │PeerActor │  (1 per connection)
-//! │          │    │          │    │          │
-//! │ State:   │    │ State:   │    │ State:   │
-//! │ Machine  │    │ Machine  │    │ Machine  │
+//! │ PeerActor│   │ PeerActor│   │ PeerActor│  (1 per peer)
+//! │           │   │           │   │           │
+//! │ Owns conn │   │ Owns conn │   │ Owns conn │
+//! │ Stream RX │   │ Stream RX │   │ Stream RX │
+//! │ Datagram  │   │ Datagram  │   │ Datagram  │
+//! │   RX loop │   │   RX loop │   │   RX loop │
 //! └──────────┘    └──────────┘    └──────────┘
+//!     │                │                │
+//!     └────────────────┴────────────────┘
+//!                      │
+//!                      ▼ Route by page_id via page_subscriptions
+//!                   Scribe
 //! ```
+//!
+//! **Benefits:**
+//! - PeerActor owns everything (connection, read loops, Scribe connections)
+//! - Protocol layer is dumb - just routes opaque bytes by page_id
+//! - Ephemeral data goes directly to Scribe via page_subscriptions
 
 mod message;
 mod state;
@@ -33,7 +46,7 @@ pub mod coordinator;
 pub mod peer_actor;
 pub mod handshake;
 
-pub use message::{Message, ErrorCode, PublishedSpace, PublishedPageMeta, ConnectionString};
+pub use message::{Message, ErrorCode, PublishedSpace, PublishedPageMeta, ConnectionString, EphemeralDatagram};
 pub use state::PeerState;
 pub use coordinator::{Coordinator, CoordinatorMessage, CourierMode, ConnectRequest};
 pub use handle::{CourierHandle, CourierEvent, Courier, HandshakeServices};

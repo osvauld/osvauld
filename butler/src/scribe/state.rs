@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use crate::models::{Layer, QuerySpec, QueryResult};
 use crate::error::Result;
 
-use super::message::{BroadcastPayload, PageEvent, SyncEvent};
+use super::message::{BroadcastPayload, EphemeralOutbound, PageEvent, SyncEvent, EphemeralEvent};
 use super::lua_runtime::ScribeLuaRuntime;
 
 // =============================================================================
@@ -155,8 +155,11 @@ pub struct SyncConfig {
 
 /// Information about a subscribed peer
 pub struct SubscriberInfo {
-    /// Channel to send broadcasts
+    /// Channel to send CRDT broadcasts
     pub broadcast_tx: mpsc::Sender<BroadcastPayload>,
+    /// Channel to send ephemeral broadcasts (cursor, typing)
+    /// PeerActor creates this, spawns listener that sends datagrams
+    pub ephemeral_tx: Option<mpsc::Sender<EphemeralOutbound>>,
     /// Their last known state vectors (layer_name → version_vector)
     pub vectors: HashMap<String, Vec<u8>>,
     /// Write permissions for each layer (fixed layers)
@@ -265,6 +268,16 @@ pub struct ScribeState {
     /// **Cleared**: After import() completes
     pub pending_update_source: Arc<Mutex<Option<(String, String)>>>,
 
+    // ==================== Ephemeral Events (Live Data Streaming) ====================
+
+    /// Subscribers to ephemeral events (cursor, typing, presence)
+    /// **Context**: App runtime subscribes to receive real-time events
+    /// **Arc<RwLock>**: Shared with PeerSession handlers
+    pub ephemeral_subscribers: Arc<RwLock<Vec<mpsc::Sender<EphemeralEvent>>>>,
+
+    // Note: ephemeral_broadcast_tx removed - outbound ephemeral now goes directly via
+    // SubscriberInfo.ephemeral_tx (Scribe → PeerActor channels)
+
     // ==================== Lua Runtime (Validation + Derivation) ====================
 
     /// Unified Lua runtime for validation and derivation
@@ -318,6 +331,8 @@ pub struct ScribeArgs {
     pub our_did: String,
     /// Whether this Scribe runs on a node (enables derivation engine)
     pub is_node: bool,
+    // Note: ephemeral_broadcast_tx removed - outbound ephemeral now goes directly via
+    // SubscriberInfo.ephemeral_tx (Scribe → PeerActor channels)
 }
 
 impl ScribeState {

@@ -3,10 +3,14 @@
 //! Transport owns the ConnectionPool. The protocol layer gets ConnectionHandle
 //! references to send raw bytes to peers.
 //!
-//! Transport is a **dumb byte pipe** - it has no knowledge of message types.
-//! Serialization/deserialization happens in the protocol layer (courier2).
+//! Transport exposes QUIC primitives for the consumer (PeerSession) to use:
+//! - Ephemeral streams: open, send, close (for reliable protocol messages)
+//! - Datagrams: fire-and-forget (for cursor sync, typing indicators)
+//! - Persistent streams: long-lived bidirectional (for audio/video - future)
 
 use anyhow::Result;
+use bytes::Bytes;
+use futures::future;
 use iroh::endpoint::Connection;
 use iroh::NodeId;
 use iroh_quinn::{RecvStream, SendStream, VarInt};
@@ -85,6 +89,56 @@ impl PeerConnection {
     pub fn connection(&self) -> &Connection {
         &self.connection
     }
+
+    // =========================================================================
+    // Datagram Primitives (unreliable, fire-and-forget)
+    // =========================================================================
+
+    /// Send unreliable datagram (fire-and-forget)
+    ///
+    /// **Use for**: cursor sync, typing indicators, presence
+    /// **Properties**: Unreliable, unordered, ~1200 byte limit
+    /// **No length prefix**: datagrams are self-contained
+    pub fn send_datagram(&self, data: &[u8]) -> Result<()> {
+        trace!("─→ DATAGRAM ({} bytes)", data.len());
+        self.connection
+            .send_datagram(Bytes::copy_from_slice(data))?;
+        Ok(())
+    }
+
+    /// Read next datagram (async)
+    ///
+    /// **Use for**: receiving cursor updates, typing indicators
+    /// **Blocks**: Until a datagram arrives
+    pub async fn read_datagram(&self) -> Result<Bytes> {
+        Ok(self.connection.read_datagram().await?)
+    }
+
+    /// Get max datagram size for this connection
+    ///
+    /// **Returns**: Maximum payload size, typically ~1200 bytes
+    pub fn max_datagram_size(&self) -> Option<usize> {
+        self.connection.max_datagram_size()
+    }
+
+    // =========================================================================
+    // Stream Primitives (reliable, ordered)
+    // =========================================================================
+
+    /// Accept incoming bidirectional stream
+    ///
+    /// **Use for**: reading ephemeral protocol messages (Hello, SyncOffer, etc.)
+    /// **Consumer spawns**: read loop that calls this repeatedly
+    pub async fn accept_bi(&self) -> Result<(SendStream, RecvStream)> {
+        Ok(self.connection.accept_bi().await?)
+    }
+
+    /// Open bidirectional stream
+    ///
+    /// **Use for**: sending reliable messages that need a response
+    pub async fn open_bi(&self) -> Result<(SendStream, RecvStream)> {
+        Ok(self.connection.open_bi().await?)
+    }
 }
 
 /// Backend for ConnectionHandle - either real QUIC or mock channel
@@ -112,6 +166,8 @@ pub struct MockSendEvent {
     pub from: NodeId,
     pub to: NodeId,
     pub data: Vec<u8>,
+    /// True if this was sent as a datagram (unreliable), false for stream
+    pub is_datagram: bool,
 }
 
 impl MockSender {
@@ -180,6 +236,7 @@ impl ConnectionHandle {
                         from: sender.our_node_id,
                         to: sender.peer_node_id,
                         data: data.to_vec(),
+                        is_datagram: false,
                     })
                     .map_err(|e| anyhow::anyhow!("Mock send failed: {}", e))
             }
@@ -200,6 +257,7 @@ impl ConnectionHandle {
                         from: sender.our_node_id,
                         to: sender.peer_node_id,
                         data: data.to_vec(),
+                        is_datagram: false,
                     })
                     .map_err(|e| anyhow::anyhow!("Mock send failed: {}", e))
             }
@@ -224,6 +282,84 @@ impl ConnectionHandle {
         match self.backend.as_ref() {
             ConnectionBackend::Real(inner) => Some(inner),
             ConnectionBackend::Mock(_) => None,
+        }
+    }
+
+    // =========================================================================
+    // Datagram Primitives (unreliable, fire-and-forget)
+    // =========================================================================
+
+    /// Send unreliable datagram (fire-and-forget)
+    ///
+    /// **Use for**: cursor sync, typing indicators, presence
+    /// **Properties**: Unreliable, unordered, ~1200 byte limit
+    pub fn send_datagram(&self, data: &[u8]) -> Result<()> {
+        match self.backend.as_ref() {
+            ConnectionBackend::Real(inner) => inner.send_datagram(data),
+            ConnectionBackend::Mock(sender) => {
+                sender
+                    .sender
+                    .send(MockSendEvent {
+                        from: sender.our_node_id,
+                        to: sender.peer_node_id,
+                        data: data.to_vec(),
+                        is_datagram: true,
+                    })
+                    .map_err(|e| anyhow::anyhow!("Mock datagram send failed: {}", e))
+            }
+        }
+    }
+
+    /// Read next datagram (async)
+    ///
+    /// **Use for**: receiving cursor updates, typing indicators
+    /// **Blocks**: Until a datagram arrives
+    pub async fn read_datagram(&self) -> Result<Vec<u8>> {
+        match self.backend.as_ref() {
+            ConnectionBackend::Real(inner) => Ok(inner.read_datagram().await?.to_vec()),
+            ConnectionBackend::Mock(_) => {
+                // Mock receives via separate channel in tests
+                future::pending().await
+            }
+        }
+    }
+
+    /// Get max datagram size for this connection
+    pub fn max_datagram_size(&self) -> Option<usize> {
+        match self.backend.as_ref() {
+            ConnectionBackend::Real(inner) => inner.max_datagram_size(),
+            ConnectionBackend::Mock(_) => Some(1200), // Typical MTU
+        }
+    }
+
+    // =========================================================================
+    // Stream Primitives (reliable, ordered)
+    // =========================================================================
+
+    /// Accept incoming bidirectional stream
+    ///
+    /// **Use for**: reading ephemeral protocol messages (Hello, SyncOffer, etc.)
+    /// **Consumer spawns**: read loop that calls this repeatedly
+    pub async fn accept_bi(&self) -> Result<(SendStream, RecvStream)> {
+        match self.backend.as_ref() {
+            ConnectionBackend::Real(inner) => inner.accept_bi().await,
+            ConnectionBackend::Mock(_) => {
+                // Mock doesn't support stream acceptance
+                future::pending().await
+            }
+        }
+    }
+
+    /// Open bidirectional stream
+    ///
+    /// **Use for**: sending reliable messages that need a response
+    pub async fn open_bi(&self) -> Result<(SendStream, RecvStream)> {
+        match self.backend.as_ref() {
+            ConnectionBackend::Real(inner) => inner.open_bi().await,
+            ConnectionBackend::Mock(_) => {
+                // Mock doesn't support stream opening
+                future::pending().await
+            }
         }
     }
 }

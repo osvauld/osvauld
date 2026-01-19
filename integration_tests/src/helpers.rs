@@ -314,6 +314,7 @@ pub async fn subscribe_peer_to_scribe(
         user_did: peer_user_info.did,
         device_id: peer_device_id,
         broadcast_tx,
+        ephemeral_tx: None,  // Test helper doesn't need ephemeral channel
         permit: peer_permit,
     })?;
 

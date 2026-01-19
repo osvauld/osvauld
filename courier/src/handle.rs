@@ -244,6 +244,16 @@ impl CourierHandle {
             })
             .map_err(|e| format!("Failed to send EnsureSync: {:?}", e))
     }
+
+    /// Broadcast datagram to all authenticated peers
+    ///
+    /// **Context**: Send ephemeral data (cursor, typing) to all connected users
+    /// **Coordinator will**: Send datagram to each authenticated peer's connection
+    pub fn broadcast_datagram(&self, data: Vec<u8>) -> Result<(), String> {
+        self.coordinator
+            .cast(CoordinatorMessage::BroadcastDatagram { data })
+            .map_err(|e| format!("Failed to broadcast datagram: {:?}", e))
+    }
 }
 
 /// Handshake services - wraps Butler for handshake operations

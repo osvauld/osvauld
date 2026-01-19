@@ -27,7 +27,7 @@ use iroh::endpoint::Connection;
 use iroh::{Endpoint, NodeAddr, RelayMode, SecretKey, Watcher};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 /// ALPN protocol identifier for Osvauld P2P
 pub const ALPN_PROTOCOL: &[u8] = b"osvauld/p2p/1";
@@ -145,7 +145,7 @@ impl Transport {
         let handle = ConnectionHandle::new(conn.clone(), node_id);
         self.pool.insert(handle.clone()).await;
 
-        // Emit connected event
+        // Emit connected event - consumer (SessionManager) will spawn PeerSession
         let _ = self
             .event_tx
             .send(TransportEvent::Connected {
@@ -154,10 +154,10 @@ impl Transport {
             })
             .await;
 
-        // Start reading bytes
+        // Spawn disconnect watcher - no read loop (PeerSession owns reading)
         let event_tx = self.event_tx.clone();
         let pool = self.pool.clone();
-        tokio::spawn(read_bytes_loop(conn, node_id, event_tx, pool));
+        tokio::spawn(connection_close_watcher(conn, node_id, event_tx, pool));
 
         Ok(handle)
     }
@@ -192,7 +192,7 @@ impl Transport {
         let handle = ConnectionHandle::new(conn.clone(), node_id);
         self.pool.insert(handle.clone()).await;
 
-        // Emit connected event
+        // Emit connected event - consumer (SessionManager) will spawn PeerSession
         let _ = self
             .event_tx
             .send(TransportEvent::Connected {
@@ -201,10 +201,10 @@ impl Transport {
             })
             .await;
 
-        // Start reading bytes
+        // Spawn disconnect watcher - no read loop (PeerSession owns reading)
         let event_tx = self.event_tx.clone();
         let pool = self.pool.clone();
-        tokio::spawn(read_bytes_loop(conn, node_id, event_tx, pool));
+        tokio::spawn(connection_close_watcher(conn, node_id, event_tx, pool));
 
         Ok(handle)
     }
@@ -311,6 +311,10 @@ async fn handle_incoming_connection(
 }
 
 /// Setup a successfully accepted connection
+///
+/// **Context**: Called when a new QUIC connection is established
+/// **We do**: Store handle in pool, emit Connected event, spawn disconnect watcher
+/// **Consumer does**: Spawn PeerSession with ConnectionHandle for reading/writing
 async fn setup_accepted_connection(
     conn: Connection,
     pool: Arc<ConnectionPool>,
@@ -322,6 +326,7 @@ async fn setup_accepted_connection(
     let handle = ConnectionHandle::new(conn.clone(), node_id);
     pool.insert(handle.clone()).await;
 
+    // Emit Connected - consumer (SessionManager) will spawn PeerSession
     let _ = event_tx
         .send(TransportEvent::Connected {
             node_id,
@@ -329,27 +334,28 @@ async fn setup_accepted_connection(
         })
         .await;
 
-    tokio::spawn(read_bytes_loop(conn, node_id, event_tx, pool));
+    // Spawn disconnect watcher - just monitors connection close, no read loop
+    // PeerSession owns all actual reading via the ConnectionHandle
+    tokio::spawn(connection_close_watcher(conn, node_id, event_tx, pool));
 }
 
 // ============================================================================
-// Message Reading - Flattened Helper Functions
+// Connection Lifecycle - No Read Loops (PeerSession owns reading)
 // ============================================================================
 
-/// Read bytes from a connection until it closes
-async fn read_bytes_loop(
+/// Watch for connection close and emit Disconnected event
+///
+/// **Context**: Transport no longer has read loops - PeerSession owns reading
+/// **We do**: Just wait for the connection to close, then cleanup
+/// **Note**: This is a lightweight watcher, not a read loop
+async fn connection_close_watcher(
     conn: Connection,
     node_id: NodeId,
     event_tx: mpsc::Sender<TransportEvent>,
     pool: Arc<ConnectionPool>,
 ) {
-    loop {
-        match accept_and_read_bytes(&conn, node_id, &event_tx).await {
-            Ok(true) => continue, // Bytes received, continue loop
-            Ok(false) => break,   // Connection closed gracefully
-            Err(_) => break,      // Fatal error, exit loop
-        }
-    }
+    // Wait for connection to close (triggered by either side)
+    conn.closed().await;
 
     // Connection ended - clean up
     pool.remove(&node_id).await;
@@ -357,66 +363,6 @@ async fn read_bytes_loop(
         .send(TransportEvent::Disconnected { node_id })
         .await;
     info!("Disconnected from: {}", node_id);
-}
-
-/// Accept a stream and read raw bytes. Returns:
-/// - Ok(true): bytes received, continue loop
-/// - Ok(false): connection closed gracefully
-/// - Err: fatal error
-async fn accept_and_read_bytes(
-    conn: &Connection,
-    node_id: NodeId,
-    event_tx: &mpsc::Sender<TransportEvent>,
-) -> Result<bool, ()> {
-    let (send, mut recv) = match conn.accept_bi().await {
-        Ok(streams) => streams,
-        Err(e) => {
-            let err_str = e.to_string();
-            if err_str.contains("closed")
-                || err_str.contains("reset")
-                || err_str.contains("timed out")
-            {
-                debug!("Connection closed: {}", node_id);
-            } else {
-                error!("Failed to accept stream from {}: {}", node_id, e);
-            }
-            return Ok(false); // Graceful close
-        }
-    };
-    drop(send); // Don't need to respond on same stream
-
-    // Read length prefix
-    let mut len_buf = [0u8; 4];
-    if let Err(e) = recv.read_exact(&mut len_buf).await {
-        let err_str = e.to_string();
-        if err_str.contains("closed") || err_str.contains("reset") || err_str.contains("finished") {
-            debug!("Stream closed by peer: {}", node_id);
-            return Ok(true); // Try next stream
-        }
-        trace!("Failed to read message length: {}", e);
-        return Ok(true); // Try next stream
-    }
-
-    let len = u32::from_be_bytes(len_buf) as usize;
-    if len > 10 * 1024 * 1024 {
-        warn!("Data too large from {}: {} bytes", node_id, len);
-        return Ok(true); // Skip this data
-    }
-
-    // Read raw bytes
-    let mut data = vec![0u8; len];
-    if let Err(e) = recv.read_exact(&mut data).await {
-        error!("Failed to read data: {}", e);
-        return Ok(true); // Try next stream
-    }
-
-    // Emit raw bytes - protocol layer will deserialize
-    trace!("←─ RECV ({} bytes) from {}", len, node_id);
-    let _ = event_tx
-        .send(TransportEvent::Bytes { node_id, data })
-        .await;
-
-    Ok(true) // Continue reading
 }
 
 #[cfg(test)]

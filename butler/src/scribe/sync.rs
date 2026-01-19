@@ -28,12 +28,13 @@ use super::state::{LayerWritePermission, ScribeState, SubscriberInfo, SyncPolicy
 /// **Pattern expansion**: For patterns like `{page_id}/orders/{aud}`, we use the permit's
 /// audience field (the permit holder's DID) for expansion, not the subscriber's DID.
 /// This ensures layers created by the permit holder match correctly.
-#[instrument(skip(state, broadcast_tx, permit), fields(page_id = %state.page_id))]
+#[instrument(skip(state, broadcast_tx, ephemeral_tx, permit), fields(page_id = %state.page_id))]
 pub async fn handle_subscribe(
     state: &mut ScribeState,
     user_did: String,
     device_id: String,
     broadcast_tx: mpsc::Sender<BroadcastPayload>,
+    ephemeral_tx: Option<mpsc::Sender<super::message::EphemeralOutbound>>,
     permit: String,
 ) {
     info!(user_did = %user_did, device_id = %device_id, permit_len = permit.len(), "Peer subscribing");
@@ -115,6 +116,7 @@ pub async fn handle_subscribe(
             (user_did.clone(), device_id.clone()),
             SubscriberInfo {
                 broadcast_tx: broadcast_tx.clone(),
+                ephemeral_tx,  // Passed from PeerActor for direct ephemeral routing
                 vectors,
                 layer_permissions: layer_permissions.clone(),
                 sync_policy: sync_policy.clone(),

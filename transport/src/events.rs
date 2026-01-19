@@ -1,48 +1,38 @@
 //! Transport events emitted to the protocol layer
 //!
-//! Transport emits these events via a channel. The protocol layer (courier2)
-//! receives and processes them.
+//! Transport emits lifecycle events only. Message reading is done by the
+//! consumer (PeerSession) directly from the ConnectionHandle.
 //!
-//! Transport is a **dumb byte pipe** - it has no knowledge of message types
-//! or serialization. It only handles raw bytes.
+//! This architecture enables per-peer parallelism - no central bottleneck.
 
 use crate::pool::ConnectionHandle;
 use iroh::NodeId;
 
 /// Events emitted by Transport layer
 ///
-/// These are sent through a tokio mpsc channel to the protocol layer.
-/// Transport only deals with raw bytes - deserialization happens upstream.
+/// Transport only emits connection lifecycle events.
+/// Message reading is done by the consumer (PeerSession) which spawns
+/// its own read loops from the ConnectionHandle.
+///
+/// **Why lifecycle only?**
+/// - No central bottleneck - N peers = N parallel handlers
+/// - Clear ownership - PeerSession owns its connection entirely
+/// - Easy to extend - add audio = add reader loop in PeerSession
 #[derive(Debug)]
 pub enum TransportEvent {
     /// New peer connected
     ///
-    /// Includes ConnectionHandle so protocol layer can send responses.
+    /// Consumer gets ConnectionHandle to read from directly.
+    /// Consumer (SessionManager) spawns PeerSession with this handle.
     Connected {
         /// Peer's iroh NodeId
         node_id: NodeId,
-        /// Handle for sending bytes to this peer
+        /// Handle for reading/writing to this peer
         conn: ConnectionHandle,
     },
 
     /// Peer disconnected
-    Disconnected { node_id: NodeId },
-
-    /// Raw bytes received from peer
     ///
-    /// Protocol layer is responsible for deserializing these bytes.
-    Bytes {
-        /// Source peer
-        node_id: NodeId,
-        /// Raw message bytes (length-prefix already stripped)
-        data: Vec<u8>,
-    },
-
-    /// Error occurred
-    Error {
-        /// Peer if applicable
-        node_id: Option<NodeId>,
-        /// Error description
-        error: String,
-    },
+    /// Consumer should clean up any PeerSession for this peer.
+    Disconnected { node_id: NodeId },
 }

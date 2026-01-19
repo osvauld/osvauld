@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use tokio::io::AsyncReadExt;
 use tracing::{debug, error, info, warn};
 use transport::{ConnectionHandle, NodeId, TransportEvent};
 
@@ -34,7 +35,7 @@ pub struct ConnectRequest {
 /// Messages received by Coordinator
 #[derive(Debug)]
 pub enum CoordinatorMessage {
-    /// Raw bytes from transport - will be deserialized
+    /// Raw bytes from transport (stream) - will be deserialized
     TransportBytes { node_id: NodeId, data: Vec<u8> },
 
     /// New connection from transport
@@ -69,6 +70,17 @@ pub enum CoordinatorMessage {
 
     /// PeerActor failed or disconnected
     PeerFailed { node_id: NodeId, reason: String },
+
+    /// Relay datagram to other peers (Node mode only)
+    ///
+    /// **Context**: PeerActor received datagram, needs Node to relay to other peers
+    /// **We do**: Send datagram to all authenticated peers except sender
+    RelayDatagram {
+        /// Source peer (exclude from relay)
+        from_node_id: NodeId,
+        /// Raw datagram bytes to relay
+        data: Vec<u8>,
+    },
 
     // ==================== Sync Events ====================
 
@@ -196,6 +208,12 @@ pub enum CoordinatorMessage {
         response: oneshot::Sender<Result<NodeId, String>>,
     },
 
+    /// Broadcast datagram to all authenticated peers
+    ///
+    /// **Context**: App wants to send ephemeral data (cursor, typing) to all connected users
+    /// **We do**: Send datagram to all authenticated peer connections
+    BroadcastDatagram { data: Vec<u8> },
+
     /// Shutdown all actors
     Shutdown,
 }
@@ -269,6 +287,9 @@ impl Coordinator {
     }
 
     /// Process a TransportEvent and convert to CoordinatorMessage
+    ///
+    /// **Note**: Transport now only emits lifecycle events (Connected/Disconnected).
+    /// Message reading is done by PeerSession directly from the ConnectionHandle.
     pub fn from_transport_event(event: TransportEvent) -> Option<CoordinatorMessage> {
         match event {
             TransportEvent::Connected { node_id, conn } => {
@@ -277,20 +298,7 @@ impl Coordinator {
             TransportEvent::Disconnected { node_id } => {
                 Some(CoordinatorMessage::Disconnected { node_id })
             }
-            TransportEvent::Bytes { node_id, data } => {
-                Some(CoordinatorMessage::TransportBytes { node_id, data })
-            }
-            TransportEvent::Error { node_id, error } => {
-                if let Some(node_id) = node_id {
-                    Some(CoordinatorMessage::PeerFailed {
-                        node_id,
-                        reason: error,
-                    })
-                } else {
-                    warn!("Transport error without node_id: {}", error);
-                    None
-                }
-            }
+            // Note: Bytes and Error events removed - PeerSession handles reading now
         }
     }
 }
@@ -422,6 +430,26 @@ impl Actor for Coordinator {
                 }
             }
 
+            CoordinatorMessage::RelayDatagram { from_node_id, data } => {
+                // Node mode only: relay datagram to all other authenticated peers
+                if state.mode == CourierMode::Node {
+                    for (peer_node_id, _peer_info) in &state.authenticated_peers {
+                        if *peer_node_id != from_node_id {
+                            if let Some(conn) = state.connections.get(peer_node_id) {
+                                if let Err(e) = conn.send_datagram(&data) {
+                                    debug!(
+                                        from = %from_node_id,
+                                        to = %peer_node_id,
+                                        error = %e,
+                                        "Failed to relay datagram"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             CoordinatorMessage::PublishSpace { node_id, space_id } => {
                 self.on_publish_space(node_id, space_id, state).await;
             }
@@ -544,6 +572,17 @@ impl Actor for Coordinator {
                 self.on_ensure_sync(myself.clone(), user_did, state).await;
             }
 
+            CoordinatorMessage::BroadcastDatagram { data } => {
+                // Send datagram to all authenticated peers
+                for (node_id, _peer_info) in &state.authenticated_peers {
+                    if let Some(conn) = state.connections.get(node_id) {
+                        if let Err(e) = conn.send_datagram(&data) {
+                            debug!(node_id = %node_id, error = %e, "Failed to send datagram to peer");
+                        }
+                    }
+                }
+            }
+
             CoordinatorMessage::Shutdown => {
                 info!("Coordinator shutting down");
                 // Stop all peer actors
@@ -629,6 +668,50 @@ impl Coordinator {
         }
     }
 
+    /// Read loop for a connection - accepts incoming streams and forwards bytes to coordinator
+    ///
+    /// **Architecture**: Consumer spawns read loop (not transport) per the v2 design.
+    /// This is a temporary bridge until full PeerSession migration.
+    async fn read_loop(
+        node_id: NodeId,
+        conn: ConnectionHandle,
+        coordinator: ActorRef<CoordinatorMessage>,
+    ) {
+        loop {
+            // Accept incoming bidirectional stream
+            let (_, mut recv) = match conn.accept_bi().await {
+                Ok(streams) => streams,
+                Err(_) => {
+                    // Connection closed
+                    let _ = coordinator.cast(CoordinatorMessage::Disconnected { node_id });
+                    return;
+                }
+            };
+
+            // Read length-prefixed message
+            let mut len_buf = [0u8; 4];
+            if recv.read_exact(&mut len_buf).await.is_err() {
+                continue; // Stream closed, try accepting next one
+            }
+
+            let len = u32::from_be_bytes(len_buf) as usize;
+            if len > 10 * 1024 * 1024 {
+                error!("Message too large from {}: {} bytes", node_id, len);
+                continue;
+            }
+
+            let mut data = vec![0u8; len];
+            if recv.read_exact(&mut data).await.is_err() {
+                continue;
+            }
+
+            // Forward to coordinator
+            if coordinator.cast(CoordinatorMessage::TransportBytes { node_id, data }).is_err() {
+                return;
+            }
+        }
+    }
+
     /// Handle new connection
     async fn on_connected(
         &self,
@@ -641,6 +724,15 @@ impl Coordinator {
 
         // Store connection handle
         state.connections.insert(node_id, conn.clone());
+
+        // Spawn stream read loop for this connection
+        let coordinator = myself.clone();
+        let conn_for_read = conn.clone();
+        tokio::spawn(async move {
+            Self::read_loop(node_id, conn_for_read, coordinator).await;
+        });
+
+        // Note: Datagram read loop is now owned by PeerActor (spawned in PeerActor::pre_start)
 
         // Always spawn new PeerActor (anonymous to avoid name conflicts on reconnection)
         let peer_actor = PeerActor::new(node_id);

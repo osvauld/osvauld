@@ -953,24 +953,28 @@ impl PeerActor {
             }
         };
 
-        // Create broadcast channel
+        // Create CRDT broadcast channel
         let (tx, mut rx) = tokio::sync::mpsc::channel::<butler::BroadcastPayload>(32);
 
-        // Subscribe to Scribe
+        // Create ephemeral broadcast channel (for cursor/typing/presence)
+        let (eph_tx, mut eph_rx) = tokio::sync::mpsc::channel::<butler::EphemeralOutbound>(64);
+
+        // Subscribe to Scribe with both CRDT and ephemeral channels
         let device_id = self.node_id.to_string();
         if let Err(e) = scribe.cast(butler::ScribeMessage::Subscribe {
             user_did: peer_did.clone(),
             device_id: device_id.clone(),
             broadcast_tx: tx,
+            ephemeral_tx: Some(eph_tx),
             permit: subscription_permit,
         }) {
             error!("Failed to subscribe to Scribe for page {}: {}", page_id, e);
             return;
         }
 
-        info!("Subscribed to page {} for peer {}", page_id, peer_did);
+        info!("Subscribed to page {} for peer {} (with ephemeral channel)", page_id, peer_did);
 
-        // Spawn listener task that forwards broadcasts to this actor
+        // Spawn listener task that forwards CRDT broadcasts to this actor
         let actor_ref = myself.clone();
         let page_id_clone = page_id.to_string();
         let listener_handle = tokio::spawn(async move {
@@ -981,6 +985,27 @@ impl PeerActor {
                 }
             }
             debug!("Broadcast listener stopped for page {}", page_id_clone);
+        });
+
+        // Spawn ephemeral listener task that sends datagrams directly to peer
+        let conn_for_eph = state.conn.clone();
+        let page_id_for_eph = page_id.to_string();
+        let node_id_for_eph = self.node_id;
+        tokio::spawn(async move {
+            while let Some(outbound) = eph_rx.recv().await {
+                // Create protocol-level EphemeralDatagram
+                let datagram = crate::message::EphemeralDatagram {
+                    page_id: outbound.page_id,
+                    payload: outbound.payload,
+                };
+                if let Ok(data) = datagram.to_bytes() {
+                    // send_datagram is sync (Result, not Future)
+                    if let Err(e) = conn_for_eph.send_datagram(&data) {
+                        debug!("Failed to send ephemeral datagram to {}: {}", node_id_for_eph, e);
+                    }
+                }
+            }
+            debug!("Ephemeral listener stopped for page {}", page_id_for_eph);
         });
 
         // Store full subscription info for cleanup on disconnect

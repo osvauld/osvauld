@@ -25,6 +25,7 @@ mod event_bus;
 // Existing modules
 mod scribe_channel;
 mod butler_bindings;
+mod layout_bindings;
 
 // New architecture exports
 pub use vecmodel_ops::{VecModelOp, UiMutation, PropertyUpdate, UiQuery};
@@ -50,6 +51,7 @@ pub use butler::{
 // Existing exports
 pub use scribe_channel::{ScribeChannel, ScribeCommand, ScribeEvent};
 pub use butler_bindings::ButlerBindings;
+pub use layout_bindings::LayoutBindings;
 
 use thiserror::Error;
 

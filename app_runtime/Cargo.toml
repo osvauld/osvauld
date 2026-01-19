@@ -39,3 +39,6 @@ tempfile = "3"
 
 # Actor framework for Scribe communication
 ractor = "0.14"
+
+# Graph layout algorithms for canvas apps
+layout-rs = "0.1"

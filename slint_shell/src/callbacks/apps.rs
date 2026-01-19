@@ -9,6 +9,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use butler::{Butler, ScribeMessage};
+use courier::CourierHandle;
 use ractor::ActorRef;
 use slint::ComponentHandle;
 
@@ -30,6 +31,7 @@ pub struct RefreshAppRequest {
 pub fn register(
     shell: &Shell,
     butler: Arc<Butler>,
+    courier_handle: Arc<RwLock<Option<CourierHandle>>>,
     tokio_handle: tokio::runtime::Handle,
     debug_server: Option<Arc<DebugServer>>,
 ) -> slint::Timer {
@@ -44,7 +46,7 @@ pub fn register(
     register_delete_app(shell);
 
     // Setup app loading and runtime timer (returns refresh_tx for refresh_app callback)
-    let (timer, refresh_tx) = setup_app_runtime(shell, butler, tokio_handle, debug_server);
+    let (timer, refresh_tx) = setup_app_runtime(shell, butler, courier_handle, tokio_handle, debug_server);
 
     // Register refresh_app callback (needs refresh_tx from timer setup)
     register_refresh_app(shell, refresh_tx);
@@ -258,6 +260,7 @@ fn register_refresh_app(shell: &Shell, refresh_tx: std::sync::mpsc::Sender<Refre
 fn setup_app_runtime(
     shell: &Shell,
     butler: Arc<Butler>,
+    courier_handle: Arc<RwLock<Option<CourierHandle>>>,
     tokio_handle: tokio::runtime::Handle,
     debug_server: Option<Arc<DebugServer>>,
 ) -> (slint::Timer, std::sync::mpsc::Sender<RefreshAppRequest>) {
@@ -336,6 +339,7 @@ fn setup_app_runtime(
     // Timer to check for ready apps and process runtime updates
     let running_apps_timer = running_apps.clone();
     let butler_timer = butler.clone();
+    let _courier_handle_timer = courier_handle.clone();  // Preserved for potential future use
     let tokio_handle_timer = tokio_handle.clone();
     let app_ready_tx_timer = app_ready_tx.clone();
     let debug_server_timer = debug_server.clone();
@@ -411,6 +415,20 @@ fn setup_app_runtime(
                         }
                     }
                 }
+
+                // Forward ephemeral events (generic payload) to Lua thread
+                while let Ok(event) = running_app.ephemeral_event_rx.try_recv() {
+                    match event {
+                        butler::EphemeralEvent::Data { user_did, payload } => {
+                            let _ = running_app.lua_tx.try_send(
+                                app_runtime::LuaWorkerCommand::Ephemeral { user_did, payload }
+                            );
+                        }
+                    }
+                }
+
+                // Note: Ephemeral broadcasts now go directly via Scribe → PeerActor channels
+                // (no longer routed through apps.rs/Courier)
 
                 // Process UI mutations
                 if let Err(e) = running_app.slint_runtime.process_ui_mutations() {
@@ -633,10 +651,12 @@ fn create_app_runtime(
     // Use generated shell that imports the app component
     let slint_path = prepared.shell_path.clone();
 
-    let (ui_tx, ui_rx) = tokio::sync::mpsc::channel::<app_runtime::UiMutation>(32);
+    let (ui_tx, ui_rx) = tokio::sync::mpsc::channel::<app_runtime::UiMutation>(256);
     let (query_tx, query_rx) = tokio::sync::mpsc::channel::<app_runtime::UiQuery>(32);
     // Unified page event channel - replaces per-layer loro subscriptions + scribe events
     let (page_event_tx, page_event_rx) = tokio::sync::mpsc::channel::<butler::PageEvent>(64);
+    // Ephemeral events (cursor, typing, presence) - received via datagrams from peers
+    let (ephemeral_event_tx, ephemeral_event_rx) = tokio::sync::mpsc::channel::<butler::EphemeralEvent>(256);
     let (tab_switch_tx, tab_switch_rx) = std::sync::mpsc::channel::<String>();
 
     println!("SlintRuntime: spawning Lua worker thread first...");
@@ -779,6 +799,19 @@ fn create_app_runtime(
         println!("Subscribed to unified page events for {} layers", prepared.data_layers.len());
     }
 
+    // Subscribe to ephemeral events (cursor, typing, presence from peers via datagrams)
+    if let Err(e) = scribe_ref.cast(ScribeMessage::SubscribeEphemeral {
+        tx: ephemeral_event_tx,
+    }) {
+        println!("Failed to subscribe to ephemeral events: {}", e);
+    } else {
+        println!("Subscribed to ephemeral events (cursor, typing, presence)");
+    }
+
+    // Note: Outbound ephemeral broadcasts (cursor, typing) now go directly via
+    // Scribe → PeerActor channels (SubscriberInfo.ephemeral_tx)
+    // No apps.rs routing needed anymore
+
     // Send initial load events for all data layers
     let lua_tx_init = lua_tx.clone();
     println!("Sending initial load events to Lua worker for {} layers...", prepared.data_layers.len());
@@ -813,6 +846,7 @@ fn create_app_runtime(
         lua_thread,
         lua_tx,
         page_event_rx,
+        ephemeral_event_rx,
         tab_switch_rx,
     })
 }

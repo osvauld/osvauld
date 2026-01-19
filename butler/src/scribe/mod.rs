@@ -22,8 +22,8 @@ pub mod lua_runtime;
 
 // Re-exports
 pub use message::{
-    BroadcastPayload, ListOp, LoroDelta, PageEvent, PageEventType,
-    ScribeMessage, SyncEvent, TextOp,
+    BroadcastPayload, EphemeralBroadcast, EphemeralEvent, EphemeralOutbound, ListOp, LoroDelta,
+    PageEvent, PageEventType, ScribeMessage, SyncEvent, TextOp,
 };
 pub use state::{
     LayerWritePermission, ListAuthorizedUsersFn, LoadPeerVectorFn, LoadUserPermitFn, PatternRule,
@@ -195,6 +195,9 @@ impl Actor for Scribe {
             page_event_subscribers: Arc::new(std::sync::RwLock::new(Vec::new())),
             // Pending update source for observer context (tracks who caused the change)
             pending_update_source: Arc::new(Mutex::new(None)),
+            // Ephemeral event subscribers (cursor, typing, presence)
+            ephemeral_subscribers: Arc::new(std::sync::RwLock::new(Vec::new())),
+            // Note: ephemeral_broadcast_tx removed - now uses SubscriberInfo.ephemeral_tx
             // Unified Lua runtime for validation + derivation
             lua_runtime,
             // Our permit for local write authorization
@@ -259,9 +262,10 @@ impl Actor for Scribe {
                 user_did,
                 device_id,
                 broadcast_tx,
+                ephemeral_tx,
                 permit,
             } => {
-                sync::handle_subscribe(state, user_did, device_id, broadcast_tx, permit).await;
+                sync::handle_subscribe(state, user_did, device_id, broadcast_tx, ephemeral_tx, permit).await;
             }
 
             ScribeMessage::Unsubscribe { user_did, device_id } => {
@@ -571,6 +575,43 @@ impl Actor for Scribe {
                 myself.stop(Some("shutdown".to_string()));
             }
 
+            // Ephemeral events (from datagrams via PeerActor)
+            ScribeMessage::RemoteEphemeral { user_did, device_id, payload } => {
+                // 1. Forward to local app layer - app interprets the payload format
+                if let Some(ref did) = user_did {
+                    emit_ephemeral_event(state, message::EphemeralEvent::Data {
+                        user_did: did.clone(),
+                        payload: payload.clone(),
+                    }).await;
+                } else {
+                    debug!(page_id = %state.page_id, "RemoteEphemeral without user_did - not emitting to local app");
+                }
+
+                // 2. Relay to other subscribers (node mode relay) - exclude sender
+                let exclude = match (&user_did, &device_id) {
+                    (Some(d), Some(dev)) => Some((d.as_str(), dev.as_str())),
+                    _ => None,
+                };
+                broadcast_ephemeral_to_subscribers(state, &payload, exclude);
+            }
+
+            ScribeMessage::SendEphemeral { payload } => {
+                // Broadcast ephemeral data directly to all subscribed PeerActors
+                // No exclusion - this is local user action, send to everyone
+                debug!(page_id = %state.page_id, payload_len = payload.len(), "Broadcasting ephemeral to all subscribers");
+                broadcast_ephemeral_to_subscribers(state, &payload, None);
+            }
+
+            ScribeMessage::SubscribeEphemeral { tx } => {
+                if let Ok(mut subscribers) = state.ephemeral_subscribers.write() {
+                    subscribers.push(tx);
+                    debug!(page_id = %state.page_id, "Added ephemeral subscriber");
+                }
+            }
+
+            // Note: SetEphemeralBroadcast removed - ephemeral now goes directly via
+            // SubscriberInfo.ephemeral_tx (Scribe → PeerActor channels)
+
             // Derivation operations (using ScribeLuaRuntime)
             ScribeMessage::RebuildDerived { target, reply } => {
                 let result = if let Some(ref runtime) = state.lua_runtime {
@@ -628,6 +669,53 @@ impl Actor for Scribe {
     ) -> std::result::Result<(), ActorProcessingErr> {
         info!(page_id = %state.page_id, "Scribe stopped");
         Ok(())
+    }
+}
+
+// =============================================================================
+// Ephemeral Event Helpers
+// =============================================================================
+
+/// Emit an ephemeral event to all local app subscribers
+///
+/// **Context**: Called when receiving remote cursor/typing/presence updates
+/// **Design**: Non-blocking - drops events if subscribers are slow
+async fn emit_ephemeral_event(state: &ScribeState, event: message::EphemeralEvent) {
+    if let Ok(subscribers) = state.ephemeral_subscribers.read() {
+        for tx in subscribers.iter() {
+            let _ = tx.try_send(event.clone());
+        }
+    }
+}
+
+/// Broadcast ephemeral data to all subscribed PeerActors (via their ephemeral channels)
+///
+/// **Context**: Called for:
+/// - SendEphemeral from Lua (local user action) - no exclusion
+/// - RemoteEphemeral (relay to other peers) - exclude sender
+///
+/// **exclude_key**: (user_did, device_id) to skip (the sender for relay)
+fn broadcast_ephemeral_to_subscribers(
+    state: &ScribeState,
+    payload: &[u8],
+    exclude_key: Option<(&str, &str)>,
+) {
+    if let Ok(subscribers) = state.subscribers.read() {
+        for ((did, device), info) in subscribers.iter() {
+            // Skip sender (for relay - don't echo back)
+            if let Some((ex_did, ex_device)) = exclude_key {
+                if did == ex_did && device == ex_device {
+                    continue;
+                }
+            }
+            // Send via ephemeral channel if available
+            if let Some(ref tx) = info.ephemeral_tx {
+                let _ = tx.try_send(message::EphemeralOutbound {
+                    page_id: state.page_id.clone(),
+                    payload: payload.to_vec(),
+                });
+            }
+        }
     }
 }
 

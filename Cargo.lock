@@ -405,6 +405,7 @@ name = "app_runtime"
 version = "0.1.0"
 dependencies = [
  "butler",
+ "layout-rs",
  "loro",
  "mlua",
  "parking_lot",
@@ -4774,6 +4775,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "layout-rs"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b8b38bc67665e362eb770c6b6ae88b48d040d94a0a10c4904c37bc79d263b95"
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8069,6 +8076,7 @@ version = "0.1.0"
 dependencies = [
  "app_runtime",
  "arboard",
+ "bincode 1.3.3",
  "butler",
  "chrono",
  "clap",
@@ -8082,10 +8090,12 @@ dependencies = [
  "serde_json",
  "slint",
  "slint-build",
+ "slint-interpreter",
  "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "walkdir",
 ]
 
 [[package]]
@@ -9109,6 +9119,8 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "bincode 1.3.3",
+ "bytes",
+ "futures",
  "iroh",
  "iroh-base",
  "iroh-quinn",

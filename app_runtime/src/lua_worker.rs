@@ -18,6 +18,7 @@ use crate::butler_bindings::ButlerBindings;
 use crate::event_bus::{EventBus, Event, EventSource, SubscribeOptions, EventDelivery};
 // Re-exported from butler
 use crate::{LoroBindings, PermitBindings, json_to_lua, lua_to_json, matches_layer_pattern};
+use crate::layout_bindings::LayoutBindings;
 
 /// Commands sent to Lua worker thread
 ///
@@ -76,6 +77,19 @@ pub enum LuaWorkerCommand {
     /// **Returns**: Snapshot of Lua globals, registered handlers, etc.
     DebugGetState {
         response_tx: oneshot::Sender<DebugState>,
+    },
+
+    // ==================== Ephemeral Events (from peers via datagram) ====================
+
+    /// Ephemeral data from peer (generic)
+    ///
+    /// **Context**: Peer sent ephemeral data (cursor, typing, etc.) via datagram
+    /// **We do**: Call Lua's `on_ephemeral(user_did, payload)` if defined
+    /// **Design**: Generic payload - Lua app interprets format (JSON with type/x/y, etc.)
+    Ephemeral {
+        user_did: String,
+        /// Opaque payload bytes - Lua converts to string and parses as JSON
+        payload: Vec<u8>,
     },
 }
 
@@ -259,6 +273,34 @@ impl UserData for UiBindings {
                     app_id = %this.app_id,
                     error = %e,
                     "Failed to send clear mutation from Lua"
+                );
+            }
+
+            Ok(())
+        });
+
+        // ui:update(model_name, index, item) - Update single item at index (efficient for drag)
+        // Triggers ModelNotify::row_changed(index) - only re-renders that one item
+        methods.add_method("update", |_lua, this, (model_name, index, item): (String, usize, LuaValue)| {
+            let item_json = lua_to_json(&item)
+                .map_err(|e| LuaError::RuntimeError(e.to_string()))?;
+
+            let mutation = UiMutation {
+                app_id: this.app_id.clone(),
+                properties: vec![],
+                model_ops: vec![VecModelOp::Set {
+                    model_name,
+                    index,
+                    item: item_json,
+                }],
+            };
+
+            let sender = this.ui_tx.lock();
+            if let Err(e) = sender.try_send(mutation) {
+                tracing::warn!(
+                    app_id = %this.app_id,
+                    error = %e,
+                    "Failed to send update mutation from Lua"
                 );
             }
 
@@ -670,6 +712,13 @@ impl LuaWorker {
                     let state = self.get_debug_state();
                     let _ = response_tx.send(state);
                 }
+
+                // ==================== Ephemeral Events ====================
+
+                Some(LuaWorkerCommand::Ephemeral { user_did, payload }) => {
+                    self.handle_ephemeral(&user_did, &payload);
+                }
+
                 None => {
                     tracing::warn!(
                         page_id = %self.page_id,
@@ -737,12 +786,16 @@ impl LuaWorker {
         let datetime: mlua::Value = self.lua.load(date_lib).eval()?;
         globals.set("datetime", datetime)?;
 
+        // layout binding - provides graph layout algorithms for canvas apps
+        let layout_binding = LayoutBindings::new();
+        globals.set("layout", layout_binding)?;
+
         tracing::info!(
             page_id = %self.page_id,
             user_did = %self.user_did,
             user_role = %self.user_role,
             app_name = %self.app_name,
-            "Lua globals initialized (loro, butler, ui, permit, page, datetime)"
+            "Lua globals initialized (loro, butler, ui, permit, page, datetime, layout)"
         );
 
         Ok(())
@@ -1066,7 +1119,7 @@ impl LuaWorker {
         args: Vec<JsonValue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // No conversion needed - using snake_case consistently in Slint and Lua
-        tracing::info!(
+        tracing::trace!(
             page_id = %self.page_id,
             callback = %callback_name,
             "Looking up Lua callback"
@@ -1075,7 +1128,7 @@ impl LuaWorker {
         // Get callback function from Lua (optional - not all callbacks need Lua handlers)
         let callback: mlua::Function = match self.lua.globals().get(callback_name.as_str()) {
             Ok(func) => {
-                tracing::info!(
+                tracing::trace!(
                     page_id = %self.page_id,
                     callback = %callback_name,
                     "Found Lua handler, calling..."
@@ -1300,6 +1353,41 @@ impl LuaWorker {
 
         globals.sort();
         globals
+    }
+
+    // ==================== Ephemeral Event Handlers ====================
+
+    /// Handle ephemeral data from peer (generic)
+    ///
+    /// **Context**: Peer sent ephemeral data (cursor, typing, etc.) via datagram
+    /// **Calls**: Lua `on_ephemeral(user_did, payload_string)` if defined
+    /// **Design**: Payload is passed as string - Lua parses as JSON with type/x/y, etc.
+    fn handle_ephemeral(&self, user_did: &str, payload: &[u8]) {
+        // Convert payload bytes to string (UTF-8 expected)
+        let payload_str = match String::from_utf8(payload.to_vec()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    user_did = %user_did,
+                    error = %e,
+                    "Invalid UTF-8 in ephemeral payload"
+                );
+                return;
+            }
+        };
+
+        if let Ok(func) = self.lua.globals().get::<mlua::Function>("on_ephemeral") {
+            if let Err(e) = func.call::<()>((user_did.to_string(), payload_str)) {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    user_did = %user_did,
+                    error = %e,
+                    "on_ephemeral callback failed"
+                );
+            }
+        }
+        // Silently ignore if callback not defined - not all apps need ephemeral data
     }
 }
 

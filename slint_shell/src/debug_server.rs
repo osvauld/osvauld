@@ -9,12 +9,14 @@
 use butler::Butler;
 use courier::CourierHandle;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use slint_interpreter::Compiler;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc, oneshot, RwLock};
 use tracing::{debug, error, info, warn};
+use walkdir::WalkDir;
 
 /// Debug command received from client
 #[derive(Debug, Clone, Deserialize)]
@@ -454,6 +456,66 @@ pub struct ElementInfo {
     pub type_name: String,
     pub accessible_label: Option<String>,
     pub accessible_role: String,
+}
+
+/// Validate all Slint files in a directory before import
+///
+/// **Context**: Called before importing a page to catch compilation errors early
+/// **Returns**: Ok(()) if all Slint files compile, Err with details otherwise
+async fn validate_slint_files(page_dir: &Path) -> Result<(), String> {
+    // Collect all .slint file paths first
+    let slint_files: Vec<PathBuf> = WalkDir::new(page_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map_or(false, |ext| ext == "slint"))
+        .map(|e| e.path().to_path_buf())
+        .collect();
+
+    if slint_files.is_empty() {
+        return Ok(());
+    }
+
+    // Validate in a blocking task since Slint Compiler isn't Send
+    let result = tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("Failed to create runtime: {}", e))?;
+
+        let mut errors = Vec::new();
+
+        for slint_path in slint_files {
+            info!("Validating Slint file: {}", slint_path.display());
+
+            let compiler = Compiler::default();
+            let result = rt.block_on(compiler.build_from_path(&slint_path));
+
+            // Check for compilation errors
+            let compile_errors: Vec<_> = result
+                .diagnostics()
+                .filter(|d| d.level() == slint_interpreter::DiagnosticLevel::Error)
+                .map(|d| d.to_string())
+                .collect();
+
+            if !compile_errors.is_empty() {
+                errors.push(format!(
+                    "{}:\n  {}",
+                    slint_path.display(),
+                    compile_errors.join("\n  ")
+                ));
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("Slint compilation errors:\n{}", errors.join("\n")))
+        }
+    })
+    .await
+    .map_err(|e| format!("Validation task failed: {}", e))?;
+
+    result
 }
 
 /// Debug server handle for managing the server
@@ -1334,6 +1396,17 @@ impl DebugServer {
             };
         }
 
+        // Validate Slint files before importing
+        if let Err(e) = validate_slint_files(&page_path).await {
+            return DebugResponse::Error {
+                error: DebugError {
+                    code: -32000,
+                    message: e,
+                },
+                id,
+            };
+        }
+
         match butler.import_page(&space_id, &page_path).await {
             Ok(page) => {
                 // Get apps in this page
@@ -1367,6 +1440,20 @@ impl DebugServer {
                 id,
             };
         };
+
+        // Validate Slint files in template before creating space
+        let template_dir = std::path::PathBuf::from(template_path);
+        if template_dir.exists() {
+            if let Err(e) = validate_slint_files(&template_dir).await {
+                return DebugResponse::Error {
+                    error: DebugError {
+                        code: -32000,
+                        message: e,
+                    },
+                    id,
+                };
+            }
+        }
 
         let (response_tx, response_rx) = oneshot::channel();
         let cmd = UiCommand::CreateSpace {

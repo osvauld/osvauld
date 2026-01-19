@@ -164,6 +164,7 @@ fn main() {
     let _app_timer = slint_shell::callbacks::apps::register(
         &shell,
         butler.clone(),
+        courier_handle.clone(),
         tokio_handle.clone(),
         debug_server.clone(),
     );

@@ -10,7 +10,9 @@ testing = ["slint/backend-qt"]  # For headless testing
 
 [dependencies]
 slint = { version = "1.14", features = ["backend-winit", "renderer-femtovg"] }
+slint-interpreter = "1.14"
 i-slint-backend-testing = "1.14"
+walkdir = "2"
 butler = { path = "../butler" }
 courier = { path = "../courier" }
 app_runtime = { path = "../app_runtime" }
@@ -23,6 +25,7 @@ rfd = "0.15"
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+bincode = "1.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = "0.4"

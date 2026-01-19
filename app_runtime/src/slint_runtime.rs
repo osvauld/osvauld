@@ -511,6 +511,9 @@ impl SlintRuntime {
             "on_click",
             "on_field_changed",
             "on_modal_action",
+            "on_pointer_event",  // For canvas/drawing apps that need x,y coordinates
+            "on_scroll",         // For canvas/drawing apps that need scroll/zoom
+            "on_hover",          // For cursor sync without drag (timer-based polling)
         ];
 
         let mut callback_count = 0;
@@ -526,7 +529,7 @@ impl SlintRuntime {
                     .map(slint_value_to_json)
                     .collect();
 
-                tracing::info!(
+                tracing::trace!(
                     global = GLOBAL_API_NAME,
                     callback = %callback_name_owned,
                     arg_count = json_args.len(),
@@ -549,13 +552,13 @@ impl SlintRuntime {
                     );
                 }
                 Err(e) => {
-                    // Not an error - app may not have this callback
-                    tracing::trace!(
+                    // Log at warn level to debug callback registration issues
+                    tracing::warn!(
                         page_id = %self.page_id,
                         global = GLOBAL_API_NAME,
                         callback = callback_name,
                         error = %e,
-                        "AppAPI callback not found (OK)"
+                        "AppAPI callback registration failed"
                     );
                 }
             }

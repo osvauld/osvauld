@@ -141,8 +141,23 @@ def main():
 
     # Create space
     step("Creating Booking Service space...")
-    space = call("provider", "create_space", {"name": "Booking Service", "template_path": SAMPLE_APP_PATH})
-    space_id = space.get("result", {}).get("id") or space.get("id")
+    call("provider", "create_space", {"name": "Booking Service", "template_path": SAMPLE_APP_PATH})
+
+    # Wait for creation and get the actual space ID from list_spaces
+    time.sleep(1)
+    spaces_result = call("provider", "list_spaces")
+    spaces = spaces_result.get("result", {}).get("spaces") or spaces_result.get("spaces", [])
+    # Find space by name or take the latest one
+    space_id = None
+    for s in spaces:
+        if s.get("name") == "Booking Service":
+            space_id = s.get("id")
+            break
+    if not space_id and spaces:
+        space_id = spaces[0].get("id")  # fallback to first space
+    if not space_id:
+        fail("Failed to get space ID after creation")
+        sys.exit(1)
     ok(f"Space created: {space_id}")
 
     # Import booking page

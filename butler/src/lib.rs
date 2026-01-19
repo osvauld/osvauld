@@ -35,6 +35,7 @@ pub use scribe::{
     LoroDelta, ListOp, PageEvent, PageEventType,
     BroadcastPayload, LayerWritePermission, SyncPolicy, SyncConfig,
     SaveLayerFn, LoadPeerVectorFn, SavePeerVectorFn, ListAuthorizedUsersFn, LoadUserPermitFn,
+    EphemeralEvent, EphemeralBroadcast, EphemeralOutbound,
 };
 pub use runtime::{
     HeadlessRuntime,
@@ -1420,6 +1421,7 @@ impl Butler {
             our_permit,
             our_did,
             is_node,
+            // Note: ephemeral_broadcast_tx removed - now uses SubscriberInfo.ephemeral_tx
         };
 
         let (actor, _handle) = ractor::Actor::spawn(
