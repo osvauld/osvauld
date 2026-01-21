@@ -31,6 +31,7 @@ mod publish;
 mod sync;
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use logging_utils::short;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
@@ -38,9 +39,9 @@ use tracing::{debug, error, info, warn, instrument};
 use transport::{ConnectionHandle, NodeId};
 
 use crate::coordinator::{CoordinatorMessage, CourierMode};
-use crate::message::Message;
+use crate::message::{Message, EphemeralDatagram};
 use crate::state::{PeerState, PeerType};
-use butler::{Butler, BroadcastPayload};
+use butler::{Butler, BroadcastPayload, ScribeMessage};
 
 /// Messages received by PeerActor
 #[derive(Debug)]
@@ -110,6 +111,32 @@ pub enum PeerMessage {
     /// **Context**: Page opened after connection established
     /// **We do**: Re-run subscribe_to_active_scribes to pick up new pages
     RefreshSubscriptions,
+
+    /// Raw datagram received from peer (ephemeral data)
+    ///
+    /// **Context**: PeerActor owns the datagram read loop
+    /// **We do**: Deserialize, route to Scribe via page_subscriptions
+    Datagram {
+        data: Vec<u8>,
+    },
+
+    /// Internal: Request an asset from the peer
+    ///
+    /// **Context**: External component (e.g., Coordinator) wants to fetch an asset
+    /// **We do**: Send AssetPrepare message to peer
+    RequestAsset {
+        page_id: String,
+        hash: String,
+    },
+}
+
+/// Blob store abstraction - either real transport or mock for testing
+#[derive(Clone)]
+pub enum BlobStore {
+    /// Real iroh-blobs via Transport
+    Real(Arc<transport::Transport>),
+    /// Mock blob store for testing (shared HashMap)
+    Mock(Arc<transport::MockBlobStore>),
 }
 
 /// Arguments for spawning PeerActor
@@ -118,6 +145,8 @@ pub struct PeerActorArgs {
     pub conn: ConnectionHandle,
     pub coordinator: ActorRef<CoordinatorMessage>,
     pub butler: Arc<Butler>,
+    /// Blob store for asset transfer (real or mock)
+    pub blob_store: BlobStore,
 }
 
 /// Pending viewer sync context (for streaming pages after SpaceDataAck)
@@ -159,6 +188,23 @@ pub struct PageSubscription {
     pub device_id: String,
 }
 
+/// Pending asset transfer tracking for retry logic
+///
+/// **Context**: When we send AssetPrepare, track it for retry if AssetAck fails
+/// **Retry**: Max 3 attempts with exponential backoff
+#[derive(Debug, Clone)]
+pub struct PendingAssetTransfer {
+    /// Page containing the asset
+    pub page_id: String,
+    /// Number of retry attempts made
+    pub attempts: u8,
+    /// When the first attempt was started
+    pub started: Instant,
+}
+
+/// Maximum retry attempts for asset transfers
+const MAX_ASSET_TRANSFER_ATTEMPTS: u8 = 3;
+
 /// Actor state for PeerActor
 pub struct PeerActorState {
     /// Our node's mode (User or Node)
@@ -171,6 +217,8 @@ pub struct PeerActorState {
     coordinator: ActorRef<CoordinatorMessage>,
     /// Butler for storage operations
     butler: Arc<Butler>,
+    /// Blob store for asset transfer (real or mock)
+    blob_store: BlobStore,
     /// Pending viewer syncs by request_id (Node mode only)
     /// Stored when we send SpaceData, used when we receive SpaceDataAck
     pending_viewer_syncs: std::collections::HashMap<String, PendingViewerSync>,
@@ -183,6 +231,9 @@ pub struct PeerActorState {
     /// Pending SyncOffer operations: (page_id, layer_name) -> context
     /// Tracks outgoing SyncOffers waiting for SyncAccept response
     pending_sync_offers: std::collections::HashMap<(String, String), PendingSyncOffer>,
+    /// Pending asset transfers: hash -> transfer state
+    /// Tracks outgoing AssetPrepare requests for retry on failure
+    pending_asset_transfers: std::collections::HashMap<String, PendingAssetTransfer>,
 }
 
 /// PeerActor handles one P2P connection
@@ -208,6 +259,30 @@ impl PeerActor {
         if let Err(e) = state.conn.send_bytes(&bytes).await {
             error!("Failed to send message to {}: {}", self.node_id, e);
         }
+    }
+
+    /// Send AssetPrepare message and track for retry on failure
+    ///
+    /// **Context**: We want to request an asset from peer
+    /// **We do**: Track the request, send AssetPrepare message
+    pub async fn send_asset_prepare(&self, page_id: &str, hash: &str, state: &mut PeerActorState) {
+        // Track the transfer for retry logic
+        state.pending_asset_transfers.insert(
+            hash.to_string(),
+            PendingAssetTransfer {
+                page_id: page_id.to_string(),
+                attempts: 0,
+                started: Instant::now(),
+            },
+        );
+
+        // Send the request
+        self.send_message(&Message::AssetPrepare {
+            page_id: page_id.to_string(),
+            hash: hash.to_string(),
+        }, state).await;
+
+        debug!(page_id = %page_id, hash = %hash, "Sent AssetPrepare (tracked for retry)");
     }
 
     /// Send rejection and transition to failed state
@@ -245,10 +320,32 @@ impl Actor for PeerActor {
 
     async fn pre_start(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         info!("PeerActor started for {} in {:?} mode", self.node_id, args.mode);
+
+        // Spawn datagram read loop - routes ephemeral data to self
+        let conn_for_datagrams = args.conn.clone();
+        let myself_for_datagrams = myself.clone();
+        let node_id = self.node_id;
+        tokio::spawn(async move {
+            loop {
+                match conn_for_datagrams.read_datagram().await {
+                    Ok(data) => {
+                        if myself_for_datagrams.cast(PeerMessage::Datagram { data }).is_err() {
+                            debug!("PeerActor gone, stopping datagram read loop for {}", node_id);
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        // Connection closed
+                        debug!("Datagram read loop ending for {} (connection closed)", node_id);
+                        break;
+                    }
+                }
+            }
+        });
 
         Ok(PeerActorState {
             mode: args.mode,
@@ -256,10 +353,12 @@ impl Actor for PeerActor {
             conn: args.conn,
             coordinator: args.coordinator,
             butler: args.butler,
+            blob_store: args.blob_store,
             pending_viewer_syncs: std::collections::HashMap::new(),
             peer_encryption_key: None,
             page_subscriptions: std::collections::HashMap::new(),
             pending_sync_offers: std::collections::HashMap::new(),
+            pending_asset_transfers: std::collections::HashMap::new(),
         })
     }
 
@@ -308,6 +407,15 @@ impl Actor for PeerActor {
 
             PeerMessage::RefreshSubscriptions => {
                 self.subscribe_to_active_scribes(myself, state).await;
+            }
+
+            PeerMessage::Datagram { data } => {
+                self.handle_datagram(&data, state).await;
+            }
+
+            PeerMessage::RequestAsset { page_id, hash } => {
+                info!(page_id = %page_id, hash = %hash, "RequestAsset: sending AssetPrepare to peer");
+                self.send_asset_prepare(&page_id, &hash, state).await;
             }
         }
 
@@ -467,12 +575,404 @@ impl PeerActor {
                 self.on_sync_consent_ack(&request_id, &space_id, state).await;
             }
 
+            // Asset sync messages (iroh-blobs)
+            Message::AssetPrepare { page_id, hash } => {
+                self.on_asset_prepare(&page_id, &hash, state).await;
+            }
+
+            Message::AssetReady { page_id, hash, iroh_hash } => {
+                self.on_asset_ready(&page_id, &hash, &iroh_hash, state).await;
+            }
+
+            Message::AssetAck { page_id, hash, success, error } => {
+                self.on_asset_ack(&page_id, &hash, success, error.as_deref(), state).await;
+            }
+
             Message::Error { id, code, message } => {
                 error!(
                     "Error from {}: {:?} - {} (id: {:?})",
                     self.node_id, code, message, id
                 );
             }
+        }
+    }
+
+    // ========================================================================
+    // Asset Sync Handlers
+    // ========================================================================
+
+    /// Handle AssetPrepare request from peer
+    ///
+    /// **Context**: Peer wants us to prepare an asset for transfer
+    /// **We do**: Decrypt from local storage, add to iroh-blobs, send AssetReady
+    async fn on_asset_prepare(&self, page_id: &str, hash: &str, state: &mut PeerActorState) {
+        info!(
+            page_id = %page_id,
+            hash = %hash,
+            peer = %self.node_id,
+            "AssetPrepare received - preparing blob for transfer"
+        );
+
+        // 1. Get page key via butler
+        let (_, page_key) = match state.butler.get_decrypted_page(page_id).await {
+            Ok(result) => result,
+            Err(e) => {
+                warn!(page_id = %page_id, error = ?e, "Failed to get page key for asset");
+                self.send_message(&Message::AssetAck {
+                    page_id: page_id.to_string(),
+                    hash: hash.to_string(),
+                    success: false,
+                    error: Some(format!("Page not found: {}", e)),
+                }, state).await;
+                return;
+            }
+        };
+
+        // 2. Get plaintext via asset service
+        let plaintext = match butler::services::asset_service::get_for_transfer(
+            state.butler.asset_store(),
+            &page_key,
+            hash,
+        ) {
+            Ok(data) => data,
+            Err(e) => {
+                warn!(hash = %hash, error = ?e, "Failed to get asset for transfer");
+                self.send_message(&Message::AssetAck {
+                    page_id: page_id.to_string(),
+                    hash: hash.to_string(),
+                    success: false,
+                    error: Some(format!("Asset not found: {}", e)),
+                }, state).await;
+                return;
+            }
+        };
+
+        // 3. Add to blob store (real transport or mock)
+        let iroh_hash_bytes: [u8; 32] = match &state.blob_store {
+            BlobStore::Real(transport) => {
+                match transport.add_blob(&plaintext).await {
+                    Ok(h) => *h.as_bytes(),
+                    Err(e) => {
+                        warn!(hash = %hash, error = ?e, "Failed to add blob to transport");
+                        self.send_message(&Message::AssetAck {
+                            page_id: page_id.to_string(),
+                            hash: hash.to_string(),
+                            success: false,
+                            error: Some(format!("Blob store error: {}", e)),
+                        }, state).await;
+                        return;
+                    }
+                }
+            }
+            BlobStore::Mock(mock_store) => {
+                mock_store.add_blob(&plaintext)
+            }
+        };
+
+        info!(
+            page_id = %page_id,
+            hash = %hash,
+            iroh_hash = %hex::encode(&iroh_hash_bytes),
+            size = plaintext.len(),
+            "Asset prepared for transfer"
+        );
+
+        // 4. Send AssetReady with iroh_hash
+        self.send_message(&Message::AssetReady {
+            page_id: page_id.to_string(),
+            hash: hash.to_string(),
+            iroh_hash: iroh_hash_bytes,
+        }, state).await;
+    }
+
+    /// Handle AssetReady notification from peer
+    ///
+    /// **Context**: Peer has prepared asset, blob is ready for download
+    /// **We do**: Download via iroh-blobs, verify, encrypt, store locally
+    async fn on_asset_ready(
+        &self,
+        page_id: &str,
+        hash: &str,
+        iroh_hash_bytes: &[u8; 32],
+        state: &mut PeerActorState,
+    ) {
+        info!(
+            page_id = %page_id,
+            hash = %hash,
+            peer = %self.node_id,
+            "AssetReady received - downloading blob"
+        );
+
+        // 1. Download blob from peer (real transport or mock)
+        let plaintext = match &state.blob_store {
+            BlobStore::Real(transport) => {
+                let iroh_hash = transport::BlobHash::from_bytes(*iroh_hash_bytes);
+                match transport.download_blob(iroh_hash, self.node_id).await {
+                    Ok(data) => data,
+                    Err(e) => {
+                        warn!(hash = %hash, error = ?e, "Failed to download blob from peer");
+                        self.send_message(&Message::AssetAck {
+                            page_id: page_id.to_string(),
+                            hash: hash.to_string(),
+                            success: false,
+                            error: Some(format!("Download failed: {}", e)),
+                        }, state).await;
+                        return;
+                    }
+                }
+            }
+            BlobStore::Mock(mock_store) => {
+                match mock_store.download_blob(iroh_hash_bytes) {
+                    Some(data) => data,
+                    None => {
+                        warn!(hash = %hash, "Blob not found in mock store");
+                        self.send_message(&Message::AssetAck {
+                            page_id: page_id.to_string(),
+                            hash: hash.to_string(),
+                            success: false,
+                            error: Some("Blob not found in mock store".to_string()),
+                        }, state).await;
+                        return;
+                    }
+                }
+            }
+        };
+
+        // 2. Get page key for storage
+        let (_, page_key) = match state.butler.get_decrypted_page(page_id).await {
+            Ok(result) => result,
+            Err(e) => {
+                warn!(page_id = %page_id, error = ?e, "Failed to get page key for storing asset");
+                self.send_message(&Message::AssetAck {
+                    page_id: page_id.to_string(),
+                    hash: hash.to_string(),
+                    success: false,
+                    error: Some(format!("Page not found: {}", e)),
+                }, state).await;
+                return;
+            }
+        };
+
+        // 3. Get metadata from Loro-synced assets layer (for signature verification)
+        let assets_layer_name = format!("{}/assets", page_id);
+        let metadata = match self.get_asset_metadata_from_layer(page_id, &assets_layer_name, hash, state).await {
+            Ok(Some(m)) => m,
+            Ok(None) => {
+                warn!(hash = %hash, "Asset metadata not found in layer - cannot verify");
+                self.send_message(&Message::AssetAck {
+                    page_id: page_id.to_string(),
+                    hash: hash.to_string(),
+                    success: false,
+                    error: Some("Metadata not synced yet".to_string()),
+                }, state).await;
+                return;
+            }
+            Err(e) => {
+                warn!(hash = %hash, error = %e, "Failed to get asset metadata from layer");
+                self.send_message(&Message::AssetAck {
+                    page_id: page_id.to_string(),
+                    hash: hash.to_string(),
+                    success: false,
+                    error: Some(format!("Metadata lookup failed: {}", e)),
+                }, state).await;
+                return;
+            }
+        };
+
+        // 4. Verify and store the received asset
+        if let Err(e) = butler::services::asset_service::store_received(
+            state.butler.asset_store(),
+            &page_key,
+            &metadata,
+            &plaintext,
+        ) {
+            warn!(hash = %hash, error = ?e, "Failed to store received asset");
+            self.send_message(&Message::AssetAck {
+                page_id: page_id.to_string(),
+                hash: hash.to_string(),
+                success: false,
+                error: Some(format!("Storage failed: {}", e)),
+            }, state).await;
+            return;
+        }
+
+        info!(
+            page_id = %page_id,
+            hash = %hash,
+            size = plaintext.len(),
+            "Asset received and stored successfully"
+        );
+
+        // 5. Send AssetAck
+        self.send_message(&Message::AssetAck {
+            page_id: page_id.to_string(),
+            hash: hash.to_string(),
+            success: true,
+            error: None,
+        }, state).await;
+    }
+
+    /// Handle AssetAck from peer
+    ///
+    /// **Context**: Peer received and processed our AssetReady message
+    /// **Success**: Remove from pending transfers, log completion
+    /// **Failure**: Retry with exponential backoff (max 3 attempts)
+    async fn on_asset_ack(
+        &self,
+        page_id: &str,
+        hash: &str,
+        success: bool,
+        error: Option<&str>,
+        state: &mut PeerActorState,
+    ) {
+        if success {
+            // Success - remove from pending transfers
+            state.pending_asset_transfers.remove(hash);
+            info!(
+                page_id = %page_id,
+                hash = %hash,
+                peer = %self.node_id,
+                "Asset transfer acknowledged"
+            );
+            // MemStore auto-cleans via reference counting, no manual cleanup needed
+        } else {
+            // Failure - check retry logic
+            let should_retry = if let Some(pending) = state.pending_asset_transfers.get_mut(hash) {
+                pending.attempts += 1;
+                if pending.attempts < MAX_ASSET_TRANSFER_ATTEMPTS {
+                    let backoff_ms = 100 * (1 << pending.attempts); // Exponential: 200ms, 400ms, 800ms
+                    info!(
+                        page_id = %page_id,
+                        hash = %hash,
+                        attempt = pending.attempts,
+                        backoff_ms = backoff_ms,
+                        error = ?error,
+                        "Asset transfer failed, scheduling retry"
+                    );
+                    // Return true to retry
+                    true
+                } else {
+                    warn!(
+                        page_id = %page_id,
+                        hash = %hash,
+                        attempts = pending.attempts,
+                        error = ?error,
+                        "Asset transfer failed after max retries, giving up (will sync on next session)"
+                    );
+                    // Give up - remove from pending
+                    false
+                }
+            } else {
+                // Not tracked - this is a response to an externally triggered AssetPrepare
+                // or the transfer completed before we tracked it
+                warn!(
+                    page_id = %page_id,
+                    hash = %hash,
+                    error = ?error,
+                    "Asset transfer failed (not tracked for retry)"
+                );
+                false
+            };
+
+            if should_retry {
+                // Re-send AssetPrepare for retry
+                self.send_message(&Message::AssetPrepare {
+                    page_id: page_id.to_string(),
+                    hash: hash.to_string(),
+                }, state).await;
+            } else {
+                // Clean up
+                state.pending_asset_transfers.remove(hash);
+            }
+        }
+    }
+
+    /// Get asset metadata from the Loro-synced assets layer
+    ///
+    /// **Context**: When receiving an asset via iroh-blobs, we need the full metadata
+    /// (including signature) from the Loro layer for verification
+    ///
+    /// **Flow**:
+    ///   1. Get Scribe for the page
+    ///   2. Get layer snapshot
+    ///   3. Parse and find the specific asset metadata by hash
+    async fn get_asset_metadata_from_layer(
+        &self,
+        page_id: &str,
+        layer_name: &str,
+        hash: &str,
+        state: &mut PeerActorState,
+    ) -> Result<Option<butler::AssetMetadata>, String> {
+        // Get Scribe
+        let scribe = match state.page_subscriptions.get(page_id) {
+            Some(sub) => sub.scribe.clone(),
+            None => {
+                match state.butler.open_page(page_id).await {
+                    Ok(s) => s,
+                    Err(e) => return Err(format!("Failed to open page: {}", e)),
+                }
+            }
+        };
+
+        // Get layer snapshot
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if let Err(e) = scribe.cast(butler::ScribeMessage::GetSnapshot {
+            layer_name: layer_name.to_string(),
+            reply: tx,
+        }) {
+            return Err(format!("Failed to request layer snapshot: {}", e));
+        }
+
+        let layer_bytes = match rx.await {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => return Ok(None), // Layer doesn't exist
+            Err(_) => return Err("Scribe dropped reply channel".to_string()),
+        };
+
+        // Parse layer
+        let layer = butler::models::Layer::from_snapshot(&layer_bytes)
+            .map_err(|e| format!("Failed to parse layer: {}", e))?;
+
+        // Get all assets from layer and find the one we need
+        let assets = butler::services::asset_service::get_assets_from_layer(&layer);
+        Ok(assets.get(hash).cloned())
+    }
+
+    /// Handle ephemeral datagram received from peer
+    ///
+    /// **Context**: Datagram received via PeerActor's read loop
+    /// **We do**: Deserialize, route to Scribe via existing page_subscriptions
+    /// **Scribe then**: Emits to local app AND relays to other subscribers (node mode)
+    async fn handle_datagram(&self, data: &[u8], state: &PeerActorState) {
+        // Deserialize the datagram
+        let datagram: EphemeralDatagram = match EphemeralDatagram::from_bytes(data) {
+            Ok(d) => d,
+            Err(e) => {
+                debug!("Failed to deserialize ephemeral datagram from {}: {}", self.node_id, e);
+                return;
+            }
+        };
+
+        // Route to Scribe via existing page_subscriptions
+        if let Some(subscription) = state.page_subscriptions.get(&datagram.page_id) {
+            // Get peer's DID from state (set during handshake)
+            let user_did = state.state.did().map(|s| s.to_string());
+            // Use node_id as device_id for sender exclusion during relay
+            let device_id = Some(self.node_id.to_string());
+
+            // Send to Scribe - it will forward to app layer AND relay to other peers
+            if let Err(e) = subscription.scribe.cast(ScribeMessage::RemoteEphemeral {
+                user_did,
+                device_id,
+                payload: datagram.payload,
+            }) {
+                debug!("Failed to forward ephemeral to Scribe for page {}: {}", datagram.page_id, e);
+            }
+        } else {
+            debug!(
+                "No subscription for page {} - dropping ephemeral from {}",
+                datagram.page_id, self.node_id
+            );
         }
     }
 }

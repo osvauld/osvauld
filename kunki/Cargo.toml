@@ -14,6 +14,7 @@ butler = { path = "../butler" }
 herald = { path = "../herald" }
 transport = { path = "../transport" }
 courier = { path = "../courier" }
+control_server = { path = "../control_server" }
 
 # CLI and async runtime
 clap = { version = "4.5.40", features = ["derive"] }
@@ -22,6 +23,7 @@ tokio = { version = "1.44.2", features = ["full"] }
 # Logging
 logging_utils = { path = "../logging_utils" }
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

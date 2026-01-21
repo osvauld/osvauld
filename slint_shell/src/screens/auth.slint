@@ -9,7 +9,9 @@ export component InitiationScreen {
 
     VerticalLayout {
         alignment: center;
-        spacing: 40px;
+        padding-left: Theme.page-padding-h;
+        padding-right: Theme.page-padding-h;
+        spacing: Theme.is-mobile ? 24px : 40px;
 
         // Hero text
         VerticalLayout {
@@ -18,26 +20,83 @@ export component InitiationScreen {
 
             Text {
                 text: "Sovereign browsing and hosting";
-                font-size: 48px;
+                font-size: Theme.font-hero;
                 color: Theme.quarzo-white;
                 horizontal-alignment: center;
+                wrap: word-wrap;
             }
             Text {
                 text: "Free, secure, and private";
-                font-size: 52px;
+                font-size: Theme.is-mobile ? 32px : 52px;
                 color: Theme.text-active;
                 horizontal-alignment: center;
+                wrap: word-wrap;
             }
             Text {
                 text: "Build and share on your terms.";
-                font-size: 52px;
+                font-size: Theme.is-mobile ? 32px : 52px;
                 color: Theme.text-active;
                 horizontal-alignment: center;
+                wrap: word-wrap;
             }
         }
 
-        // Buttons
-        HorizontalLayout {
+        // Buttons - stack vertically on mobile
+        if Theme.is-mobile: VerticalLayout {
+            alignment: center;
+            spacing: 12px;
+            padding-left: 12px;
+            padding-right: 12px;
+
+            // Primary button first on mobile
+            Rectangle {
+                height: Theme.touch-target-min;
+                border-radius: 8px;
+                background: Theme.livnote-lavender;
+
+                Text {
+                    text: "I am new here";
+                    color: Theme.ninja-black;
+                    font-size: 14px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    accessible-role: button;
+                    accessible-label: "new-user-button";
+                    clicked => { new-user(); }
+                }
+            }
+
+            // Secondary button
+            Rectangle {
+                height: Theme.touch-target-min;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: import-area-m.has-hover ? Theme.text-active : Theme.default-border;
+                background: transparent;
+
+                Text {
+                    text: "I already have the key";
+                    color: import-area-m.has-hover ? Theme.quarzo-white : Theme.text-active;
+                    font-size: 14px;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                import-area-m := TouchArea {
+                    accessible-role: button;
+                    accessible-label: "import-key-button";
+                    clicked => { import-key(); }
+                }
+
+                animate border-color { duration: 300ms; }
+            }
+        }
+
+        // Buttons - horizontal on desktop/tablet
+        if !Theme.is-mobile: HorizontalLayout {
             alignment: center;
             spacing: 24px;
 
@@ -59,6 +118,8 @@ export component InitiationScreen {
                     vertical-alignment: center;
                 }
                 import-area := TouchArea {
+                    accessible-role: button;
+                    accessible-label: "import-key-button";
                     clicked => { import-key(); }
                 }
 
@@ -81,6 +142,8 @@ export component InitiationScreen {
                     vertical-alignment: center;
                 }
                 TouchArea {
+                    accessible-role: button;
+                    accessible-label: "new-user-button";
                     clicked => { new-user(); }
                 }
             }
@@ -105,14 +168,16 @@ export component SignUpScreen {
     VerticalLayout {
         alignment: center;
         spacing: 24px;
+        padding-left: Theme.is-mobile ? 12px : 0px;
+        padding-right: Theme.is-mobile ? 12px : 0px;
 
         Rectangle {
-            width: 420px;
+            width: Theme.is-mobile ? 336px : 420px;  // Fixed max widths that fit mobile (360-24=336)
             background: Theme.ninja-black;
             border-radius: 12px;
 
             VerticalLayout {
-                padding: 32px;
+                padding: Theme.is-mobile ? 20px : 32px;
                 spacing: 20px;
 
                 // Back button and title row
@@ -133,6 +198,8 @@ export component SignUpScreen {
                             vertical-alignment: center;
                         }
                         back-area := TouchArea {
+                            accessible-role: button;
+                            accessible-label: "signup-back-button";
                             clicked => { go-back(); }
                         }
                     }
@@ -174,6 +241,8 @@ export component SignUpScreen {
                             padding-right: 12px;
 
                             user-input := TextInput {
+                                accessible-role: text-input;
+                                accessible-label: "username-input";
                                 text <=> username;
                                 color: Theme.quarzo-white;
                                 font-size: 14px;
@@ -207,6 +276,8 @@ export component SignUpScreen {
                             spacing: 8px;
 
                             pass-input := TextInput {
+                                accessible-role: text-input;
+                                accessible-label: "password-input";
                                 text <=> password;
                                 input-type: show-password ? InputType.text : InputType.password;
                                 color: Theme.quarzo-white;
@@ -258,6 +329,8 @@ export component SignUpScreen {
                     }
 
                     TouchArea {
+                        accessible-role: button;
+                        accessible-label: "signup-submit-button";
                         enabled: can-submit && !loading;
                         clicked => { submit(username, password); }
                     }
@@ -279,9 +352,11 @@ export component WelcomeScreen {
     VerticalLayout {
         alignment: center;
         spacing: 16px;
+        padding-left: Theme.is-mobile ? 12px : 0px;
+        padding-right: Theme.is-mobile ? 12px : 0px;
 
         Rectangle {
-            width: 400px;
+            width: Theme.is-mobile ? 336px : 400px;  // Fixed max widths that fit mobile
             height: 300px;
             background: Theme.ninja-black;
             border-radius: 12px;
@@ -289,7 +364,7 @@ export component WelcomeScreen {
             VerticalLayout {
                 alignment: center;
                 spacing: 16px;
-                padding: 32px;
+                padding: Theme.is-mobile ? 20px : 32px;
 
                 Text {
                     text: "Enter Passphrase";
@@ -312,6 +387,8 @@ export component WelcomeScreen {
                         spacing: 8px;
 
                         input-area := TextInput {
+                            accessible-role: text-input;
+                            accessible-label: "passphrase-input";
                             text <=> passphrase;
                             input-type: show-password ? InputType.text : InputType.password;
                             color: Theme.quarzo-white;
@@ -386,6 +463,8 @@ export component WelcomeScreen {
                             vertical-alignment: center;
                         }
                         TouchArea {
+                            accessible-role: button;
+                            accessible-label: "login-submit-button";
                             clicked => { submit(); }
                         }
                     }

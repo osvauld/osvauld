@@ -64,8 +64,15 @@ pub async fn create_page(
         let encrypted_layer = encrypt_symmetric(&aes_key, &snapshot)
             .map_err(|e| ButlerError::Encryption(e.to_string()))?;
 
+        // Strip {page_id}/ prefix from template layer names
+        // Template uses "{page_id}/products", but put_layer adds page_id prefix
+        // So we store just "products" which becomes "actual-uuid/products"
+        let normalized_name = layer_name
+            .strip_prefix("{page_id}/")
+            .unwrap_or(layer_name);
+
         // Store at hierarchical key: {page_id}/{layer_name}
-        store.put_layer(&page_id, layer_name, &encrypted_layer)?;
+        store.put_layer(&page_id, normalized_name, &encrypted_layer)?;
     }
 
     // Encrypt AES key for owner using X25519 ECIES
@@ -117,7 +124,12 @@ pub async fn create_private_page(
         let encrypted_layer = encrypt_symmetric(&aes_key, &snapshot)
             .map_err(|e| ButlerError::Encryption(e.to_string()))?;
 
-        store.put_layer(&page_id, layer_name, &encrypted_layer)?;
+        // Strip {page_id}/ prefix from template layer names
+        let normalized_name = layer_name
+            .strip_prefix("{page_id}/")
+            .unwrap_or(layer_name);
+
+        store.put_layer(&page_id, normalized_name, &encrypted_layer)?;
     }
 
     let encrypted_key = encrypt(owner_public_key, &aes_key)

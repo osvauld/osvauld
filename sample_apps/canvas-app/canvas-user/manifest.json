@@ -1,0 +1,8 @@
+{
+    "name": "Canvas",
+    "version": "1.0.0",
+    "description": "Infinite canvas with shapes, connectors, and auto-layout",
+    "entry_ui": "app.slint",
+    "entry_logic": "app.lua",
+    "models": ["shapes", "connectors", "line_points", "remote_cursors"]
+}

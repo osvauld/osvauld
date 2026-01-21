@@ -1,0 +1,8 @@
+{
+    "name": "Gallery",
+    "version": "1.0.0",
+    "description": "Photo gallery with secure file upload",
+    "entry_ui": "app.slint",
+    "entry_logic": "app.lua",
+    "models": ["photos", "assets"]
+}

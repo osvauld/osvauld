@@ -2,6 +2,10 @@
 //!
 //! All bytes flow through this central router, which delivers them to
 //! the appropriate peer's Coordinator.
+//!
+//! Note: MockBlobStore for asset transfers is provided by the transport crate
+//! and shared via TestHarness. This allows the same blob store implementation
+//! to be used by both real transport and tests.
 
 use std::collections::HashMap;
 use std::sync::Arc;

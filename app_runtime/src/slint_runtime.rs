@@ -14,8 +14,18 @@ use std::rc::Rc;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
-use crate::vecmodel_ops::{UiMutation, VecModelOp, PropertyUpdate};
+use crate::vecmodel_ops::{UiMutation, VecModelOp, PropertyUpdate, UiQuery};
 use crate::lua_worker::LuaWorkerCommand;
+
+/// Request to open native file picker for asset upload
+///
+/// **Context**: Triggered by Slint button click via `pick_asset_file` callback
+/// **Security**: Only user-initiated UI actions can trigger this
+#[derive(Debug)]
+pub struct AssetPickRequest {
+    /// Filter type: "images" for image files, "all" for all files
+    pub filter: String,
+}
 
 /// Global API name - apps define their public interface via `export global AppAPI`
 const GLOBAL_API_NAME: &str = "AppAPI";
@@ -37,11 +47,17 @@ pub struct SlintRuntime {
     /// Channel to receive UI mutations from Lua thread
     ui_rx: mpsc::Receiver<UiMutation>,
 
+    /// Channel to receive UI queries from Lua thread (for ui:get)
+    query_rx: mpsc::Receiver<UiQuery>,
+
     /// Channel to send commands to Lua thread
     lua_tx: mpsc::Sender<LuaWorkerCommand>,
 
     /// Channel to send tab switch requests (std::sync for Slint callback)
     tab_switch_tx: Option<std::sync::mpsc::Sender<String>>,
+
+    /// Channel to send asset pick requests (std::sync for Slint callback)
+    asset_pick_tx: Option<std::sync::mpsc::Sender<AssetPickRequest>>,
 }
 
 impl SlintRuntime {
@@ -51,6 +67,7 @@ impl SlintRuntime {
     /// - `slint_path`: Path to .slint file
     /// - `page_id`: App/page identifier
     /// - `ui_rx`: Channel to receive UI mutations from Lua
+    /// - `query_rx`: Channel to receive UI queries from Lua (for ui:get)
     /// - `lua_tx`: Channel to send commands to Lua
     ///
     /// **Returns**: SlintRuntime ready to process mutations
@@ -58,6 +75,7 @@ impl SlintRuntime {
         slint_path: PathBuf,
         page_id: String,
         ui_rx: mpsc::Receiver<UiMutation>,
+        query_rx: mpsc::Receiver<UiQuery>,
         lua_tx: mpsc::Sender<LuaWorkerCommand>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         tracing::info!(
@@ -116,19 +134,44 @@ impl SlintRuntime {
         // Initialize models HashMap
         let global_models = HashMap::new();
 
-        let mut runtime = Self {
+        let runtime = Self {
             page_id,
             slint_instance: Rc::new(slint_instance),
             global_models,
             ui_rx,
+            query_rx,
             lua_tx,
             tab_switch_tx: None,
+            asset_pick_tx: None,
         };
 
-        // Auto-detect array properties in AppAPI global and create VecModels
-        runtime.init_global_models()?;
+        // Models are initialized via init_models() after load, passing manifest.models
+        // This allows apps to declare their models in manifest.json
 
         Ok(runtime)
+    }
+
+    /// Initialize VecModels for array properties declared in manifest
+    ///
+    /// **Called by**: App loader after parsing manifest.json
+    /// **Pattern**: Pre-create VecModels for declared models to enable incremental updates
+    pub fn init_models(&mut self, model_names: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+        for model_name in model_names {
+            if let Some(_model) = self.get_or_create_model(model_name) {
+                tracing::info!(
+                    page_id = %self.page_id,
+                    model = %model_name,
+                    "VecModel initialized from manifest"
+                );
+            } else {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    model = %model_name,
+                    "Model declared in manifest but not found in AppAPI"
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Get reference to Slint instance (for showing window, etc.)
@@ -143,63 +186,58 @@ impl SlintRuntime {
         self.tab_switch_tx = Some(tx);
     }
 
-    /// Initialize VecModels for array properties in AppAPI global
+    /// Set the channel for asset pick requests
     ///
-    /// **Pattern**: Check AppAPI global properties, create VecModel for arrays
-    /// **Registered**: Set via set_global_property
-    fn init_global_models(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let mut model_names = Vec::new();
+    /// **Context**: Called from app management to receive asset upload requests
+    /// **Security**: Channel is triggered by Slint button click (user-initiated)
+    pub fn set_asset_pick_channel(&mut self, tx: std::sync::mpsc::Sender<AssetPickRequest>) {
+        self.asset_pick_tx = Some(tx);
+    }
 
-        // Try to get properties from AppAPI global
-        // We check known array property names since the global introspection API is limited
-        let known_array_props = ["products", "orders", "my_orders"];
+    /// Get or create a VecModel for a property
+    ///
+    /// **Pattern**: Dynamically create VecModels when needed
+    pub fn get_or_create_model(&mut self, prop_name: &str) -> Option<Rc<VecModel<SlintValue>>> {
+        // Return existing model if we have it
+        if let Some(model) = self.global_models.get(prop_name) {
+            return Some(model.clone());
+        }
 
-        for prop_name in known_array_props {
-            // Try to get the property - if it returns a Model type, create a VecModel
-            if let Ok(value) = self.slint_instance.get_global_property(GLOBAL_API_NAME, prop_name) {
-                if matches!(value, SlintValue::Model(_)) {
-                    // Create empty VecModel for this property
-                    let model = Rc::new(VecModel::<SlintValue>::default());
+        // Check if this property exists and is a Model type
+        if let Ok(value) = self.slint_instance.get_global_property(GLOBAL_API_NAME, prop_name) {
+            if matches!(value, SlintValue::Model(_)) {
+                // Create new VecModel
+                let model = Rc::new(VecModel::<SlintValue>::default());
 
-                    // Set as global property
-                    if let Err(e) = self.slint_instance.set_global_property(
-                        GLOBAL_API_NAME,
-                        prop_name,
-                        SlintValue::Model(model.clone().into())
-                    ) {
-                        tracing::warn!(
-                            page_id = %self.page_id,
-                            global = GLOBAL_API_NAME,
-                            property = prop_name,
-                            error = %e,
-                            "Failed to set global model property"
-                        );
-                        continue;
-                    }
-
-                    // Store in global_models HashMap
-                    self.global_models.insert(prop_name.to_string(), model);
-                    model_names.push(prop_name.to_string());
-
-                    tracing::info!(
+                // Set as global property
+                if let Err(e) = self.slint_instance.set_global_property(
+                    GLOBAL_API_NAME,
+                    prop_name,
+                    SlintValue::Model(model.clone().into())
+                ) {
+                    tracing::warn!(
                         page_id = %self.page_id,
                         global = GLOBAL_API_NAME,
                         property = prop_name,
-                        "VecModel initialized in global"
+                        error = %e,
+                        "Failed to set global model property"
                     );
+                    return None;
                 }
+
+                // Store and return
+                self.global_models.insert(prop_name.to_string(), model.clone());
+                tracing::info!(
+                    page_id = %self.page_id,
+                    global = GLOBAL_API_NAME,
+                    property = prop_name,
+                    "VecModel created on-demand"
+                );
+                return Some(model);
             }
         }
 
-        tracing::info!(
-            page_id = %self.page_id,
-            global = GLOBAL_API_NAME,
-            model_count = self.global_models.len(),
-            models = ?model_names,
-            "Global VecModels initialized"
-        );
-
-        Ok(())
+        None
     }
 
     /// Process pending UI mutations (called from timer or event loop)
@@ -249,6 +287,36 @@ impl SlintRuntime {
         }
 
         Ok(())
+    }
+
+    /// Process pending UI queries (called from timer or event loop)
+    ///
+    /// **Pattern**: Non-blocking drain of query_rx channel
+    /// **Frequency**: Call this in Slint timer alongside process_ui_mutations
+    pub fn process_ui_queries(&mut self) {
+        // Drain all pending queries (non-blocking)
+        while let Ok(query) = self.query_rx.try_recv() {
+            let result = self.read_property(&query.prop_name);
+            // Send response back to Lua thread (ignore send errors - Lua may have timed out)
+            let _ = query.response_tx.send(result);
+        }
+    }
+
+    /// Read a property from AppAPI global and convert to JSON
+    fn read_property(&self, prop_name: &str) -> Option<serde_json::Value> {
+        match self.slint_instance.get_global_property(GLOBAL_API_NAME, prop_name) {
+            Ok(value) => Some(slint_value_to_json(&value)),
+            Err(e) => {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    global = GLOBAL_API_NAME,
+                    property = %prop_name,
+                    error = %e,
+                    "Failed to read global property"
+                );
+                None
+            }
+        }
     }
 
     /// Apply property update to AppAPI global
@@ -449,26 +517,29 @@ impl SlintRuntime {
         Ok(())
     }
 
-    /// Setup AppAPI global callbacks (app-specific callbacks like create-order, add-product)
+    /// Setup AppAPI global callbacks (generic Event Bus callbacks)
     ///
     /// **Pattern**: Wire AppAPI global callbacks to Lua
-    /// Slint `AppAPI.callback foo(args)` → Lua `on_foo(args)`
+    /// Slint `AppAPI.callback foo(args)` → Lua `foo(args)`
+    ///
+    /// Only wires 3 generic callbacks - apps use Event Bus pattern:
+    /// - on_click(target) - button clicks, selections
+    /// - on_field_changed(field, value) - text input changes
+    /// - on_modal_action(modal, action) - modal open/close/submit
     pub fn setup_global_callbacks(&self) -> Result<(), Box<dyn std::error::Error>> {
-        // Known AppAPI callbacks - we use a known list since global introspection is limited
-        // Note: Using snake_case consistently (Slint accepts both kebab-case and snake_case)
-        let known_callbacks = [
-            // shop-customer callbacks
-            "select_product",
-            "create_order",
-            "submit_order",
-            "cancel_order",
-            // shop-owner callbacks
-            "add_product",
-            "update_order_status",
+        // Generic Event Bus callbacks - same for ALL apps
+        // Apps define these in their AppAPI and call them from UI elements
+        let generic_callbacks = [
+            "on_click",
+            "on_field_changed",
+            "on_modal_action",
+            "on_pointer_event",  // For canvas/drawing apps that need x,y coordinates
+            "on_scroll",         // For canvas/drawing apps that need scroll/zoom
+            "on_hover",          // For cursor sync without drag (timer-based polling)
         ];
 
         let mut callback_count = 0;
-        for callback_name in known_callbacks {
+        for callback_name in generic_callbacks {
             let lua_tx = self.lua_tx.clone();
             let callback_name_owned = callback_name.to_string();
 
@@ -480,7 +551,7 @@ impl SlintRuntime {
                     .map(slint_value_to_json)
                     .collect();
 
-                tracing::info!(
+                tracing::trace!(
                     global = GLOBAL_API_NAME,
                     callback = %callback_name_owned,
                     arg_count = json_args.len(),
@@ -503,13 +574,13 @@ impl SlintRuntime {
                     );
                 }
                 Err(e) => {
-                    // Not an error - app may not have this callback
-                    tracing::trace!(
+                    // Log at warn level to debug callback registration issues
+                    tracing::warn!(
                         page_id = %self.page_id,
                         global = GLOBAL_API_NAME,
                         callback = callback_name,
                         error = %e,
-                        "AppAPI callback not found (OK)"
+                        "AppAPI callback registration failed"
                     );
                 }
             }
@@ -521,6 +592,46 @@ impl SlintRuntime {
             callback_count = callback_count,
             "AppAPI callbacks configured"
         );
+
+        // Asset file picker callback - triggers native file dialog
+        // This requires a user click in Slint (security: user-initiated only)
+        if let Some(ref tx) = self.asset_pick_tx {
+            let tx = tx.clone();
+            let page_id = self.page_id.clone();
+            match self.slint_instance.set_global_callback(GLOBAL_API_NAME, "pick_asset_file", move |args| {
+                let filter = args.first()
+                    .and_then(|v| v.clone().try_into().ok())
+                    .and_then(|v: slint::SharedString| Some(v.to_string()))
+                    .unwrap_or_else(|| "all".to_string());
+
+                tracing::info!(
+                    page_id = %page_id,
+                    filter = %filter,
+                    "Asset pick requested via AppAPI callback"
+                );
+
+                let _ = tx.send(AssetPickRequest { filter });
+                SlintValue::Void
+            }) {
+                Ok(_) => {
+                    tracing::debug!(
+                        page_id = %self.page_id,
+                        global = GLOBAL_API_NAME,
+                        callback = "pick_asset_file",
+                        "Asset picker callback configured"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        page_id = %self.page_id,
+                        global = GLOBAL_API_NAME,
+                        callback = "pick_asset_file",
+                        error = %e,
+                        "Asset picker callback registration failed (app may not define it)"
+                    );
+                }
+            }
+        }
 
         Ok(())
     }

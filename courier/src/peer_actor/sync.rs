@@ -866,6 +866,11 @@ impl PeerActor {
         // Clean up any pending sync for this page/layer (shouldn't exist but be safe)
         let key = (page_id.to_string(), layer_name.to_string());
         state.pending_sync_offers.remove(&key);
+
+        // Check if this is an assets layer sync - trigger asset fetch for missing blobs
+        if layer_name.ends_with("/assets") {
+            self.trigger_asset_sync_after_layer_sync(page_id, layer_name, state).await;
+        }
     }
 
     // ==================== Page Subscription ====================
@@ -953,24 +958,28 @@ impl PeerActor {
             }
         };
 
-        // Create broadcast channel
+        // Create CRDT broadcast channel
         let (tx, mut rx) = tokio::sync::mpsc::channel::<butler::BroadcastPayload>(32);
 
-        // Subscribe to Scribe
+        // Create ephemeral broadcast channel (for cursor/typing/presence)
+        let (eph_tx, mut eph_rx) = tokio::sync::mpsc::channel::<butler::EphemeralOutbound>(64);
+
+        // Subscribe to Scribe with both CRDT and ephemeral channels
         let device_id = self.node_id.to_string();
         if let Err(e) = scribe.cast(butler::ScribeMessage::Subscribe {
             user_did: peer_did.clone(),
             device_id: device_id.clone(),
             broadcast_tx: tx,
+            ephemeral_tx: Some(eph_tx),
             permit: subscription_permit,
         }) {
             error!("Failed to subscribe to Scribe for page {}: {}", page_id, e);
             return;
         }
 
-        info!("Subscribed to page {} for peer {}", page_id, peer_did);
+        info!("Subscribed to page {} for peer {} (with ephemeral channel)", page_id, peer_did);
 
-        // Spawn listener task that forwards broadcasts to this actor
+        // Spawn listener task that forwards CRDT broadcasts to this actor
         let actor_ref = myself.clone();
         let page_id_clone = page_id.to_string();
         let listener_handle = tokio::spawn(async move {
@@ -981,6 +990,27 @@ impl PeerActor {
                 }
             }
             debug!("Broadcast listener stopped for page {}", page_id_clone);
+        });
+
+        // Spawn ephemeral listener task that sends datagrams directly to peer
+        let conn_for_eph = state.conn.clone();
+        let page_id_for_eph = page_id.to_string();
+        let node_id_for_eph = self.node_id;
+        tokio::spawn(async move {
+            while let Some(outbound) = eph_rx.recv().await {
+                // Create protocol-level EphemeralDatagram
+                let datagram = crate::message::EphemeralDatagram {
+                    page_id: outbound.page_id,
+                    payload: outbound.payload,
+                };
+                if let Ok(data) = datagram.to_bytes() {
+                    // send_datagram is sync (Result, not Future)
+                    if let Err(e) = conn_for_eph.send_datagram(&data) {
+                        debug!("Failed to send ephemeral datagram to {}: {}", node_id_for_eph, e);
+                    }
+                }
+            }
+            debug!("Ephemeral listener stopped for page {}", page_id_for_eph);
         });
 
         // Store full subscription info for cleanup on disconnect
@@ -1513,6 +1543,95 @@ impl PeerActor {
             node_id: self.node_id,
             space_id: space_id.to_string(),
         });
+    }
+
+    // ==================== Asset Sync Helpers ====================
+
+    /// Trigger asset sync after receiving an assets layer update via Loro sync
+    ///
+    /// **Context**: We received a SyncAck for an assets layer, meaning new metadata was synced
+    /// **Flow**:
+    ///   1. Get the assets layer from Scribe
+    ///   2. Parse asset metadata
+    ///   3. Find assets missing from local AssetStore
+    ///   4. Send AssetPrepare for each missing asset
+    ///
+    /// **Note**: Spawns a task to avoid blocking sync pipeline
+    #[instrument(skip(self, state), fields(page_id = %page_id, layer = %layer_name))]
+    async fn trigger_asset_sync_after_layer_sync(
+        &self,
+        page_id: &str,
+        layer_name: &str,
+        state: &mut PeerActorState,
+    ) {
+        // Get the assets layer from Scribe
+        let scribe = match state.page_subscriptions.get(page_id) {
+            Some(sub) => sub.scribe.clone(),
+            None => {
+                // Try to open the page if not subscribed
+                match state.butler.open_page(page_id).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!("Cannot trigger asset sync - page {} not open: {}", page_id, e);
+                        return;
+                    }
+                }
+            }
+        };
+
+        // Get the layer snapshot
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if let Err(e) = scribe.cast(butler::ScribeMessage::GetSnapshot {
+            layer_name: layer_name.to_string(),
+            reply: tx,
+        }) {
+            warn!("Failed to request assets layer snapshot: {}", e);
+            return;
+        }
+
+        let layer_bytes = match rx.await {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => {
+                debug!("Assets layer {} not found in Scribe", layer_name);
+                return;
+            }
+            Err(_) => {
+                warn!("Scribe dropped assets layer reply channel");
+                return;
+            }
+        };
+
+        // Parse the layer
+        let layer = match butler::models::Layer::from_snapshot(&layer_bytes) {
+            Ok(l) => l,
+            Err(e) => {
+                warn!("Failed to parse assets layer {}: {}", layer_name, e);
+                return;
+            }
+        };
+
+        // Find missing assets
+        let missing = butler::services::asset_service::find_missing_assets_from_layer(
+            state.butler.asset_store(),
+            &layer,
+        );
+
+        if missing.is_empty() {
+            debug!("No missing assets after sync of layer {}", layer_name);
+            return;
+        }
+
+        info!(
+            page_id = %page_id,
+            layer = %layer_name,
+            missing_count = missing.len(),
+            "Found missing assets after layer sync, sending AssetPrepare"
+        );
+
+        // Send AssetPrepare for each missing asset (tracked for retry)
+        for metadata in missing {
+            self.send_asset_prepare(page_id, &metadata.hash, state).await;
+        }
     }
 }
 

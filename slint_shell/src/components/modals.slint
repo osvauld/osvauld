@@ -6,10 +6,12 @@ import { NodeInfo } from "../types.slint";
 // Modal Dialog for creating a space
 export component CreateSpaceModal {
     in-out property<string> space-name: "";
+    in-out property<string> template-path: "";  // App folder path with space_permit_template.json
     in property<bool> show;
 
-    callback create(string);
+    callback create(string, string);  // name, template_path
     callback cancel();
+    callback pick-template-folder();  // Opens folder picker
 
     width: 100%;
     height: 100%;
@@ -30,8 +32,8 @@ export component CreateSpaceModal {
         FocusScope {
             x: (root.width - self.width) / 2;
             y: (root.height - self.height) / 2;
-            width: 400px;
-            height: 200px;
+            width: Theme.is-mobile ? (root.width - 24px) : 400px;
+            height: 260px;  // Increased height for folder picker
 
             Rectangle {
                 width: 100%;
@@ -48,7 +50,7 @@ export component CreateSpaceModal {
 
                 VerticalLayout {
                     padding: 24px;
-                    spacing: 20px;
+                    spacing: 16px;
 
                     Text {
                         text: "Create New Space";
@@ -57,6 +59,7 @@ export component CreateSpaceModal {
                         font-weight: 600;
                     }
 
+                    // Space name input
                     Rectangle {
                         height: 44px;
                         border-radius: 8px;
@@ -70,19 +73,61 @@ export component CreateSpaceModal {
                             alignment: center;
 
                             space-input := TextInput {
+                                accessible-role: text-input;
+                                accessible-label: "space-name-input";
                                 text <=> space-name;
                                 color: Theme.quarzo-white;
                                 font-size: 14px;
                                 input-type: text;
-                                accepted => {
-                                    if space-name != "" {
-                                        create(space-name);
-                                    }
-                                }
                             }
                         }
 
                         animate border-color { duration: 150ms; }
+                    }
+
+                    // Template folder picker
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 44px;
+                            border-radius: 8px;
+                            border-width: 1px;
+                            border-color: Theme.default-border;
+                            background: Theme.ninja-black;
+
+                            Text {
+                                x: 12px;
+                                text: template-path != "" ? template-path : "Select app folder...";
+                                color: template-path != "" ? Theme.quarzo-white : Theme.text-passive;
+                                font-size: 13px;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        Rectangle {
+                            width: 80px;
+                            height: 44px;
+                            border-radius: 8px;
+                            background: folder-btn.has-hover ? Theme.active-border : Theme.livnote-lavender;
+
+                            Text {
+                                text: "Browse";
+                                color: Theme.ninja-black;
+                                font-size: 13px;
+                                font-weight: 500;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            folder-btn := TouchArea {
+                                accessible-role: button;
+                                accessible-label: "pick-template-folder";
+                                clicked => { pick-template-folder(); }
+                            }
+                        }
                     }
 
                     HorizontalLayout {
@@ -106,6 +151,8 @@ export component CreateSpaceModal {
                             }
 
                             cancel-btn := TouchArea {
+                                accessible-role: button;
+                                accessible-label: "create-space-cancel-button";
                                 clicked => { cancel(); }
                             }
                         }
@@ -114,11 +161,11 @@ export component CreateSpaceModal {
                             width: 100px;
                             height: 36px;
                             border-radius: 8px;
-                            background: space-name != "" ? Theme.livnote-lavender : Theme.cancel-background;
+                            background: space-name != "" && template-path != "" ? Theme.livnote-lavender : Theme.cancel-background;
 
                             Text {
                                 text: "Create";
-                                color: space-name != "" ? Theme.ninja-black : Theme.text-passive;
+                                color: space-name != "" && template-path != "" ? Theme.ninja-black : Theme.text-passive;
                                 font-size: 14px;
                                 font-weight: 600;
                                 horizontal-alignment: center;
@@ -126,10 +173,12 @@ export component CreateSpaceModal {
                             }
 
                             TouchArea {
-                                enabled: space-name != "";
+                                accessible-role: button;
+                                accessible-label: "create-space-submit";
+                                enabled: space-name != "" && template-path != "";
                                 clicked => {
-                                    if space-name != "" {
-                                        create(space-name);
+                                    if space-name != "" && template-path != "" {
+                                        create(space-name, template-path);
                                     }
                                 }
                             }
@@ -150,7 +199,7 @@ export component Toast {
     if show: Rectangle {
         x: (parent.width - self.width) / 2;
         y: parent.height - self.height - 24px;
-        width: 400px;
+        width: Theme.is-mobile ? (parent.width - 24px) : 400px;
         height: 48px;
         background: is-error ? Theme.cancel-background : Theme.grape-green;
         border-radius: 8px;
@@ -187,6 +236,9 @@ export component PublishSpaceModal {
     callback copy-link();  // copy shareable-link to clipboard
     callback cancel();
 
+    width: 100%;
+    height: 100%;
+
     if show: Rectangle {
         width: 100%;
         height: 100%;
@@ -199,7 +251,7 @@ export component PublishSpaceModal {
         FocusScope {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            width: 500px;
+            width: Theme.is-mobile ? (parent.width - 24px) : 500px;
             height: shareable-link != "" ? 550px : 420px;
 
             key-pressed(event) => {
@@ -224,7 +276,7 @@ export component PublishSpaceModal {
                 }
 
                 VerticalLayout {
-                    padding: 24px;
+                    padding: Theme.is-mobile ? 16px : 24px;
                     spacing: 16px;
 
                     Text {
@@ -485,6 +537,9 @@ export component AddNodeModal {
     callback add(string);
     callback cancel();
 
+    width: 100%;
+    height: 100%;
+
     if show: Rectangle {
         width: 100%;
         height: 100%;
@@ -497,7 +552,7 @@ export component AddNodeModal {
         FocusScope {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            width: 500px;
+            width: Theme.is-mobile ? (parent.width - 24px) : 500px;
             height: 400px;
 
             key-pressed(event) => {
@@ -522,7 +577,7 @@ export component AddNodeModal {
                 }
 
                 VerticalLayout {
-                    padding: 24px;
+                    padding: Theme.is-mobile ? 16px : 24px;
                     spacing: 20px;
 
                     Text {
@@ -546,6 +601,8 @@ export component AddNodeModal {
                         border-color: Theme.default-border;
 
                         TextInput {
+                            accessible-role: text-input;
+                            accessible-label: "node-connection-input";
                             text <=> connection-string;
                             color: Theme.quarzo-white;
                             font-size: 12px;
@@ -585,6 +642,8 @@ export component AddNodeModal {
                             }
 
                             cancel-area := TouchArea {
+                                accessible-role: button;
+                                accessible-label: "add-node-cancel-button";
                                 clicked => { cancel(); }
                             }
                         }
@@ -604,6 +663,8 @@ export component AddNodeModal {
                             }
 
                             connect-area := TouchArea {
+                                accessible-role: button;
+                                accessible-label: "add-node-submit";
                                 enabled: !connecting && connection-string != "";
                                 clicked => { add(connection-string); }
                             }
@@ -624,6 +685,9 @@ export component AddWebsiteModal {
     callback connect(string);
     callback cancel();
 
+    width: 100%;
+    height: 100%;
+
     if show: Rectangle {
         width: 100%;
         height: 100%;
@@ -636,7 +700,7 @@ export component AddWebsiteModal {
         FocusScope {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            width: 500px;
+            width: Theme.is-mobile ? (parent.width - 24px) : 500px;
             height: 350px;
 
             key-pressed(event) => {
@@ -661,7 +725,7 @@ export component AddWebsiteModal {
                 }
 
                 VerticalLayout {
-                    padding: 24px;
+                    padding: Theme.is-mobile ? 16px : 24px;
                     spacing: 20px;
 
                     Text {
@@ -685,6 +749,8 @@ export component AddWebsiteModal {
                         border-color: Theme.default-border;
 
                         TextInput {
+                            accessible-role: text-input;
+                            accessible-label: "add-website-connection-input";
                             text <=> connection-string;
                             color: Theme.quarzo-white;
                             font-size: 12px;
@@ -718,6 +784,8 @@ export component AddWebsiteModal {
                             }
 
                             cancel-area := TouchArea {
+                                accessible-role: button;
+                                accessible-label: "add-website-cancel-button";
                                 clicked => {
                                     connection-string = "";
                                     cancel();
@@ -741,6 +809,8 @@ export component AddWebsiteModal {
                             }
 
                             connect-area := TouchArea {
+                                accessible-role: button;
+                                accessible-label: "add-website-connect-button";
                                 enabled: !connecting && connection-string != "";
                                 clicked => { connect(connection-string); }
                             }

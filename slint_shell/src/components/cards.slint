@@ -10,8 +10,10 @@ export component SpaceCard {
     in property<int> app-count;
     callback clicked();
 
-    width: 200px;
-    height: 120px;
+    // Responsive: use parent-provided width, height adapts to content
+    horizontal-stretch: 1;
+    min-width: 140px;
+    height: Theme.is-mobile ? 100px : 120px;
 
     Rectangle {
         border-radius: 12px;
@@ -60,8 +62,9 @@ export component SpaceCard {
 export component CreateSpaceCard {
     callback clicked();
 
-    width: 200px;
-    height: 120px;
+    horizontal-stretch: 1;
+    min-width: 140px;
+    height: Theme.is-mobile ? 100px : 120px;
 
     Rectangle {
         border-radius: 12px;
@@ -87,6 +90,8 @@ export component CreateSpaceCard {
         }
 
         area := TouchArea {
+            accessible-role: button;
+            accessible-label: "create-space-button";
             clicked => { clicked(); }
         }
 
@@ -101,8 +106,9 @@ export component AppCard {
     in property<string> name;
     callback clicked();
 
-    width: 160px;
-    height: 100px;
+    horizontal-stretch: 1;
+    min-width: 120px;
+    height: Theme.is-mobile ? 80px : 100px;
 
     Rectangle {
         border-radius: 12px;
@@ -153,8 +159,9 @@ export component NodeCard {
     callback clicked();
     callback delete-clicked();
 
-    width: 200px;
-    height: 140px;
+    horizontal-stretch: 1;
+    min-width: 140px;
+    height: Theme.is-mobile ? 120px : 140px;
 
     Rectangle {
         background: card-area.has-hover ? Theme.side-list-highlight : Theme.frame-black;
@@ -268,8 +275,9 @@ export component NodeCard {
 export component UploadAppCard {
     callback clicked();
 
-    width: 160px;
-    height: 100px;
+    horizontal-stretch: 1;
+    min-width: 120px;
+    height: Theme.is-mobile ? 80px : 100px;
 
     Rectangle {
         border-radius: 12px;
@@ -311,8 +319,9 @@ export component PageCard {
     in property<int> app-count;
     callback clicked();
 
-    width: 160px;
-    height: 100px;
+    horizontal-stretch: 1;
+    min-width: 120px;
+    height: Theme.is-mobile ? 80px : 100px;
 
     Rectangle {
         border-radius: 12px;
@@ -364,8 +373,9 @@ export component PageCard {
 export component UploadPageCard {
     callback clicked();
 
-    width: 160px;
-    height: 100px;
+    horizontal-stretch: 1;
+    min-width: 120px;
+    height: Theme.is-mobile ? 80px : 100px;
 
     Rectangle {
         border-radius: 12px;
@@ -392,6 +402,8 @@ export component UploadPageCard {
         }
 
         area := TouchArea {
+            accessible-role: button;
+            accessible-label: "upload-page-button";
             clicked => { clicked(); }
         }
 

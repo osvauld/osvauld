@@ -26,8 +26,15 @@ pub struct RunningApp {
     /// Unified page event receiver (replaces loro_rx + scribe_event_rx)
     /// Receives all layer changes (Created/Updated) from Scribe
     pub page_event_rx: tokio::sync::mpsc::Receiver<butler::PageEvent>,
+    /// Ephemeral event receiver (cursor, typing, presence from peers)
+    /// Received via datagrams, forwarded to Lua for rendering
+    pub ephemeral_event_rx: tokio::sync::mpsc::Receiver<butler::EphemeralEvent>,
+    // Note: ephemeral_broadcast_rx removed - outbound ephemeral now goes directly via
+    // Scribe → PeerActor channels (SubscriberInfo.ephemeral_tx)
     /// Receiver for tab switch requests
     pub tab_switch_rx: std::sync::mpsc::Receiver<String>,
+    /// Receiver for asset pick requests (triggered by Slint button click)
+    pub asset_pick_rx: std::sync::mpsc::Receiver<app_runtime::AssetPickRequest>,
 }
 
 /// Result of preparing a page for loading
@@ -46,6 +53,8 @@ pub struct PreparedPage {
     pub all_apps: Vec<String>,
     /// Data layers from permit template (for Loro subscriptions)
     pub data_layers: Vec<String>,
+    /// Model names from manifest (for VecModel initialization)
+    pub models: Vec<String>,
     /// Temp directory (must keep alive)
     pub temp_dir: std::path::PathBuf,
 }
@@ -133,12 +142,45 @@ pub async fn prepare_page(
 
     let lua_path = temp_path.join("app.lua");
 
+    // Read models from manifest.json (optional field)
+    let manifest_path = temp_path.join("manifest.json");
+    let models = if manifest_path.exists() {
+        match fs::read_to_string(&manifest_path) {
+            Ok(content) => {
+                match serde_json::from_str::<app_runtime::Manifest>(&content) {
+                    Ok(manifest) => manifest.models,
+                    Err(e) => {
+                        tracing::warn!(
+                            page_id = %page_id,
+                            app_name = %app_name,
+                            error = %e,
+                            "Failed to parse manifest.json, using empty models"
+                        );
+                        vec![]
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    page_id = %page_id,
+                    app_name = %app_name,
+                    error = %e,
+                    "Failed to read manifest.json, using empty models"
+                );
+                vec![]
+            }
+        }
+    } else {
+        vec![]
+    };
+
     tracing::info!(
         page_id = %page_id,
         page_name = %page_name,
         app_name = %app_name,
         shell_path = %shell_path.display(),
         tabs_count = tabs.len(),
+        models = ?models,
         "Generated browser shell with tabs"
     );
 
@@ -153,6 +195,7 @@ pub async fn prepare_page(
         page_name,
         all_apps,
         data_layers,
+        models,
         temp_dir: temp_path,
     })
 }

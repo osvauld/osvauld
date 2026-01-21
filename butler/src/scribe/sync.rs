@@ -28,12 +28,13 @@ use super::state::{LayerWritePermission, ScribeState, SubscriberInfo, SyncPolicy
 /// **Pattern expansion**: For patterns like `{page_id}/orders/{aud}`, we use the permit's
 /// audience field (the permit holder's DID) for expansion, not the subscriber's DID.
 /// This ensures layers created by the permit holder match correctly.
-#[instrument(skip(state, broadcast_tx, permit), fields(page_id = %state.page_id))]
+#[instrument(skip(state, broadcast_tx, ephemeral_tx, permit), fields(page_id = %state.page_id))]
 pub async fn handle_subscribe(
     state: &mut ScribeState,
     user_did: String,
     device_id: String,
     broadcast_tx: mpsc::Sender<BroadcastPayload>,
+    ephemeral_tx: Option<mpsc::Sender<super::message::EphemeralOutbound>>,
     permit: String,
 ) {
     info!(user_did = %user_did, device_id = %device_id, permit_len = permit.len(), "Peer subscribing");
@@ -115,6 +116,7 @@ pub async fn handle_subscribe(
             (user_did.clone(), device_id.clone()),
             SubscriberInfo {
                 broadcast_tx: broadcast_tx.clone(),
+                ephemeral_tx,  // Passed from PeerActor for direct ephemeral routing
                 vectors,
                 layer_permissions: layer_permissions.clone(),
                 sync_policy: sync_policy.clone(),
@@ -302,17 +304,23 @@ pub async fn handle_apply_update(
     // 1. Validation (before apply) - reject invalid updates
     // 2. Derivation (after apply) - transform changed entries only
     let extracted_ops = if from_peer.is_some() {
-        if let Some(layer) = state.layers.get(layer_name) {
-            match super::lua_runtime::extract_ops_from_update(layer, update) {
-                Ok(ops) => Some(ops),
-                Err(e) => {
-                    warn!(layer = %layer_name, error = %e, "Failed to extract ops for validation");
-                    // Continue anyway - extraction failure shouldn't block sync
-                    None
-                }
+        // For existing layers, extract ops by comparing current state to updated state
+        // For new layers, extract ops by comparing empty state to updated state (all inserts)
+        let is_new_layer = !state.layers.contains_key(layer_name);
+        let layer_for_extraction = state.layers.get(layer_name)
+            .cloned()
+            .unwrap_or_else(|| crate::models::Layer::new());
+
+        match super::lua_runtime::extract_ops_from_update(&layer_for_extraction, update) {
+            Ok(ops) => {
+                debug!(layer = %layer_name, op_count = ops.len(), is_new_layer = is_new_layer, "Extracted ops from update");
+                Some(ops)
             }
-        } else {
-            None // New layer - no ops to extract from empty state
+            Err(e) => {
+                warn!(layer = %layer_name, error = %e, "Failed to extract ops for validation");
+                // Continue anyway - extraction failure shouldn't block sync
+                None
+            }
         }
     } else {
         None // Local updates don't need validation

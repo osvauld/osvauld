@@ -118,6 +118,20 @@ impl RedbStore {
         }
     }
 
+    /// Update relay URL for a sovereign node
+    ///
+    /// **Context**: After setup_test_dbs, stored nodes may have invalid relay URLs.
+    /// This updates the relay URL with the real one from running kunki.
+    pub fn update_sovereign_node_relay(&self, node_id: &str, relay_url: Option<String>) -> Result<bool> {
+        if let Some(mut node) = self.get_sovereign_node(node_id)? {
+            node.relay_url = relay_url;
+            self.put_sovereign_node(&node)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     // =========================================================================
     // Owner Info Operations (Node side - stores info about the owner)
     // Key: "owner" (only one owner per node)

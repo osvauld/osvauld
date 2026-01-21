@@ -8,6 +8,7 @@ members = [
   "herald",
   "transport",
   "courier",
+  "control_server",
   "integration_tests",
   "slint_shell",
   "app_runtime",

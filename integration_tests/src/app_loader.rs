@@ -32,6 +32,37 @@ pub fn load_myshop_owner_with_init() -> String {
     format!("{}\n\n{}", init, owner)
 }
 
+// ============================================================================
+// MY-BOOKING APP LOADERS
+// ============================================================================
+
+/// Load my-booking provider app Lua code
+pub fn load_booking_provider_app() -> String {
+    load_lua_file("sample_apps/my-booking/service-provider/app.lua")
+}
+
+/// Load my-booking customer app Lua code
+pub fn load_booking_customer_app() -> String {
+    load_lua_file("sample_apps/my-booking/service-customer/app.lua")
+}
+
+/// Load my-booking shared validation Lua code
+pub fn load_booking_validation() -> String {
+    load_lua_file("sample_apps/my-booking/shared/validation.lua")
+}
+
+/// Load my-booking shared init Lua code (calendar derivation rules)
+pub fn load_booking_init() -> String {
+    load_lua_file("sample_apps/my-booking/shared/init.lua")
+}
+
+/// Load my-booking provider app with init code prepended
+pub fn load_booking_provider_with_init() -> String {
+    let init = load_booking_init();
+    let provider = load_booking_provider_app();
+    format!("{}\n\n{}", init, provider)
+}
+
 /// Load a Lua file from the project root
 fn load_lua_file(relative_path: &str) -> String {
     // Try from integration_tests directory first (when running `cargo test -p integration_tests`)
@@ -63,14 +94,16 @@ mod tests {
     #[test]
     fn test_load_owner_app() {
         let code = load_myshop_owner_app();
-        assert!(code.contains("function add_product"));
+        // Check for exported functions (via api.export)
+        assert!(code.contains("api.export(\"add_product\""));
         assert!(code.contains("function on_init"));
     }
 
     #[test]
     fn test_load_customer_app() {
         let code = load_myshop_customer_app();
-        assert!(code.contains("function create_order"));
-        assert!(code.contains("function submit_order"));
+        // Check for exported functions (via api.export)
+        assert!(code.contains("api.export(\"create_order\""));
+        assert!(code.contains("api.export(\"submit_order\""));
     }
 }

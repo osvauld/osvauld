@@ -5,7 +5,16 @@ edition = "2021"
 description = "Integration tests for Osvauld P2P protocol"
 license = "MIT"
 
+[[bin]]
+name = "setup_test_dbs"
+path = "src/bin/setup_test_dbs.rs"
+
+[[bin]]
+name = "setup_booking_db"
+path = "src/bin/setup_booking_db.rs"
+
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 # Internal crates
 courier = { path = "../courier" }
 butler = { path = "../butler" }
@@ -22,6 +31,8 @@ loro = "1.5.4"
 
 # Encoding
 base64 = "0.22"
+hex = "0.4"
+blake3 = "1"
 
 # Key generation
 ed25519-dalek = { version = "2", features = ["rand_core"] }
@@ -35,6 +46,7 @@ tokio = { version = "1", features = ["sync", "time", "macros", "rt-multi-thread"
 
 # Testing utilities
 tempfile = "3"
+mime_guess = "2"
 
 # Error handling
 anyhow = "1.0"

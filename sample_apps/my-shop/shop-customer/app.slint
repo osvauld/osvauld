@@ -56,22 +56,24 @@ export global AppAPI {
     in-out property<[Product]> products: [];
     in-out property<[Order]> my_orders: [];  // LIST of orders
 
-    // Callbacks (Lua implements these via set_global_callback)
-    callback select_product(string, string, float);
-    callback create_order(string, string, string, string);
-    callback submit_order(string);  // Takes order_id
-    callback cancel_order(string);  // Takes order_id
+    // Form state (exposed to Lua for AI automation)
+    in-out property<string> selected_product_id: "";
+    in-out property<string> selected_product_name: "";
+    in-out property<float> selected_product_price: 0;
+    in-out property<string> order_quantity: "1";
+    in-out property<string> order_notes: "";
+    in-out property<string> order_address: "";
+    in-out property<int> current_view: 0;  // 0=products, 1=orders
+
+    // Event Bus callbacks (unified event flow for human/AI)
+    callback on_click(string);                           // target element ID
+    callback on_field_changed(string, string);           // field name, new value
+    callback on_modal_action(string, string);            // modal name, action (open/close/submit)
 }
 
 export component App inherits Rectangle {
-    // Local form state (not exposed to Lua)
-    property<string> selected-product-id: "";
-    property<string> selected-product-name: "";
-    property<float> selected-product-price: 0;
-    property<string> order-quantity: "1";
-    property<string> order-notes: "";
-    property<string> order-address: "";
-    property<int> current-view: 0; // 0 = products, 1 = orders
+    // Form state now in AppAPI (exposed to Lua)
+    // Use AppAPI.selected_product_id, AppAPI.order_quantity, etc.
 
     background: Theme.bg-primary;
 
@@ -114,7 +116,7 @@ export component App inherits Rectangle {
                 }
 
                 TouchArea {
-                    clicked => { current-view = 1; }
+                    clicked => { AppAPI.current_view = 1; }
                 }
             }
         }
@@ -126,7 +128,7 @@ export component App inherits Rectangle {
             Rectangle {
                 width: 120px;
                 height: 40px;
-                background: current-view == 0 ? Theme.accent : Theme.bg-secondary;
+                background: AppAPI.current_view == 0 ? Theme.accent : Theme.bg-secondary;
                 border-radius: 8px;
 
                 Text {
@@ -139,14 +141,14 @@ export component App inherits Rectangle {
                 }
 
                 TouchArea {
-                    clicked => { current-view = 0; }
+                    clicked => { AppAPI.current_view = 0; }
                 }
             }
 
             Rectangle {
                 width: 120px;
                 height: 40px;
-                background: current-view == 1 ? Theme.accent : Theme.bg-secondary;
+                background: AppAPI.current_view == 1 ? Theme.accent : Theme.bg-secondary;
                 border-radius: 8px;
 
                 Text {
@@ -159,7 +161,7 @@ export component App inherits Rectangle {
                 }
 
                 TouchArea {
-                    clicked => { current-view = 1; }
+                    clicked => { AppAPI.current_view = 1; }
                 }
             }
         }
@@ -171,11 +173,11 @@ export component App inherits Rectangle {
         }
 
         // Products View
-        if current-view == 0: VerticalLayout {
+        if AppAPI.current_view == 0: VerticalLayout {
             spacing: 16px;
 
             // Selected product / Order form
-            if selected-product-id != "": Rectangle {
+            if AppAPI.selected_product_id != "": Rectangle {
                 background: Theme.bg-secondary;
                 border-radius: 12px;
                 height: 280px;
@@ -188,7 +190,7 @@ export component App inherits Rectangle {
                         spacing: 12px;
 
                         Text {
-                            text: selected-product-name;
+                            text: AppAPI.selected_product_name;
                             font-size: 18px;
                             font-weight: 700;
                             color: Theme.text-primary;
@@ -196,7 +198,7 @@ export component App inherits Rectangle {
                         }
 
                         Text {
-                            text: "$" + selected-product-price;
+                            text: "$" + AppAPI.selected_product_price;
                             font-size: 20px;
                             font-weight: 700;
                             color: Theme.success;
@@ -220,13 +222,14 @@ export component App inherits Rectangle {
                             border-radius: 6px;
 
                             TextInput {
-                                text <=> order-quantity;
+                                text <=> AppAPI.order_quantity;
                                 font-size: 14px;
                                 color: Theme.text-primary;
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
                                 x: 4px;
                                 width: parent.width - 8px;
+                                edited => { AppAPI.on_field_changed("order_quantity", self.text); }
                             }
                         }
 
@@ -249,16 +252,17 @@ export component App inherits Rectangle {
                             border-radius: 6px;
 
                             TextInput {
-                                text <=> order-address;
+                                text <=> AppAPI.order_address;
                                 font-size: 14px;
                                 color: Theme.text-primary;
                                 horizontal-alignment: left;
                                 vertical-alignment: center;
                                 x: 8px;
                                 width: parent.width - 16px;
+                                edited => { AppAPI.on_field_changed("order_address", self.text); }
                             }
 
-                            if order-address == "": Text {
+                            if AppAPI.order_address == "": Text {
                                 text: "123 Main St, City, Country";
                                 font-size: 14px;
                                 color: Theme.text-secondary;
@@ -289,16 +293,17 @@ export component App inherits Rectangle {
                                 border-radius: 6px;
 
                                 TextInput {
-                                    text <=> order-notes;
+                                    text <=> AppAPI.order_notes;
                                     font-size: 14px;
                                     color: Theme.text-primary;
                                     horizontal-alignment: left;
                                     vertical-alignment: center;
                                     x: 8px;
                                     width: parent.width - 16px;
+                                    edited => { AppAPI.on_field_changed("order_notes", self.text); }
                                 }
 
-                                if order-notes == "": Text {
+                                if AppAPI.order_notes == "": Text {
                                     text: "Any special instructions...";
                                     font-size: 14px;
                                     color: Theme.text-secondary;
@@ -326,14 +331,7 @@ export component App inherits Rectangle {
 
                             TouchArea {
                                 clicked => {
-                                    AppAPI.create_order(selected-product-id, order-quantity, order-notes, order-address);
-                                    selected-product-id = "";
-                                    selected-product-name = "";
-                                    selected-product-price = 0;
-                                    order-quantity = "1";
-                                    order-notes = "";
-                                    order-address = "";
-                                    current-view = 1;
+                                    AppAPI.on_modal_action("order", "submit");
                                 }
                             }
                         }
@@ -409,10 +407,12 @@ export component App inherits Rectangle {
                                 TouchArea {
                                     clicked => {
                                         if product.stock > 0 {
-                                            AppAPI.select_product(product.id, product.name, product.price);
-                                            selected-product-id = product.id;
-                                            selected-product-name = product.name;
-                                            selected-product-price = product.price;
+                                            // Set UI state directly (two-way binding)
+                                            AppAPI.selected_product_id = product.id;
+                                            AppAPI.selected_product_name = product.name;
+                                            AppAPI.selected_product_price = product.price;
+                                            // Notify Lua of click
+                                            AppAPI.on_click("select_product:" + product.id);
                                         }
                                     }
                                 }
@@ -424,7 +424,7 @@ export component App inherits Rectangle {
         }
 
         // Orders View - shows list of all orders
-        if current-view == 1: VerticalLayout {
+        if AppAPI.current_view == 1: VerticalLayout {
             spacing: 16px;
 
             if AppAPI.my_orders.length == 0: Rectangle {
@@ -546,7 +546,7 @@ export component App inherits Rectangle {
                                     }
 
                                     TouchArea {
-                                        clicked => { AppAPI.submit_order(order.id); }
+                                        clicked => { AppAPI.on_click("submit_order:" + order.id); }
                                     }
                                 }
 
@@ -566,7 +566,7 @@ export component App inherits Rectangle {
                                     }
 
                                     TouchArea {
-                                        clicked => { AppAPI.cancel_order(order.id); }
+                                        clicked => { AppAPI.on_click("cancel_order:" + order.id); }
                                     }
                                 }
 
@@ -587,7 +587,7 @@ export component App inherits Rectangle {
                                     }
 
                                     TouchArea {
-                                        clicked => { AppAPI.cancel_order(order.id); }
+                                        clicked => { AppAPI.on_click("cancel_order:" + order.id); }
                                     }
                                 }
 

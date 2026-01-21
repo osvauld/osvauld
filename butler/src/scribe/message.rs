@@ -3,6 +3,7 @@
 //! All messages received by the Scribe actor.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use ractor::RpcReplyPort;
 use tokio::sync::mpsc;
 use serde::{Serialize, Deserialize};
@@ -20,8 +21,11 @@ pub enum ScribeMessage {
     Subscribe {
         user_did: String,
         device_id: String,
-        /// Callback to send broadcasts to this peer
+        /// Callback to send CRDT broadcasts to this peer
         broadcast_tx: mpsc::Sender<BroadcastPayload>,
+        /// Callback to send ephemeral broadcasts to this peer (cursor, typing)
+        /// PeerActor creates this channel, spawns listener that sends datagrams
+        ephemeral_tx: Option<mpsc::Sender<EphemeralOutbound>>,
         /// Raw permit string - we parse to extract permissions
         permit: String,
     },
@@ -307,6 +311,46 @@ pub enum ScribeMessage {
     Shutdown,
 
     // =========================================================================
+    // Ephemeral Events (from datagrams via PeerActor)
+    // =========================================================================
+
+    /// Remote ephemeral data (from datagram via PeerActor)
+    ///
+    /// **Context**: Peer sent ephemeral data (cursor, typing, etc.) for this page
+    /// **We do**: Forward to subscribed apps AND relay to other peers via ephemeral channels
+    /// **Note**: Not persisted in CRDT - purely ephemeral
+    /// **Design**: Protocol layer routes opaque bytes; app layer defines meaning
+    RemoteEphemeral {
+        /// Who sent this (from peer state, may be None if not authenticated)
+        user_did: Option<String>,
+        /// Device/connection ID of sender (for relay exclusion)
+        device_id: Option<String>,
+        /// Opaque payload - app defines format (JSON with type/x/y, etc.)
+        payload: Vec<u8>,
+    },
+
+    /// Send ephemeral data to peers (from Lua)
+    ///
+    /// **Context**: Local user wants to broadcast ephemeral data (cursor, typing, etc.)
+    /// **We do**: Forward via ephemeral broadcast channel to Courier
+    /// **Design**: App layer provides opaque payload; protocol layer routes by page_id
+    SendEphemeral {
+        /// Opaque payload - app defines format (JSON with type/x/y, etc.)
+        payload: Vec<u8>,
+    },
+
+    /// Subscribe to ephemeral events (cursor, typing, presence)
+    ///
+    /// **Context**: App runtime subscribes to receive ephemeral events
+    /// **We do**: Store sender, forward events when they arrive
+    SubscribeEphemeral {
+        tx: mpsc::Sender<EphemeralEvent>,
+    },
+
+    // Note: SetEphemeralBroadcast removed - ephemeral now goes directly via
+    // SubscriberInfo.ephemeral_tx (Scribe → PeerActor channels)
+
+    // =========================================================================
     // Derivation Operations (via ScribeLuaRuntime)
     // =========================================================================
 
@@ -337,6 +381,21 @@ pub enum ScribeMessage {
     CreateDerivedLayer {
         target_layer: String,
     },
+
+    // =========================================================================
+    // App Refresh Operations
+    // =========================================================================
+
+    /// Refresh app from filesystem (owner only)
+    ///
+    /// **Context**: Owner wants to reload app code from disk (development workflow)
+    /// **We do**: Read files from app_dir, update app layer, commit (triggers broadcast)
+    /// **Consumers**: UI Reload button, Debug socket command
+    RefreshApp {
+        app_name: String,
+        app_dir: PathBuf,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<Vec<String>, String>>,
+    },
 }
 
 /// Payload sent to PeerActor for broadcast (3-step sync protocol)
@@ -350,6 +409,32 @@ pub struct BroadcastPayload {
     pub update: Vec<u8>,
     /// Our state vector for this layer (for SyncOffer message)
     pub state_vector: Vec<u8>,
+}
+
+/// Ephemeral broadcast payload (generic)
+///
+/// **Context**: Scribe sends this to Butler/Courier for datagram broadcast
+/// **Transport**: Unreliable QUIC datagram (fire-and-forget, lowest latency)
+/// **Design**: Generic payload - app defines format; protocol routes by page_id
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EphemeralBroadcast {
+    /// Page ID for routing
+    pub page_id: String,
+    /// Opaque payload - app defines format (JSON with type/x/y, etc.)
+    pub payload: Vec<u8>,
+}
+
+/// Outbound ephemeral data (Scribe → PeerActor via channel)
+///
+/// **Context**: Same pattern as BroadcastPayload for CRDT data
+/// **Flow**: Scribe broadcasts ephemeral to all subscriber channels,
+///           PeerActor listener receives and sends datagram to peer
+#[derive(Debug, Clone)]
+pub struct EphemeralOutbound {
+    /// Page ID for routing (used in datagram)
+    pub page_id: String,
+    /// Opaque payload - app defines format (JSON with type/x/y, etc.)
+    pub payload: Vec<u8>,
 }
 
 /// Delta operations for different Loro container types
@@ -450,4 +535,25 @@ pub enum PageEventType {
 pub enum SyncEvent {
     /// Ensure this user is synced (connected + subscribed to active Scribes)
     EnsureSync { user_did: String },
+}
+
+// =============================================================================
+// Ephemeral Events (Live Data Streaming)
+// =============================================================================
+
+/// Ephemeral events for UI (not persisted in CRDT)
+///
+/// **Context**: Real-time events sent via datagrams (unreliable, low-latency)
+/// **Consumers**: App runtime (Lua) for rendering remote cursors, typing indicators
+/// **Note**: These are fire-and-forget, missing one is OK
+/// **Design**: Generic payload - app layer defines meaning (cursor, typing, presence, etc.)
+#[derive(Debug, Clone)]
+pub enum EphemeralEvent {
+    /// Ephemeral data from remote peer
+    ///
+    /// **payload**: Opaque bytes - app interprets format (JSON with type/x/y, etc.)
+    Data {
+        user_did: String,
+        payload: Vec<u8>,
+    },
 }

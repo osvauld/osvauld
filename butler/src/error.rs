@@ -74,6 +74,9 @@ pub enum ButlerError {
 
     #[error("Asset not found: {0}")]
     AssetNotFound(String),
+
+    #[error("Verification failed: {0}")]
+    Verification(String),
 }
 
 pub type Result<T> = std::result::Result<T, ButlerError>;

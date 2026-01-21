@@ -113,5 +113,23 @@ impl UserData for ButlerBindings {
                 }
             }
         });
+
+        // =============================================================================
+        // Ephemeral Events (Generic)
+        // =============================================================================
+
+        // send_ephemeral: Send ephemeral data to peers (via datagram)
+        // Context: Called for cursor updates, typing indicators, presence, etc.
+        // Lua: `butler:send_ephemeral('{"type":"cursor","x":100,"y":200}')`
+        // Transport: Unreliable datagram (fire-and-forget, lowest latency)
+        // Design: Generic payload - Lua app defines format (JSON with type/data)
+        methods.add_method("send_ephemeral", |_, this, payload: String| {
+            tracing::debug!(payload_len = payload.len(), "butler:send_ephemeral called from Lua");
+            this.scribe_ref.cast(ScribeMessage::SendEphemeral {
+                payload: payload.into_bytes(),
+            })
+            .map_err(|e| LuaError::RuntimeError(format!("Failed to send ephemeral: {}", e)))?;
+            Ok(())
+        });
     }
 }

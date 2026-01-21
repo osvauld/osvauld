@@ -1,0 +1,436 @@
+// Canvas App UI - Dumb Renderer
+// Renders shapes/connectors from Lua graph, forwards raw pointer events
+// NO logic here - all decisions made in Lua
+
+// Shape data structure - supports multiple types
+export struct Shape {
+    id: string,
+    shape_type: string,  // "rectangle", "ellipse", "diamond", "text", "sticky"
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    stroke_width: float,
+    text: string,
+    text_size: float,
+    z_index: int,
+    selected: bool,
+    visible: bool,
+}
+
+// Connector data structure (Bezier curve)
+export struct Connector {
+    id: string,
+    // Start point (edge of source shape)
+    from_x: float,
+    from_y: float,
+    // Control point 1 (curves away from source)
+    ctrl1_x: float,
+    ctrl1_y: float,
+    // Control point 2 (curves into target)
+    ctrl2_x: float,
+    ctrl2_y: float,
+    // End point (edge of target shape)
+    to_x: float,
+    to_y: float,
+    stroke_width: float,
+    selected: bool,
+}
+
+// Line segment for drawing connectors as dots
+export struct LinePoint {
+    x: float,
+    y: float,
+}
+
+// Remote user cursor for live collaboration
+export struct RemoteCursor {
+    id: string,
+    x: float,
+    y: float,
+    color_index: int,  // Index into cursor color palette (0-7)
+    label: string,
+}
+
+// Theme colors
+global Theme {
+    // Background
+    out property<color> bg: #1a1a2e;
+    out property<color> canvas-bg: #16213e;
+    out property<color> grid-line: #1f3460;
+
+    // Shapes
+    out property<color> shape-fill: #0f3460;
+    out property<color> shape-stroke: #e94560;
+    out property<color> shape-text: #eaeaea;
+
+    // Sticky note colors
+    out property<color> sticky-yellow: #ffeb3b;
+    out property<color> sticky-pink: #f48fb1;
+    out property<color> sticky-blue: #81d4fa;
+    out property<color> sticky-green: #a5d6a7;
+    out property<color> sticky-text: #1a1a2e;
+
+    // Selection
+    out property<color> selection: #00fff5;
+    out property<color> selection-fill: #00fff510;
+    out property<color> handle-fill: #00fff5;
+
+    // Connectors
+    out property<color> connector: #e94560;
+    out property<color> connector-selected: #00fff5;
+
+    // UI
+    out property<color> toolbar-bg: #0f0f23;
+    out property<color> button-bg: #1a1a2e;
+    out property<color> button-hover: #2a2a4e;
+    out property<color> button-active: #00fff5;
+    out property<color> text-primary: #eaeaea;
+    out property<color> text-secondary: #a0a0a0;
+
+    // Remote cursor colors (8 distinct colors)
+    out property<color> cursor-0: #FF6B6B;  // Red
+    out property<color> cursor-1: #4ECDC4;  // Teal
+    out property<color> cursor-2: #45B7D1;  // Blue
+    out property<color> cursor-3: #96CEB4;  // Green
+    out property<color> cursor-4: #FFEAA7;  // Yellow
+    out property<color> cursor-5: #DDA0DD;  // Plum
+    out property<color> cursor-6: #98D8C8;  // Mint
+    out property<color> cursor-7: #F7DC6F;  // Gold
+}
+
+// App API - Lua writes here, Slint renders
+export global AppAPI {
+    // === DATA ARRAYS (flattened from Lua graph) ===
+    in-out property<[Shape]> shapes: [];
+    in-out property<[Connector]> connectors: [];
+    in-out property<[LinePoint]> line_points: [];  // Points along bezier curves
+    in-out property<[RemoteCursor]> remote_cursors: [];  // Live cursors from other users
+
+    // === VIEWPORT (Slint applies transform) ===
+    in-out property<float> viewport_pan_x: 0;
+    in-out property<float> viewport_pan_y: 0;
+    in-out property<float> viewport_zoom: 1.0;
+
+    // === SELECTION STATE ===
+    in-out property<bool> selection_visible: false;
+    in-out property<float> sel_x: 0;
+    in-out property<float> sel_y: 0;
+    in-out property<float> sel_width: 0;
+    in-out property<float> sel_height: 0;
+
+    // === TOOLBAR STATE ===
+    in-out property<string> current_tool: "select";
+    in-out property<string> status_text: "Ready";
+    in-out property<int> current_layer: 2;  // Default layer
+
+    // === CALLBACKS (Lua handles all logic) ===
+    callback on_pointer_event(string, float, float);  // event_type, x, y
+    callback on_scroll(float, float, float);          // delta, x, y
+    callback on_click(string);                        // target element ID
+    callback on_hover(float, float);                  // x, y (for cursor sync without drag)
+}
+
+export component App inherits Rectangle {
+    background: Theme.bg;
+
+    VerticalLayout {
+        // === TOOLBAR ===
+        Rectangle {
+            height: 48px;
+            background: Theme.toolbar-bg;
+
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 6px;
+
+                // Tool buttons
+                for tool in [
+                    { id: "select", label: "Select", icon: "↖" },
+                    { id: "rectangle", label: "Rect", icon: "▢" },
+                    { id: "ellipse", label: "Ellipse", icon: "○" },
+                    { id: "diamond", label: "Diamond", icon: "◇" },
+                    { id: "text", label: "Text", icon: "T" },
+                    { id: "sticky", label: "Sticky", icon: "▤" },
+                    { id: "connector", label: "Connect", icon: "→" },
+                ]: Rectangle {
+                    width: 50px;
+                    height: 32px;
+                    background: AppAPI.current_tool == tool.id ? Theme.button-active : Theme.button-bg;
+                    border-radius: 6px;
+
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        padding-right: 6px;
+                        spacing: 4px;
+
+                        Text {
+                            text: tool.icon;
+                            font-size: 14px;
+                            color: AppAPI.current_tool == tool.id ? Theme.bg : Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    TouchArea {
+                        clicked => { AppAPI.on_click("tool_" + tool.id); }
+                    }
+                }
+
+                // Separator
+                Rectangle { width: 1px; height: 24px; background: Theme.grid-line; }
+
+                // Layer selector
+                Text {
+                    text: "Layer:";
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+
+                for layer_btn in [
+                    { id: 1, label: "BG" },
+                    { id: 2, label: "Main" },
+                    { id: 3, label: "FG" },
+                ]: Rectangle {
+                    width: 40px;
+                    height: 28px;
+                    background: AppAPI.current_layer == layer_btn.id ? Theme.button-active : Theme.button-bg;
+                    border-radius: 4px;
+
+                    Text {
+                        text: layer_btn.label;
+                        font-size: 10px;
+                        color: AppAPI.current_layer == layer_btn.id ? Theme.bg : Theme.text-primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => { AppAPI.on_click("layer_" + layer_btn.id); }
+                    }
+                }
+
+                // Separator
+                Rectangle { width: 1px; height: 24px; background: Theme.grid-line; }
+
+                // Actions
+                for action in [
+                    { id: "auto_layout", label: "Layout" },
+                    { id: "clear", label: "Clear" },
+                ]: Rectangle {
+                    width: 60px;
+                    height: 32px;
+                    background: Theme.button-bg;
+                    border-radius: 6px;
+
+                    Text {
+                        text: action.label;
+                        font-size: 11px;
+                        color: Theme.text-primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => { AppAPI.on_click("action_" + action.id); }
+                    }
+                }
+
+                // Spacer
+                Rectangle { horizontal-stretch: 1; }
+
+                // Status
+                Text {
+                    text: AppAPI.status_text;
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+
+                // Shape count
+                Text {
+                    text: AppAPI.shapes.length + " shapes";
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // === CANVAS ===
+        Rectangle {
+            background: Theme.canvas-bg;
+            clip: true;
+
+            // Viewport container - Slint applies pan/zoom
+            Rectangle {
+                x: AppAPI.viewport_pan_x * 1px;
+                y: AppAPI.viewport_pan_y * 1px;
+
+                // --- CONNECTORS - Rendered as dots along bezier curve ---
+                for pt in AppAPI.line_points: Rectangle {
+                    x: (pt.x - 1.5) * AppAPI.viewport_zoom * 1px;
+                    y: (pt.y - 1.5) * AppAPI.viewport_zoom * 1px;
+                    width: 3px;
+                    height: 3px;
+                    background: Theme.connector;
+                    border-radius: 1.5px;
+                }
+
+                // --- SHAPES ---
+                for shape in AppAPI.shapes: Rectangle {
+                    x: shape.x * AppAPI.viewport_zoom * 1px;
+                    y: shape.y * AppAPI.viewport_zoom * 1px;
+                    width: shape.width * AppAPI.viewport_zoom * 1px;
+                    height: shape.height * AppAPI.viewport_zoom * 1px;
+                    visible: shape.visible;
+
+                    // Background fill based on type
+                    background: shape.shape_type == "text" ? transparent :
+                                shape.shape_type == "sticky" ? Theme.sticky-yellow :
+                                Theme.shape-fill;
+
+                    // Border
+                    border-color: shape.selected ? Theme.selection : Theme.shape-stroke;
+                    border-width: shape.selected ? 2px : shape.stroke_width * AppAPI.viewport_zoom * 1px;
+
+                    // Corner radius based on type
+                    border-radius: shape.shape_type == "ellipse" ? self.width / 2 :
+                                   shape.shape_type == "sticky" ? 4px : 4px;
+
+                    // Text content
+                    Text {
+                        text: shape.text;
+                        font-size: shape.text_size * AppAPI.viewport_zoom * 1px;
+                        color: shape.shape_type == "sticky" ? Theme.sticky-text : Theme.shape-text;
+                        horizontal-alignment: shape.shape_type == "text" ? left : center;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                        overflow: elide;
+                    }
+                }
+
+                // --- SELECTION BOX & RESIZE HANDLES ---
+                if AppAPI.selection_visible: Rectangle {
+                    x: AppAPI.sel_x * AppAPI.viewport_zoom * 1px;
+                    y: AppAPI.sel_y * AppAPI.viewport_zoom * 1px;
+                    width: AppAPI.sel_width * AppAPI.viewport_zoom * 1px;
+                    height: AppAPI.sel_height * AppAPI.viewport_zoom * 1px;
+                    background: Theme.selection-fill;
+                    border-color: Theme.selection;
+                    border-width: 1px;
+
+                    // Resize handles - positioned inline (no array needed)
+                    // NW
+                    Rectangle { x: -4px; y: -4px; width: 8px; height: 8px; background: Theme.handle-fill; border-radius: 2px; }
+                    // N
+                    Rectangle { x: parent.width / 2 - 4px; y: -4px; width: 8px; height: 8px; background: Theme.handle-fill; border-radius: 2px; }
+                    // NE
+                    Rectangle { x: parent.width - 4px; y: -4px; width: 8px; height: 8px; background: Theme.handle-fill; border-radius: 2px; }
+                    // E
+                    Rectangle { x: parent.width - 4px; y: parent.height / 2 - 4px; width: 8px; height: 8px; background: Theme.handle-fill; border-radius: 2px; }
+                    // SE
+                    Rectangle { x: parent.width - 4px; y: parent.height - 4px; width: 8px; height: 8px; background: Theme.handle-fill; border-radius: 2px; }
+                    // S
+                    Rectangle { x: parent.width / 2 - 4px; y: parent.height - 4px; width: 8px; height: 8px; background: Theme.handle-fill; border-radius: 2px; }
+                    // SW
+                    Rectangle { x: -4px; y: parent.height - 4px; width: 8px; height: 8px; background: Theme.handle-fill; border-radius: 2px; }
+                    // W
+                    Rectangle { x: -4px; y: parent.height / 2 - 4px; width: 8px; height: 8px; background: Theme.handle-fill; border-radius: 2px; }
+                }
+
+                // --- REMOTE CURSORS (inside viewport, same transform as shapes) ---
+                for cursor in AppAPI.remote_cursors: Rectangle {
+                    // Apply zoom transform (same as shapes) - pan comes from parent container
+                    x: cursor.x * AppAPI.viewport_zoom * 1px;
+                    y: cursor.y * AppAPI.viewport_zoom * 1px;
+                    width: 24px;
+                    height: 28px;
+
+                    // Select color based on index (0-7)
+                    property<color> cursor-color:
+                        cursor.color_index == 0 ? Theme.cursor-0 :
+                        cursor.color_index == 1 ? Theme.cursor-1 :
+                        cursor.color_index == 2 ? Theme.cursor-2 :
+                        cursor.color_index == 3 ? Theme.cursor-3 :
+                        cursor.color_index == 4 ? Theme.cursor-4 :
+                        cursor.color_index == 5 ? Theme.cursor-5 :
+                        cursor.color_index == 6 ? Theme.cursor-6 :
+                        Theme.cursor-7;
+
+                    // Cursor pointer triangle (pointing up-left)
+                    Path {
+                        x: 0;
+                        y: 0;
+                        width: 14px;
+                        height: 18px;
+                        fill: cursor-color;
+                        stroke: black;
+                        stroke-width: 1px;
+
+                        MoveTo { x: 0; y: 0; }
+                        LineTo { x: 0; y: 14; }
+                        LineTo { x: 4; y: 10; }
+                        LineTo { x: 7; y: 18; }
+                        LineTo { x: 10; y: 17; }
+                        LineTo { x: 7; y: 9; }
+                        LineTo { x: 11; y: 9; }
+                        Close {}
+                    }
+
+                    // User label badge
+                    Rectangle {
+                        x: 12px;
+                        y: 12px;
+                        width: label-text.preferred-width + 8px;
+                        height: 14px;
+                        background: cursor-color;
+                        border-radius: 3px;
+
+                        label-text := Text {
+                            x: 4px;
+                            text: cursor.label;
+                            font-size: 9px;
+                            color: white;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            // Canvas touch area - captures all pointer events
+            canvas-touch := TouchArea {
+                width: 100%;
+                height: 100%;
+
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.down {
+                        AppAPI.on_pointer_event("down", self.mouse-x / 1px, self.mouse-y / 1px);
+                    }
+                    if event.kind == PointerEventKind.up {
+                        AppAPI.on_pointer_event("up", self.mouse-x / 1px, self.mouse-y / 1px);
+                    }
+                }
+
+                moved => {
+                    AppAPI.on_pointer_event("move", self.mouse-x / 1px, self.mouse-y / 1px);
+                }
+
+                scroll-event(event) => {
+                    AppAPI.on_scroll(event.delta-y / 1px, self.mouse-x / 1px, self.mouse-y / 1px);
+                    accept
+                }
+            }
+
+            // Timer for hover tracking (cursor sync without drag)
+            Timer {
+                interval: 50ms;
+                running: canvas-touch.has-hover && !canvas-touch.pressed;
+                triggered => {
+                    AppAPI.on_hover(canvas-touch.mouse-x / 1px, canvas-touch.mouse-y / 1px);
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,8 @@
+{
+    "name": "Service Provider",
+    "version": "1.0.0",
+    "description": "Service booking provider dashboard - manage schedule and bookings",
+    "entry_ui": "app.slint",
+    "entry_logic": "app.lua",
+    "models": ["schedule", "blocked", "bookings"]
+}

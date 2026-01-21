@@ -10,8 +10,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
+use tokio::io::AsyncReadExt;
 use tracing::{debug, error, info, warn};
-use transport::{ConnectionHandle, NodeId, TransportEvent};
+use transport::{ConnectionHandle, NodeId, Transport, TransportEvent};
 
 use tokio::sync::{mpsc, oneshot};
 
@@ -34,7 +35,7 @@ pub struct ConnectRequest {
 /// Messages received by Coordinator
 #[derive(Debug)]
 pub enum CoordinatorMessage {
-    /// Raw bytes from transport - will be deserialized
+    /// Raw bytes from transport (stream) - will be deserialized
     TransportBytes { node_id: NodeId, data: Vec<u8> },
 
     /// New connection from transport
@@ -69,6 +70,17 @@ pub enum CoordinatorMessage {
 
     /// PeerActor failed or disconnected
     PeerFailed { node_id: NodeId, reason: String },
+
+    /// Relay datagram to other peers (Node mode only)
+    ///
+    /// **Context**: PeerActor received datagram, needs Node to relay to other peers
+    /// **We do**: Send datagram to all authenticated peers except sender
+    RelayDatagram {
+        /// Source peer (exclude from relay)
+        from_node_id: NodeId,
+        /// Raw datagram bytes to relay
+        data: Vec<u8>,
+    },
 
     // ==================== Sync Events ====================
 
@@ -115,6 +127,8 @@ pub enum CoordinatorMessage {
     GetShareableLink {
         node_id: NodeId,
         space_id: String,
+        /// Optional response channel - if present, response is sent directly to caller
+        response: Option<oneshot::Sender<Result<String, String>>>,
     },
 
     /// Shareable link response (from PeerActor)
@@ -194,6 +208,12 @@ pub enum CoordinatorMessage {
         response: oneshot::Sender<Result<NodeId, String>>,
     },
 
+    /// Broadcast datagram to all authenticated peers
+    ///
+    /// **Context**: App wants to send ephemeral data (cursor, typing) to all connected users
+    /// **We do**: Send datagram to all authenticated peer connections
+    BroadcastDatagram { data: Vec<u8> },
+
     /// Shutdown all actors
     Shutdown,
 }
@@ -224,6 +244,8 @@ pub struct CoordinatorState {
     mode: CourierMode,
     /// Butler for storage and identity
     butler: Arc<Butler>,
+    /// Blob store for asset transfer (real or mock)
+    blob_store: crate::peer_actor::BlobStore,
     /// Registry of PeerActors by NodeId
     peer_actors: HashMap<NodeId, ActorRef<PeerMessage>>,
     /// Connection handles for sending responses
@@ -238,6 +260,8 @@ pub struct CoordinatorState {
     /// Permits for pending outbound connections
     /// Used by connect_and_wait_for_auth to pass permit to on_connected
     pending_permits: HashMap<NodeId, String>,
+    /// Pending shareable link requests awaiting response from node
+    pending_link_requests: HashMap<(NodeId, String), oneshot::Sender<Result<String, String>>>,
     /// Channel to emit events to app layer (protocol-agnostic)
     event_tx: Option<mpsc::Sender<CourierEvent>>,
     /// Channel to request connections (handled by CourierRunner)
@@ -265,6 +289,9 @@ impl Coordinator {
     }
 
     /// Process a TransportEvent and convert to CoordinatorMessage
+    ///
+    /// **Note**: Transport now only emits lifecycle events (Connected/Disconnected).
+    /// Message reading is done by PeerSession directly from the ConnectionHandle.
     pub fn from_transport_event(event: TransportEvent) -> Option<CoordinatorMessage> {
         match event {
             TransportEvent::Connected { node_id, conn } => {
@@ -273,20 +300,7 @@ impl Coordinator {
             TransportEvent::Disconnected { node_id } => {
                 Some(CoordinatorMessage::Disconnected { node_id })
             }
-            TransportEvent::Bytes { node_id, data } => {
-                Some(CoordinatorMessage::TransportBytes { node_id, data })
-            }
-            TransportEvent::Error { node_id, error } => {
-                if let Some(node_id) = node_id {
-                    Some(CoordinatorMessage::PeerFailed {
-                        node_id,
-                        reason: error,
-                    })
-                } else {
-                    warn!("Transport error without node_id: {}", error);
-                    None
-                }
-            }
+            // Note: Bytes and Error events removed - PeerSession handles reading now
         }
     }
 }
@@ -305,6 +319,7 @@ impl Actor for Coordinator {
         NodeId,
         CourierMode,
         Arc<Butler>,
+        crate::peer_actor::BlobStore,
         Option<mpsc::Sender<ConnectRequest>>,
         Option<mpsc::Sender<CourierEvent>>,
     );
@@ -314,7 +329,7 @@ impl Actor for Coordinator {
         _myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        let (our_node_id, mode, butler, connect_tx, event_tx) = args;
+        let (our_node_id, mode, butler, blob_store, connect_tx, event_tx) = args;
 
         info!("Coordinator started in {:?} mode (node_id={})", mode, our_node_id);
 
@@ -322,12 +337,14 @@ impl Actor for Coordinator {
             our_node_id,
             mode,
             butler,
+            blob_store,
             peer_actors: HashMap::new(),
             connections: HashMap::new(),
             authenticated_peers: HashMap::new(),
             pending_connections: HashSet::new(),
             auth_waiters: HashMap::new(),
             pending_permits: HashMap::new(),
+            pending_link_requests: HashMap::new(),
             event_tx,
             connect_tx,
         })
@@ -417,6 +434,26 @@ impl Actor for Coordinator {
                 }
             }
 
+            CoordinatorMessage::RelayDatagram { from_node_id, data } => {
+                // Node mode only: relay datagram to all other authenticated peers
+                if state.mode == CourierMode::Node {
+                    for (peer_node_id, _peer_info) in &state.authenticated_peers {
+                        if *peer_node_id != from_node_id {
+                            if let Some(conn) = state.connections.get(peer_node_id) {
+                                if let Err(e) = conn.send_datagram(&data) {
+                                    debug!(
+                                        from = %from_node_id,
+                                        to = %peer_node_id,
+                                        error = %e,
+                                        "Failed to relay datagram"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             CoordinatorMessage::PublishSpace { node_id, space_id } => {
                 self.on_publish_space(node_id, space_id, state).await;
             }
@@ -452,8 +489,8 @@ impl Actor for Coordinator {
                 info!("Page {} published to node {}", page_id, node_id);
             }
 
-            CoordinatorMessage::GetShareableLink { node_id, space_id } => {
-                self.on_get_shareable_link(node_id, space_id, state).await;
+            CoordinatorMessage::GetShareableLink { node_id, space_id, response } => {
+                self.on_get_shareable_link(node_id, space_id, response, state).await;
             }
 
             CoordinatorMessage::ShareableLinkReceived { node_id, space_id, permit } => {
@@ -461,6 +498,14 @@ impl Actor for Coordinator {
                     "Shareable link received for space {} from node {} (permit len: {})",
                     space_id, node_id, permit.len()
                 );
+
+                // Check for pending request and send response
+                if let Some(tx) = state.pending_link_requests.remove(&(node_id, space_id.clone())) {
+                    info!("Sending shareable link response to pending request");
+                    let _ = tx.send(Ok(permit.clone()));
+                }
+
+                // Also emit event for other listeners (UI)
                 Self::emit_event(state, CourierEvent::ShareableLinkReceived {
                     node_id: node_id.to_string(),
                     space_id,
@@ -529,6 +574,17 @@ impl Actor for Coordinator {
 
             CoordinatorMessage::EnsureSync { user_did } => {
                 self.on_ensure_sync(myself.clone(), user_did, state).await;
+            }
+
+            CoordinatorMessage::BroadcastDatagram { data } => {
+                // Send datagram to all authenticated peers
+                for (node_id, _peer_info) in &state.authenticated_peers {
+                    if let Some(conn) = state.connections.get(node_id) {
+                        if let Err(e) = conn.send_datagram(&data) {
+                            debug!(node_id = %node_id, error = %e, "Failed to send datagram to peer");
+                        }
+                    }
+                }
             }
 
             CoordinatorMessage::Shutdown => {
@@ -616,6 +672,50 @@ impl Coordinator {
         }
     }
 
+    /// Read loop for a connection - accepts incoming streams and forwards bytes to coordinator
+    ///
+    /// **Architecture**: Consumer spawns read loop (not transport) per the v2 design.
+    /// This is a temporary bridge until full PeerSession migration.
+    async fn read_loop(
+        node_id: NodeId,
+        conn: ConnectionHandle,
+        coordinator: ActorRef<CoordinatorMessage>,
+    ) {
+        loop {
+            // Accept incoming bidirectional stream
+            let (_, mut recv) = match conn.accept_bi().await {
+                Ok(streams) => streams,
+                Err(_) => {
+                    // Connection closed
+                    let _ = coordinator.cast(CoordinatorMessage::Disconnected { node_id });
+                    return;
+                }
+            };
+
+            // Read length-prefixed message
+            let mut len_buf = [0u8; 4];
+            if recv.read_exact(&mut len_buf).await.is_err() {
+                continue; // Stream closed, try accepting next one
+            }
+
+            let len = u32::from_be_bytes(len_buf) as usize;
+            if len > 10 * 1024 * 1024 {
+                error!("Message too large from {}: {} bytes", node_id, len);
+                continue;
+            }
+
+            let mut data = vec![0u8; len];
+            if recv.read_exact(&mut data).await.is_err() {
+                continue;
+            }
+
+            // Forward to coordinator
+            if coordinator.cast(CoordinatorMessage::TransportBytes { node_id, data }).is_err() {
+                return;
+            }
+        }
+    }
+
     /// Handle new connection
     async fn on_connected(
         &self,
@@ -629,6 +729,15 @@ impl Coordinator {
         // Store connection handle
         state.connections.insert(node_id, conn.clone());
 
+        // Spawn stream read loop for this connection
+        let coordinator = myself.clone();
+        let conn_for_read = conn.clone();
+        tokio::spawn(async move {
+            Self::read_loop(node_id, conn_for_read, coordinator).await;
+        });
+
+        // Note: Datagram read loop is now owned by PeerActor (spawned in PeerActor::pre_start)
+
         // Always spawn new PeerActor (anonymous to avoid name conflicts on reconnection)
         let peer_actor = PeerActor::new(node_id);
         let args = PeerActorArgs {
@@ -636,6 +745,7 @@ impl Coordinator {
             conn,
             coordinator: myself.clone(),
             butler: state.butler.clone(),
+            blob_store: state.blob_store.clone(),
         };
 
         match Actor::spawn_linked(
@@ -825,28 +935,43 @@ impl Coordinator {
     ///
     /// **Context**: Owner wants to share a space with a viewer
     /// **We do**: Send GetShareableLink to PeerActor, which forwards to node
+    /// **Response**: If response channel provided, store for later notification
     async fn on_get_shareable_link(
         &self,
         node_id: NodeId,
         space_id: String,
+        response: Option<oneshot::Sender<Result<String, String>>>,
         state: &mut CoordinatorState,
     ) {
         if state.mode != CourierMode::User {
             warn!("GetShareableLink called in Node mode - ignoring");
+            if let Some(tx) = response {
+                let _ = tx.send(Err("GetShareableLink not supported in Node mode".to_string()));
+            }
             return;
         }
 
         // Verify peer is authenticated
         if !state.authenticated_peers.contains_key(&node_id) {
             warn!("Cannot request shareable link from unauthenticated peer: {}", node_id);
+            if let Some(tx) = response {
+                let _ = tx.send(Err(format!("Peer {} not authenticated", node_id)));
+            }
             return;
         }
 
         if let Some(peer_actor) = state.peer_actors.get(&node_id) {
+            // Store response channel if provided
+            if let Some(tx) = response {
+                state.pending_link_requests.insert((node_id, space_id.clone()), tx);
+            }
             let _ = peer_actor.cast(PeerMessage::GetShareableLink { space_id: space_id.clone() });
             info!("Sent GetShareableLink command to PeerActor for {}", node_id);
         } else {
             warn!("No PeerActor for {} - cannot request shareable link", node_id);
+            if let Some(tx) = response {
+                let _ = tx.send(Err(format!("No PeerActor for {}", node_id)));
+            }
         }
     }
 

@@ -1,0 +1,34 @@
+[
+  {
+    "_comment": "Example: Complete signup flow with two instances",
+    "_description": "This demonstrates how Claude would automate UI testing"
+  },
+
+  {"_comment": "=== OWNER SIGNUP ==="},
+  {"target": "owner", "action": "ui_click", "params": {"label": "new-user-button"}, "id": 1},
+  {"target": "owner", "action": "ui_type", "params": {"label": "username-input", "text": "shop_owner"}, "id": 2},
+  {"target": "owner", "action": "ui_type", "params": {"label": "password-input", "text": "test1234"}, "id": 3},
+  {"target": "owner", "action": "ui_click", "params": {"label": "signup-submit-button"}, "id": 4},
+
+  {"_comment": "=== OWNER LOGIN ==="},
+  {"target": "owner", "action": "ui_type", "params": {"label": "passphrase-input", "text": "test1234"}, "id": 5},
+  {"target": "owner", "action": "ui_click", "params": {"label": "login-submit-button"}, "id": 6},
+
+  {"_comment": "=== CREATE SPACE ==="},
+  {"target": "owner", "action": "ui_click", "params": {"label": "create-space-button"}, "id": 7},
+  {"target": "owner", "action": "ui_type", "params": {"label": "space-name-input", "text": "Test Shop"}, "id": 8},
+  {"target": "owner", "action": "ui_click", "params": {"label": "create-space-submit"}, "id": 9},
+
+  {"_comment": "=== VERIFY STATE VIA LUA ==="},
+  {"target": "owner", "action": "eval", "params": {"code": "permit:role()"}, "id": 10},
+  {"target": "owner", "action": "eval", "params": {"code": "loro:get_list('products'):length()"}, "id": 11},
+
+  {"_comment": "=== CHECK LOGS ==="},
+  {"action": "logs", "params": {"last": 20}, "id": 12},
+
+  {"_comment": "=== CUSTOMER SIGNUP ==="},
+  {"target": "customer", "action": "ui_click", "params": {"label": "new-user-button"}, "id": 13},
+  {"target": "customer", "action": "ui_type", "params": {"label": "username-input", "text": "customer1"}, "id": 14},
+  {"target": "customer", "action": "ui_type", "params": {"label": "password-input", "text": "test5678"}, "id": 15},
+  {"target": "customer", "action": "ui_click", "params": {"label": "signup-submit-button"}, "id": 16}
+]

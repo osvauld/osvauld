@@ -19,58 +19,94 @@ export component NodeManagementScreen {
     callback connect-node(string);
     callback go-back();
 
+    // Responsive: 1 column on mobile, 3 on desktop
+    property<int> node-columns: Theme.is-mobile ? 1 : (Theme.is-tablet ? 2 : 3);
+    property<length> node-card-width: Theme.is-mobile ? (root.width - Theme.page-padding-h * 2 - 16px) : 200px;
+
     // Initialize
     init => {
         request-nodes();
     }
 
     VerticalLayout {
-        padding: 24px;
-        spacing: 24px;
+        padding-top: Theme.is-mobile ? 12px : 24px;
+        padding-left: Theme.page-padding-h;
+        padding-right: Theme.page-padding-h;
+        padding-bottom: 24px;
+        spacing: Theme.is-mobile ? 16px : 24px;
 
-        // Header
-        HorizontalLayout {
-            spacing: 16px;
-            alignment: space-between;
+        // Header - stacks vertically on mobile
+        VerticalLayout {
+            spacing: Theme.is-mobile ? 8px : 0px;
 
-            // Back button + title
             HorizontalLayout {
-                spacing: 12px;
+                spacing: Theme.is-mobile ? 8px : 16px;
+                alignment: space-between;
 
-                Rectangle {
-                    width: 36px;
-                    height: 36px;
-                    border-radius: 6px;
-                    background: back-area.has-hover ? Theme.side-list-highlight : transparent;
+                // Back button + title
+                HorizontalLayout {
+                    spacing: Theme.is-mobile ? 8px : 12px;
+
+                    Rectangle {
+                        width: Theme.touch-target-min;
+                        height: Theme.touch-target-min;
+                        border-radius: 6px;
+                        background: back-area.has-hover ? Theme.side-list-highlight : transparent;
+
+                        Text {
+                            text: "\u{2190}";
+                            color: Theme.quarzo-white;
+                            font-size: Theme.is-mobile ? 18px : 20px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        back-area := TouchArea {
+                            clicked => { go-back(); }
+                        }
+                    }
 
                     Text {
-                        text: "\u{2190}";
+                        text: Theme.is-mobile ? "Nodes" : "Sovereign Nodes";
                         color: Theme.quarzo-white;
-                        font-size: 20px;
+                        font-size: Theme.font-h2;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Desktop: Add Node button in header
+                if !Theme.is-mobile: Rectangle {
+                    width: 120px;
+                    height: 36px;
+                    border-radius: 6px;
+                    background: add-area.has-hover ? Theme.active-border : Theme.grape-green;
+
+                    Text {
+                        text: "+ Add Node";
+                        color: Theme.quarzo-white;
+                        font-size: 13px;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
 
-                    back-area := TouchArea {
-                        clicked => { go-back(); }
+                    add-area := TouchArea {
+                        accessible-role: button;
+                        accessible-label: "add-node-button";
+                        clicked => {
+                            show-add-modal = true;
+                            connection-string = "";
+                            error-message = "";
+                        }
                     }
-                }
-
-                Text {
-                    text: "Sovereign Nodes";
-                    color: Theme.quarzo-white;
-                    font-size: 24px;
-                    font-weight: 600;
-                    vertical-alignment: center;
                 }
             }
 
-            // Add Node button
-            Rectangle {
-                width: 120px;
-                height: 36px;
+            // Mobile: Add Node button as full-width row
+            if Theme.is-mobile: Rectangle {
+                height: Theme.touch-target-min;
                 border-radius: 6px;
-                background: add-area.has-hover ? Theme.active-border : Theme.grape-green;
+                background: add-area-m.has-hover ? Theme.active-border : Theme.grape-green;
 
                 Text {
                     text: "+ Add Node";
@@ -80,7 +116,9 @@ export component NodeManagementScreen {
                     vertical-alignment: center;
                 }
 
-                add-area := TouchArea {
+                add-area-m := TouchArea {
+                    accessible-role: button;
+                    accessible-label: "add-node-button";
                     clicked => {
                         show-add-modal = true;
                         connection-string = "";
@@ -91,32 +129,34 @@ export component NodeManagementScreen {
         }
 
         // Node list or empty state
-        if nodes.length > 0: VerticalLayout {
-            spacing: 16px;
-
-            // Grid of nodes (3 per row)
-            for row-idx in Math.ceil(nodes.length / 3): HorizontalLayout {
+        if nodes.length > 0: Flickable {
+            VerticalLayout {
                 spacing: 16px;
 
-                for col-idx in 3: Rectangle {
-                    width: 200px;
-                    height: 140px;
+                // Grid of nodes (dynamic columns)
+                for row-idx in Math.ceil(nodes.length / node-columns): HorizontalLayout {
+                    spacing: 16px;
 
-                    property <int> node-idx: row-idx * 3 + col-idx;
+                    for col-idx in node-columns: Rectangle {
+                        width: node-card-width;
+                        height: Theme.is-mobile ? 120px : 140px;
 
-                    if node-idx < nodes.length: NodeCard {
-                        node-id: nodes[node-idx].id;
-                        name: nodes[node-idx].name;
-                        is-connected: nodes[node-idx].is-connected;
-                        last-connected: nodes[node-idx].last-connected;
-                        connection-type: nodes[node-idx].connection-type;
+                        property <int> node-idx: row-idx * node-columns + col-idx;
 
-                        clicked => {
-                            if !nodes[node-idx].is-connected {
-                                connect-node(nodes[node-idx].id);
+                        if node-idx < nodes.length: NodeCard {
+                            node-id: nodes[node-idx].id;
+                            name: nodes[node-idx].name;
+                            is-connected: nodes[node-idx].is-connected;
+                            last-connected: nodes[node-idx].last-connected;
+                            connection-type: nodes[node-idx].connection-type;
+
+                            clicked => {
+                                if !nodes[node-idx].is-connected {
+                                    connect-node(nodes[node-idx].id);
+                                }
                             }
+                            delete-clicked => { delete-node(nodes[node-idx].id); }
                         }
-                        delete-clicked => { delete-node(nodes[node-idx].id); }
                     }
                 }
             }

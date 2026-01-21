@@ -112,6 +112,48 @@ pub enum Message {
         state_vector: Vec<u8>,
     },
 
+    // ==================== Asset Sync (iroh-blobs) ====================
+
+    /// Request peer to prepare an asset for transfer
+    ///
+    /// **Context**: After syncing `{page_id}/assets` layer via Loro, receiver
+    /// finds assets in metadata that are missing locally
+    /// **Flow**: AssetPrepare → (peer decrypts, adds to blob store) → AssetReady
+    AssetPrepare {
+        /// Page containing the asset
+        page_id: String,
+        /// Blake3 hash of the asset (from AssetMetadata)
+        hash: String,
+    },
+
+    /// Notification that asset blob is ready for download
+    ///
+    /// **Context**: Peer decrypted asset from local storage, added to iroh-blobs store
+    /// **Receiver**: Downloads via iroh-blobs using iroh_hash, verifies, encrypts, stores
+    AssetReady {
+        /// Page containing the asset
+        page_id: String,
+        /// Blake3 hash of the asset (matches AssetPrepare request)
+        hash: String,
+        /// iroh-blobs hash for download (32 bytes)
+        iroh_hash: [u8; 32],
+    },
+
+    /// Asset transfer acknowledgment
+    ///
+    /// **Context**: Receiver downloaded, verified, and stored the asset
+    /// **Sender**: Can cleanup temporary blob from iroh-blobs store
+    AssetAck {
+        /// Page containing the asset
+        page_id: String,
+        /// Blake3 hash of the asset
+        hash: String,
+        /// Whether transfer was successful
+        success: bool,
+        /// Error message if failed
+        error: Option<String>,
+    },
+
     // ==================== Publishing (Owner → Node) ====================
 
     /// Owner publishes a space to node (send first)
@@ -333,6 +375,9 @@ impl Message {
             Message::SyncOffer { .. } => "SyncOffer",
             Message::SyncAccept { .. } => "SyncAccept",
             Message::SyncAck { .. } => "SyncAck",
+            Message::AssetPrepare { .. } => "AssetPrepare",
+            Message::AssetReady { .. } => "AssetReady",
+            Message::AssetAck { .. } => "AssetAck",
             Message::PublishSpace { .. } => "PublishSpace",
             Message::PublishSpaceAck { .. } => "PublishSpaceAck",
             Message::PublishPage { .. } => "PublishPage",
@@ -460,9 +505,57 @@ impl ConnectionString {
     }
 }
 
+// ==================== Ephemeral Datagram (Simplified) ====================
+
+/// Ephemeral datagram - opaque payload routed by page_id
+///
+/// **Properties:**
+/// - Unreliable, unordered (QUIC datagram)
+/// - ~1200 byte limit (MTU)
+/// - Fire-and-forget
+///
+/// **Design**: Protocol layer is dumb - just routes opaque bytes by page_id.
+/// App layer (Lua) defines the meaning of payload (cursor, typing, presence, etc.)
+///
+/// **Note:** user_did is derived from connection (PeerActor knows peer identity),
+/// not included in payload to minimize size.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EphemeralDatagram {
+    /// Page ID this datagram is for (routing key)
+    pub page_id: String,
+    /// Opaque payload - app defines format (JSON, msgpack, etc.)
+    pub payload: Vec<u8>,
+}
+
+impl EphemeralDatagram {
+    /// Serialize to bytes for sending
+    pub fn to_bytes(&self) -> Result<Vec<u8>, bincode::Error> {
+        bincode::serialize(self)
+    }
+
+    /// Deserialize from received bytes
+    pub fn from_bytes(data: &[u8]) -> Result<Self, bincode::Error> {
+        bincode::deserialize(data)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_ephemeral_datagram_serialization() {
+        let datagram = EphemeralDatagram {
+            page_id: "page-123".to_string(),
+            payload: b"{\"type\":\"cursor\",\"x\":100.5,\"y\":200.5}".to_vec(),
+        };
+
+        let bytes = datagram.to_bytes().unwrap();
+        let deserialized = EphemeralDatagram::from_bytes(&bytes).unwrap();
+
+        assert_eq!(deserialized.page_id, "page-123");
+        assert_eq!(deserialized.payload, datagram.payload);
+    }
 
     #[test]
     fn test_message_serialization() {

@@ -13,7 +13,8 @@ slint::include_modules!();
 // Re-export modules for main.rs
 pub mod app_runner;
 pub mod callbacks;
+pub mod control_server;
 pub mod events;
 pub mod setup;
-pub mod templates;
+pub mod ui_automation;
 pub mod utils;

@@ -4,6 +4,7 @@
 //! and expose a simpler async API for the Tauri handlers.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use ractor::{Actor, ActorRef};
 use tokio::sync::{mpsc, oneshot};
@@ -137,19 +138,30 @@ impl CourierHandle {
     }
 
     /// Get shareable link for a space
-    pub async fn get_shareable_link(&self, space_id: &str, node_id: &str) -> Result<(), String> {
+    ///
+    /// **Context**: Request node to generate viewer permit with aud:* (wildcard audience)
+    /// **Returns**: Connection string containing node_id and viewer permit
+    pub async fn get_shareable_link(&self, space_id: &str, node_id: &str) -> Result<String, String> {
         let node_id: NodeId = node_id
             .parse()
             .map_err(|e| format!("Invalid node_id: {}", e))?;
+
+        let (tx, rx) = oneshot::channel();
 
         self.coordinator
             .cast(CoordinatorMessage::GetShareableLink {
                 node_id,
                 space_id: space_id.to_string(),
+                response: Some(tx),
             })
             .map_err(|e| format!("Failed to send GetShareableLink: {:?}", e))?;
 
-        Ok(())
+        // Wait for response with timeout
+        match tokio::time::timeout(Duration::from_secs(10), rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err("Response channel closed".to_string()),
+            Err(_) => Err("Timeout waiting for shareable link".to_string()),
+        }
     }
 
     /// Request space as viewer
@@ -232,6 +244,16 @@ impl CourierHandle {
             })
             .map_err(|e| format!("Failed to send EnsureSync: {:?}", e))
     }
+
+    /// Broadcast datagram to all authenticated peers
+    ///
+    /// **Context**: Send ephemeral data (cursor, typing) to all connected users
+    /// **Coordinator will**: Send datagram to each authenticated peer's connection
+    pub fn broadcast_datagram(&self, data: Vec<u8>) -> Result<(), String> {
+        self.coordinator
+            .cast(CoordinatorMessage::BroadcastDatagram { data })
+            .map_err(|e| format!("Failed to broadcast datagram: {:?}", e))
+    }
 }
 
 /// Handshake services - wraps Butler for handshake operations
@@ -309,16 +331,18 @@ impl CourierRunner {
     ) -> ActorRef<CoordinatorMessage> {
         let node_id = self.transport.node_id();
         let butler = self.butler.clone();
+        let transport = self.transport.clone();
         let mode = self.mode;
         let event_tx = self.event_tx.clone();
 
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 let coordinator = Coordinator::new();
+                let blob_store = crate::peer_actor::BlobStore::Real(transport);
                 let (actor_ref, _) = Actor::spawn(
                     Some("coordinator".to_string()),
                     coordinator,
-                    (node_id, mode, butler.clone(), Some(connect_tx), Some(event_tx)),
+                    (node_id, mode, butler.clone(), blob_store, Some(connect_tx), Some(event_tx)),
                 )
                 .await
                 .expect("Failed to spawn Coordinator");

@@ -1,0 +1,73 @@
+{
+    "owner_template": {
+        "operations": {
+            "own": "allow",
+            "get_share_link": "allow",
+            "add_pages": "allow",
+            "share_space": "allow"
+        },
+        "peer_capabilities": {
+            "relay": false,
+            "share": true,
+            "accept_publish": true
+        },
+        "issue_on": {
+            "node": {
+                "token_type": "space_share",
+                "peer_capabilities": {
+                    "relay": true,
+                    "share": true,
+                    "accept_publish": true
+                },
+                "operations": {
+                    "get_share_link": "allow",
+                    "add_pages": "allow",
+                    "share_space": "allow"
+                },
+                "auth_capabilities": {
+                    "can_connect": true,
+                    "persist_share": true,
+                    "can_delegate": true,
+                    "sync_enabled": true
+                },
+                "relationship": "node",
+                "issue_on": {
+                    "viewer": {
+                        "token_type": "space_viewer",
+                        "peer_capabilities": {
+                            "relay": false,
+                            "share": false,
+                            "accept_publish": false
+                        },
+                        "operations": {
+                            "request_pages": "allow",
+                            "get_share_link": "allow"
+                        },
+                        "auth_capabilities": {
+                            "can_connect": true,
+                            "sync_enabled": false
+                        },
+                        "relationship": "viewer"
+                    }
+                }
+            },
+            "viewer": {
+                "token_type": "space_viewer",
+                "peer_capabilities": {
+                    "relay": false,
+                    "share": false,
+                    "accept_publish": false
+                },
+                "operations": {
+                    "request_pages": "allow",
+                    "get_share_link": "allow"
+                },
+                "auth_capabilities": {
+                    "can_connect": true,
+                    "sync_enabled": false
+                },
+                "relationship": "viewer"
+            }
+        }
+    }
+}

@@ -5,10 +5,11 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
-use transport::NodeId;
+use transport::{MockBlobStore, NodeId};
 
 use butler::{Butler, LayerCache, RedbStore, SyncEvent};
 use courier::coordinator::{Coordinator, CoordinatorMessage, CourierMode};
+use courier::peer_actor::BlobStore;
 use courier::Message;
 use ractor::{Actor, ActorRef};
 
@@ -34,10 +35,12 @@ impl TestPeer {
     /// Create a new test peer with isolated storage
     ///
     /// Each peer gets its own RedbStore in a temporary directory.
+    /// The mock_blob_store is shared between all peers for simulating P2P blob transfers.
     pub async fn new(
         name: &str,
         mode: CourierMode,
         mock_transport: &Arc<MockTransport>,
+        mock_blob_store: Arc<MockBlobStore>,
     ) -> Result<Self> {
         // Create temp directory for this peer's storage
         let temp_dir = tempfile::tempdir()?;
@@ -46,10 +49,15 @@ impl TestPeer {
         // Create isolated storage
         let store = Arc::new(RedbStore::open(&db_path)?);
         let layer_cache = Arc::new(RwLock::new(LayerCache::new(store.clone(), 100)));
-        let butler = Arc::new(Butler::new(store, layer_cache));
+        let assets_path = temp_dir.path().join("assets");
+        let asset_store = Arc::new(butler::AssetStore::new(&assets_path).expect("Failed to create asset store"));
+        let butler = Arc::new(Butler::new(store, layer_cache, asset_store));
 
         // Generate deterministic NodeId from name
         let node_id = Self::node_id_from_name(name);
+
+        // Create BlobStore from mock blob store for asset transfer
+        let blob_store = BlobStore::Mock(mock_blob_store);
 
         // Spawn Coordinator actor with unique name (include node_id to avoid collisions)
         // Tests don't use connect_tx or event_tx - connections are handled by TestHarness
@@ -57,7 +65,7 @@ impl TestPeer {
         let (coordinator, _handle) = Actor::spawn(
             Some(format!("coordinator-{}-{}", name, node_id)),
             coordinator_actor,
-            (node_id, mode, butler.clone(), None, None),
+            (node_id, mode, butler.clone(), blob_store, None, None),
         )
         .await?;
 
@@ -95,6 +103,7 @@ impl TestPeer {
         mode: CourierMode,
         butler: Arc<Butler>,
         mock_transport: &Arc<MockTransport>,
+        mock_blob_store: Arc<MockBlobStore>,
     ) -> Result<Self> {
         // Try to derive node_id from butler's device key if identity is set
         // This ensures consistency with generate_connection_string()
@@ -110,6 +119,9 @@ impl TestPeer {
             }
         };
 
+        // Create BlobStore from mock blob store for asset transfer
+        let blob_store = BlobStore::Mock(mock_blob_store);
+
         // Create connect channel for test harness to intercept connection requests
         let (connect_tx, connect_rx) = tokio::sync::mpsc::channel::<courier::ConnectRequest>(16);
 
@@ -117,7 +129,7 @@ impl TestPeer {
         let (coordinator, _handle) = Actor::spawn(
             Some(format!("coordinator-{}-{}", name, node_id)),
             coordinator_actor,
-            (node_id, mode, butler.clone(), Some(connect_tx), None),
+            (node_id, mode, butler.clone(), blob_store, Some(connect_tx), None),
         )
         .await?;
 

@@ -1,0 +1,1048 @@
+// Service Provider App UI
+// Dashboard for managing schedule and bookings
+
+// Schedule entry structure
+export struct ScheduleEntry {
+    day: string,
+    enabled: bool,
+    start_time: string,
+    end_time: string,
+    slot_duration: int,
+}
+
+// Blocked time structure
+export struct BlockedTime {
+    id: string,
+    date: string,
+    start_time: string,
+    end_time: string,
+    reason: string,
+}
+
+// Booking structure (with full customer details for provider)
+export struct Booking {
+    id: string,
+    customer_did: string,
+    date: string,
+    start_time: string,
+    end_time: string,
+    service: string,
+    customer_name: string,
+    customer_phone: string,
+    notes: string,
+    status: string,
+    created_at: string,
+}
+
+// Theme colors
+global Theme {
+    out property<color> bg-primary: #0f172a;
+    out property<color> bg-secondary: #1e293b;
+    out property<color> bg-card: #334155;
+    out property<color> border: #475569;
+    out property<color> text-primary: #f1f5f9;
+    out property<color> text-secondary: #94a3b8;
+    out property<color> accent: #3b82f6;
+    out property<color> success: #22c55e;
+    out property<color> warning: #f59e0b;
+    out property<color> danger: #ef4444;
+}
+
+// Status badge colors
+global StatusColors {
+    pure function get-color(status: string) -> color {
+        if status == "pending" { return #f59e0b; }
+        if status == "confirmed" { return #3b82f6; }
+        if status == "completed" { return #22c55e; }
+        if status == "cancelled" { return #ef4444; }
+        return #64748b;
+    }
+}
+
+// App API
+export global AppAPI {
+    in-out property<[ScheduleEntry]> schedule: [];
+    in-out property<[BlockedTime]> blocked: [];
+    in-out property<[Booking]> bookings: [];
+
+    in-out property<bool> schedule_modal_visible: false;
+    in-out property<bool> block_modal_visible: false;
+    in-out property<int> current_tab: 0;
+
+    // Schedule edit form state
+    in-out property<string> edit_day: "";
+    in-out property<bool> edit_enabled: true;
+    in-out property<string> edit_start: "09:00";
+    in-out property<string> edit_end: "17:00";
+    in-out property<int> edit_slot_duration: 60;
+
+    // Block time form state
+    in-out property<string> block_date: "";
+    in-out property<bool> block_all_day: true;
+    in-out property<string> block_start: "";
+    in-out property<string> block_end: "";
+    in-out property<string> block_reason: "";
+
+    callback on_click(string);
+    callback on_field_changed(string, string);
+    callback on_modal_action(string, string);
+}
+
+export component App inherits Rectangle {
+    property<int> current-tab <=> AppAPI.current_tab;
+    property<bool> show-schedule-modal <=> AppAPI.schedule_modal_visible;
+    property<bool> show-block-modal <=> AppAPI.block_modal_visible;
+
+    background: Theme.bg-primary;
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 16px;
+
+        // Header
+        HorizontalLayout {
+            spacing: 16px;
+
+            Text {
+                text: "Service Provider";
+                font-size: 28px;
+                font-weight: 700;
+                color: Theme.text-primary;
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            Text {
+                text: AppAPI.bookings.length + " bookings";
+                font-size: 14px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+
+        // Tab buttons
+        HorizontalLayout {
+            spacing: 8px;
+
+            Rectangle {
+                width: 100px;
+                height: 40px;
+                background: current-tab == 0 ? Theme.accent : Theme.bg-secondary;
+                border-radius: 8px;
+
+                Text {
+                    text: "Schedule";
+                    color: Theme.text-primary;
+                    font-size: 14px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => { current-tab = 0; }
+                }
+            }
+
+            Rectangle {
+                width: 100px;
+                height: 40px;
+                background: current-tab == 1 ? Theme.accent : Theme.bg-secondary;
+                border-radius: 8px;
+
+                Text {
+                    text: "Blocked";
+                    color: Theme.text-primary;
+                    font-size: 14px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => { current-tab = 1; }
+                }
+            }
+
+            Rectangle {
+                width: 100px;
+                height: 40px;
+                background: current-tab == 2 ? Theme.accent : Theme.bg-secondary;
+                border-radius: 8px;
+
+                Text {
+                    text: "Bookings";
+                    color: Theme.text-primary;
+                    font-size: 14px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => { current-tab = 2; }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Theme.border;
+        }
+
+        // Schedule Tab
+        if current-tab == 0: VerticalLayout {
+            spacing: 12px;
+
+            Text {
+                text: "Weekly Availability";
+                font-size: 16px;
+                font-weight: 600;
+                color: Theme.text-primary;
+            }
+
+            Flickable {
+                vertical-stretch: 1;
+                viewport-height: AppAPI.schedule.length * 60px;
+
+                VerticalLayout {
+                    spacing: 8px;
+
+                    for entry in AppAPI.schedule: Rectangle {
+                        height: 52px;
+                        background: entry.enabled ? Theme.bg-secondary : Theme.bg-card;
+                        border-radius: 8px;
+                        opacity: entry.enabled ? 1.0 : 0.6;
+
+                        HorizontalLayout {
+                            padding: 12px;
+                            spacing: 16px;
+
+                            Text {
+                                text: entry.day;
+                                font-size: 14px;
+                                font-weight: 600;
+                                color: Theme.text-primary;
+                                width: 100px;
+                                vertical-alignment: center;
+                            }
+
+                            if entry.enabled: Text {
+                                text: entry.start_time + " - " + entry.end_time;
+                                font-size: 14px;
+                                color: Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+
+                            if entry.enabled: Text {
+                                text: entry.slot_duration + " min slots";
+                                font-size: 12px;
+                                color: Theme.accent;
+                                vertical-alignment: center;
+                            }
+
+                            if !entry.enabled: Text {
+                                text: "Closed";
+                                font-size: 14px;
+                                color: Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle { horizontal-stretch: 1; }
+
+                            Rectangle {
+                                width: 60px;
+                                height: 28px;
+                                background: Theme.accent;
+                                border-radius: 6px;
+
+                                Text {
+                                    text: "Edit";
+                                    font-size: 12px;
+                                    color: white;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    clicked => {
+                                        AppAPI.on_field_changed("schedule_day", entry.day);
+                                        AppAPI.on_modal_action("schedule", "open");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Blocked Tab
+        if current-tab == 1: VerticalLayout {
+            spacing: 12px;
+
+            HorizontalLayout {
+                Text {
+                    text: "Blocked Times";
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                    horizontal-stretch: 1;
+                }
+
+                Rectangle {
+                    width: 120px;
+                    height: 36px;
+                    background: Theme.accent;
+                    border-radius: 8px;
+
+                    Text {
+                        text: "+ Block Time";
+                        color: white;
+                        font-size: 13px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => { AppAPI.on_modal_action("block", "open"); }
+                    }
+                }
+            }
+
+            Flickable {
+                vertical-stretch: 1;
+                viewport-height: AppAPI.blocked.length * 60px;
+
+                VerticalLayout {
+                    spacing: 8px;
+
+                    for block in AppAPI.blocked: Rectangle {
+                        height: 52px;
+                        background: Theme.bg-secondary;
+                        border-radius: 8px;
+
+                        HorizontalLayout {
+                            padding: 12px;
+                            spacing: 16px;
+
+                            Text {
+                                text: block.date;
+                                font-size: 14px;
+                                font-weight: 600;
+                                color: Theme.text-primary;
+                                width: 100px;
+                                vertical-alignment: center;
+                            }
+
+                            if block.start_time != "": Text {
+                                text: block.start_time + " - " + block.end_time;
+                                font-size: 14px;
+                                color: Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+
+                            if block.start_time == "": Text {
+                                text: "All day";
+                                font-size: 14px;
+                                color: Theme.warning;
+                                vertical-alignment: center;
+                            }
+
+                            Text {
+                                text: block.reason;
+                                font-size: 12px;
+                                color: Theme.text-secondary;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+
+                            Rectangle {
+                                width: 60px;
+                                height: 28px;
+                                background: Theme.danger;
+                                border-radius: 6px;
+
+                                Text {
+                                    text: "Remove";
+                                    font-size: 11px;
+                                    color: white;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    clicked => { AppAPI.on_click("remove_blocked:" + block.id); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Bookings Tab
+        if current-tab == 2: Flickable {
+            vertical-stretch: 1;
+            viewport-height: AppAPI.bookings.length * 140px;
+
+            VerticalLayout {
+                spacing: 12px;
+
+                for booking in AppAPI.bookings: Rectangle {
+                    height: 130px;
+                    background: Theme.bg-secondary;
+                    border-radius: 8px;
+
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+
+                        HorizontalLayout {
+                            spacing: 12px;
+
+                            Text {
+                                text: booking.date + " " + booking.start_time;
+                                font-size: 14px;
+                                font-weight: 600;
+                                color: Theme.text-primary;
+                            }
+
+                            Rectangle {
+                                width: 80px;
+                                height: 24px;
+                                background: StatusColors.get-color(booking.status);
+                                border-radius: 12px;
+
+                                Text {
+                                    text: booking.status;
+                                    font-size: 11px;
+                                    font-weight: 600;
+                                    color: white;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 16px;
+
+                            VerticalLayout {
+                                spacing: 2px;
+                                horizontal-stretch: 1;
+
+                                Text {
+                                    text: booking.customer_name;
+                                    font-size: 14px;
+                                    color: Theme.text-primary;
+                                }
+
+                                Text {
+                                    text: booking.customer_phone;
+                                    font-size: 12px;
+                                    color: Theme.text-secondary;
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 2px;
+
+                                Text {
+                                    text: booking.service;
+                                    font-size: 13px;
+                                    color: Theme.accent;
+                                }
+
+                                Text {
+                                    text: booking.notes;
+                                    font-size: 12px;
+                                    color: Theme.text-secondary;
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 8px;
+
+                            if booking.status == "pending": Rectangle {
+                                width: 80px;
+                                height: 28px;
+                                background: Theme.success;
+                                border-radius: 6px;
+
+                                Text {
+                                    text: "Confirm";
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    color: white;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    clicked => {
+                                        AppAPI.on_click("confirm_booking:" + booking.customer_did + "|" + booking.id);
+                                    }
+                                }
+                            }
+
+                            if booking.status == "confirmed": Rectangle {
+                                width: 80px;
+                                height: 28px;
+                                background: Theme.success;
+                                border-radius: 6px;
+
+                                Text {
+                                    text: "Complete";
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    color: white;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    clicked => {
+                                        AppAPI.on_click("complete_booking:" + booking.customer_did + "|" + booking.id);
+                                    }
+                                }
+                            }
+
+                            if booking.status == "pending" || booking.status == "confirmed": Rectangle {
+                                width: 80px;
+                                height: 28px;
+                                background: Theme.danger;
+                                border-radius: 6px;
+
+                                Text {
+                                    text: "Cancel";
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    color: white;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    clicked => {
+                                        AppAPI.on_click("cancel_booking:" + booking.customer_did + "|" + booking.id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Schedule Modal with functional form
+    if show-schedule-modal: Rectangle {
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: 100%;
+        background: #00000080;
+
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => { AppAPI.on_modal_action("schedule", "cancel"); }
+        }
+
+        Rectangle {
+            x: (parent.width - 380px) / 2;
+            y: (parent.height - 360px) / 2;
+            width: 380px;
+            height: 360px;
+            background: Theme.bg-secondary;
+            border-radius: 12px;
+
+            TouchArea { width: 100%; height: 100%; }
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 14px;
+
+                // Header
+                Text {
+                    text: "Edit Schedule - " + AppAPI.edit_day;
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                }
+
+                // Status toggle
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: start;
+
+                    Text {
+                        text: "Status:";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        width: 80px;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle {
+                        width: 100px;
+                        height: 32px;
+                        background: AppAPI.edit_enabled ? Theme.success : Theme.bg-card;
+                        border-radius: 6px;
+
+                        Text {
+                            text: AppAPI.edit_enabled ? "Enabled" : "Closed";
+                            font-size: 13px;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => {
+                                AppAPI.edit_enabled = !AppAPI.edit_enabled;
+                                AppAPI.on_field_changed("edit_enabled", AppAPI.edit_enabled ? "true" : "false");
+                            }
+                        }
+                    }
+                }
+
+                // Start time
+                HorizontalLayout {
+                    spacing: 12px;
+
+                    Text {
+                        text: "Start Time:";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        width: 80px;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle {
+                        width: 120px;
+                        height: 32px;
+                        background: Theme.bg-card;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        start-input := TextInput {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            height: parent.height;
+                            text: AppAPI.edit_start;
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                            edited => {
+                                AppAPI.edit_start = self.text;
+                                AppAPI.on_field_changed("edit_start", self.text);
+                            }
+                        }
+                    }
+                }
+
+                // End time
+                HorizontalLayout {
+                    spacing: 12px;
+
+                    Text {
+                        text: "End Time:";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        width: 80px;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle {
+                        width: 120px;
+                        height: 32px;
+                        background: Theme.bg-card;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        end-input := TextInput {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            height: parent.height;
+                            text: AppAPI.edit_end;
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                            edited => {
+                                AppAPI.edit_end = self.text;
+                                AppAPI.on_field_changed("edit_end", self.text);
+                            }
+                        }
+                    }
+                }
+
+                // Slot duration
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Slot Duration:";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        for duration in [15, 30, 45, 60]: Rectangle {
+                            width: 60px;
+                            height: 32px;
+                            background: AppAPI.edit_slot_duration == duration ? Theme.accent : Theme.bg-card;
+                            border-radius: 6px;
+
+                            Text {
+                                text: duration + "m";
+                                font-size: 13px;
+                                color: Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => {
+                                    AppAPI.edit_slot_duration = duration;
+                                    AppAPI.on_field_changed("edit_slot_duration", duration);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { vertical-stretch: 1; }
+
+                // Buttons
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: end;
+
+                    Rectangle {
+                        width: 80px;
+                        height: 36px;
+                        background: Theme.bg-card;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "Cancel";
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => { AppAPI.on_modal_action("schedule", "cancel"); }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 80px;
+                        height: 36px;
+                        background: Theme.accent;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "Save";
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: white;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => { AppAPI.on_modal_action("schedule", "submit"); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Block Modal with functional form
+    if show-block-modal: Rectangle {
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: 100%;
+        background: #00000080;
+
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => { AppAPI.on_modal_action("block", "cancel"); }
+        }
+
+        Rectangle {
+            x: (parent.width - 380px) / 2;
+            y: (parent.height - 380px) / 2;
+            width: 380px;
+            height: 380px;
+            background: Theme.bg-secondary;
+            border-radius: 12px;
+
+            TouchArea { width: 100%; height: 100%; }
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 14px;
+
+                // Header
+                Text {
+                    text: "Block Time";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                }
+
+                // Date input
+                HorizontalLayout {
+                    spacing: 12px;
+
+                    Text {
+                        text: "Date:";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        width: 80px;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle {
+                        width: 150px;
+                        height: 32px;
+                        background: Theme.bg-card;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        date-input := TextInput {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            height: parent.height;
+                            text: AppAPI.block_date;
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                            input-type: text;
+                            edited => {
+                                AppAPI.block_date = self.text;
+                                AppAPI.on_field_changed("block_date", self.text);
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "(YYYY-MM-DD)";
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // All day toggle
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: start;
+
+                    Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        background: AppAPI.block_all_day ? Theme.accent : Theme.bg-card;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        Text {
+                            text: AppAPI.block_all_day ? "✓" : "";
+                            font-size: 14px;
+                            color: white;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => {
+                                AppAPI.block_all_day = !AppAPI.block_all_day;
+                                AppAPI.on_field_changed("block_all_day", AppAPI.block_all_day ? "true" : "false");
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "All Day";
+                        font-size: 14px;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Start time (hidden if all day)
+                if !AppAPI.block_all_day: HorizontalLayout {
+                    spacing: 12px;
+
+                    Text {
+                        text: "Start Time:";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        width: 80px;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle {
+                        width: 120px;
+                        height: 32px;
+                        background: Theme.bg-card;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        block-start-input := TextInput {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            height: parent.height;
+                            text: AppAPI.block_start;
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                            edited => {
+                                AppAPI.block_start = self.text;
+                                AppAPI.on_field_changed("block_start", self.text);
+                            }
+                        }
+                    }
+                }
+
+                // End time (hidden if all day)
+                if !AppAPI.block_all_day: HorizontalLayout {
+                    spacing: 12px;
+
+                    Text {
+                        text: "End Time:";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        width: 80px;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle {
+                        width: 120px;
+                        height: 32px;
+                        background: Theme.bg-card;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        block-end-input := TextInput {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            height: parent.height;
+                            text: AppAPI.block_end;
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                            edited => {
+                                AppAPI.block_end = self.text;
+                                AppAPI.on_field_changed("block_end", self.text);
+                            }
+                        }
+                    }
+                }
+
+                // Reason input
+                HorizontalLayout {
+                    spacing: 12px;
+
+                    Text {
+                        text: "Reason:";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        width: 80px;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 32px;
+                        background: Theme.bg-card;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        reason-input := TextInput {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            height: parent.height;
+                            text: AppAPI.block_reason;
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                            edited => {
+                                AppAPI.block_reason = self.text;
+                                AppAPI.on_field_changed("block_reason", self.text);
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { vertical-stretch: 1; }
+
+                // Buttons
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: end;
+
+                    Rectangle {
+                        width: 80px;
+                        height: 36px;
+                        background: Theme.bg-card;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "Cancel";
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => { AppAPI.on_modal_action("block", "cancel"); }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 100px;
+                        height: 36px;
+                        background: Theme.accent;
+                        border-radius: 6px;
+
+                        Text {
+                            text: "Add Block";
+                            font-size: 14px;
+                            font-weight: 600;
+                            color: white;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => { AppAPI.on_modal_action("block", "submit"); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -31,6 +31,7 @@ chrono = "0.4"
 
 # Utilities
 uuid = { version = "1.11", features = ["v4"] }
+hex = "0.4"
 
 # Error handling
 thiserror = "2.0"

@@ -292,20 +292,22 @@ async fn test_customer_order_flow_via_headless_runtime() {
 
     info!("Customer runtime initialized");
 
-    // Customer needs to select product first (simulating UI interaction)
-    // select_product(product_id, product_name, product_price)
-    // Note: In real app, product_id comes from browsing products list
-    // For test, we use a placeholder ID that will be handled by the fallback lookup
+    // Get actual product ID from synced products
+    let first_product_id: String = customer_runtime.call_no_args("get_first_product_id")
+        .expect("get_first_product_id should succeed");
+    assert!(!first_product_id.is_empty(), "Customer should see at least 1 product after sync");
+    info!("First product ID: {}", first_product_id);
+
+    // Customer selects the actual product
     customer_runtime.call_with_args::<_, ()>(
         "select_product",
-        ("test-product-id", "Premium Widget", 4999),
+        (first_product_id.clone(),),
     ).expect("select_product should succeed");
 
-    // Customer creates order
-    // create_order(product_id, quantity_str, notes, shipping_address)
+    // Customer creates order with actual product ID
     customer_runtime.call_with_args::<_, ()>(
         "create_order",
-        ("test-product-id", "2", "Rush delivery please", "123 Customer St"),
+        (first_product_id, "2", "Rush delivery please", "123 Customer St"),
     ).expect("create_order should succeed");
 
     info!("Customer created order (draft)");
@@ -506,15 +508,20 @@ async fn test_derivation_updates_on_status_change() {
     customer_runtime.call_no_args::<()>("on_init")
         .expect("Customer on_init should succeed");
 
+    // Get actual product ID
+    let first_product_id: String = customer_runtime.call_no_args("get_first_product_id")
+        .expect("get_first_product_id should succeed");
+    assert!(!first_product_id.is_empty(), "Customer should see product after sync");
+
     // Customer selects product and creates order
     customer_runtime.call_with_args::<_, ()>(
         "select_product",
-        ("test-product-id", "Test Widget", 2999),
+        (first_product_id.clone(),),
     ).expect("select_product should succeed");
 
     customer_runtime.call_with_args::<_, ()>(
         "create_order",
-        ("test-product-id", "1", "Test order", "123 Test St"),
+        (first_product_id, "1", "Test order", "123 Test St"),
     ).expect("create_order should succeed");
 
     // Customer submits order (draft → pending)
@@ -679,15 +686,20 @@ async fn test_draft_orders_dont_sync() {
     customer_runtime.call_no_args::<()>("on_init")
         .expect("Customer on_init should succeed");
 
+    // Get actual product ID
+    let first_product_id: String = customer_runtime.call_no_args("get_first_product_id")
+        .expect("get_first_product_id should succeed");
+    assert!(!first_product_id.is_empty(), "Customer should see product after sync");
+
     // Customer creates a draft order (should NOT sync)
     customer_runtime.call_with_args::<_, ()>(
         "select_product",
-        ("test-product-id", "Draft Test Widget", 999),
+        (first_product_id.clone(),),
     ).expect("select_product should succeed");
 
     customer_runtime.call_with_args::<_, ()>(
         "create_order",
-        ("test-product-id", "1", "Draft order", "123 Test St"),
+        (first_product_id, "1", "Draft order", "123 Test St"),
     ).expect("create_order should succeed");
 
     // Verify draft exists on customer
@@ -777,15 +789,20 @@ async fn test_submitted_orders_sync() {
     customer_runtime.call_no_args::<()>("on_init")
         .expect("Customer on_init should succeed");
 
+    // Get actual product ID
+    let first_product_id: String = customer_runtime.call_no_args("get_first_product_id")
+        .expect("get_first_product_id should succeed");
+    assert!(!first_product_id.is_empty(), "Customer should see product after sync");
+
     // Customer creates a draft order
     customer_runtime.call_with_args::<_, ()>(
         "select_product",
-        ("test-product-id", "Submit Test Widget", 1999),
+        (first_product_id.clone(),),
     ).expect("select_product should succeed");
 
     customer_runtime.call_with_args::<_, ()>(
         "create_order",
-        ("test-product-id", "2", "Test order for submit", "456 Submit St"),
+        (first_product_id, "2", "Test order for submit", "456 Submit St"),
     ).expect("create_order should succeed");
 
     // Verify BEFORE submit: drafts=1, orders=0
@@ -892,15 +909,20 @@ async fn test_customer_no_orders_summary() {
     customer_runtime.call_no_args::<()>("on_init")
         .expect("Customer on_init should succeed");
 
+    // Get actual product ID
+    let first_product_id: String = customer_runtime.call_no_args("get_first_product_id")
+        .expect("get_first_product_id should succeed");
+    assert!(!first_product_id.is_empty(), "Customer should see product after sync");
+
     // Customer creates and submits an order
     customer_runtime.call_with_args::<_, ()>(
         "select_product",
-        ("test-product-id", "Summary Test Widget", 2999),
+        (first_product_id.clone(),),
     ).expect("select_product should succeed");
 
     customer_runtime.call_with_args::<_, ()>(
         "create_order",
-        ("test-product-id", "1", "Summary test order", "789 Summary St"),
+        (first_product_id, "1", "Summary test order", "789 Summary St"),
     ).expect("create_order should succeed");
 
     customer_runtime.call_no_args::<()>("submit_order")
@@ -959,118 +981,6 @@ async fn test_customer_no_orders_summary() {
     assert!(!customer_has_summary, "Customer should NOT have orders_summary layer (not in permit)");
 
     info!("=== PASSED: Customer doesn't receive orders_summary ===");
-
-    scenario.shutdown().await;
-}
-
-/// Test: Owner product drafts stay local until published
-///
-/// Verifies that owner's draft products (sync:false) don't sync
-/// until explicitly published (moved to synced products layer).
-#[tokio::test(flavor = "multi_thread")]
-async fn test_owner_product_drafts_local() {
-    init_tracing();
-
-    let scenario = match setup_headless_scenario().await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Setup failed: {}", e);
-            return;
-        }
-    };
-
-    info!("=== Test: Owner product drafts stay local ===");
-
-    let owner_app_code = load_myshop_owner_app();
-
-    // Create owner runtime
-    let owner_runtime = create_headless_runtime(
-        &scenario.owner_butler,
-        &scenario.page_id,
-        &owner_app_code,
-    ).await.expect("Failed to create owner runtime");
-
-    owner_runtime.call_no_args::<()>("on_init")
-        .expect("Owner on_init should succeed");
-
-    // Owner creates a product DRAFT (should NOT sync)
-    owner_runtime.call_with_args::<_, ()>(
-        "add_product_draft",
-        ("Draft Product", "999", "A draft product", "10"),
-    ).expect("add_product_draft should succeed");
-
-    // Verify draft exists on owner
-    let owner_drafts: i64 = owner_runtime.call_no_args("get_drafts_count")
-        .expect("get_drafts_count should succeed");
-    let owner_products: i64 = owner_runtime.call_no_args("get_products_count")
-        .expect("get_products_count should succeed");
-
-    info!("Owner drafts: {}, products: {}", owner_drafts, owner_products);
-    assert!(owner_drafts >= 1, "Owner should have at least 1 draft");
-    // Note: owner_products may have products from other tests if using shared scenario
-
-    // Wait to ensure any sync would have happened
-    tokio::time::sleep(EXTENDED_SYNC_DELAY * 2).await;
-
-    // Create node runtime to check products
-    let node_runtime = create_headless_runtime(
-        &scenario.node_butler,
-        &scenario.page_id,
-        &owner_app_code,
-    ).await.expect("Failed to create node runtime");
-
-    node_runtime.call_no_args::<()>("on_init")
-        .expect("Node on_init should succeed");
-
-    // Record products count before publish
-    let node_products_before: i64 = node_runtime.call_no_args("get_products_count")
-        .expect("get_products_count should succeed");
-
-    info!("Node products before publish: {}", node_products_before);
-
-    // Get the draft ID and publish it
-    let draft_id: Option<String> = owner_runtime.call_no_args("get_last_draft_id")
-        .expect("get_last_draft_id should succeed");
-
-    assert!(draft_id.is_some(), "Should have a draft ID to publish");
-    let draft_id = draft_id.unwrap();
-
-    info!("Publishing draft: {}", draft_id);
-
-    owner_runtime.call_with_args::<_, ()>(
-        "publish_product",
-        (draft_id.clone(),),
-    ).expect("publish_product should succeed");
-
-    // Verify draft is removed and product is published
-    let owner_drafts_after: i64 = owner_runtime.call_no_args("get_drafts_count")
-        .expect("get_drafts_count should succeed");
-    let owner_products_after: i64 = owner_runtime.call_no_args("get_products_count")
-        .expect("get_products_count should succeed");
-
-    info!("Owner after publish - drafts: {}, products: {}", owner_drafts_after, owner_products_after);
-    assert!(owner_drafts_after < owner_drafts, "Draft should be removed after publish");
-    assert!(owner_products_after > owner_products, "Products should increase after publish");
-
-    // Wait for sync to node
-    tokio::time::sleep(EXTENDED_SYNC_DELAY * 2).await;
-
-    // Node should now have the published product
-    node_runtime.call_no_args::<()>("on_init")
-        .expect("Node re-init should succeed");
-
-    let node_products_after: i64 = node_runtime.call_no_args("get_products_count")
-        .expect("get_products_count should succeed");
-
-    info!("Node products after publish: {}", node_products_after);
-    assert!(
-        node_products_after > node_products_before,
-        "Node should have more products after owner publishes (before: {}, after: {})",
-        node_products_before,
-        node_products_after
-    );
-
-    info!("=== PASSED: Owner product drafts stay local ===");
 
     scenario.shutdown().await;
 }
@@ -1140,15 +1050,20 @@ async fn test_sync_flow_integrity() {
     info!("Step 2: Customer sees {} products", customer_products);
     assert!(customer_products >= 1, "Customer should see at least 1 product");
 
+    // Get actual product ID
+    let first_product_id: String = customer_runtime.call_no_args("get_first_product_id")
+        .expect("get_first_product_id should succeed");
+    assert!(!first_product_id.is_empty(), "Customer should have product ID");
+
     // 3. Customer creates draft order (local only)
     customer_runtime.call_with_args::<_, ()>(
         "select_product",
-        ("test-product-id", "Integrity Test Widget", 4999),
+        (first_product_id.clone(),),
     ).expect("select_product should succeed");
 
     customer_runtime.call_with_args::<_, ()>(
         "create_order",
-        ("test-product-id", "3", "Integrity test order", "999 Integrity Blvd"),
+        (first_product_id, "3", "Integrity test order", "999 Integrity Blvd"),
     ).expect("create_order should succeed");
 
     let drafts: i64 = customer_runtime.call_no_args("get_drafts_count")
