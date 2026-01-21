@@ -6,13 +6,14 @@ use ractor::ActorRef;
 use tokio::sync::{RwLock, mpsc};
 use transport::NodeId;
 use tracing_subscriber::EnvFilter;
+use tracing::info;
 
 use butler::{Butler, RedbStore, LayerCache, signup, ScribeMessage, BroadcastPayload};
 use courier::coordinator::{CoordinatorMessage, CourierMode};
 
 use crate::TestHarness;
 use crate::fixtures::{
-    ACTOR_SPAWN_DELAY, HANDSHAKE_DELAY, EXTENDED_SYNC_DELAY,
+    ACTOR_SPAWN_DELAY, EXTENDED_SYNC_DELAY, HANDSHAKE_DELAY,
     TEST_SPACE_TEMPLATE, TEST_PAGE_TEMPLATE, TEST_PAGE_LAYERS,
 };
 
@@ -49,7 +50,9 @@ pub async fn setup_butler_with_identity(
     let db_path = temp_dir.path().join(format!("{}.redb", name));
     let store = Arc::new(RedbStore::open(&db_path)?);
     let layer_cache = Arc::new(RwLock::new(LayerCache::new(store.clone(), 100)));
-    let butler = Arc::new(Butler::new(store.clone(), layer_cache));
+    let assets_path = temp_dir.path().join("assets");
+    let asset_store = Arc::new(butler::AssetStore::new(&assets_path).expect("Failed to create asset store"));
+    let butler = Arc::new(Butler::new(store.clone(), layer_cache, asset_store));
     let signup_result = signup(&store, name, passphrase)?;
     butler.set_identity(signup_result.identity.clone()).await;
     let signing_key = butler.signing_key().await?;
@@ -104,7 +107,9 @@ pub async fn setup_butler_persistent(
 
     let store = Arc::new(RedbStore::open(&db_path)?);
     let layer_cache = Arc::new(RwLock::new(LayerCache::new(store.clone(), 100)));
-    let butler = Arc::new(Butler::new(store.clone(), layer_cache));
+    let assets_path = db_dir_path.join("assets");
+    let asset_store = Arc::new(butler::AssetStore::new(&assets_path).expect("Failed to create asset store"));
+    let butler = Arc::new(Butler::new(store.clone(), layer_cache, asset_store));
     let signup_result = signup(&store, name, passphrase)?;
     butler.set_identity(signup_result.identity.clone()).await;
     let signing_key = butler.signing_key().await?;
@@ -499,8 +504,17 @@ pub async fn setup_with_viewer(
     harness.connect_and_notify("viewer", "node").await?;
     tokio::time::sleep(ACTOR_SPAWN_DELAY).await;
 
-    // Viewer requests space (production flow: RequestSpace includes handshake)
+    // Step 1: Viewer authenticates with node using InitiateHandshake
     let viewer_coordinator = harness.peer("viewer").unwrap().coordinator.clone();
+    viewer_coordinator.cast(CoordinatorMessage::InitiateHandshake {
+        node_id: node_node_id,
+        permit: viewer_permit.clone(),
+    })?;
+
+    // Wait for viewer-node handshake to complete
+    tokio::time::sleep(HANDSHAKE_DELAY).await;
+
+    // Step 2: Viewer requests space (now authenticated)
     viewer_coordinator.cast(CoordinatorMessage::RequestSpace {
         node_id: node_node_id,
         space_id: space.id.clone(),
@@ -526,4 +540,364 @@ pub async fn setup_with_viewer(
         _owner_temp: owner_temp,
         _node_temp: node_temp,
     })
+}
+
+// =============================================================================
+// Asset Testing Helpers
+// =============================================================================
+
+/// Result of uploading a test asset
+pub struct UploadedAsset {
+    /// Blake3 hash of the asset (also used as ID)
+    pub hash: String,
+    /// Original filename
+    pub filename: String,
+    /// MIME type
+    pub mime_type: String,
+    /// Size in bytes
+    pub size: usize,
+}
+
+/// Upload a test asset to a peer's Butler
+///
+/// **Context**: Testing asset upload without UI file picker
+/// **Flow**:
+///   1. Generate test data (or use provided bytes)
+///   2. Call Butler::upload_asset_async()
+///   3. Return hash and metadata
+///
+/// # Arguments
+/// * `butler` - The Butler to upload to
+/// * `page_id` - Page to associate asset with
+/// * `filename` - Filename for the asset
+/// * `data` - Raw bytes to upload
+///
+/// # Returns
+/// UploadedAsset with hash and metadata
+pub async fn upload_test_asset(
+    butler: &Arc<Butler>,
+    page_id: &str,
+    filename: &str,
+    data: &[u8],
+) -> anyhow::Result<UploadedAsset> {
+    let mime_type = mime_guess::from_path(filename)
+        .first_or_octet_stream()
+        .to_string();
+
+    let hash = butler.upload_asset_async(page_id, data, filename, &mime_type)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to upload asset: {}", e))?;
+
+    info!(
+        hash = %hash,
+        filename = %filename,
+        size = data.len(),
+        "Test asset uploaded"
+    );
+
+    Ok(UploadedAsset {
+        hash,
+        filename: filename.to_string(),
+        mime_type,
+        size: data.len(),
+    })
+}
+
+/// Generate test image data (simple PNG-like header + random data)
+///
+/// Creates deterministic test data based on a seed for reproducible tests.
+pub fn generate_test_image(seed: u64, size: usize) -> Vec<u8> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut data = Vec::with_capacity(size);
+
+    // Simple PNG-like header (not valid PNG, just for MIME detection)
+    data.extend_from_slice(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
+
+    // Fill rest with deterministic pseudo-random data
+    let mut hasher = DefaultHasher::new();
+    for i in 0..(size - 8) {
+        seed.hash(&mut hasher);
+        (i as u64).hash(&mut hasher);
+        data.push((hasher.finish() & 0xFF) as u8);
+    }
+
+    data
+}
+
+/// Simulate asset transfer between peers (bypasses iroh-blobs)
+///
+/// **Context**: Integration tests use MockTransport which doesn't support blob transfer.
+/// This helper simulates the real transfer flow: decrypt → transfer → re-encrypt.
+///
+/// **Important**: Owner and node have DIFFERENT page AES keys (node generates new key
+/// when storing published page). So we must:
+///   1. Decrypt with source's page key
+///   2. Re-encrypt with destination's page key
+///
+/// # Arguments
+/// * `source_butler` - Butler that has the asset
+/// * `dest_butler` - Butler to receive the asset
+/// * `page_id` - Page containing the asset (needed for key lookup)
+/// * `hash` - Blake3 hash of the asset
+pub async fn simulate_asset_transfer(
+    source_butler: &Arc<Butler>,
+    dest_butler: &Arc<Butler>,
+    page_id: &str,
+    hash: &str,
+) -> anyhow::Result<()> {
+    // 1. Get source's page key and decrypt
+    let (_, source_page_key) = source_butler.get_decrypted_page(page_id).await
+        .map_err(|e| anyhow::anyhow!("Failed to get source page key: {}", e))?;
+
+    let plaintext = butler::services::asset_service::get_for_transfer(
+        source_butler.asset_store(),
+        &source_page_key,
+        hash,
+    ).map_err(|e| anyhow::anyhow!("Failed to decrypt asset from source: {}", e))?;
+
+    // 2. Get destination's page key
+    let (_, dest_page_key) = dest_butler.get_decrypted_page(page_id).await
+        .map_err(|e| anyhow::anyhow!("Failed to get destination page key: {}", e))?;
+
+    // 3. Get metadata from source's Loro layer for signature verification
+    let assets_layer_name = format!("{}/assets", page_id);
+    let scribe = source_butler.open_page(page_id).await
+        .map_err(|e| anyhow::anyhow!("Failed to open page: {}", e))?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    scribe.cast(ScribeMessage::GetSnapshot {
+        layer_name: assets_layer_name,
+        reply: tx,
+    }).map_err(|e| anyhow::anyhow!("Failed to request snapshot: {}", e))?;
+
+    let layer_bytes = rx.await
+        .map_err(|_| anyhow::anyhow!("Scribe dropped reply"))?
+        .ok_or_else(|| anyhow::anyhow!("Assets layer not found"))?;
+
+    let layer = butler::models::Layer::from_snapshot(&layer_bytes)
+        .map_err(|e| anyhow::anyhow!("Failed to parse layer: {}", e))?;
+
+    let assets = butler::services::asset_service::get_assets_from_layer(&layer);
+    let metadata = assets.get(hash)
+        .ok_or_else(|| anyhow::anyhow!("Asset metadata not found in layer"))?;
+
+    // 4. Store on destination (re-encrypts with destination's key)
+    butler::services::asset_service::store_received(
+        dest_butler.asset_store(),
+        &dest_page_key,
+        metadata,
+        &plaintext,
+    ).map_err(|e| anyhow::anyhow!("Failed to store asset on destination: {}", e))?;
+
+    info!(hash = %hash, size = plaintext.len(), "Asset transfer simulated (decrypt→re-encrypt)");
+
+    Ok(())
+}
+
+/// Wait for asset metadata to sync via Loro layer
+///
+/// **Context**: After upload, asset metadata syncs to peers via Loro CRDT.
+/// This helper waits until the metadata appears in the destination's assets layer.
+///
+/// # Arguments
+/// * `butler` - Butler to check for synced metadata
+/// * `page_id` - Page containing the asset
+/// * `hash` - Blake3 hash of the asset to wait for
+/// * `timeout` - Maximum time to wait
+pub async fn wait_for_asset_metadata_sync(
+    butler: &Arc<Butler>,
+    page_id: &str,
+    hash: &str,
+    timeout: std::time::Duration,
+) -> anyhow::Result<()> {
+    use std::time::Instant;
+
+    let assets_layer_name = format!("{}/assets", page_id);
+    let start = Instant::now();
+
+    while start.elapsed() < timeout {
+        // Open page to get Scribe
+        let scribe = butler.open_page(page_id).await
+            .map_err(|e| anyhow::anyhow!("Failed to open page: {}", e))?;
+
+        // Get layer snapshot
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe.cast(ScribeMessage::GetSnapshot {
+            layer_name: assets_layer_name.clone(),
+            reply: tx,
+        }).map_err(|e| anyhow::anyhow!("Failed to request snapshot: {}", e))?;
+
+        if let Ok(Some(data)) = rx.await {
+            // Parse layer and check for asset
+            if let Ok(layer) = butler::models::Layer::from_snapshot(&data) {
+                let assets = butler::services::asset_service::get_assets_from_layer(&layer);
+                if assets.contains_key(hash) {
+                    info!(hash = %hash, "Asset metadata synced");
+                    return Ok(());
+                }
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    anyhow::bail!("Asset metadata {} not synced within timeout", hash)
+}
+
+/// Full asset sync test helper
+///
+/// **Context**: End-to-end test for asset sync between peers
+/// **Flow**:
+///   1. Upload asset to source peer
+///   2. Wait for metadata to sync to destination
+///   3. Simulate blob transfer (copy encrypted bytes)
+///   4. Verify asset is readable on destination
+///
+/// # Arguments
+/// * `source_butler` - Butler to upload asset to
+/// * `dest_butler` - Butler to receive asset
+/// * `page_id` - Page to associate asset with
+/// * `filename` - Filename for the asset
+/// * `data` - Raw bytes to upload
+///
+/// # Returns
+/// UploadedAsset with hash and metadata
+pub async fn test_asset_sync(
+    source_butler: &Arc<Butler>,
+    dest_butler: &Arc<Butler>,
+    page_id: &str,
+    filename: &str,
+    data: &[u8],
+) -> anyhow::Result<UploadedAsset> {
+    // 1. Upload to source
+    let uploaded = upload_test_asset(source_butler, page_id, filename, data).await?;
+
+    // 2. Wait for metadata sync (with reasonable timeout)
+    wait_for_asset_metadata_sync(
+        dest_butler,
+        page_id,
+        &uploaded.hash,
+        std::time::Duration::from_secs(5),
+    ).await?;
+
+    // 3. Simulate blob transfer (decrypt with source key → re-encrypt with dest key)
+    simulate_asset_transfer(source_butler, dest_butler, page_id, &uploaded.hash).await?;
+
+    // 4. Verify asset is readable on destination
+    let (_page, page_key) = dest_butler.get_decrypted_page(page_id).await
+        .map_err(|e| anyhow::anyhow!("Failed to get page key: {}", e))?;
+
+    let decrypted = butler::services::asset_service::get_for_transfer(
+        dest_butler.asset_store(),
+        &page_key,
+        &uploaded.hash,
+    ).map_err(|e| anyhow::anyhow!("Failed to decrypt asset on destination: {}", e))?;
+
+    // Verify content matches
+    if decrypted != data {
+        anyhow::bail!("Asset content mismatch after sync");
+    }
+
+    info!(
+        hash = %uploaded.hash,
+        filename = %filename,
+        "Asset sync test passed"
+    );
+
+    Ok(uploaded)
+}
+
+// =============================================================================
+// P2P Asset Sync Test Helpers
+// =============================================================================
+
+/// Wait for asset blob to exist in local AssetStore
+///
+/// **Context**: After asset sync messages (AssetPrepare → AssetReady → AssetAck),
+/// the blob should appear in the destination's AssetStore.
+/// **We poll**: AssetStore.exists(hash) until true or timeout
+///
+/// # Arguments
+/// * `butler` - Butler to check for asset blob
+/// * `hash` - Blake3 hash of the asset
+/// * `timeout` - Maximum time to wait
+pub async fn wait_for_asset_blob(
+    butler: &Arc<Butler>,
+    hash: &str,
+    timeout: std::time::Duration,
+) -> anyhow::Result<()> {
+    use std::time::Instant;
+
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if butler.asset_store().exists(hash) {
+            info!(hash = %hash, "Asset blob arrived");
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    anyhow::bail!("Asset blob {} not received within {:?}", hash, timeout)
+}
+
+/// Assert asset fully synced (metadata + blob + content matches)
+///
+/// **Context**: After P2P asset sync, verify the asset is complete and correct
+/// **We verify**:
+///   1. Blob exists on destination's AssetStore
+///   2. Content matches after decryption with each peer's page key
+///
+/// # Arguments
+/// * `source_butler` - Butler that uploaded the asset
+/// * `dest_butler` - Butler that received the asset via sync
+/// * `page_id` - Page containing the asset
+/// * `hash` - Blake3 hash of the asset
+pub async fn assert_asset_synced(
+    source_butler: &Arc<Butler>,
+    dest_butler: &Arc<Butler>,
+    page_id: &str,
+    hash: &str,
+) -> anyhow::Result<()> {
+    use anyhow::ensure;
+
+    // 1. Verify blob exists on dest
+    ensure!(
+        dest_butler.asset_store().exists(hash),
+        "Asset blob not on dest: {}", hash
+    );
+
+    // 2. Verify content matches after decrypt
+    let (_, source_key) = source_butler.get_decrypted_page(page_id).await
+        .map_err(|e| anyhow::anyhow!("Failed to get source page key: {}", e))?;
+    let (_, dest_key) = dest_butler.get_decrypted_page(page_id).await
+        .map_err(|e| anyhow::anyhow!("Failed to get dest page key: {}", e))?;
+
+    let source_data = butler::services::asset_service::get_asset(
+        source_butler.asset_store(),
+        &source_key,
+        hash,
+    ).map_err(|e| anyhow::anyhow!("Failed to decrypt from source: {}", e))?;
+
+    let dest_data = butler::services::asset_service::get_asset(
+        dest_butler.asset_store(),
+        &dest_key,
+        hash,
+    ).map_err(|e| anyhow::anyhow!("Failed to decrypt from dest: {}", e))?;
+
+    ensure!(
+        source_data == dest_data,
+        "Asset content mismatch: source {} bytes, dest {} bytes",
+        source_data.len(),
+        dest_data.len()
+    );
+
+    info!(
+        hash = %hash,
+        size = source_data.len(),
+        "Asset fully synced and verified"
+    );
+
+    Ok(())
 }

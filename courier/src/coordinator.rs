@@ -12,7 +12,7 @@ use std::sync::Arc;
 use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use tokio::io::AsyncReadExt;
 use tracing::{debug, error, info, warn};
-use transport::{ConnectionHandle, NodeId, TransportEvent};
+use transport::{ConnectionHandle, NodeId, Transport, TransportEvent};
 
 use tokio::sync::{mpsc, oneshot};
 
@@ -244,6 +244,8 @@ pub struct CoordinatorState {
     mode: CourierMode,
     /// Butler for storage and identity
     butler: Arc<Butler>,
+    /// Blob store for asset transfer (real or mock)
+    blob_store: crate::peer_actor::BlobStore,
     /// Registry of PeerActors by NodeId
     peer_actors: HashMap<NodeId, ActorRef<PeerMessage>>,
     /// Connection handles for sending responses
@@ -317,6 +319,7 @@ impl Actor for Coordinator {
         NodeId,
         CourierMode,
         Arc<Butler>,
+        crate::peer_actor::BlobStore,
         Option<mpsc::Sender<ConnectRequest>>,
         Option<mpsc::Sender<CourierEvent>>,
     );
@@ -326,7 +329,7 @@ impl Actor for Coordinator {
         _myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        let (our_node_id, mode, butler, connect_tx, event_tx) = args;
+        let (our_node_id, mode, butler, blob_store, connect_tx, event_tx) = args;
 
         info!("Coordinator started in {:?} mode (node_id={})", mode, our_node_id);
 
@@ -334,6 +337,7 @@ impl Actor for Coordinator {
             our_node_id,
             mode,
             butler,
+            blob_store,
             peer_actors: HashMap::new(),
             connections: HashMap::new(),
             authenticated_peers: HashMap::new(),
@@ -741,6 +745,7 @@ impl Coordinator {
             conn,
             coordinator: myself.clone(),
             butler: state.butler.clone(),
+            blob_store: state.blob_store.clone(),
         };
 
         match Actor::spawn_linked(

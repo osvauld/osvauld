@@ -8,11 +8,10 @@ members = [
   "herald",
   "transport",
   "courier",
+  "control_server",
   "integration_tests",
   "slint_shell",
   "app_runtime",
-  "ai_interface",
-  "debug_console",
 ]
 
 # Speed up dev builds

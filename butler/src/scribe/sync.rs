@@ -304,17 +304,23 @@ pub async fn handle_apply_update(
     // 1. Validation (before apply) - reject invalid updates
     // 2. Derivation (after apply) - transform changed entries only
     let extracted_ops = if from_peer.is_some() {
-        if let Some(layer) = state.layers.get(layer_name) {
-            match super::lua_runtime::extract_ops_from_update(layer, update) {
-                Ok(ops) => Some(ops),
-                Err(e) => {
-                    warn!(layer = %layer_name, error = %e, "Failed to extract ops for validation");
-                    // Continue anyway - extraction failure shouldn't block sync
-                    None
-                }
+        // For existing layers, extract ops by comparing current state to updated state
+        // For new layers, extract ops by comparing empty state to updated state (all inserts)
+        let is_new_layer = !state.layers.contains_key(layer_name);
+        let layer_for_extraction = state.layers.get(layer_name)
+            .cloned()
+            .unwrap_or_else(|| crate::models::Layer::new());
+
+        match super::lua_runtime::extract_ops_from_update(&layer_for_extraction, update) {
+            Ok(ops) => {
+                debug!(layer = %layer_name, op_count = ops.len(), is_new_layer = is_new_layer, "Extracted ops from update");
+                Some(ops)
             }
-        } else {
-            None // New layer - no ops to extract from empty state
+            Err(e) => {
+                warn!(layer = %layer_name, error = %e, "Failed to extract ops for validation");
+                // Continue anyway - extraction failure shouldn't block sync
+                None
+            }
         }
     } else {
         None // Local updates don't need validation

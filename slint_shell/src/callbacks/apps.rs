@@ -16,7 +16,7 @@ use slint::ComponentHandle;
 use tokio::sync::RwLock;
 
 use crate::app_runner::{prepare_page, PreparedPage, RunningApp};
-use crate::debug_server::{AppStatus, DebugServer};
+use crate::control_server::{AppStatus, ControlServer};
 use crate::Shell;
 
 /// Request to refresh an app from filesystem via Scribe
@@ -33,7 +33,7 @@ pub fn register(
     butler: Arc<Butler>,
     courier_handle: Arc<RwLock<Option<CourierHandle>>>,
     tokio_handle: tokio::runtime::Handle,
-    debug_server: Option<Arc<DebugServer>>,
+    debug_server: Option<Arc<ControlServer>>,
 ) -> slint::Timer {
     // Page-level callbacks (SpaceView shows pages)
     register_request_pages(shell, butler.clone());
@@ -262,7 +262,7 @@ fn setup_app_runtime(
     butler: Arc<Butler>,
     courier_handle: Arc<RwLock<Option<CourierHandle>>>,
     tokio_handle: tokio::runtime::Handle,
-    debug_server: Option<Arc<DebugServer>>,
+    debug_server: Option<Arc<ControlServer>>,
 ) -> (slint::Timer, std::sync::mpsc::Sender<RefreshAppRequest>) {
     // Channel to send loaded app data from tokio to Slint thread
     let (app_ready_tx, app_ready_rx) = std::sync::mpsc::channel::<(
@@ -429,6 +429,17 @@ fn setup_app_runtime(
 
                 // Note: Ephemeral broadcasts now go directly via Scribe → PeerActor channels
                 // (no longer routed through apps.rs/Courier)
+
+                // Process asset pick requests (triggered by Slint button click)
+                while let Ok(request) = running_app.asset_pick_rx.try_recv() {
+                    handle_asset_pick_request(
+                        &request,
+                        &running_app.page_id,
+                        &running_app.lua_tx,
+                        &butler_timer,
+                        &tokio_handle_timer,
+                    );
+                }
 
                 // Process UI mutations
                 if let Err(e) = running_app.slint_runtime.process_ui_mutations() {
@@ -607,7 +618,7 @@ fn create_app_runtime(
     prepared: PreparedPage,
     scribe_ref: ActorRef<ScribeMessage>,
     butler: Arc<Butler>,
-    debug_server: Option<Arc<DebugServer>>,
+    debug_server: Option<Arc<ControlServer>>,
     app_status: Option<Arc<RwLock<AppStatus>>>,
 ) -> Option<RunningApp> {
     println!(
@@ -658,6 +669,8 @@ fn create_app_runtime(
     // Ephemeral events (cursor, typing, presence) - received via datagrams from peers
     let (ephemeral_event_tx, ephemeral_event_rx) = tokio::sync::mpsc::channel::<butler::EphemeralEvent>(256);
     let (tab_switch_tx, tab_switch_rx) = std::sync::mpsc::channel::<String>();
+    // Asset pick requests (triggered by Slint button click for file upload)
+    let (asset_pick_tx, asset_pick_rx) = std::sync::mpsc::channel::<app_runtime::AssetPickRequest>();
 
     println!("SlintRuntime: spawning Lua worker thread first...");
     println!("  page_id: {}", prepared.page_id);
@@ -693,10 +706,13 @@ fn create_app_runtime(
     // Connect debug server's eval channel to this app's LuaWorker
     if let Some(ref debug_server) = debug_server {
         // Create bridge channel for forwarding DebugEvalRequest -> LuaWorkerCommand
-        let (bridge_tx, mut bridge_rx) = tokio::sync::mpsc::channel::<crate::debug_server::DebugEvalRequest>(100);
+        let (bridge_tx, mut bridge_rx) = tokio::sync::mpsc::channel::<crate::control_server::DebugEvalRequest>(100);
 
         // Set the bridge sender on debug server
         debug_server.set_eval_channel(bridge_tx);
+
+        // Set the LuaWorker channel for direct commands (e.g., AssetUploaded)
+        debug_server.set_lua_worker_channel(lua_tx.clone());
 
         // Spawn forwarding thread: receives DebugEvalRequest, sends LuaWorkerCommand::DebugEval
         let lua_tx_for_debug = lua_tx.clone();
@@ -743,6 +759,8 @@ fn create_app_runtime(
 
     // Set up tab switch channel before setup_callbacks
     slint_runtime.set_tab_switch_channel(tab_switch_tx);
+    // Set up asset pick channel for file upload requests
+    slint_runtime.set_asset_pick_channel(asset_pick_tx);
 
     if let Err(e) = slint_runtime.slint_instance().show() {
         let error_msg = format!("Failed to show app window: {:?}", e);
@@ -848,5 +866,97 @@ fn create_app_runtime(
         page_event_rx,
         ephemeral_event_rx,
         tab_switch_rx,
+        asset_pick_rx,
     })
+}
+
+/// Handle asset pick request - opens native file dialog and uploads selected file
+///
+/// **Context**: Called from timer loop when user clicks asset upload button
+/// **Security**: Only triggered by Slint button click (user-initiated)
+/// **Flow**: File dialog → read file → detect mime → upload via Butler → notify Lua
+fn handle_asset_pick_request(
+    request: &app_runtime::AssetPickRequest,
+    page_id: &str,
+    lua_tx: &tokio::sync::mpsc::Sender<app_runtime::LuaWorkerCommand>,
+    butler: &std::sync::Arc<Butler>,
+    tokio_handle: &tokio::runtime::Handle,
+) {
+    // Determine file filter extensions
+    let filter_extensions: &[&str] = match request.filter.as_str() {
+        "images" => &["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"],
+        _ => &["*"],
+    };
+
+    let filter_name = match request.filter.as_str() {
+        "images" => "Images",
+        _ => "All Files",
+    };
+
+    // Open native file dialog (blocking - but OK in Slint event loop context)
+    let file = rfd::FileDialog::new()
+        .set_title("Select Asset")
+        .add_filter(filter_name, filter_extensions)
+        .pick_file();
+
+    let path = match file {
+        Some(p) => p,
+        None => {
+            println!("Asset pick cancelled by user");
+            return;
+        }
+    };
+
+    println!("Asset selected: {:?}", path);
+
+    // Read file contents
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            println!("Failed to read asset file {:?}: {}", path, e);
+            return;
+        }
+    };
+
+    // Extract filename
+    let filename = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Detect MIME type
+    let mime_type = mime_guess::from_path(&path)
+        .first_or_octet_stream()
+        .to_string();
+
+    let size = bytes.len() as u64;
+
+    // Upload asset via Butler's async service using the tokio handle
+    // This encrypts the asset and stores it, returning a content hash
+    let butler = butler.clone();
+    let page_id = page_id.to_string();
+    let lua_tx = lua_tx.clone();
+
+    tokio_handle.spawn(async move {
+        match butler.upload_asset_async(&page_id, &bytes, &filename, &mime_type).await {
+            Ok(hash) => {
+                println!(
+                    "Asset uploaded: {} ({}, {} bytes) -> {}",
+                    filename, mime_type, size, hash
+                );
+
+                // Notify Lua of successful upload
+                let _ = lua_tx.try_send(app_runtime::LuaWorkerCommand::AssetUploaded {
+                    hash,
+                    filename,
+                    mime_type,
+                    size,
+                });
+            }
+            Err(e) => {
+                println!("Failed to upload asset: {}", e);
+                // TODO: Could send error notification to Lua
+            }
+        }
+    });
 }

@@ -7,10 +7,12 @@ license = "MIT"
 
 [dependencies]
 # Networking - match network crate versions
-iroh = "0.91.1"
-iroh-base = "0.91.1"
-iroh-quinn = "0.14.0"
-n0-watcher = "0.3.0"
+iroh = "0.95.1"
+iroh-base = "0.95.1"
+iroh-blobs = "0.97.0"
+
+# Hashing
+blake3 = "1.5"
 
 # Async
 tokio = { version = "1", features = ["sync", "time", "macros"] }
@@ -33,3 +35,6 @@ tracing = "0.1"
 
 # Base64 for connection strings
 base64 = "0.22"
+
+# Hex encoding for debug output
+hex = "0.4"

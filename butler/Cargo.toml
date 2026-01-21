@@ -34,6 +34,9 @@ logging_utils = { path = "../logging_utils" }
 # Time
 chrono = "0.4"
 
+# Hashing
+blake3 = "1.5"
+
 # UUID
 uuid = { version = "1", features = ["v4"] }
 

@@ -55,8 +55,11 @@ end
 
 -- Called when a new layer is discovered
 function on_layer_discovered(layer_name)
+    log_info("on_layer_discovered: " .. layer_name)
+
     local summary_layer_name = page_id .. "/derived/orders_summary"
     if layer_name == summary_layer_name then
+        log_info("  -> orders_summary layer discovered!")
         orders_summary_layer = loro:get_layer(layer_name, "map")
         if orders_summary_layer then
             refresh_orders_ui()
@@ -66,10 +69,12 @@ function on_layer_discovered(layer_name)
 
     local expected_prefix = page_id .. "/orders/"
     if layer_name:sub(1, #expected_prefix) == expected_prefix then
+        log_info("  -> customer orders layer discovered!")
         local orders_layer = loro:get_layer(layer_name, "list")
         if orders_layer then
             local user_did = layer_name:match("/orders/(.+)$")
             if user_did then
+                log_info("  -> tracking orders for: " .. user_did)
                 order_layers[user_did] = orders_layer
             end
         end
@@ -102,7 +107,21 @@ end
 
 -- Handle button clicks
 function on_click(target)
-    -- Extensible: add click handlers as needed
+    -- Handle order status updates via Event Bus pattern
+    -- Format: update_order_status:customer_did:order_id:status
+    -- Note: customer_did contains colons (did:key:...), so parse from the end
+    if target:match("^update_order_status:") then
+        local rest = target:sub(#"update_order_status:" + 1)
+        -- Parse from end: last part is status, second-to-last is order_id, rest is customer_did
+        local new_status = rest:match(":([^:]+)$")
+        local without_status = rest:sub(1, #rest - #new_status - 1)
+        local order_id = without_status:match(":([^:]+)$")
+        local customer_did = without_status:sub(1, #without_status - #order_id - 1)
+
+        if customer_did and order_id and new_status then
+            update_order_status(customer_did, order_id, new_status)
+        end
+    end
 end
 
 -- ============================================================================
@@ -171,6 +190,7 @@ function update_order_status(customer_did, order_id, new_status)
                 order.status = new_status
                 order.updated_at = os.date("%Y-%m-%d %H:%M:%S")
                 orders_layer:set(i, order)
+                log_info("Order " .. order_id .. " status updated to " .. new_status)
             end
             break
         end
@@ -266,6 +286,24 @@ function get_orders_count()
     return 0
 end
 
+-- Debug helper: check internal state
+function debug_state()
+    local order_layers_count = 0
+    local order_layers_keys = {}
+    for k, _ in pairs(order_layers) do
+        order_layers_count = order_layers_count + 1
+        table.insert(order_layers_keys, k)
+    end
+    return {
+        page_id = page_id,
+        has_products_layer = products_layer ~= nil,
+        has_orders_summary_layer = orders_summary_layer ~= nil,
+        order_layers_count = order_layers_count,
+        order_layers_keys = order_layers_keys,
+        all_layers = loro:list_layers("*")
+    }
+end
+
 function get_products_count()
     if products_layer then
         return products_layer:length()
@@ -287,6 +325,16 @@ function get_products()
     return products
 end
 
+-- Get order status by order ID (from summary layer)
+function get_order_status(order_id)
+    if not orders_summary_layer then return nil end
+    local order = orders_summary_layer:get(order_id)
+    if order then
+        return order.status
+    end
+    return nil
+end
+
 -- ============================================================================
 -- UTILITIES
 -- ============================================================================
@@ -302,3 +350,54 @@ end
 function log_warn(msg)
     print("[WARN] " .. msg)
 end
+
+-- ============================================================================
+-- API EXPORTS
+-- Register functions for external calling via control server
+-- ============================================================================
+
+--- @ai Adds a product to the catalog via UI simulation.
+--- @ai Effects: Opens modal, fills form, submits. Product appears in products list.
+--- @ai Syncs: products layer propagates to viewers.
+api.export("add_product_via_ui", add_product_via_ui)
+api.describe("add_product_via_ui", {
+    description = "Add a new product via UI flow (modal open, fill, submit)",
+    params = {
+        {name = "name", type = "string", description = "Product name"},
+        {name = "price", type = "number", description = "Price in dollars"},
+        {name = "description", type = "string", description = "Product description"},
+        {name = "stock", type = "number", description = "Initial stock quantity"},
+    },
+    effects = {"products layer updated", "UI modal opens and closes", "products list refreshed"},
+    syncs = {"products layer to all peers"},
+})
+
+--- @ai Updates order status. Only owner can call this.
+--- @ai Effects: Order status changes, order_layers updated.
+--- @ai Syncs: order layer propagates to customer.
+api.export("update_order_status", update_order_status)
+api.describe("update_order_status", {
+    description = "Update an order's status (pending->confirmed->shipped->delivered)",
+    params = {
+        {name = "customer_did", type = "string", description = "Customer's DID"},
+        {name = "order_id", type = "string", description = "Order ID"},
+        {name = "new_status", type = "string", description = "New status: confirmed, shipped, delivered, cancelled"},
+    },
+    effects = {"order status updated", "orders UI refreshed"},
+    syncs = {"order layer to customer"},
+})
+
+--- @ai Returns count of products in catalog.
+api.export("get_products_count", get_products_count)
+
+--- @ai Returns count of orders (from summary layer).
+api.export("get_orders_count", get_orders_count)
+
+--- @ai Returns list of all products.
+api.export("get_products", get_products)
+
+--- @ai Returns order status by order ID (from summary layer).
+api.export("get_order_status", get_order_status)
+
+-- Aliases for backward compatibility with integration tests
+api.export("add_product", add_product_via_ui)

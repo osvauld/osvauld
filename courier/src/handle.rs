@@ -331,16 +331,18 @@ impl CourierRunner {
     ) -> ActorRef<CoordinatorMessage> {
         let node_id = self.transport.node_id();
         let butler = self.butler.clone();
+        let transport = self.transport.clone();
         let mode = self.mode;
         let event_tx = self.event_tx.clone();
 
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 let coordinator = Coordinator::new();
+                let blob_store = crate::peer_actor::BlobStore::Real(transport);
                 let (actor_ref, _) = Actor::spawn(
                     Some("coordinator".to_string()),
                     coordinator,
-                    (node_id, mode, butler.clone(), Some(connect_tx), Some(event_tx)),
+                    (node_id, mode, butler.clone(), blob_store, Some(connect_tx), Some(event_tx)),
                 )
                 .await
                 .expect("Failed to spawn Coordinator");

@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use tracing::info;
+use transport::MockBlobStore;
 
 use butler::Butler;
 use courier::coordinator::{CoordinatorMessage, CourierMode};
@@ -17,10 +18,12 @@ use crate::test_peer::TestPeer;
 
 /// Test harness for multi-peer protocol testing
 ///
-/// Manages MockTransport and TestPeers, provides helpers for common operations.
+/// Manages MockTransport, MockBlobStore, and TestPeers, provides helpers for common operations.
 pub struct TestHarness {
     /// The mock transport routing messages
     pub transport: Arc<MockTransport>,
+    /// Shared blob store for asset transfers (all peers share this)
+    pub blob_store: Arc<MockBlobStore>,
     /// Named peers for easy access
     pub peers: HashMap<String, TestPeer>,
 }
@@ -30,13 +33,14 @@ impl TestHarness {
     pub fn new() -> Self {
         Self {
             transport: MockTransport::new(),
+            blob_store: MockBlobStore::new(),
             peers: HashMap::new(),
         }
     }
 
     /// Add a peer with isolated storage
     pub async fn add_peer(&mut self, name: &str, mode: CourierMode) -> Result<&TestPeer> {
-        let peer = TestPeer::new(name, mode, &self.transport).await?;
+        let peer = TestPeer::new(name, mode, &self.transport, self.blob_store.clone()).await?;
         self.peers.insert(name.to_string(), peer);
         Ok(self.peers.get(name).unwrap())
     }
@@ -48,7 +52,7 @@ impl TestHarness {
         mode: CourierMode,
         butler: Arc<Butler>,
     ) -> Result<&TestPeer> {
-        let peer = TestPeer::with_butler(name, mode, butler, &self.transport).await?;
+        let peer = TestPeer::with_butler(name, mode, butler, &self.transport, self.blob_store.clone()).await?;
         self.peers.insert(name.to_string(), peer);
         Ok(self.peers.get(name).unwrap())
     }

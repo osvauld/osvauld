@@ -866,6 +866,11 @@ impl PeerActor {
         // Clean up any pending sync for this page/layer (shouldn't exist but be safe)
         let key = (page_id.to_string(), layer_name.to_string());
         state.pending_sync_offers.remove(&key);
+
+        // Check if this is an assets layer sync - trigger asset fetch for missing blobs
+        if layer_name.ends_with("/assets") {
+            self.trigger_asset_sync_after_layer_sync(page_id, layer_name, state).await;
+        }
     }
 
     // ==================== Page Subscription ====================
@@ -1538,6 +1543,95 @@ impl PeerActor {
             node_id: self.node_id,
             space_id: space_id.to_string(),
         });
+    }
+
+    // ==================== Asset Sync Helpers ====================
+
+    /// Trigger asset sync after receiving an assets layer update via Loro sync
+    ///
+    /// **Context**: We received a SyncAck for an assets layer, meaning new metadata was synced
+    /// **Flow**:
+    ///   1. Get the assets layer from Scribe
+    ///   2. Parse asset metadata
+    ///   3. Find assets missing from local AssetStore
+    ///   4. Send AssetPrepare for each missing asset
+    ///
+    /// **Note**: Spawns a task to avoid blocking sync pipeline
+    #[instrument(skip(self, state), fields(page_id = %page_id, layer = %layer_name))]
+    async fn trigger_asset_sync_after_layer_sync(
+        &self,
+        page_id: &str,
+        layer_name: &str,
+        state: &mut PeerActorState,
+    ) {
+        // Get the assets layer from Scribe
+        let scribe = match state.page_subscriptions.get(page_id) {
+            Some(sub) => sub.scribe.clone(),
+            None => {
+                // Try to open the page if not subscribed
+                match state.butler.open_page(page_id).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!("Cannot trigger asset sync - page {} not open: {}", page_id, e);
+                        return;
+                    }
+                }
+            }
+        };
+
+        // Get the layer snapshot
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if let Err(e) = scribe.cast(butler::ScribeMessage::GetSnapshot {
+            layer_name: layer_name.to_string(),
+            reply: tx,
+        }) {
+            warn!("Failed to request assets layer snapshot: {}", e);
+            return;
+        }
+
+        let layer_bytes = match rx.await {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => {
+                debug!("Assets layer {} not found in Scribe", layer_name);
+                return;
+            }
+            Err(_) => {
+                warn!("Scribe dropped assets layer reply channel");
+                return;
+            }
+        };
+
+        // Parse the layer
+        let layer = match butler::models::Layer::from_snapshot(&layer_bytes) {
+            Ok(l) => l,
+            Err(e) => {
+                warn!("Failed to parse assets layer {}: {}", layer_name, e);
+                return;
+            }
+        };
+
+        // Find missing assets
+        let missing = butler::services::asset_service::find_missing_assets_from_layer(
+            state.butler.asset_store(),
+            &layer,
+        );
+
+        if missing.is_empty() {
+            debug!("No missing assets after sync of layer {}", layer_name);
+            return;
+        }
+
+        info!(
+            page_id = %page_id,
+            layer = %layer_name,
+            missing_count = missing.len(),
+            "Found missing assets after layer sync, sending AssetPrepare"
+        );
+
+        // Send AssetPrepare for each missing asset (tracked for retry)
+        for metadata in missing {
+            self.send_asset_prepare(page_id, &metadata.hash, state).await;
+        }
     }
 }
 

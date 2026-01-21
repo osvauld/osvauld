@@ -11,9 +11,8 @@
 use anyhow::Result;
 use bytes::Bytes;
 use futures::future;
-use iroh::endpoint::Connection;
-use iroh::NodeId;
-use iroh_quinn::{RecvStream, SendStream, VarInt};
+use iroh::endpoint::{Connection, RecvStream, SendStream};
+use iroh::EndpointId as NodeId;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, RwLock};
@@ -82,7 +81,7 @@ impl PeerConnection {
 
     /// Close the connection
     pub fn close(&self) {
-        self.connection.close(VarInt::from_u32(0), b"closed");
+        self.connection.close(0u32.into(), b"closed");
     }
 
     /// Get the underlying connection for accepting streams
@@ -369,6 +368,12 @@ impl ConnectionHandle {
 /// Owned by Transport. Provides lookup and management of connections.
 pub struct ConnectionPool {
     connections: RwLock<HashMap<NodeId, ConnectionHandle>>,
+}
+
+impl std::fmt::Debug for ConnectionPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionPool").finish_non_exhaustive()
+    }
 }
 
 impl ConnectionPool {

@@ -10,12 +10,9 @@ use butler::{Butler, LayerCache, RedbStore};
 use clap::Parser;
 use courier::CourierHandle;
 use slint::ComponentHandle;
-use slint_shell::debug_logger::DebugLogLayer;
-use slint_shell::debug_server::{DebugServer, LogEntry, UiCommand};
+use slint_shell::control_server::{ControlServer, UiCommand};
 use slint_shell::Shell;
-use tokio::sync::{broadcast, mpsc, RwLock};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
+use tokio::sync::{mpsc, RwLock};
 
 #[derive(Parser)]
 #[command(name = "sthalam-shell")]
@@ -93,8 +90,12 @@ fn main() {
     // Initialize LayerCache
     let layer_cache = Arc::new(RwLock::new(LayerCache::new(store.clone(), 100)));
 
+    // Initialize AssetStore for encrypted file storage
+    let assets_path = data_dir.join("assets");
+    let asset_store = Arc::new(butler::AssetStore::new(&assets_path).expect("Failed to create asset store"));
+
     // Create Butler instance
-    let butler = Arc::new(Butler::new(store.clone(), layer_cache));
+    let butler = Arc::new(Butler::new(store.clone(), layer_cache, asset_store));
 
     // P2P state - initialized after login (matches Tauri pattern)
     // Transport requires device key from Butler identity
@@ -104,7 +105,7 @@ fn main() {
     // Store UI command receiver to be set up after shell is created
     let mut ui_rx: Option<mpsc::Receiver<UiCommand>> = None;
     // Debug server reference for passing to app callbacks (for eval channel)
-    let debug_server: Option<Arc<DebugServer>> = if let Some(ref socket_path) = args.debug_socket {
+    let debug_server: Option<Arc<ControlServer>> = if let Some(ref socket_path) = args.debug_socket {
         let socket_path = PathBuf::from(socket_path);
         let instance_name = args.db_name.clone();
 
@@ -113,7 +114,7 @@ fn main() {
         ui_rx = Some(rx);
 
         // Create debug server and set UI channel + butler + courier
-        let mut debug_server = DebugServer::new(socket_path.clone(), instance_name);
+        let mut debug_server = ControlServer::new(socket_path.clone(), instance_name);
         debug_server.set_ui_channel(ui_tx);
         debug_server.set_butler(butler.clone());
         debug_server.set_courier_handle(courier_handle.clone());

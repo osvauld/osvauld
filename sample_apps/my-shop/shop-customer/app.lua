@@ -369,14 +369,19 @@ function select_product_via_ui(product_id)
         return false
     end
 
-    -- Set UI state
+    -- Set UI state directly (avoid on_click to prevent recursion)
     ui:set("selected_product_id", product.id)
     ui:set("selected_product_name", product.name)
     ui:set("selected_product_price", product.price)
     ui:set("current_view", 0)  -- Products view
 
-    -- Call event handler
-    on_click("select_product:" .. product_id)
+    -- Update internal state
+    selected_product = {
+        id = product.id,
+        name = product.name,
+        price = product.price
+    }
+    log_info("Selected product: " .. product.name)
     return true
 end
 
@@ -550,6 +555,14 @@ function get_products_count()
     return 0
 end
 
+-- Get first product ID (for testing)
+function get_first_product_id()
+    if products_cache and #products_cache > 0 then
+        return products_cache[1].id or ""
+    end
+    return ""
+end
+
 -- Get all products as a table (for testing)
 function get_products()
     return products_cache
@@ -626,3 +639,96 @@ end
 function log_warn(msg)
     print("[WARN] " .. msg)
 end
+
+-- ============================================================================
+-- API EXPORTS
+-- Register functions for external calling via control server
+-- ============================================================================
+
+--- @ai Creates an order (selects product, fills form, creates draft).
+--- @ai For tests - alias to internal create flow.
+api.export("create_order", function(product_id, quantity, notes, address)
+    -- Ensure products cache is populated (may not be if called right after sync)
+    refresh_products_ui()
+
+    -- Select the product
+    if not select_product_via_ui(product_id) then
+        log_warn("create_order: failed to select product " .. (product_id or "nil"))
+        return false
+    end
+    -- Fill form
+    form_state.order_quantity = tostring(quantity or 1)
+    form_state.order_notes = notes or ""
+    form_state.order_address = address or ""
+    ui:set("order_quantity", form_state.order_quantity)
+    ui:set("order_notes", form_state.order_notes)
+    ui:set("order_address", form_state.order_address)
+    -- Create the order (draft state)
+    do_create_order()
+    return true
+end)
+
+--- @ai Selects a product for ordering via UI simulation.
+--- @ai Effects: Sets selected_product state, updates UI.
+api.export("select_product", select_product_via_ui)
+api.describe("select_product", {
+    description = "Select a product for ordering via UI flow",
+    params = {
+        {name = "product_id", type = "string", description = "Product ID to select"},
+    },
+    returns = "boolean - true if product found and selected",
+    effects = {"selected_product state updated", "UI shows selected product"},
+})
+
+--- @ai Places an order via UI simulation (select, fill form, create draft, submit).
+--- @ai Effects: Creates order, moves to pending status, syncs to owner.
+api.export("place_order", place_order_via_ui)
+api.describe("place_order", {
+    description = "Place a complete order via UI flow",
+    params = {
+        {name = "product_id", type = "string", description = "Product ID"},
+        {name = "quantity", type = "number", description = "Quantity"},
+        {name = "notes", type = "string", description = "Order notes"},
+        {name = "address", type = "string", description = "Shipping address"},
+    },
+    returns = "boolean - true if order placed successfully",
+    effects = {"order created in draft", "order submitted", "synced to owner"},
+    syncs = {"orders layer to owner/node"},
+})
+
+--- @ai Submits a draft order (draft -> pending).
+api.export("submit_order", do_submit_order)
+api.describe("submit_order", {
+    description = "Submit a draft order",
+    params = {
+        {name = "order_id", type = "string", description = "Order ID to submit"},
+    },
+    effects = {"order status changes to pending", "order syncs to owner"},
+})
+
+--- @ai Cancels an order.
+api.export("cancel_order", cancel_order_via_ui)
+
+--- @ai Returns count of products available.
+api.export("get_products_count", get_products_count)
+
+--- @ai Returns all products as table.
+api.export("get_products", get_products)
+
+--- @ai Returns first product ID (for testing).
+api.export("get_first_product_id", get_first_product_id)
+
+--- @ai Returns count of synced orders.
+api.export("get_orders_count", get_orders_count)
+
+--- @ai Returns count of local draft orders.
+api.export("get_drafts_count", get_drafts_count)
+
+--- @ai Returns all orders (drafts + synced).
+api.export("get_all_orders", get_all_orders)
+
+--- @ai Returns last created order ID.
+api.export("get_last_order_id", get_last_order_id)
+
+--- @ai Checks if orders_summary derived layer exists.
+api.export("has_orders_summary", has_orders_summary)

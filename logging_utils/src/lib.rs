@@ -307,6 +307,7 @@ pub fn init_rich_tracing(
              quinn=warn,\
              netlink_proto=error,\
              netlink_sys=error,\
+             netlink_packet_route=error,\
              hickory_proto=error,\
              hickory_resolver=error,\
              hickory_client=error,\

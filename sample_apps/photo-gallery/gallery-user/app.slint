@@ -1,0 +1,178 @@
+// Photo Gallery App UI
+// Simple photo upload and display with secure file picker
+
+import { Button, VerticalBox, HorizontalBox, ScrollView } from "std-widgets.slint";
+
+// Photo metadata from Loro layer
+export struct Photo {
+    hash: string,
+    filename: string,
+    mime_type: string,
+    size: int,
+}
+
+// Theme colors
+global Theme {
+    out property<color> bg-primary: #11111b;
+    out property<color> bg-secondary: #1e1e2e;
+    out property<color> bg-card: #313244;
+    out property<color> border: #45475a;
+    out property<color> text-primary: #cdd6f4;
+    out property<color> text-secondary: #a6adc8;
+    out property<color> text-muted: #6c7086;
+    out property<color> accent: #89b4fa;
+}
+
+// App API - Lua/Runtime accesses this global directly
+export global AppAPI {
+    // Callback to trigger native file picker (security: user click only)
+    callback pick-asset-file(string /* filter: "images" | "all" */);
+
+    // Generic click handler for Lua
+    callback on_click(string /* action */);
+
+    // Photos model - populated from Loro layer
+    in-out property <[Photo]> photos: [];
+
+    // Status message
+    in-out property <string> status: "Ready to upload photos";
+}
+
+// Photo card component
+component PhotoCard inherits Rectangle {
+    in property <Photo> photo;
+
+    background: Theme.bg-secondary;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalBox {
+        padding: 12px;
+        spacing: 8px;
+
+        // Placeholder for actual image (would need asset retrieval)
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 4px;
+            height: 120px;
+
+            Text {
+                text: "IMG";
+                color: Theme.text-muted;
+                font-size: 24px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        // Filename
+        Text {
+            text: photo.filename;
+            color: Theme.text-primary;
+            font-size: 12px;
+            overflow: elide;
+            horizontal-alignment: left;
+        }
+
+        // Size info (show raw bytes for simplicity)
+        Text {
+            text: photo.size + " bytes";
+            color: Theme.text-muted;
+            font-size: 10px;
+        }
+    }
+}
+
+// Main app component
+export component App inherits Rectangle {
+    background: Theme.bg-primary;
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 16px;
+
+        // Header
+        HorizontalBox {
+            alignment: space-between;
+
+            Text {
+                text: "Photo Gallery";
+                color: Theme.text-primary;
+                font-size: 24px;
+                font-weight: 600;
+            }
+
+            // Upload button
+            Button {
+                text: "Upload Photo";
+                clicked => {
+                    AppAPI.pick-asset-file("images");
+                }
+            }
+        }
+
+        // Status bar
+        Rectangle {
+            background: Theme.bg-secondary;
+            border-radius: 4px;
+            height: 32px;
+
+            HorizontalBox {
+                padding-left: 12px;
+                padding-right: 12px;
+                alignment: start;
+
+                Text {
+                    text: AppAPI.status;
+                    color: Theme.text-secondary;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Photo grid
+        if AppAPI.photos.length > 0: ScrollView {
+            HorizontalBox {
+                alignment: start;
+                spacing: 12px;
+                padding: 4px;
+
+                for photo in AppAPI.photos: PhotoCard {
+                    photo: photo;
+                    width: 160px;
+                    height: 200px;
+                }
+            }
+        }
+
+        // Empty state
+        if AppAPI.photos.length == 0: Rectangle {
+            background: Theme.bg-secondary;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+            min-height: 200px;
+
+            VerticalBox {
+                alignment: center;
+                spacing: 12px;
+
+                Text {
+                    text: "No photos yet";
+                    color: Theme.text-muted;
+                    font-size: 16px;
+                    horizontal-alignment: center;
+                }
+
+                Text {
+                    text: "Click 'Upload Photo' to add your first image";
+                    color: Theme.text-muted;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+    }
+}

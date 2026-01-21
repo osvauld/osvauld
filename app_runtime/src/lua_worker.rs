@@ -91,6 +91,24 @@ pub enum LuaWorkerCommand {
         /// Opaque payload bytes - Lua converts to string and parses as JSON
         payload: Vec<u8>,
     },
+
+    // ==================== Asset Upload Events ====================
+
+    /// Asset uploaded successfully
+    ///
+    /// **Context**: User picked a file via native dialog, it was uploaded to AssetStore
+    /// **We do**: Call Lua's `on_asset_uploaded(asset)` if defined
+    /// **Lua receives**: { hash, filename, mime_type, size }
+    AssetUploaded {
+        /// Content hash of the asset (for retrieval)
+        hash: String,
+        /// Original filename
+        filename: String,
+        /// MIME type (e.g., "image/png")
+        mime_type: String,
+        /// File size in bytes
+        size: u64,
+    },
 }
 
 /// Debug state snapshot for introspection
@@ -580,7 +598,32 @@ impl LuaWorker {
             // Create Lua VM on this thread (owned, not shared)
             let lua = Lua::new();
 
-            // Load app code
+            // Load api module FIRST (before app code, which uses api.export())
+            let api_lib = include_str!("lua_libs/api.lua");
+            match lua.load(api_lib).eval::<mlua::Value>() {
+                Ok(api_module) => {
+                    if let Err(e) = lua.globals().set("api", api_module) {
+                        tracing::error!(
+                            page_id = %page_id,
+                            app_name = %app_name,
+                            error = %e,
+                            "Failed to set api global"
+                        );
+                        return;
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        page_id = %page_id,
+                        app_name = %app_name,
+                        error = %e,
+                        "Failed to load api module"
+                    );
+                    return;
+                }
+            }
+
+            // Load app code (now has access to api module)
             if let Err(e) = lua.load(&lua_code).exec() {
                 tracing::error!(
                     page_id = %page_id,
@@ -719,6 +762,10 @@ impl LuaWorker {
                     self.handle_ephemeral(&user_did, &payload);
                 }
 
+                Some(LuaWorkerCommand::AssetUploaded { hash, filename, mime_type, size }) => {
+                    self.handle_asset_uploaded(&hash, &filename, &mime_type, size);
+                }
+
                 None => {
                     tracing::warn!(
                         page_id = %self.page_id,
@@ -790,12 +837,15 @@ impl LuaWorker {
         let layout_binding = LayoutBindings::new();
         globals.set("layout", layout_binding)?;
 
+        // Note: api module is loaded earlier in spawn() before app code loads
+        // (because app code uses api.export() at load time)
+
         tracing::info!(
             page_id = %self.page_id,
             user_did = %self.user_did,
             user_role = %self.user_role,
             app_name = %self.app_name,
-            "Lua globals initialized (loro, butler, ui, permit, page, datetime, layout)"
+            "Lua globals initialized (loro, butler, ui, permit, page, datetime, layout, api)"
         );
 
         Ok(())
@@ -1388,6 +1438,70 @@ impl LuaWorker {
             }
         }
         // Silently ignore if callback not defined - not all apps need ephemeral data
+    }
+
+    // ==================== Asset Upload Handlers ====================
+
+    /// Handle asset uploaded event
+    ///
+    /// **Context**: User selected a file via native picker, it was uploaded
+    /// **Calls**: Lua `on_asset_uploaded(asset)` if defined
+    /// **Lua receives**: { hash, filename, mime_type, size }
+    fn handle_asset_uploaded(&self, hash: &str, filename: &str, mime_type: &str, size: u64) {
+        if let Ok(func) = self.lua.globals().get::<mlua::Function>("on_asset_uploaded") {
+            // Create asset table for Lua
+            match self.lua.create_table() {
+                Ok(table) => {
+                    if let Err(e) = table.set("hash", hash) {
+                        tracing::warn!(page_id = %self.page_id, error = %e, "Failed to set hash");
+                        return;
+                    }
+                    if let Err(e) = table.set("filename", filename) {
+                        tracing::warn!(page_id = %self.page_id, error = %e, "Failed to set filename");
+                        return;
+                    }
+                    if let Err(e) = table.set("mime_type", mime_type) {
+                        tracing::warn!(page_id = %self.page_id, error = %e, "Failed to set mime_type");
+                        return;
+                    }
+                    if let Err(e) = table.set("size", size) {
+                        tracing::warn!(page_id = %self.page_id, error = %e, "Failed to set size");
+                        return;
+                    }
+
+                    if let Err(e) = func.call::<()>(table) {
+                        tracing::warn!(
+                            page_id = %self.page_id,
+                            hash = %hash,
+                            filename = %filename,
+                            error = %e,
+                            "on_asset_uploaded callback failed"
+                        );
+                    } else {
+                        tracing::info!(
+                            page_id = %self.page_id,
+                            hash = %hash,
+                            filename = %filename,
+                            "on_asset_uploaded callback executed"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        page_id = %self.page_id,
+                        error = %e,
+                        "Failed to create Lua table for asset"
+                    );
+                }
+            }
+        } else {
+            tracing::debug!(
+                page_id = %self.page_id,
+                hash = %hash,
+                filename = %filename,
+                "on_asset_uploaded not defined in Lua (asset uploaded but not handled)"
+            );
+        }
     }
 }
 

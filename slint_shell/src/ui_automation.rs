@@ -2,9 +2,10 @@
 //!
 //! Uses Slint's testing API to find elements by accessible-label and interact with them.
 
+use slint::Model;
 use tokio::sync::mpsc;
 
-use crate::debug_server::{ElementInfo, UiCommand};
+use crate::control_server::{ElementInfo, UiCommand};
 use crate::Shell;
 
 /// Process UI commands from the debug server
@@ -92,8 +93,23 @@ pub fn process_ui_commands(shell: &Shell, ui_rx: &mut mpsc::Receiver<UiCommand>)
                 // Invoke the create_space callback - this triggers the registered on_create_space handler
                 // which calls butler.create_space() and updates the UI's spaces list
                 shell.invoke_create_space(name.as_str().into(), template_path.as_str().into());
-                // Return success - the callback updates UI internally
-                let _ = response_tx.send(Ok((name.clone(), name)));
+
+                // The callback runs synchronously (via block_on) and updates shell.spaces
+                // Find the created space by name to get its actual ID
+                let spaces = shell.get_spaces();
+                let space_id = (0..spaces.row_count())
+                    .filter_map(|i| spaces.row_data(i))
+                    .find(|s| s.name.as_str() == name)
+                    .map(|s| s.id.to_string());
+
+                match space_id {
+                    Some(id) => {
+                        let _ = response_tx.send(Ok((id, name)));
+                    }
+                    None => {
+                        let _ = response_tx.send(Err(format!("Space '{}' was not created", name)));
+                    }
+                }
             }
             UiCommand::AddWebsite { connection_string, response_tx } => {
                 // Invoke the add_website callback - this triggers the registered on_add_website handler

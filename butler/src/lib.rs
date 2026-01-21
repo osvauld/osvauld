@@ -75,6 +75,8 @@ pub struct Butler {
     store: Arc<RedbStore>,
     layer_cache: Arc<RwLock<LayerCache>>,
     identity: Arc<RwLock<Option<Identity>>>,
+    /// Filesystem storage for encrypted assets (images, PDFs, etc.)
+    asset_store: Arc<AssetStore>,
     /// Active Scribe actors (page_id → ScribeEntry)
     scribes: RwLock<HashMap<String, ScribeEntry>>,
     /// Per-page locks for serializing open_page calls
@@ -91,11 +93,12 @@ const DEFAULT_MAX_OPEN_PAGES: usize = 50;
 
 impl Butler {
     /// Create a new Butler instance
-    pub fn new(store: Arc<RedbStore>, layer_cache: Arc<RwLock<LayerCache>>) -> Self {
+    pub fn new(store: Arc<RedbStore>, layer_cache: Arc<RwLock<LayerCache>>, asset_store: Arc<AssetStore>) -> Self {
         Self {
             store,
             layer_cache,
             identity: Arc::new(RwLock::new(None)),
+            asset_store,
             scribes: RwLock::new(HashMap::new()),
             page_locks: RwLock::new(HashMap::new()),
             max_open_pages: DEFAULT_MAX_OPEN_PAGES,
@@ -104,11 +107,12 @@ impl Butler {
     }
 
     /// Create a new Butler instance with custom max open pages
-    pub fn with_max_pages(store: Arc<RedbStore>, layer_cache: Arc<RwLock<LayerCache>>, max_open_pages: usize) -> Self {
+    pub fn with_max_pages(store: Arc<RedbStore>, layer_cache: Arc<RwLock<LayerCache>>, asset_store: Arc<AssetStore>, max_open_pages: usize) -> Self {
         Self {
             store,
             layer_cache,
             identity: Arc::new(RwLock::new(None)),
+            asset_store,
             scribes: RwLock::new(HashMap::new()),
             page_locks: RwLock::new(HashMap::new()),
             max_open_pages,
@@ -1618,5 +1622,97 @@ impl Butler {
 
     pub fn store(&self) -> &Arc<RedbStore> {
         &self.store
+    }
+
+    /// Get a reference to the asset store
+    pub fn asset_store(&self) -> &Arc<AssetStore> {
+        &self.asset_store
+    }
+
+    // ==================== Asset Upload Operations ====================
+
+    /// Upload an asset to local storage and return its hash (async version)
+    ///
+    /// **Context**: User uploads a file (image, PDF, etc.) via file picker
+    /// **Flow**:
+    ///   1. Get page's AES key for encryption
+    ///   2. Get user's identity for signing
+    ///   3. Call asset_service::upload_asset to encrypt and store
+    ///   4. Return the content hash (caller can add to Loro layer)
+    ///
+    /// **Security**: Called from Slint button click only (user-initiated)
+    ///
+    /// # Arguments
+    /// * `page_id` - The page to associate the asset with
+    /// * `data` - Raw plaintext bytes
+    /// * `filename` - Original filename
+    /// * `mime_type` - MIME type (e.g., "image/png")
+    ///
+    /// # Returns
+    /// Content hash of the uploaded asset
+    pub async fn upload_asset_async(
+        &self,
+        page_id: &str,
+        data: &[u8],
+        filename: &str,
+        mime_type: &str,
+    ) -> Result<String> {
+        // Get page's AES key
+        let (_decrypted, aes_key) = self.get_decrypted_page(page_id).await?;
+
+        // Get user's identity for signing
+        let identity = self.get_identity().await?;
+
+        // Upload via asset_service
+        let metadata = services::asset_service::upload_asset(
+            &self.asset_store,
+            &aes_key,
+            &identity,
+            filename,
+            mime_type,
+            data,
+        )?;
+
+        // Add metadata to {page_id}/assets layer via Scribe
+        let assets_layer_name = format!("{}/assets", page_id);
+        let scribe = self.open_page(page_id).await?;
+
+        // Serialize metadata to JSON for MapInsert
+        let metadata_json = serde_json::to_value(&metadata)
+            .map_err(|e| ButlerError::Storage(format!("Failed to serialize metadata: {}", e)))?;
+
+        // Send MapInsert to add metadata to assets layer (key = hash)
+        scribe.cast(ScribeMessage::MapInsert {
+            layer_name: assets_layer_name,
+            path: "root".to_string(),
+            key: metadata.hash.clone(),
+            value: metadata_json,
+        }).map_err(|e| ButlerError::Storage(format!("Failed to send to scribe: {}", e)))?;
+
+        tracing::info!(
+            hash = %metadata.hash,
+            filename = %filename,
+            page_id = %page_id,
+            "Asset uploaded and metadata added to layer"
+        );
+
+        Ok(metadata.hash)
+    }
+
+    /// Upload an asset to local storage and return its hash (sync version)
+    ///
+    /// **Note**: Requires a tokio runtime to be available on current thread.
+    /// Use `upload_asset_async` if calling from an async context or spawned task.
+    pub fn upload_asset(
+        &self,
+        page_id: &str,
+        data: &[u8],
+        filename: &str,
+        mime_type: &str,
+    ) -> Result<String> {
+        let rt = tokio::runtime::Handle::try_current()
+            .map_err(|_| ButlerError::Storage("No tokio runtime".to_string()))?;
+
+        rt.block_on(self.upload_asset_async(page_id, data, filename, mime_type))
     }
 }

@@ -9,12 +9,59 @@
 
 pub mod bindings;
 
-use mlua::{Lua, Function, ObjectLike, Value};
+use mlua::{Lua, Function, ObjectLike, Value, UserData, UserDataMethods};
 use ractor::ActorRef;
+use std::collections::HashMap;
+use std::sync::Mutex;
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
 use crate::scribe::{ScribeMessage, PageEvent};
+
+/// Stub UI bindings for headless runtime
+///
+/// Provides minimal ui:get/set that stores values in memory (for testing).
+/// This allows apps that use ui:get/set to work in headless mode.
+struct StubUiBindings {
+    /// In-memory storage for ui values
+    values: Mutex<HashMap<String, serde_json::Value>>,
+}
+
+impl StubUiBindings {
+    fn new() -> Self {
+        Self {
+            values: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl UserData for StubUiBindings {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // ui:get(key) -> value
+        methods.add_method("get", |lua, this, key: String| {
+            let values = this.values.lock().unwrap();
+            match values.get(&key) {
+                Some(v) => bindings::json_to_lua(lua, v),
+                None => Ok(Value::Nil),
+            }
+        });
+
+        // ui:set(key, value) - store in memory
+        methods.add_method("set", |_lua, this, (key, value): (String, Value)| {
+            let json_value = bindings::lua_to_json(&value)
+                .map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
+            this.values.lock().unwrap().insert(key, json_value);
+            Ok(())
+        });
+
+        // ui:push, ui:insert, ui:remove, ui:clear, ui:update - no-ops for headless
+        methods.add_method("push", |_lua, _this, (_model, _item): (String, Value)| Ok(()));
+        methods.add_method("insert", |_lua, _this, (_model, _idx, _item): (String, usize, Value)| Ok(()));
+        methods.add_method("remove", |_lua, _this, (_model, _idx): (String, usize)| Ok(()));
+        methods.add_method("clear", |_lua, _this, _model: String| Ok(()));
+        methods.add_method("update", |_lua, _this, (_model, _idx, _item): (String, usize, Value)| Ok(()));
+    }
+}
 
 pub use bindings::{
     LoroBindings, PermitBindings, DerivationBindings, LuaLoroList, LuaLoroMap,
@@ -70,6 +117,19 @@ impl HeadlessRuntime {
         let derivation = DerivationBindings::new(scribe_ref.clone());
         lua.globals().set("derivation", derivation)
             .map_err(|e| format!("Failed to set derivation global: {}", e))?;
+
+        // Setup stub UI bindings (for headless testing)
+        let ui = StubUiBindings::new();
+        lua.globals().set("ui", ui)
+            .map_err(|e| format!("Failed to set ui global: {}", e))?;
+
+        // Load api module for function export/description
+        let api_lib = include_str!("lua_libs/api.lua");
+        let api_module: Value = lua.load(api_lib)
+            .eval()
+            .map_err(|e| format!("Failed to load api module: {}", e))?;
+        lua.globals().set("api", api_module)
+            .map_err(|e| format!("Failed to set api global: {}", e))?;
 
         // Subscribe to page events from Scribe (unified event channel)
         let (page_event_tx, page_event_rx) = mpsc::channel(32);

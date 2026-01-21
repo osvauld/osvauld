@@ -94,14 +94,16 @@ mod tests {
     #[test]
     fn test_load_owner_app() {
         let code = load_myshop_owner_app();
-        assert!(code.contains("function add_product"));
+        // Check for exported functions (via api.export)
+        assert!(code.contains("api.export(\"add_product\""));
         assert!(code.contains("function on_init"));
     }
 
     #[test]
     fn test_load_customer_app() {
         let code = load_myshop_customer_app();
-        assert!(code.contains("function create_order"));
-        assert!(code.contains("function submit_order"));
+        // Check for exported functions (via api.export)
+        assert!(code.contains("api.export(\"create_order\""));
+        assert!(code.contains("api.export(\"submit_order\""));
     }
 }

@@ -6,7 +6,7 @@
 //! This architecture enables per-peer parallelism - no central bottleneck.
 
 use crate::pool::ConnectionHandle;
-use iroh::NodeId;
+use iroh::EndpointId as NodeId;
 
 /// Events emitted by Transport layer
 ///

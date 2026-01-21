@@ -17,6 +17,16 @@ use tokio::sync::mpsc;
 use crate::vecmodel_ops::{UiMutation, VecModelOp, PropertyUpdate, UiQuery};
 use crate::lua_worker::LuaWorkerCommand;
 
+/// Request to open native file picker for asset upload
+///
+/// **Context**: Triggered by Slint button click via `pick_asset_file` callback
+/// **Security**: Only user-initiated UI actions can trigger this
+#[derive(Debug)]
+pub struct AssetPickRequest {
+    /// Filter type: "images" for image files, "all" for all files
+    pub filter: String,
+}
+
 /// Global API name - apps define their public interface via `export global AppAPI`
 const GLOBAL_API_NAME: &str = "AppAPI";
 
@@ -45,6 +55,9 @@ pub struct SlintRuntime {
 
     /// Channel to send tab switch requests (std::sync for Slint callback)
     tab_switch_tx: Option<std::sync::mpsc::Sender<String>>,
+
+    /// Channel to send asset pick requests (std::sync for Slint callback)
+    asset_pick_tx: Option<std::sync::mpsc::Sender<AssetPickRequest>>,
 }
 
 impl SlintRuntime {
@@ -129,6 +142,7 @@ impl SlintRuntime {
             query_rx,
             lua_tx,
             tab_switch_tx: None,
+            asset_pick_tx: None,
         };
 
         // Models are initialized via init_models() after load, passing manifest.models
@@ -170,6 +184,14 @@ impl SlintRuntime {
     /// **Context**: Called from app management to receive tab switch events
     pub fn set_tab_switch_channel(&mut self, tx: std::sync::mpsc::Sender<String>) {
         self.tab_switch_tx = Some(tx);
+    }
+
+    /// Set the channel for asset pick requests
+    ///
+    /// **Context**: Called from app management to receive asset upload requests
+    /// **Security**: Channel is triggered by Slint button click (user-initiated)
+    pub fn set_asset_pick_channel(&mut self, tx: std::sync::mpsc::Sender<AssetPickRequest>) {
+        self.asset_pick_tx = Some(tx);
     }
 
     /// Get or create a VecModel for a property
@@ -570,6 +592,46 @@ impl SlintRuntime {
             callback_count = callback_count,
             "AppAPI callbacks configured"
         );
+
+        // Asset file picker callback - triggers native file dialog
+        // This requires a user click in Slint (security: user-initiated only)
+        if let Some(ref tx) = self.asset_pick_tx {
+            let tx = tx.clone();
+            let page_id = self.page_id.clone();
+            match self.slint_instance.set_global_callback(GLOBAL_API_NAME, "pick_asset_file", move |args| {
+                let filter = args.first()
+                    .and_then(|v| v.clone().try_into().ok())
+                    .and_then(|v: slint::SharedString| Some(v.to_string()))
+                    .unwrap_or_else(|| "all".to_string());
+
+                tracing::info!(
+                    page_id = %page_id,
+                    filter = %filter,
+                    "Asset pick requested via AppAPI callback"
+                );
+
+                let _ = tx.send(AssetPickRequest { filter });
+                SlintValue::Void
+            }) {
+                Ok(_) => {
+                    tracing::debug!(
+                        page_id = %self.page_id,
+                        global = GLOBAL_API_NAME,
+                        callback = "pick_asset_file",
+                        "Asset picker callback configured"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        page_id = %self.page_id,
+                        global = GLOBAL_API_NAME,
+                        callback = "pick_asset_file",
+                        error = %e,
+                        "Asset picker callback registration failed (app may not define it)"
+                    );
+                }
+            }
+        }
 
         Ok(())
     }

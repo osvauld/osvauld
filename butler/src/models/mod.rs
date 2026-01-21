@@ -2,6 +2,7 @@
 //!
 //! Data models for storage and services.
 
+pub mod asset;
 pub mod identity;
 pub mod node;
 pub mod contact;
@@ -11,6 +12,7 @@ pub mod page;
 pub mod layer;
 pub mod query;
 
+pub use asset::{AssetMetadata, AssetRequest, AssetReady, AssetAck};
 pub use identity::*;
 pub use node::*;
 pub use contact::{ContactData, ContactType, DeviceInfo, ConnectionDeviceInfo};

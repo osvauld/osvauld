@@ -33,6 +33,8 @@ pub struct RunningApp {
     // Scribe → PeerActor channels (SubscriberInfo.ephemeral_tx)
     /// Receiver for tab switch requests
     pub tab_switch_rx: std::sync::mpsc::Receiver<String>,
+    /// Receiver for asset pick requests (triggered by Slint button click)
+    pub asset_pick_rx: std::sync::mpsc::Receiver<app_runtime::AssetPickRequest>,
 }
 
 /// Result of preparing a page for loading

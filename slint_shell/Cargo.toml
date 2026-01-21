@@ -17,11 +17,13 @@ butler = { path = "../butler" }
 courier = { path = "../courier" }
 app_runtime = { path = "../app_runtime" }
 logging_utils = { path = "../logging_utils" }
+control_server = { path = "../control_server" }
 arboard = "3"
 dirs = "5.0"
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 ractor = "0.14"
 rfd = "0.15"
+mime_guess = "2"
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

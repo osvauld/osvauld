@@ -30,7 +30,7 @@ mod layout_bindings;
 // New architecture exports
 pub use vecmodel_ops::{VecModelOp, UiMutation, PropertyUpdate, UiQuery};
 pub use lua_worker::{LuaWorker, LuaWorkerCommand};
-pub use slint_runtime::SlintRuntime;
+pub use slint_runtime::{SlintRuntime, AssetPickRequest};
 pub use slint_model_bindings::LuaSlintModel;
 pub use page_runtime::{generate_page_shell, write_shell_slint, AppTab};
 pub use event_bus::{EventBus, Event, EventSource, EventDelivery, SubscribeOptions, Recording};

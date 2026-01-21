@@ -58,21 +58,27 @@ pub async fn create_headless_runtime(
 
 /// Add mock UI binding to HeadlessRuntime
 ///
-/// **Context**: App Lua code calls ui:set() for UI updates
-/// **Mock**: Provides a no-op binding that logs calls but doesn't fail
+/// **Context**: App Lua code calls ui:set()/ui:get() for UI operations
+/// **Mock**: Provides in-memory storage so apps work in headless mode
 fn add_mock_ui_binding(runtime: &HeadlessRuntime) -> Result<(), String> {
     let lua = runtime.lua();
 
-    // Create mock ui table with set method that does nothing
+    // Create mock ui table with get/set methods using in-memory storage
     lua.load(
         r#"
+        local ui_storage = {}
         ui = {
             set = function(self, key, value)
-                -- No-op in headless mode, just log
-                if log_info then
-                    log_info("[UI] set " .. tostring(key))
-                end
-            end
+                ui_storage[key] = value
+            end,
+            get = function(self, key)
+                return ui_storage[key]
+            end,
+            push = function(self, model, item) end,
+            insert = function(self, model, index, item) end,
+            remove = function(self, model, index) end,
+            clear = function(self, model) end,
+            update = function(self, model, index, item) end,
         }
         "#,
     )

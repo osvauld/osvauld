@@ -65,9 +65,6 @@ export global AppAPI {
     in-out property<bool> form_modal_visible: false;
     in-out property<int> current_tab: 0;
 
-    // Callbacks
-    callback update_order_status(string, string, string);
-
     // Event Bus callbacks (unified event flow for human/AI)
     callback on_click(string);                           // target element ID
     callback on_field_changed(string, string);           // field name, new value
@@ -340,7 +337,7 @@ export component App inherits Rectangle {
                                 }
 
                                 TouchArea {
-                                    clicked => { AppAPI.update_order_status(order.customer_did, order.id, "confirmed"); }
+                                    clicked => { AppAPI.on_click("update_order_status:" + order.customer-did + ":" + order.id + ":confirmed"); }
                                 }
                             }
 
@@ -360,7 +357,7 @@ export component App inherits Rectangle {
                                 }
 
                                 TouchArea {
-                                    clicked => { AppAPI.update_order_status(order.customer_did, order.id, "shipped"); }
+                                    clicked => { AppAPI.on_click("update_order_status:" + order.customer-did + ":" + order.id + ":shipped"); }
                                 }
                             }
 
@@ -380,7 +377,7 @@ export component App inherits Rectangle {
                                 }
 
                                 TouchArea {
-                                    clicked => { AppAPI.update_order_status(order.customer_did, order.id, "delivered"); }
+                                    clicked => { AppAPI.on_click("update_order_status:" + order.customer-did + ":" + order.id + ":delivered"); }
                                 }
                             }
 
@@ -400,7 +397,7 @@ export component App inherits Rectangle {
                                 }
 
                                 TouchArea {
-                                    clicked => { AppAPI.update_order_status(order.customer_did, order.id, "cancelled"); }
+                                    clicked => { AppAPI.on_click("update_order_status:" + order.customer-did + ":" + order.id + ":cancelled"); }
                                 }
                             }
                         }

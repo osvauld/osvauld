@@ -10,8 +10,8 @@ use std::sync::Arc;
 use butler::{Butler, RedbStore, LayerCache};
 use tokio::sync::RwLock;
 
-mod debug_server;
-use debug_server::{KunkiDebugServer, NodeState};
+mod control_server;
+use control_server::{KunkiControlServer, NodeState};
 
 // Transport and Courier for P2P
 use courier::{Courier, CourierEvent, CourierMode, HandshakeServices};
@@ -104,13 +104,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize Butler's RedbStore for storage
     // Check for STHALAM_DATA_DIR env var (like slint_shell does for test automation)
-    let db_path = if let Ok(data_dir) = std::env::var("STHALAM_DATA_DIR") {
-        let dir = std::path::PathBuf::from(&data_dir);
+    let (db_path, data_dir): (std::path::PathBuf, std::path::PathBuf) = if let Ok(data_dir_str) = std::env::var("STHALAM_DATA_DIR") {
+        let dir = std::path::PathBuf::from(&data_dir_str);
         std::fs::create_dir_all(&dir).expect("Failed to create data directory");
-        dir.join(format!("{}.db", cli.db_path))
+        (dir.join(format!("{}.db", cli.db_path)), dir)
     } else {
-        // Default: use db_path directly with .db extension
-        std::path::PathBuf::from(format!("{}.db", cli.db_path))
+        // Default: use db_path directly with .db extension, assets in current dir
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        (std::path::PathBuf::from(format!("{}.db", cli.db_path)), current_dir)
     };
     info!("Using database: {:?}", db_path);
 
@@ -132,7 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Start { passphrase, debug_socket } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
-            handle_start(&pass, redb_store.clone(), debug_socket).await?;
+            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir).await?;
         }
         Commands::FolderToken {
             passphrase,
@@ -178,6 +179,7 @@ async fn handle_start(
     passphrase: &str,
     redb_store: Arc<RedbStore>,
     debug_socket: Option<String>,
+    data_dir: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists in Butler
     if !butler::is_signed_up(&redb_store)? {
@@ -194,9 +196,11 @@ async fn handle_start(
     info!("✔ Logged in as: {}", identity_data.username);
     info!("✔ DID: {}", identity.did());
 
-    // Create Butler with LayerCache and set identity
+    // Create Butler with LayerCache, AssetStore and set identity
     let layer_cache = Arc::new(RwLock::new(LayerCache::new(redb_store.clone(), 100)));
-    let butler = Arc::new(Butler::new(redb_store.clone(), layer_cache));
+    let assets_path = data_dir.join("assets");
+    let asset_store = Arc::new(butler::AssetStore::new(&assets_path).expect("Failed to create asset store"));
+    let butler = Arc::new(Butler::new(redb_store.clone(), layer_cache, asset_store));
     butler.set_identity(identity.clone()).await;
 
 
@@ -222,9 +226,9 @@ async fn handle_start(
     }
 
     // Start debug server if requested (keep reference for updating state later)
-    let debug_server_arc: Option<Arc<KunkiDebugServer>> = if let Some(ref socket_path) = debug_socket {
+    let debug_server_arc: Option<Arc<KunkiControlServer>> = if let Some(ref socket_path) = debug_socket {
         let socket_path = PathBuf::from(socket_path);
-        let debug_server = Arc::new(KunkiDebugServer::new(socket_path.clone(), "kunki".to_string(), Some(butler.clone())));
+        let debug_server = Arc::new(KunkiControlServer::new(socket_path.clone(), "kunki".to_string(), Some(butler.clone())));
 
         // Set initial state (connection_string will be updated after generation)
         debug_server.set_state(NodeState {
@@ -260,8 +264,7 @@ async fn handle_start(
         Some(handshake_services),
     );
 
-    // Start accepting connections
-    transport.start_accepting();
+    // Note: Router starts accepting connections automatically when Transport::init() is called
 
     // Spawn Courier event processor
     tokio::spawn(async move {

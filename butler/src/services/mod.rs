@@ -3,6 +3,7 @@ pub mod space_service;
 pub mod page_service;
 pub mod publish_service;
 pub mod app_service;
+pub mod asset_service;
 pub(crate) mod node_service;
 pub(crate) mod contact_service;
 pub mod auth_service;

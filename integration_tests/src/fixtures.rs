@@ -25,6 +25,10 @@ pub const EXTENDED_SYNC_DELAY: Duration = Duration::from_millis(3000);
 /// This must be >= 10 seconds to ensure dirty layers are persisted
 pub const STORAGE_FLUSH_DELAY: Duration = Duration::from_millis(11000);
 
+/// Timeout for asset blob transfer (metadata sync + blob download)
+/// Asset sync flow: SyncOffer → SyncAck → AssetPrepare → AssetReady → AssetAck
+pub const ASSET_SYNC_DELAY: Duration = Duration::from_millis(5000);
+
 // =============================================================================
 // Test template for space creation
 // =============================================================================
@@ -53,7 +57,7 @@ pub const TEST_SPACE_TEMPLATE: &str = r#"{
         "auth_capabilities": { "can_connect": true, "persist_share": true, "can_delegate": false, "sync_enabled": true },
         "relationship": "node",
         "issue_on": {
-          "space_request": {
+          "viewer": {
             "token_type": "space_viewer",
             "peer_capabilities": { "relay": false, "share": false, "accept_publish": false },
             "operations": { "request_pages": "allow", "get_share_link": "allow" },
@@ -92,6 +96,9 @@ pub const TEST_PAGE_TEMPLATE: &str = r#"{
       "submissions_doc": { "sync": true, "write": true, "type": "crdt" },
       "static_assets": { "sync": true, "write": true, "type": "asset" }
     },
+    "layer_patterns": {
+      "{page_id}/assets": { "create": true, "sync": true }
+    },
     "sync": { "local_only": ["user_content_doc"] },
     "issue_on": {
       "node": {
@@ -106,11 +113,14 @@ pub const TEST_PAGE_TEMPLATE: &str = r#"{
           "submissions_doc": { "sync": true, "write": true, "type": "crdt" },
           "static_assets": { "sync": true, "write": true, "type": "asset" }
         },
+        "layer_patterns": {
+          "{page_id}/assets": { "create": true, "sync": true }
+        },
         "sync": { "local_only": ["user_content_doc"] },
         "auth_capabilities": { "can_connect": true, "persist_share": true, "can_delegate": false, "sync_enabled": true },
         "relationship": "node",
         "issue_on": {
-          "page_request": {
+          "viewer": {
             "token_type": "page_viewer",
             "peer_capabilities": { "relay": false, "share": false, "accept_publish": false },
             "operations": {},
@@ -120,6 +130,9 @@ pub const TEST_PAGE_TEMPLATE: &str = r#"{
               "collaborative_doc": { "sync": true, "write": true, "type": "crdt" },
               "submissions_doc": { "sync": true, "write": true, "type": "crdt" },
               "static_assets": { "sync": true, "write": false, "type": "asset" }
+            },
+            "layer_patterns": {
+              "{page_id}/assets": { "create": false, "sync": true }
             },
             "sync": { "local_only": ["user_content_doc"], "no_incoming_updates": ["submissions_doc"], "send_full_snapshot": ["submissions_doc"] },
             "auth_capabilities": { "can_connect": true, "persist_share": false, "can_delegate": false, "sync_enabled": false },
@@ -137,6 +150,9 @@ pub const TEST_PAGE_TEMPLATE: &str = r#"{
           "collaborative_doc": { "sync": true, "write": true, "type": "crdt" },
           "submissions_doc": { "sync": true, "write": true, "type": "crdt" },
           "static_assets": { "sync": true, "write": false, "type": "asset" }
+        },
+        "layer_patterns": {
+          "{page_id}/assets": { "create": false, "sync": true }
         },
         "sync": { "local_only": ["user_content_doc"], "no_incoming_updates": ["submissions_doc"], "send_full_snapshot": ["submissions_doc"] },
         "auth_capabilities": { "can_connect": true, "persist_share": false, "can_delegate": false, "sync_enabled": false },

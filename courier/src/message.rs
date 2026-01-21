@@ -112,6 +112,48 @@ pub enum Message {
         state_vector: Vec<u8>,
     },
 
+    // ==================== Asset Sync (iroh-blobs) ====================
+
+    /// Request peer to prepare an asset for transfer
+    ///
+    /// **Context**: After syncing `{page_id}/assets` layer via Loro, receiver
+    /// finds assets in metadata that are missing locally
+    /// **Flow**: AssetPrepare → (peer decrypts, adds to blob store) → AssetReady
+    AssetPrepare {
+        /// Page containing the asset
+        page_id: String,
+        /// Blake3 hash of the asset (from AssetMetadata)
+        hash: String,
+    },
+
+    /// Notification that asset blob is ready for download
+    ///
+    /// **Context**: Peer decrypted asset from local storage, added to iroh-blobs store
+    /// **Receiver**: Downloads via iroh-blobs using iroh_hash, verifies, encrypts, stores
+    AssetReady {
+        /// Page containing the asset
+        page_id: String,
+        /// Blake3 hash of the asset (matches AssetPrepare request)
+        hash: String,
+        /// iroh-blobs hash for download (32 bytes)
+        iroh_hash: [u8; 32],
+    },
+
+    /// Asset transfer acknowledgment
+    ///
+    /// **Context**: Receiver downloaded, verified, and stored the asset
+    /// **Sender**: Can cleanup temporary blob from iroh-blobs store
+    AssetAck {
+        /// Page containing the asset
+        page_id: String,
+        /// Blake3 hash of the asset
+        hash: String,
+        /// Whether transfer was successful
+        success: bool,
+        /// Error message if failed
+        error: Option<String>,
+    },
+
     // ==================== Publishing (Owner → Node) ====================
 
     /// Owner publishes a space to node (send first)
@@ -333,6 +375,9 @@ impl Message {
             Message::SyncOffer { .. } => "SyncOffer",
             Message::SyncAccept { .. } => "SyncAccept",
             Message::SyncAck { .. } => "SyncAck",
+            Message::AssetPrepare { .. } => "AssetPrepare",
+            Message::AssetReady { .. } => "AssetReady",
+            Message::AssetAck { .. } => "AssetAck",
             Message::PublishSpace { .. } => "PublishSpace",
             Message::PublishSpaceAck { .. } => "PublishSpaceAck",
             Message::PublishPage { .. } => "PublishPage",

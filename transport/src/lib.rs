@@ -4,30 +4,47 @@
 //! It handles connections, streams, and length-prefixed byte framing.
 //!
 //! **Transport has NO protocol knowledge.** It only sends/receives raw bytes.
-//! Message types and serialization live in the protocol layer (courier2).
+//! Message types and serialization live in the protocol layer (courier).
 //!
 //! # Architecture
 //!
-//! - **Transport**: Main API, owns endpoint and connection pool
+//! - **Transport**: Main API, owns Router and connection pool
+//! - **Router**: Dispatches incoming connections based on ALPN
+//! - **OsvaualdProtocol**: ProtocolHandler for our "osvauld/p2p/1" ALPN
 //! - **ConnectionPool**: Manages active connections
 //! - **ConnectionHandle**: Lightweight reference for sending bytes
 //! - **TransportEvent**: Events emitted to protocol layer via channel
+//!
+//! # Multi-ALPN Support
+//!
+//! The Router pattern allows handling multiple protocols on the same endpoint:
+//! - `osvauld/p2p/1` - Our protocol messages (Hello, SyncOffer, etc.)
+//! - `iroh-blobs` - Binary asset transfers (for asset sync)
 
 pub mod events;
 pub mod pool;
+pub mod protocol;
 
 pub use events::TransportEvent;
 pub use pool::{ConnectionHandle, ConnectionPool, MockSender, MockSendEvent};
+pub use protocol::OsvaualdProtocol;
 
 // Re-export iroh types so consumers don't need direct iroh dependency
-pub use iroh::NodeId;
+// Note: iroh 0.95 renamed NodeId to EndpointId, we re-export as NodeId for compatibility
+pub use iroh::EndpointId as NodeId;
+// Re-export iroh-blobs Hash type for asset transfers
+pub use iroh_blobs::Hash as BlobHash;
 
 use anyhow::{anyhow, Result};
 use iroh::endpoint::Connection;
-use iroh::{Endpoint, NodeAddr, RelayMode, SecretKey, Watcher};
+use iroh::protocol::Router;
+use iroh::{Endpoint, EndpointAddr, RelayMode, SecretKey};
+use iroh_blobs::store::mem::MemStore;
+use iroh_blobs::BlobsProtocol;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 /// ALPN protocol identifier for Osvauld P2P
 pub const ALPN_PROTOCOL: &[u8] = b"osvauld/p2p/1";
@@ -39,6 +56,8 @@ pub struct TransportConfig {
     pub secret_key: [u8; 32],
     /// Channel buffer size for events
     pub event_buffer_size: usize,
+    /// Data directory for blob storage (optional, uses MemStore if None)
+    pub data_dir: Option<PathBuf>,
 }
 
 impl TransportConfig {
@@ -46,11 +65,17 @@ impl TransportConfig {
         Self {
             secret_key,
             event_buffer_size: 256,
+            data_dir: None,
         }
     }
 
     pub fn with_event_buffer_size(mut self, size: usize) -> Self {
         self.event_buffer_size = size;
+        self
+    }
+
+    pub fn with_data_dir(mut self, dir: PathBuf) -> Self {
+        self.data_dir = Some(dir);
         self
     }
 }
@@ -59,40 +84,79 @@ impl TransportConfig {
 ///
 /// Provides the API for P2P networking. Courier receives events via the
 /// mpsc channel returned from `init()`.
+///
+/// Uses iroh's Router pattern to dispatch connections based on ALPN:
+/// - "osvauld/p2p/1" → OsvaualdProtocol (our messages)
+/// - "iroh-blobs/v1" → BlobsProtocol (asset transfers)
 pub struct Transport {
-    endpoint: Arc<Endpoint>,
+    router: Router,
     pool: Arc<ConnectionPool>,
     event_tx: mpsc::Sender<TransportEvent>,
+    /// Blob store for asset transfers (iroh-blobs)
+    blob_store: MemStore,
 }
 
 impl Transport {
-    /// Initialize the transport layer
+    /// Initialize the transport layer with Router pattern
     ///
     /// Returns the Transport and a receiver for TransportEvents.
     /// The caller (Courier) should spawn a task to process events.
+    ///
+    /// **Router Setup**:
+    /// - Binds endpoint with our ALPN + iroh-blobs ALPN
+    /// - Creates OsvaualdProtocol handler for our messages
+    /// - Creates BlobsProtocol handler for asset transfers
+    /// - Router automatically dispatches based on ALPN
     pub async fn init(config: TransportConfig) -> Result<(Self, mpsc::Receiver<TransportEvent>)> {
         let secret_key = SecretKey::from(config.secret_key);
 
         info!("Initializing transport layer");
 
+        // Initialize blob store (MemStore for now, FsStore later if data_dir provided)
+        let blob_store = MemStore::new();
+        info!("Blob store initialized (MemStore)");
+
+        // Build the endpoint with both ALPNs
         let endpoint = Endpoint::builder()
             .secret_key(secret_key)
-            .discovery_n0()
             .relay_mode(RelayMode::Default)
-            .alpns(vec![ALPN_PROTOCOL.to_vec()])
+            .alpns(vec![
+                ALPN_PROTOCOL.to_vec(),
+                iroh_blobs::ALPN.to_vec(),
+            ])
             .bind()
             .await
             .map_err(|e| anyhow!("Failed to bind endpoint: {}", e))?;
 
-        let node_id = endpoint.node_id();
+        // Wait for endpoint to come online (establishes relay connection)
+        endpoint.online().await;
+
+        let node_id = endpoint.id();
         info!("Transport bound with node_id: {}", node_id);
 
         let (event_tx, event_rx) = mpsc::channel(config.event_buffer_size);
+        let pool = Arc::new(ConnectionPool::new());
+
+        // Create our protocol handler
+        let osvauld_protocol = OsvaualdProtocol::new(pool.clone(), event_tx.clone());
+
+        // Create blobs protocol handler for asset transfers
+        let blobs_protocol = BlobsProtocol::new(&blob_store, None);
+
+        // Build Router - dispatches incoming connections based on ALPN
+        // Router::spawn() starts accepting connections automatically
+        let router = Router::builder(endpoint)
+            .accept(ALPN_PROTOCOL, osvauld_protocol)
+            .accept(iroh_blobs::ALPN, blobs_protocol)
+            .spawn();
+
+        info!("Router started with osvauld + blobs protocols");
 
         let transport = Self {
-            endpoint: Arc::new(endpoint),
-            pool: Arc::new(ConnectionPool::new()),
+            router,
+            pool,
             event_tx,
+            blob_store,
         };
 
         Ok((transport, event_rx))
@@ -100,25 +164,20 @@ impl Transport {
 
     /// Get this node's NodeId
     pub fn node_id(&self) -> NodeId {
-        self.endpoint.node_id()
+        self.router.endpoint().id()
     }
 
     /// Get the endpoint's home relay URLs if available
     pub fn relay_urls(&self) -> Vec<String> {
-        let mut watcher = self.endpoint.home_relay();
-        watcher.get().iter().map(|url| url.to_string()).collect()
+        let addr = self.router.endpoint().addr();
+        addr.relay_urls().map(|url| url.to_string()).collect()
     }
 
-    /// Start accepting incoming connections
+    /// Get reference to the underlying endpoint
     ///
-    /// This spawns a background task that accepts connections and emits events.
-    /// Messages are read from streams and emitted as TransportEvent::Message.
-    pub fn start_accepting(&self) {
-        let endpoint = self.endpoint.clone();
-        let pool = self.pool.clone();
-        let event_tx = self.event_tx.clone();
-
-        tokio::spawn(run_accept_loop(endpoint, pool, event_tx));
+    /// Useful for advanced operations like adding discovery services
+    pub fn endpoint(&self) -> &Endpoint {
+        self.router.endpoint()
     }
 
     /// Connect to a peer by NodeId
@@ -131,12 +190,13 @@ impl Transport {
             return Ok(handle);
         }
 
-        let node_addr = NodeAddr::new(node_id);
+        let endpoint_addr = EndpointAddr::from(node_id);
         info!("Connecting to: {}", node_id);
 
         let conn = self
-            .endpoint
-            .connect(node_addr, ALPN_PROTOCOL)
+            .router
+            .endpoint()
+            .connect(endpoint_addr, ALPN_PROTOCOL)
             .await
             .map_err(|e| anyhow!("Failed to connect: {}", e))?;
 
@@ -154,7 +214,7 @@ impl Transport {
             })
             .await;
 
-        // Spawn disconnect watcher - no read loop (PeerSession owns reading)
+        // Spawn disconnect watcher
         let event_tx = self.event_tx.clone();
         let pool = self.pool.clone();
         tokio::spawn(connection_close_watcher(conn, node_id, event_tx, pool));
@@ -177,13 +237,14 @@ impl Transport {
         let relay = relay_url
             .parse()
             .map_err(|e| anyhow!("Invalid relay URL: {}", e))?;
-        let node_addr = NodeAddr::new(node_id).with_relay_url(relay);
+        let endpoint_addr = EndpointAddr::from(node_id).with_relay_url(relay);
 
         info!("Connecting to {} via relay {}", node_id, relay_url);
 
         let conn = self
-            .endpoint
-            .connect(node_addr, ALPN_PROTOCOL)
+            .router
+            .endpoint()
+            .connect(endpoint_addr, ALPN_PROTOCOL)
             .await
             .map_err(|e| anyhow!("Failed to connect: {}", e))?;
 
@@ -201,7 +262,7 @@ impl Transport {
             })
             .await;
 
-        // Spawn disconnect watcher - no read loop (PeerSession owns reading)
+        // Spawn disconnect watcher
         let event_tx = self.event_tx.clone();
         let pool = self.pool.clone();
         tokio::spawn(connection_close_watcher(conn, node_id, event_tx, pool));
@@ -262,92 +323,98 @@ impl Transport {
         let peers = self.pool.peers().await;
         self.broadcast_bytes(&peers, data).await;
     }
-}
 
-// ============================================================================
-// Connection Acceptance - Flattened Helper Functions
-// ============================================================================
+    // ========================================================================
+    // Blob Operations (iroh-blobs)
+    // ========================================================================
 
-/// Main accept loop - runs until endpoint is closed
-async fn run_accept_loop(
-    endpoint: Arc<Endpoint>,
-    pool: Arc<ConnectionPool>,
-    event_tx: mpsc::Sender<TransportEvent>,
-) {
-    info!("Started accepting connections");
-
-    while let Some(incoming) = endpoint.accept().await {
-        let pool = pool.clone();
-        let event_tx = event_tx.clone();
-        tokio::spawn(handle_incoming_connection(incoming, pool, event_tx));
+    /// Add plaintext bytes to blob store for transfer
+    ///
+    /// **Context**: Preparing asset for peer to download
+    /// **Returns**: iroh-blobs Hash (blake3) for the blob
+    pub async fn add_blob(&self, data: &[u8]) -> Result<iroh_blobs::Hash> {
+        let tag = self.blob_store
+            .add_slice(data.to_vec())
+            .await
+            .map_err(|e| anyhow!("Failed to add blob: {}", e))?;
+        info!(hash = %tag.hash, size = data.len(), "Added blob to store");
+        Ok(tag.hash)
     }
 
-    warn!("Connection acceptor stopped");
-}
+    /// Download blob from a peer
+    ///
+    /// **Context**: Peer has prepared a blob, we fetch it via iroh-blobs
+    /// **Flow**: Connect to peer with blobs ALPN, stream download, verify hash
+    pub async fn download_blob(&self, hash: iroh_blobs::Hash, from_node: NodeId) -> Result<Vec<u8>> {
+        info!(hash = %hash, from = %from_node, "Downloading blob from peer");
 
-/// Handle a single incoming connection attempt
-async fn handle_incoming_connection(
-    incoming: iroh::endpoint::Incoming,
-    pool: Arc<ConnectionPool>,
-    event_tx: mpsc::Sender<TransportEvent>,
-) {
-    let connecting = match incoming.accept() {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Failed to accept incoming: {}", e);
-            return;
-        }
-    };
+        // Create downloader and fetch from peer
+        let downloader = self.blob_store.downloader(self.router.endpoint());
+        downloader
+            .download(hash, Some(from_node))
+            .await
+            .map_err(|e| anyhow!("Blob download failed: {}", e))?;
 
-    let conn = match connecting.await {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Connection failed: {}", e);
-            return;
-        }
-    };
+        // Read from local store after download completes
+        let bytes = self.get_blob(hash).await?;
+        info!(hash = %hash, size = bytes.len(), "Blob downloaded successfully");
+        Ok(bytes)
+    }
 
-    setup_accepted_connection(conn, pool, event_tx).await;
-}
+    /// Get blob bytes from local store
+    ///
+    /// **Context**: Blob already exists locally (uploaded or downloaded)
+    pub async fn get_blob(&self, hash: iroh_blobs::Hash) -> Result<Vec<u8>> {
+        let bytes = self.blob_store
+            .blobs()
+            .get_bytes(hash)
+            .await
+            .map_err(|e| anyhow!("Failed to read blob: {}", e))?;
+        Ok(bytes.to_vec())
+    }
 
-/// Setup a successfully accepted connection
-///
-/// **Context**: Called when a new QUIC connection is established
-/// **We do**: Store handle in pool, emit Connected event, spawn disconnect watcher
-/// **Consumer does**: Spawn PeerSession with ConnectionHandle for reading/writing
-async fn setup_accepted_connection(
-    conn: Connection,
-    pool: Arc<ConnectionPool>,
-    event_tx: mpsc::Sender<TransportEvent>,
-) {
-    let node_id = conn.remote_node_id().expect("should have remote node id");
-    info!("Accepted connection from: {}", node_id);
+    /// Check if a blob exists in local store
+    pub async fn has_blob(&self, hash: iroh_blobs::Hash) -> bool {
+        self.blob_store
+            .blobs()
+            .has(hash)
+            .await
+            .unwrap_or(false)
+    }
 
-    let handle = ConnectionHandle::new(conn.clone(), node_id);
-    pool.insert(handle.clone()).await;
+    /// Remove blob from local store (cleanup after transfer)
+    ///
+    /// **Context**: Asset transfer complete, remove temporary blob
+    /// **Note**: MemStore auto-cleans via reference counting, this is a no-op for now
+    pub async fn remove_blob(&self, _hash: iroh_blobs::Hash) -> Result<()> {
+        // MemStore uses reference counting - blobs are cleaned when tags are dropped
+        // For FsStore we'd need explicit deletion via the store API
+        // For now this is a no-op since MemStore handles cleanup automatically
+        Ok(())
+    }
 
-    // Emit Connected - consumer (SessionManager) will spawn PeerSession
-    let _ = event_tx
-        .send(TransportEvent::Connected {
-            node_id,
-            conn: handle,
-        })
-        .await;
-
-    // Spawn disconnect watcher - just monitors connection close, no read loop
-    // PeerSession owns all actual reading via the ConnectionHandle
-    tokio::spawn(connection_close_watcher(conn, node_id, event_tx, pool));
+    /// Gracefully shutdown the transport
+    ///
+    /// Closes all connections and stops the router.
+    pub async fn shutdown(self) -> Result<()> {
+        info!("Shutting down transport");
+        self.router
+            .shutdown()
+            .await
+            .map_err(|e| anyhow!("Shutdown failed: {}", e))?;
+        info!("Transport shutdown complete");
+        Ok(())
+    }
 }
 
 // ============================================================================
-// Connection Lifecycle - No Read Loops (PeerSession owns reading)
+// Connection Lifecycle Helper
 // ============================================================================
 
 /// Watch for connection close and emit Disconnected event
 ///
-/// **Context**: Transport no longer has read loops - PeerSession owns reading
-/// **We do**: Just wait for the connection to close, then cleanup
-/// **Note**: This is a lightweight watcher, not a read loop
+/// **Context**: Monitors connection lifecycle for outgoing connections
+/// **We do**: Wait for close, then cleanup pool and emit event
 async fn connection_close_watcher(
     conn: Connection,
     node_id: NodeId,
@@ -363,6 +430,66 @@ async fn connection_close_watcher(
         .send(TransportEvent::Disconnected { node_id })
         .await;
     info!("Disconnected from: {}", node_id);
+}
+
+// ============================================================================
+// Mock Blob Store (for testing without real iroh-blobs)
+// ============================================================================
+
+/// Mock blob store for testing asset transfer without real iroh-blobs infrastructure
+///
+/// **Context**: Integration tests use MockTransport which doesn't have real networking.
+/// This provides a shared in-memory blob store that simulates the P2P blob network.
+///
+/// **Usage**:
+/// - All test peers share the same MockBlobStore instance
+/// - When peer A adds a blob, peer B can download it (simulates P2P transfer)
+#[derive(Debug, Default)]
+pub struct MockBlobStore {
+    blobs: std::sync::RwLock<std::collections::HashMap<[u8; 32], Vec<u8>>>,
+}
+
+impl MockBlobStore {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            blobs: std::sync::RwLock::new(std::collections::HashMap::new()),
+        })
+    }
+
+    /// Add a blob to the store (simulates Transport::add_blob)
+    ///
+    /// Returns the blake3 hash as a 32-byte array.
+    pub fn add_blob(&self, data: &[u8]) -> [u8; 32] {
+        let hash = blake3::hash(data);
+        let hash_bytes: [u8; 32] = *hash.as_bytes();
+
+        let mut blobs = self.blobs.write().expect("blob store lock poisoned");
+        blobs.insert(hash_bytes, data.to_vec());
+
+        debug!(hash = %hash, size = data.len(), "MockBlobStore: added blob");
+        hash_bytes
+    }
+
+    /// Download a blob from the store (simulates Transport::download_blob)
+    ///
+    /// In real iroh, this fetches from a specific peer.
+    /// In mock, we just return from the shared store.
+    pub fn download_blob(&self, hash: &[u8; 32]) -> Option<Vec<u8>> {
+        let blobs = self.blobs.read().expect("blob store lock poisoned");
+        let result = blobs.get(hash).cloned();
+
+        if result.is_some() {
+            debug!(hash = %hex::encode(hash), "MockBlobStore: blob downloaded");
+        }
+
+        result
+    }
+
+    /// Check if a blob exists
+    pub fn has_blob(&self, hash: &[u8; 32]) -> bool {
+        let blobs = self.blobs.read().expect("blob store lock poisoned");
+        blobs.contains_key(hash)
+    }
 }
 
 #[cfg(test)]
