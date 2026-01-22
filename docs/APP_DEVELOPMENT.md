@@ -25,10 +25,13 @@ my-app/
     "version": "1.0.0",
     "description": "A simple osvauld app",
     "entry_ui": "app.slint",
-    "entry_logic": "app.lua",
-    "models": ["items"]
+    "entry_logic": "app.lua"
 }
 ```
+
+**Optional fields:**
+- `models`: Pre-declare VecModels (optional - created lazily when first used)
+- `tick_enabled`: Set to `true` for games/animations that use `tick()` callback
 
 ### 2. Define UI (app.slint)
 
@@ -247,7 +250,8 @@ api.describe("function_name", {
 function on_init()
 end
 
--- Called every frame (for games/animations)
+-- Called every frame (~60fps) for games/animations
+-- Requires "tick_enabled": true in manifest.json
 function tick()
 end
 

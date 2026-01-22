@@ -706,9 +706,20 @@ impl Butler {
     /// Update an existing app from a directory
     ///
     /// **Context**: Development workflow - update app with new version
-    /// **We do**: Delegate to app_service::update_app_from_directory
+    /// **We do**: Read manifest, delegate to app_service::refresh_app_from_directory
     pub async fn update_app(&self, page_id: &str, app_dir: &Path) -> Result<()> {
-        services::app_service::update_app_from_directory(self, page_id, app_dir).await
+        // Read manifest to get app name
+        let manifest_path = app_dir.join("manifest.json");
+        let manifest_content = std::fs::read_to_string(&manifest_path)
+            .map_err(|e| ButlerError::Storage(format!("Failed to read manifest.json: {}", e)))?;
+        let manifest: serde_json::Value = serde_json::from_str(&manifest_content)
+            .map_err(|e| ButlerError::Serialization(format!("Invalid manifest.json: {}", e)))?;
+        let app_name = manifest.get("name")
+            .and_then(|n| n.as_str())
+            .ok_or_else(|| ButlerError::Storage("manifest.json missing 'name' field".to_string()))?;
+
+        services::app_service::refresh_app_from_directory(self, page_id, app_name, app_dir).await?;
+        Ok(())
     }
 
     /// Import a page directory containing multiple apps

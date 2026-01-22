@@ -371,35 +371,6 @@ pub async fn add_app_to_page(
     Ok(app_name.to_string())
 }
 
-/// Update an existing app by overwriting its files (legacy - use refresh_app_from_directory)
-#[deprecated(note = "Use refresh_app_from_directory instead")]
-pub async fn update_app_from_directory(
-    butler: &Butler,
-    page_id: &str,
-    app_dir: &Path,
-) -> Result<()> {
-    // Read manifest to get app name
-    let manifest_path = app_dir.join("manifest.json");
-    let manifest_content = std::fs::read_to_string(&manifest_path)
-        .map_err(|e| ButlerError::Storage(
-            format!("Failed to read manifest.json: {}", e)
-        ))?;
-
-    let manifest: serde_json::Value = serde_json::from_str(&manifest_content)
-        .map_err(|e| ButlerError::Serialization(
-            format!("Invalid manifest.json: {}", e)
-        ))?;
-
-    let app_name = manifest.get("name")
-        .and_then(|n| n.as_str())
-        .ok_or_else(|| ButlerError::Storage(
-            "manifest.json missing 'name' field".to_string()
-        ))?;
-
-    refresh_app_from_directory(butler, page_id, app_name, app_dir).await?;
-    Ok(())
-}
-
 // ============================================================================
 // Page-level import (directory containing multiple apps)
 // ============================================================================

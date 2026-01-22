@@ -351,11 +351,15 @@ impl SlintRuntime {
     /// Apply single VecModel operation to AppAPI global model
     ///
     /// **Triggers**: ModelNotify events (row_added, row_removed, row_changed)
-    fn apply_vecmodel_op(&self, op: VecModelOp) -> Result<(), Box<dyn std::error::Error>> {
+    fn apply_vecmodel_op(&mut self, op: VecModelOp) -> Result<(), Box<dyn std::error::Error>> {
         use VecModelOp::*;
 
         match op {
             Push { model_name, item } => {
+                // Lazy model creation - create if not exists
+                if !self.global_models.contains_key(&model_name) {
+                    self.get_or_create_model(&model_name);
+                }
                 let model = match self.global_models.get(&model_name) {
                     Some(m) => m,
                     None => {
@@ -364,7 +368,7 @@ impl SlintRuntime {
                             global = GLOBAL_API_NAME,
                             model = %model_name,
                             available_models = ?self.global_models.keys().collect::<Vec<_>>(),
-                            "Model not found for Push operation"
+                            "Model not found for Push operation (lazy creation failed)"
                         );
                         return Err(format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name).into());
                     }
@@ -444,6 +448,10 @@ impl SlintRuntime {
                 }
             }
             Clear { model_name } => {
+                // Lazy model creation - create if not exists
+                if !self.global_models.contains_key(&model_name) {
+                    self.get_or_create_model(&model_name);
+                }
                 let model = match self.global_models.get(&model_name) {
                     Some(m) => m,
                     None => {
@@ -452,7 +460,7 @@ impl SlintRuntime {
                             global = GLOBAL_API_NAME,
                             model = %model_name,
                             available_models = ?self.global_models.keys().collect::<Vec<_>>(),
-                            "Model not found for Clear operation"
+                            "Model not found for Clear operation (lazy creation failed)"
                         );
                         return Err(format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name).into());
                     }

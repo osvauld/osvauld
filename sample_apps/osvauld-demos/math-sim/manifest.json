@@ -4,5 +4,5 @@
     "description": "Particle physics simulation with real-time FPS counter",
     "entry_ui": "app.slint",
     "entry_logic": "app.lua",
-    "models": ["sim_config", "sim_state"]
+    "tick_enabled": true
 }
