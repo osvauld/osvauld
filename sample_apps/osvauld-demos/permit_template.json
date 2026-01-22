@@ -52,6 +52,26 @@
                 "type": "map",
                 "sync": true,
                 "write": true
+            },
+            "app:Group Chat": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "app:Snake Game": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "app:Math Simulation": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "app:Landing": {
+                "type": "map",
+                "sync": true,
+                "write": true
             }
         },
         "issue_on": {
@@ -103,6 +123,26 @@
                         "write": true
                     },
                     "app:Demos": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
+                    },
+                    "app:Group Chat": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
+                    },
+                    "app:Snake Game": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
+                    },
+                    "app:Math Simulation": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
+                    },
+                    "app:Landing": {
                         "type": "map",
                         "sync": true,
                         "write": false
@@ -164,6 +204,26 @@
                                 "write": true
                             },
                             "app:Demos": {
+                                "type": "map",
+                                "sync": true,
+                                "write": false
+                            },
+                            "app:Group Chat": {
+                                "type": "map",
+                                "sync": true,
+                                "write": false
+                            },
+                            "app:Snake Game": {
+                                "type": "map",
+                                "sync": true,
+                                "write": false
+                            },
+                            "app:Math Simulation": {
+                                "type": "map",
+                                "sync": true,
+                                "write": false
+                            },
+                            "app:Landing": {
                                 "type": "map",
                                 "sync": true,
                                 "write": false
@@ -267,6 +327,22 @@
                 "write": true
             },
             "app:Demos": {
+                "sync": true,
+                "write": false
+            },
+            "app:Group Chat": {
+                "sync": true,
+                "write": false
+            },
+            "app:Snake Game": {
+                "sync": true,
+                "write": false
+            },
+            "app:Math Simulation": {
+                "sync": true,
+                "write": false
+            },
+            "app:Landing": {
                 "sync": true,
                 "write": false
             }
