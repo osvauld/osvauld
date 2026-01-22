@@ -151,12 +151,17 @@ struct UiBindings {
     /// Lua registry keys for event callbacks (subscriber_id -> registry_key)
     /// Stored separately to access in dispatch
     callback_keys: Arc<Mutex<std::collections::HashMap<u64, RegistryKey>>>,
+    /// Pending property updates (accumulated during Lua callback, flushed at end)
+    pending_properties: Arc<Mutex<Vec<PropertyUpdate>>>,
+    /// Pending model operations (accumulated during Lua callback, flushed at end)
+    pending_model_ops: Arc<Mutex<Vec<VecModelOp>>>,
 }
 
 impl UserData for UiBindings {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // ui:set(key, value) - Set a property or replace model data
         // Note: Slint uses kebab-case for property names
+        // Mutations are accumulated and flushed at end of Lua callback (batch mode)
         methods.add_method("set", |_lua, this, (key, value): (String, LuaValue)| {
             // Use property name as-is (Slint expects kebab-case)
             let prop_name = key;
@@ -165,162 +170,90 @@ impl UserData for UiBindings {
                 .map_err(|e| LuaError::RuntimeError(e.to_string()))?;
 
             // Check if value is an array (for VecModel operations)
-            let mutation = if let JsonValue::Array(items) = json_value {
+            if let JsonValue::Array(items) = json_value {
                 // Array value: Clear model, then push all items
-                let mut model_ops = vec![VecModelOp::Clear { model_name: prop_name.clone() }];
+                let mut ops = vec![VecModelOp::Clear { model_name: prop_name.clone() }];
                 for item in items {
-                    model_ops.push(VecModelOp::Push {
+                    ops.push(VecModelOp::Push {
                         model_name: prop_name.clone(),
                         item,
                     });
                 }
-                UiMutation {
-                    app_id: this.app_id.clone(),
-                    properties: vec![],
-                    model_ops,
-                }
+                // Accumulate model ops for batch flush
+                this.pending_model_ops.lock().extend(ops);
             } else {
-                // Scalar value: PropertyUpdate
-                UiMutation {
-                    app_id: this.app_id.clone(),
-                    properties: vec![PropertyUpdate { key: prop_name, value: json_value }],
-                    model_ops: vec![],
-                }
-            };
-
-            // Send mutation to Slint thread
-            let sender = this.ui_tx.lock();
-            if let Err(e) = sender.try_send(mutation) {
-                tracing::warn!(
-                    app_id = %this.app_id,
-                    error = %e,
-                    "Failed to send UI mutation from Lua"
-                );
+                // Scalar value: Accumulate PropertyUpdate for batch flush
+                this.pending_properties.lock().push(PropertyUpdate { key: prop_name, value: json_value });
             }
 
             Ok(())
         });
 
         // ui:push(model_name, item) - Add item to end of model
+        // Mutations are accumulated and flushed at end of Lua callback (batch mode)
         methods.add_method("push", |_lua, this, (model_name, item): (String, LuaValue)| {
             let item_json = lua_to_json(&item)
                 .map_err(|e| LuaError::RuntimeError(e.to_string()))?;
 
-            let mutation = UiMutation {
-                app_id: this.app_id.clone(),
-                properties: vec![],
-                model_ops: vec![VecModelOp::Push {
-                    model_name,
-                    item: item_json,
-                }],
-            };
-
-            let sender = this.ui_tx.lock();
-            if let Err(e) = sender.try_send(mutation) {
-                tracing::warn!(
-                    app_id = %this.app_id,
-                    error = %e,
-                    "Failed to send push mutation from Lua"
-                );
-            }
+            // Accumulate model op for batch flush
+            this.pending_model_ops.lock().push(VecModelOp::Push {
+                model_name,
+                item: item_json,
+            });
 
             Ok(())
         });
 
         // ui:insert(model_name, index, item) - Insert item at index
+        // Mutations are accumulated and flushed at end of Lua callback (batch mode)
         methods.add_method("insert", |_lua, this, (model_name, index, item): (String, usize, LuaValue)| {
             let item_json = lua_to_json(&item)
                 .map_err(|e| LuaError::RuntimeError(e.to_string()))?;
 
-            let mutation = UiMutation {
-                app_id: this.app_id.clone(),
-                properties: vec![],
-                model_ops: vec![VecModelOp::Insert {
-                    model_name,
-                    index,
-                    item: item_json,
-                }],
-            };
-
-            let sender = this.ui_tx.lock();
-            if let Err(e) = sender.try_send(mutation) {
-                tracing::warn!(
-                    app_id = %this.app_id,
-                    error = %e,
-                    "Failed to send insert mutation from Lua"
-                );
-            }
+            // Accumulate model op for batch flush
+            this.pending_model_ops.lock().push(VecModelOp::Insert {
+                model_name,
+                index,
+                item: item_json,
+            });
 
             Ok(())
         });
 
         // ui:remove(model_name, index) - Remove item at index
+        // Mutations are accumulated and flushed at end of Lua callback (batch mode)
         methods.add_method("remove", |_lua, this, (model_name, index): (String, usize)| {
-            let mutation = UiMutation {
-                app_id: this.app_id.clone(),
-                properties: vec![],
-                model_ops: vec![VecModelOp::Remove {
-                    model_name,
-                    index,
-                }],
-            };
-
-            let sender = this.ui_tx.lock();
-            if let Err(e) = sender.try_send(mutation) {
-                tracing::warn!(
-                    app_id = %this.app_id,
-                    error = %e,
-                    "Failed to send remove mutation from Lua"
-                );
-            }
+            // Accumulate model op for batch flush
+            this.pending_model_ops.lock().push(VecModelOp::Remove {
+                model_name,
+                index,
+            });
 
             Ok(())
         });
 
         // ui:clear(model_name) - Remove all items from model
+        // Mutations are accumulated and flushed at end of Lua callback (batch mode)
         methods.add_method("clear", |_lua, this, model_name: String| {
-            let mutation = UiMutation {
-                app_id: this.app_id.clone(),
-                properties: vec![],
-                model_ops: vec![VecModelOp::Clear { model_name }],
-            };
-
-            let sender = this.ui_tx.lock();
-            if let Err(e) = sender.try_send(mutation) {
-                tracing::warn!(
-                    app_id = %this.app_id,
-                    error = %e,
-                    "Failed to send clear mutation from Lua"
-                );
-            }
+            // Accumulate model op for batch flush
+            this.pending_model_ops.lock().push(VecModelOp::Clear { model_name });
 
             Ok(())
         });
 
         // ui:update(model_name, index, item) - Update single item at index (efficient for drag)
         // Triggers ModelNotify::row_changed(index) - only re-renders that one item
+        // Mutations are accumulated and flushed at end of Lua callback (batch mode)
         methods.add_method("update", |_lua, this, (model_name, index, item): (String, usize, LuaValue)| {
             let item_json = lua_to_json(&item)
                 .map_err(|e| LuaError::RuntimeError(e.to_string()))?;
 
-            let mutation = UiMutation {
-                app_id: this.app_id.clone(),
-                properties: vec![],
-                model_ops: vec![VecModelOp::Set {
-                    model_name,
-                    index,
-                    item: item_json,
-                }],
-            };
-
-            let sender = this.ui_tx.lock();
-            if let Err(e) = sender.try_send(mutation) {
-                tracing::warn!(
-                    app_id = %this.app_id,
-                    error = %e,
-                    "Failed to send update mutation from Lua"
-                );
-            }
+            // Accumulate model op for batch flush
+            this.pending_model_ops.lock().push(VecModelOp::Set {
+                model_name,
+                index,
+                item: item_json,
+            });
 
             Ok(())
         });
@@ -565,6 +498,14 @@ pub struct LuaWorker {
 
     /// Callback registry keys for event subscribers (subscriber_id -> registry_key)
     callback_keys: Arc<Mutex<std::collections::HashMap<u64, RegistryKey>>>,
+
+    /// Pending property updates (accumulated during Lua callback, flushed at end)
+    /// Shared with UiBindings for batching
+    pending_properties: Arc<Mutex<Vec<PropertyUpdate>>>,
+
+    /// Pending model operations (accumulated during Lua callback, flushed at end)
+    /// Shared with UiBindings for batching
+    pending_model_ops: Arc<Mutex<Vec<VecModelOp>>>,
 }
 
 impl LuaWorker {
@@ -645,6 +586,10 @@ impl LuaWorker {
             let event_bus = Arc::new(Mutex::new(EventBus::new()));
             let callback_keys = Arc::new(Mutex::new(std::collections::HashMap::new()));
 
+            // Create pending mutation buffers (shared with UiBindings for batching)
+            let pending_properties = Arc::new(Mutex::new(Vec::new()));
+            let pending_model_ops = Arc::new(Mutex::new(Vec::new()));
+
             let mut worker = LuaWorker {
                 lua,
                 page_id,
@@ -658,6 +603,8 @@ impl LuaWorker {
                 page_handlers,
                 event_bus,
                 callback_keys,
+                pending_properties,
+                pending_model_ops,
             };
 
             // Setup Lua globals (loro, butler, ui)
@@ -683,6 +630,8 @@ impl LuaWorker {
                         "on_init() completed"
                     );
                 }
+                // Flush any UI mutations from on_init()
+                worker.flush_mutations();
             }
 
             // Run event loop (blocks until Shutdown)
@@ -711,6 +660,8 @@ impl LuaWorker {
                             "Loro change handler failed"
                         );
                     }
+                    // Flush accumulated UI mutations after Lua callback completes
+                    self.flush_mutations();
                 }
                 Some(LuaWorkerCommand::LayerDiscovered { layer_name }) => {
                     if let Err(e) = self.handle_layer_discovered(&layer_name) {
@@ -721,6 +672,8 @@ impl LuaWorker {
                             "Layer discovered handler failed"
                         );
                     }
+                    // Flush accumulated UI mutations after Lua callback completes
+                    self.flush_mutations();
                 }
                 Some(LuaWorkerCommand::UiCallback { callback_name, args }) => {
                     if let Err(e) = self.handle_ui_callback(callback_name, args) {
@@ -730,6 +683,8 @@ impl LuaWorker {
                             "UI callback handler failed"
                         );
                     }
+                    // Flush accumulated UI mutations after Lua callback completes
+                    self.flush_mutations();
                 }
                 Some(LuaWorkerCommand::UiEvent { event }) => {
                     if let Err(e) = self.handle_ui_event(event) {
@@ -739,6 +694,8 @@ impl LuaWorker {
                             "UI event handler failed"
                         );
                     }
+                    // Flush accumulated UI mutations after Lua callback completes
+                    self.flush_mutations();
                 }
                 Some(LuaWorkerCommand::Shutdown) => {
                     tracing::info!(
@@ -749,6 +706,9 @@ impl LuaWorker {
                 }
                 Some(LuaWorkerCommand::DebugEval { code, response_tx }) => {
                     let result = self.handle_debug_eval(&code);
+                    // Flush accumulated UI mutations after debug eval completes
+                    // This is critical for automation via debug socket
+                    self.flush_mutations();
                     let _ = response_tx.send(result);
                 }
                 Some(LuaWorkerCommand::DebugGetState { response_tx }) => {
@@ -760,10 +720,14 @@ impl LuaWorker {
 
                 Some(LuaWorkerCommand::Ephemeral { user_did, payload }) => {
                     self.handle_ephemeral(&user_did, &payload);
+                    // Flush accumulated UI mutations after ephemeral handler completes
+                    self.flush_mutations();
                 }
 
                 Some(LuaWorkerCommand::AssetUploaded { hash, filename, mime_type, size }) => {
                     self.handle_asset_uploaded(&hash, &filename, &mime_type, size);
+                    // Flush accumulated UI mutations after asset handler completes
+                    self.flush_mutations();
                 }
 
                 None => {
@@ -801,12 +765,15 @@ impl LuaWorker {
         globals.set("butler", butler_binding)?;
 
         // ui binding - allows Lua to send UI mutations
+        // Shares pending buffers for batch mode (mutations accumulated during callback, flushed at end)
         let ui_binding = UiBindings {
             app_id: self.page_id.clone(),
             ui_tx: self.ui_tx.clone(),
             query_tx: self.query_tx.clone(),
             event_bus: self.event_bus.clone(),
             callback_keys: self.callback_keys.clone(),
+            pending_properties: self.pending_properties.clone(),
+            pending_model_ops: self.pending_model_ops.clone(),
         };
         globals.set("ui", ui_binding)?;
 
@@ -1248,6 +1215,43 @@ impl LuaWorker {
         }
 
         Ok(())
+    }
+
+    /// Flush accumulated UI mutations to Slint thread
+    ///
+    /// **Context**: Called after Lua code execution completes (callbacks, debug eval, etc.)
+    /// **Purpose**: Batches all ui:set(), ui:push(), etc. calls into a single UiMutation
+    /// **Benefit**: Prevents Slint recursion detection when multiple properties change together
+    fn flush_mutations(&self) {
+        // Take all pending mutations (swap with empty vecs)
+        let properties = std::mem::take(&mut *self.pending_properties.lock());
+        let model_ops = std::mem::take(&mut *self.pending_model_ops.lock());
+
+        // Only send if there are actual mutations
+        if properties.is_empty() && model_ops.is_empty() {
+            return;
+        }
+
+        let mutation = UiMutation {
+            app_id: self.page_id.clone(),
+            properties,
+            model_ops,
+        };
+
+        tracing::debug!(
+            page_id = %self.page_id,
+            prop_count = mutation.properties.len(),
+            model_op_count = mutation.model_ops.len(),
+            "Flushing batched UI mutations"
+        );
+
+        if let Err(e) = self.ui_tx.lock().try_send(mutation) {
+            tracing::warn!(
+                page_id = %self.page_id,
+                error = %e,
+                "Failed to send batched UI mutation"
+            );
+        }
     }
 
     /// Parse Lua operations table → UiMutation

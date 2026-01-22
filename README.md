@@ -1,91 +1,203 @@
-<br />
+
 <p align="center">
 <a href="https://osvauld.com">
   <img src="https://raw.githubusercontent.com/osvauld/osvauld/dev/.github/assets/logo.png" alt="Osvauld Logo" >
 </a>
 </p>
-<p align="center">Open-source, Fully encrypted, peer to peer applications for the sovereign individual</p>
+<p align="center"><strong>Open-source platform for offline-first, E2E encrypted, P2P applications</strong></p>
 
 ---
 
+## What is osvauld?
 
-Osvauld is the building block of next generation of applications -  offline-first, end-to-end encrypted, peer-to-peer applications that lets you build a truly independent digital life. It’s designed for trusted circles of friends and colleagues who want private, reliable collaboration without depending on third-party services even for auth and sync. On top of this platform we have built Livnote - A collaborative real-time text editor. 
+Osvauld is a platform for building truly decentralized applications. Write your app logic in **Lua**, design your UI in **Slint**, and osvauld handles identity, encryption, P2P sync, and offline-first storage automatically.
 
-This monorepo contains all our source code - the client apps (Linux / macOS / Windows) for osvauld and livnote (and more planned future ones!), and the plug-and-play self-hosted server that can be added alongside.
+```
+Your App (Lua + Slint)
+        │
+        ▼
+┌─────────────────────────────────────┐
+│         osvauld Runtime             │
+│  ┌─────────┐  ┌─────────────────┐   │
+│  │ Identity │  │ Loro CRDT Sync │   │
+│  │ (Herald) │  │    (Butler)    │   │
+│  └─────────┘  └─────────────────┘   │
+│  ┌─────────────────────────────────┐│
+│  │  P2P Network (Courier + QUIC)  ││
+│  └─────────────────────────────────┘│
+└─────────────────────────────────────┘
+```
 
-Learn more at [osvauld.com](https://osvauld.com)
+**No servers required.** Apps sync directly between devices using encrypted P2P connections.
 
-Documentation at [docs.osvauld.com](https://docs.osvauld.com)
+## Core Capabilities
 
-**Developer Documentation:** See [docs/README.md](docs/README.md) for implementation status, architecture, and technical documentation
+| Capability | Description |
+|------------|-------------|
+| **Self-Sovereign Identity** | Ed25519 keypairs for signing, X25519 for encryption. Your identity lives on your devices. |
+| **UCAN-Based Permits** | Fine-grained, delegatable authorization. Share access without a central authority. |
+| **QUIC Transport** | Fast, encrypted connections via iroh. NAT traversal and relay built-in. |
+| **Loro CRDT Sync** | Conflict-free data sync. Works offline, merges automatically when peers reconnect. |
+| **Dynamic Apps** | Hot-load Lua + Slint apps. No recompilation needed. |
+| **Sovereign Nodes** | Optional always-on nodes (Raspberry Pi, VPS) for relay and offline sync. |
 
-## Core features
+## Architecture
 
-- **Server-Free P2P Networking**: Direct device-to-device communication - no servers needed to host or maintain
-- **End-to-End Encryption**: All data encrypted in transit and at rest following zero-knowledge architecture
-- **Self-Sovereign Identity**: Digital signatures and certificate-based identity management
-- **QUIC Protocol**: Fast, authenticated, and encrypted connections for reliable P2P communication
-- **Offline-First Architecture**: Full functionality without internet connectivity, syncing when available
-- **CRDT Integration**: Conflict-free replicated data types for seamless collaborative editing
-- **Cross-Platform Support**: Works on Android, iOS, Linux, Windows, and macOS
-- **Granular access**: Share access on your terms with Permits (UCAN-based authorization) 
-- **Plug and play soverign node (optional)**: Run your own always-on node (even on a Raspberry Pi) to relay messages and keep projects in sync while others are offline.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Application Layer                                               │
+│  Lua apps, UI state, business logic                             │
+├─────────────────────────────────────────────────────────────────┤
+│  Butler                                                          │
+│  Storage, services, Scribe actors (Loro CRDT)                   │
+├─────────────────────────────────────────────────────────────────┤
+│  Courier                                                         │
+│  P2P orchestration, handshakes, sync protocol                   │
+│  Actor model: Coordinator → PeerActors                          │
+├─────────────────────────────────────────────────────────────────┤
+│  Gurkha                                                          │
+│  Permit parsing, capability extraction, authorization decisions │
+├─────────────────────────────────────────────────────────────────┤
+│  Transport                                                       │
+│  QUIC connections, streams, datagrams, blob transfer            │
+│  "Dumb byte pipe" - no protocol knowledge                       │
+├─────────────────────────────────────────────────────────────────┤
+│  Herald                                                          │
+│  Identity, encryption, signing primitives                       │
+├─────────────────────────────────────────────────────────────────┤
+│  iroh                                                            │
+│  QUIC, relay, NAT traversal, blob protocol                      │
+└─────────────────────────────────────────────────────────────────┘
+```
 
+### Crate Responsibilities
 
-## Livnote
+| Crate | Purpose | Key Dependencies |
+|-------|---------|------------------|
+| `herald` | Identity, Ed25519/X25519 crypto, signing | - |
+| `gurkha` | UCAN permit parsing and validation | herald |
+| `transport` | QUIC connections, streams, blobs | iroh |
+| `courier` | P2P orchestration, sync protocol, actors | transport, butler, gurkha |
+| `butler` | Storage, services API, Loro CRDT scribes | herald, gurkha |
+| `app_runtime` | Lua VM, Slint bindings, app lifecycle | butler |
+| `slint_shell` | Desktop shell for running apps | app_runtime |
+| `kunki` | Node runtime (relay, storage, derivations) | courier, butler |
 
-<p align="center">
-  <img align="center" src="https://raw.githubusercontent.com/osvauld/osvauld/dev/.github/assets/livnotemock.png" alt="Livote Mockup" >
-</p>
+## Sample Apps
 
-First product that built with osvauld. Rich Text editor, full md support, real-time collaboration with trusted peers (editing, commenting and chat), end-to-end encrypted, cryptographic identity that will work with other osvauld products, encrypted at rest, offline-first, light weight, open-source and free. 
+| App | Description | Location |
+|-----|-------------|----------|
+| **My Shop** | E-commerce with owner/customer roles, order management | `sample_apps/my-shop/` |
+| **My Booking** | Service booking with provider/customer roles | `sample_apps/my-booking/` |
+| **Canvas** | Collaborative whiteboard with shapes, connectors, live cursors | `sample_apps/canvas-app/` |
+| **Photo Gallery** | Shared photo albums with blob sync | `sample_apps/photo-gallery/` |
+| **Demos** | Landing page, Snake game, Math sim, Group chat | `sample_apps/osvauld-demos/` |
 
-Available as desktop application across Windows, Mac and Linux. 
+## Getting Started
 
+### Prerequisites
 
-<p align="center">
-  <a href="https://www.osvauld.com/livnote/">
-  <img align="center" src="https://raw.githubusercontent.com/osvauld/osvauld/dev/.github/assets/desktop-badge.png" width="200px"  alt="Download Livnote" >
-  </a>
-</p>
+- Rust 1.75+ (with nightly for some features)
+- Linux, macOS, or Windows
 
+### Build
 
+```bash
+# Clone the repository
+git clone https://github.com/osvauld/osvauld.git
+cd osvauld
 
+# Build the desktop shell
+cargo build -p slint_shell --release
+
+# Run with a sample app
+./target/release/slint_shell
+```
+
+### Run Tests
+
+```bash
+# Unit tests
+cargo test
+
+# Integration tests (P2P sync scenarios)
+cargo test -p integration_tests
+```
+
+### Project Structure
+
+```
+osvauld/
+├── herald/           # Identity and crypto primitives
+├── gurkha/           # Permit parsing and validation
+├── transport/        # QUIC transport layer
+├── courier/          # P2P orchestration
+├── butler/           # Storage and services
+├── app_runtime/      # Lua VM and Slint bindings
+├── slint_shell/      # Desktop application shell
+├── kunki/            # Node runtime
+├── sample_apps/      # Example applications
+├── integration_tests/# P2P sync tests
+└── docs/             # Technical documentation
+```
+
+## Documentation
+
+- **[Protocol Specification](docs/PROTOCOL.md)** - P2P protocol, message types, sync flows
+- **[Architecture](docs/ARCHITECTURE.md)** - System design and crate boundaries
+- **[Setup Guide](docs/SETUP.md)** - Build instructions and IDE setup
+- **[Data Model](docs/DATA_MODEL.md)** - Space/Page/Layer hierarchy
+- **[Permits](docs/PERMITS.md)** - UCAN-based authorization system
+- **[App Development](docs/APP_DEVELOPMENT.md)** - Building Lua + Slint apps
+- **[Code Policies](CLAUDE.md)** - Logging, comments, and code style
+
+## Contributing
+
+We welcome contributions! See [CLAUDE.md](CLAUDE.md) for code policies and style guidelines.
+
+### Good First Issues
+
+- **Documentation**: Improve examples, add diagrams
+- **Sample Apps**: Build new demo apps showcasing features
+- **UI Polish**: Improve Slint components and themes
+
+### Intermediate
+
+- **Platform Support**: Mobile (Android/iOS) improvements
+- **Performance**: Optimize sync for large datasets
+- **Testing**: Expand integration test coverage
+
+### Advanced
+
+- **Protocol**: Implement new sync strategies
+- **Crypto**: Additional encryption schemes
+- **Network**: Improve NAT traversal reliability
 
 ## Community
 
-
 <p align="center">
   <a href="https://t.me/osvauld">
-     <img align="center" src="https://raw.githubusercontent.com/osvauld/osvauld/dev/.github/assets/telegram.png" width="50px"  alt="letegram community link" >
+     <img align="center" src="https://raw.githubusercontent.com/osvauld/osvauld/dev/.github/assets/telegram.png" width="50px"  alt="Telegram community link" >
   </a>
 </p>
 <p align="center">
-Connect with us on telegram and shape the roadmap
+Connect with us on Telegram to discuss features and shape the roadmap
 </p>
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/osvauld/osvauld/issues)
+- **Email**: [osvauld@gmail.com](mailto:osvauld@gmail.com)
+- **Security**: For security vulnerabilities, please email us directly instead of opening a public issue.
+
+## Acknowledgments
 
 <p align="center">
   <img align="center" src="https://raw.githubusercontent.com/osvauld/osvauld/dev/.github/assets/community-badge.webp" alt="KSUM logo" >
 </p>
 
+This project has received funding from [FLOSS fund](https://floss.fund) and [Innovation grant](https://startupmission.kerala.gov.in/schemes/innovation-grant).
 
+## License
 
-
-## Acknowledgments
-
-<p align="start">
-This project has received funding from <a href="https://floss.fund">FLOSS fund</a> and  <a href="https://startupmission.kerala.gov.in/schemes/innovation-grant">Innovation grant </a>. 
-</p>
-
-
-## Contribute
-
-Want to get aboard osvauld? Welcome along! Don't hesitate if you're not a developer, there are many other important ways in which you can contribute. Say the words in telegram and we will reach out to you.
-
-## Support
-
-We are never more than an email away. Feel free to raise issue in [github](https://github.com/osvauld/osvauld/issues) or reach us at [email us](mailto:osvauld@gmail.com)
-
-## Security
-
-If you believe you have found a security vulnerability, please responsibly disclose it by [emailing](mailto:osvauld@gmail.com) instead of opening a public issue. We will investigate all legitimate reports. 
+See [LICENSE.txt](LICENSE.txt) for details.

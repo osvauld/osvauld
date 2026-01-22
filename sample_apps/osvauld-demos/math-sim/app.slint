@@ -1,0 +1,517 @@
+// Math Simulation App UI
+// Particle physics with adjustable parameters and FPS display
+
+// Particle data structure
+export struct Particle {
+    x: float,
+    y: float,
+    radius: float,
+    color_index: int,
+}
+
+// Theme colors
+global Theme {
+    out property<color> bg-primary: #0f172a;
+    out property<color> bg-secondary: #1e293b;
+    out property<color> bg-card: #334155;
+    out property<color> border: #475569;
+    out property<color> text-primary: #f1f5f9;
+    out property<color> text-secondary: #94a3b8;
+    out property<color> accent: #8b5cf6;
+
+    // Particle colors
+    out property<color> particle-0: #ef4444;
+    out property<color> particle-1: #f97316;
+    out property<color> particle-2: #eab308;
+    out property<color> particle-3: #22c55e;
+    out property<color> particle-4: #06b6d4;
+    out property<color> particle-5: #3b82f6;
+    out property<color> particle-6: #8b5cf6;
+    out property<color> particle-7: #ec4899;
+}
+
+// App API
+export global AppAPI {
+    // Simulation state
+    in-out property<[Particle]> particles: [];
+    in-out property<bool> running: false;
+    in-out property<float> fps: 0;
+    in-out property<int> particle_count: 100;
+
+    // Config (synced)
+    in-out property<float> gravity: 0.5;
+    in-out property<float> bounce: 0.8;
+    in-out property<float> friction: 0.99;
+
+    // Canvas size
+    in-out property<int> canvas_width: 600;
+    in-out property<int> canvas_height: 400;
+
+    callback on_click(string);
+    callback on_value_changed(string, float);
+}
+
+export component App inherits Rectangle {
+    background: Theme.bg-primary;
+
+    HorizontalLayout {
+        padding: 20px;
+        spacing: 20px;
+
+        // Simulation area
+        VerticalLayout {
+            spacing: 16px;
+
+            // Header
+            HorizontalLayout {
+                spacing: 16px;
+
+                Text {
+                    text: "Particle Simulation";
+                    font-size: 24px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                // FPS display
+                Rectangle {
+                    width: 100px;
+                    height: 32px;
+                    background: Theme.bg-card;
+                    border-radius: 6px;
+
+                    Text {
+                        text: AppAPI.fps + " FPS";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: AppAPI.fps > 30 ? #22c55e : AppAPI.fps > 15 ? #f59e0b : #ef4444;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Particle count
+                Text {
+                    text: AppAPI.particles.length + " particles";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Canvas
+            Rectangle {
+                width: AppAPI.canvas_width * 1px;
+                height: AppAPI.canvas_height * 1px;
+                background: Theme.bg-secondary;
+                border-radius: 8px;
+                border-width: 2px;
+                border-color: Theme.border;
+                clip: true;
+
+                // Particles
+                for particle in AppAPI.particles: Rectangle {
+                    x: (particle.x - particle.radius) * 1px;
+                    y: (particle.y - particle.radius) * 1px;
+                    width: particle.radius * 2 * 1px;
+                    height: particle.radius * 2 * 1px;
+                    border-radius: particle.radius * 1px;
+
+                    background:
+                        particle.color_index == 0 ? Theme.particle-0 :
+                        particle.color_index == 1 ? Theme.particle-1 :
+                        particle.color_index == 2 ? Theme.particle-2 :
+                        particle.color_index == 3 ? Theme.particle-3 :
+                        particle.color_index == 4 ? Theme.particle-4 :
+                        particle.color_index == 5 ? Theme.particle-5 :
+                        particle.color_index == 6 ? Theme.particle-6 :
+                        Theme.particle-7;
+                }
+            }
+
+            // Controls
+            HorizontalLayout {
+                spacing: 8px;
+
+                Rectangle {
+                    width: 100px;
+                    height: 36px;
+                    background: AppAPI.running ? #ef4444 : #22c55e;
+                    border-radius: 6px;
+
+                    Text {
+                        text: AppAPI.running ? "Stop" : "Start";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: white;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => { AppAPI.on_click("toggle"); }
+                    }
+                }
+
+                Rectangle {
+                    width: 100px;
+                    height: 36px;
+                    background: Theme.bg-card;
+                    border-radius: 6px;
+
+                    Text {
+                        text: "Reset";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => { AppAPI.on_click("reset"); }
+                    }
+                }
+
+                Rectangle {
+                    width: 100px;
+                    height: 36px;
+                    background: Theme.bg-card;
+                    border-radius: 6px;
+
+                    Text {
+                        text: "Explode";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Theme.accent;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => { AppAPI.on_click("explode"); }
+                    }
+                }
+            }
+        }
+
+        // Settings panel
+        Rectangle {
+            width: 220px;
+            background: Theme.bg-secondary;
+            border-radius: 12px;
+
+            VerticalLayout {
+                padding: 16px;
+                spacing: 20px;
+
+                Text {
+                    text: "Settings";
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                }
+
+                // Particle count
+                VerticalLayout {
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        Text {
+                            text: "Particles";
+                            font-size: 12px;
+                            color: Theme.text-secondary;
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        Text {
+                            text: AppAPI.particle_count + "";
+                            font-size: 12px;
+                            color: Theme.text-primary;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Rectangle {
+                            width: 40px;
+                            height: 28px;
+                            background: Theme.bg-card;
+                            border-radius: 4px;
+
+                            Text {
+                                text: "-";
+                                font-size: 16px;
+                                color: Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.on_click("particles:-10"); }
+                            }
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 28px;
+                            background: Theme.bg-card;
+                            border-radius: 4px;
+
+                            Rectangle {
+                                width: parent.width * (AppAPI.particle_count / 500);
+                                height: 100%;
+                                background: Theme.accent;
+                                border-radius: 4px;
+                            }
+                        }
+
+                        Rectangle {
+                            width: 40px;
+                            height: 28px;
+                            background: Theme.bg-card;
+                            border-radius: 4px;
+
+                            Text {
+                                text: "+";
+                                font-size: 16px;
+                                color: Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.on_click("particles:+10"); }
+                            }
+                        }
+                    }
+                }
+
+                // Gravity
+                VerticalLayout {
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        Text {
+                            text: "Gravity";
+                            font-size: 12px;
+                            color: Theme.text-secondary;
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        Text {
+                            text: round(AppAPI.gravity * 100) / 100 + "";
+                            font-size: 12px;
+                            color: Theme.text-primary;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Rectangle {
+                            width: 40px;
+                            height: 28px;
+                            background: Theme.bg-card;
+                            border-radius: 4px;
+
+                            Text {
+                                text: "-";
+                                font-size: 16px;
+                                color: Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.on_click("gravity:-0.1"); }
+                            }
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 28px;
+                            background: Theme.bg-card;
+                            border-radius: 4px;
+
+                            Rectangle {
+                                width: parent.width * (AppAPI.gravity / 2);
+                                height: 100%;
+                                background: Theme.accent;
+                                border-radius: 4px;
+                            }
+                        }
+
+                        Rectangle {
+                            width: 40px;
+                            height: 28px;
+                            background: Theme.bg-card;
+                            border-radius: 4px;
+
+                            Text {
+                                text: "+";
+                                font-size: 16px;
+                                color: Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.on_click("gravity:+0.1"); }
+                            }
+                        }
+                    }
+                }
+
+                // Bounce
+                VerticalLayout {
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        Text {
+                            text: "Bounce";
+                            font-size: 12px;
+                            color: Theme.text-secondary;
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        Text {
+                            text: round(AppAPI.bounce * 100) / 100 + "";
+                            font-size: 12px;
+                            color: Theme.text-primary;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Rectangle {
+                            width: 40px;
+                            height: 28px;
+                            background: Theme.bg-card;
+                            border-radius: 4px;
+
+                            Text {
+                                text: "-";
+                                font-size: 16px;
+                                color: Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.on_click("bounce:-0.1"); }
+                            }
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 28px;
+                            background: Theme.bg-card;
+                            border-radius: 4px;
+
+                            Rectangle {
+                                width: parent.width * AppAPI.bounce;
+                                height: 100%;
+                                background: Theme.accent;
+                                border-radius: 4px;
+                            }
+                        }
+
+                        Rectangle {
+                            width: 40px;
+                            height: 28px;
+                            background: Theme.bg-card;
+                            border-radius: 4px;
+
+                            Text {
+                                text: "+";
+                                font-size: 16px;
+                                color: Theme.text-primary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.on_click("bounce:+0.1"); }
+                            }
+                        }
+                    }
+                }
+
+                // Presets
+                Rectangle {
+                    height: 1px;
+                    background: Theme.border;
+                }
+
+                Text {
+                    text: "Presets";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 32px;
+                        background: Theme.bg-card;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "Rain";
+                            font-size: 11px;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => { AppAPI.on_click("preset:rain"); }
+                        }
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 32px;
+                        background: Theme.bg-card;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "Bounce";
+                            font-size: 11px;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => { AppAPI.on_click("preset:bounce"); }
+                        }
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 32px;
+                        background: Theme.bg-card;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "Float";
+                            font-size: 11px;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => { AppAPI.on_click("preset:float"); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

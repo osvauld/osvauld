@@ -369,18 +369,25 @@ function select_product_via_ui(product_id)
         return false
     end
 
-    -- Set UI state directly (avoid on_click to prevent recursion)
-    ui:set("selected_product_id", product.id)
-    ui:set("selected_product_name", product.name)
-    ui:set("selected_product_price", product.price)
-    ui:set("current_view", 0)  -- Products view
-
-    -- Update internal state
+    -- Update internal state first (no UI updates yet)
     selected_product = {
         id = product.id,
         name = product.name,
         price = product.price
     }
+
+    -- Batch UI updates: set current_view first if needed,
+    -- THEN set product details (to avoid recursion when form becomes visible)
+    local current_view = ui:get("current_view")
+    if current_view ~= 0 then
+        ui:set("current_view", 0)
+    end
+
+    -- Now set product details (form should already be visible or about to be)
+    ui:set("selected_product_id", product.id)
+    ui:set("selected_product_name", product.name)
+    ui:set("selected_product_price", product.price)
+
     log_info("Selected product: " .. product.name)
     return true
 end

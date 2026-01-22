@@ -1,0 +1,517 @@
+// Landing Page App UI
+// Showcases osvauld platform features with tabbed navigation
+
+// Feature card data structure
+export struct Feature {
+    icon: string,
+    title: string,
+    description: string,
+}
+
+// Crate info for developers section
+export struct CrateInfo {
+    name: string,
+    purpose: string,
+}
+
+// Theme colors
+global Theme {
+    out property<color> bg-primary: #0f172a;
+    out property<color> bg-secondary: #1e293b;
+    out property<color> bg-card: #334155;
+    out property<color> border: #475569;
+    out property<color> text-primary: #f1f5f9;
+    out property<color> text-secondary: #94a3b8;
+    out property<color> accent: #3b82f6;
+    out property<color> accent-hover: #60a5fa;
+    out property<color> success: #22c55e;
+    out property<color> warning: #f59e0b;
+}
+
+// App API
+export global AppAPI {
+    in-out property<int> current_tab: 0;
+    in-out property<[Feature]> features: [];
+    in-out property<[CrateInfo]> crates: [];
+
+    callback on_click(string);
+}
+
+export component App inherits Rectangle {
+    background: Theme.bg-primary;
+
+    VerticalLayout {
+        padding: 0;
+        spacing: 0;
+
+        // Header
+        Rectangle {
+            height: 80px;
+            background: Theme.bg-secondary;
+
+            HorizontalLayout {
+                padding: 20px;
+                spacing: 16px;
+
+                // Logo area
+                Rectangle {
+                    width: 48px;
+                    height: 48px;
+                    background: Theme.accent;
+                    border-radius: 12px;
+
+                    Text {
+                        text: "O";
+                        font-size: 28px;
+                        font-weight: 700;
+                        color: white;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 2px;
+                    vertical-stretch: 0;
+
+                    Text {
+                        text: "osvauld";
+                        font-size: 24px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                    }
+
+                    Text {
+                        text: "Offline-first, E2E encrypted, P2P apps";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                // Tab buttons
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    Rectangle {
+                        width: 100px;
+                        height: 40px;
+                        background: AppAPI.current_tab == 0 ? Theme.accent : transparent;
+                        border-radius: 8px;
+
+                        Text {
+                            text: "Overview";
+                            font-size: 14px;
+                            font-weight: 500;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => { AppAPI.on_click("tab:0"); }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 100px;
+                        height: 40px;
+                        background: AppAPI.current_tab == 1 ? Theme.accent : transparent;
+                        border-radius: 8px;
+
+                        Text {
+                            text: "Developers";
+                            font-size: 14px;
+                            font-weight: 500;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => { AppAPI.on_click("tab:1"); }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 100px;
+                        height: 40px;
+                        background: AppAPI.current_tab == 2 ? Theme.accent : transparent;
+                        border-radius: 8px;
+
+                        Text {
+                            text: "Demos";
+                            font-size: 14px;
+                            font-weight: 500;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => { AppAPI.on_click("tab:2"); }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Content area
+        Flickable {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                padding: 32px;
+                spacing: 24px;
+
+                // Overview Tab
+                if AppAPI.current_tab == 0: VerticalLayout {
+                    spacing: 32px;
+
+                    // Hero section
+                    VerticalLayout {
+                        spacing: 16px;
+
+                        Text {
+                            text: "Build truly decentralized apps";
+                            font-size: 36px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: "Write your app logic in Lua, design your UI in Slint.\nOsvauld handles identity, encryption, P2P sync, and offline-first storage.";
+                            font-size: 16px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                        }
+                    }
+
+                    // Features grid
+                    Text {
+                        text: "Core Capabilities";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 16px;
+
+                        for feature in AppAPI.features: Rectangle {
+                            horizontal-stretch: 1;
+                            height: 140px;
+                            background: Theme.bg-card;
+                            border-radius: 12px;
+
+                            VerticalLayout {
+                                padding: 16px;
+                                spacing: 8px;
+
+                                Text {
+                                    text: feature.icon;
+                                    font-size: 28px;
+                                }
+
+                                Text {
+                                    text: feature.title;
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                    color: Theme.text-primary;
+                                }
+
+                                Text {
+                                    text: feature.description;
+                                    font-size: 12px;
+                                    color: Theme.text-secondary;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+
+                    // Architecture preview
+                    Rectangle {
+                        height: 200px;
+                        background: Theme.bg-secondary;
+                        border-radius: 12px;
+
+                        VerticalLayout {
+                            padding: 20px;
+                            spacing: 12px;
+
+                            Text {
+                                text: "How it works";
+                                font-size: 18px;
+                                font-weight: 600;
+                                color: Theme.text-primary;
+                            }
+
+                            Text {
+                                text: "Your App (Lua + Slint)\n       |\n       v\n+------------------+\n|  osvauld Runtime |\n|  Identity, CRDT  |\n|  P2P, Encryption |\n+------------------+";
+                                font-size: 12px;
+                                font-family: "monospace";
+                                color: Theme.accent;
+                            }
+                        }
+                    }
+                }
+
+                // Developers Tab
+                if AppAPI.current_tab == 1: VerticalLayout {
+                    spacing: 24px;
+
+                    Text {
+                        text: "For Developers";
+                        font-size: 28px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                    }
+
+                    // Getting started
+                    Rectangle {
+                        background: Theme.bg-card;
+                        border-radius: 12px;
+
+                        VerticalLayout {
+                            padding: 20px;
+                            spacing: 12px;
+
+                            Text {
+                                text: "Quick Start";
+                                font-size: 18px;
+                                font-weight: 600;
+                                color: Theme.text-primary;
+                            }
+
+                            Text {
+                                text: "git clone https://github.com/osvauld/osvauld.git\ncd osvauld\ncargo build -p slint_shell --release\n./target/release/slint_shell";
+                                font-size: 13px;
+                                font-family: "monospace";
+                                color: Theme.success;
+                            }
+                        }
+                    }
+
+                    // Crates overview
+                    Text {
+                        text: "Crate Architecture";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    VerticalLayout {
+                        spacing: 8px;
+
+                        for crate-info in AppAPI.crates: Rectangle {
+                            height: 48px;
+                            background: Theme.bg-secondary;
+                            border-radius: 8px;
+
+                            HorizontalLayout {
+                                padding: 12px;
+                                spacing: 16px;
+
+                                Rectangle {
+                                    width: 100px;
+
+                                    Text {
+                                        text: crate-info.name;
+                                        font-size: 14px;
+                                        font-weight: 600;
+                                        font-family: "monospace";
+                                        color: Theme.accent;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                Text {
+                                    text: crate-info.purpose;
+                                    font-size: 13px;
+                                    color: Theme.text-secondary;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    // App development
+                    Rectangle {
+                        background: Theme.bg-card;
+                        border-radius: 12px;
+
+                        VerticalLayout {
+                            padding: 20px;
+                            spacing: 12px;
+
+                            Text {
+                                text: "App Structure";
+                                font-size: 18px;
+                                font-weight: 600;
+                                color: Theme.text-primary;
+                            }
+
+                            Text {
+                                text: "my-app/\n  manifest.json  -- App metadata\n  app.slint      -- UI definition\n  app.lua        -- Business logic";
+                                font-size: 13px;
+                                font-family: "monospace";
+                                color: Theme.text-secondary;
+                            }
+                        }
+                    }
+                }
+
+                // Demos Tab
+                if AppAPI.current_tab == 2: VerticalLayout {
+                    spacing: 24px;
+
+                    Text {
+                        text: "Demo Apps";
+                        font-size: 28px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                    }
+
+                    Text {
+                        text: "Explore these demos to see osvauld capabilities in action.";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                    }
+
+                    // Demo cards
+                    HorizontalLayout {
+                        spacing: 16px;
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 160px;
+                            background: Theme.bg-card;
+                            border-radius: 12px;
+
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 8px;
+
+                                Text { text: "Snake"; font-size: 32px; }
+                                Text {
+                                    text: "Snake Game";
+                                    font-size: 18px;
+                                    font-weight: 600;
+                                    color: Theme.text-primary;
+                                }
+                                Text {
+                                    text: "Game loop, canvas rendering, Loro persistence for high scores";
+                                    font-size: 12px;
+                                    color: Theme.text-secondary;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.on_click("demo:snake"); }
+                            }
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 160px;
+                            background: Theme.bg-card;
+                            border-radius: 12px;
+
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 8px;
+
+                                Text { text: "Particles"; font-size: 32px; }
+                                Text {
+                                    text: "Math Simulation";
+                                    font-size: 18px;
+                                    font-weight: 600;
+                                    color: Theme.text-primary;
+                                }
+                                Text {
+                                    text: "Particle physics, FPS counter, performance demo";
+                                    font-size: 12px;
+                                    color: Theme.text-secondary;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.on_click("demo:math"); }
+                            }
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 160px;
+                            background: Theme.bg-card;
+                            border-radius: 12px;
+
+                            VerticalLayout {
+                                padding: 20px;
+                                spacing: 8px;
+
+                                Text { text: "Chat"; font-size: 32px; }
+                                Text {
+                                    text: "Group Chat";
+                                    font-size: 18px;
+                                    font-weight: 600;
+                                    color: Theme.text-primary;
+                                }
+                                Text {
+                                    text: "Real-time messaging, emoji, typing indicators";
+                                    font-size: 12px;
+                                    color: Theme.text-secondary;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.on_click("demo:chat"); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Footer
+        Rectangle {
+            height: 48px;
+            background: Theme.bg-secondary;
+
+            HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                spacing: 24px;
+
+                Text {
+                    text: "Telegram: t.me/osvauld";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: "GitHub: github.com/osvauld/osvauld";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                Text {
+                    text: "Built with osvauld";
+                    font-size: 12px;
+                    color: Theme.accent;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
