@@ -55,6 +55,8 @@ pub struct PreparedPage {
     pub data_layers: Vec<String>,
     /// Model names from manifest (for VecModel initialization)
     pub models: Vec<String>,
+    /// Enable game loop tick() calls at ~60fps (from manifest)
+    pub tick_enabled: bool,
     /// Temp directory (must keep alive)
     pub temp_dir: std::path::PathBuf,
 }
@@ -142,21 +144,21 @@ pub async fn prepare_page(
 
     let lua_path = temp_path.join("app.lua");
 
-    // Read models from manifest.json (optional field)
+    // Read models and tick_enabled from manifest.json (optional fields)
     let manifest_path = temp_path.join("manifest.json");
-    let models = if manifest_path.exists() {
+    let (models, tick_enabled) = if manifest_path.exists() {
         match fs::read_to_string(&manifest_path) {
             Ok(content) => {
                 match serde_json::from_str::<app_runtime::Manifest>(&content) {
-                    Ok(manifest) => manifest.models,
+                    Ok(manifest) => (manifest.models, manifest.tick_enabled),
                     Err(e) => {
                         tracing::warn!(
                             page_id = %page_id,
                             app_name = %app_name,
                             error = %e,
-                            "Failed to parse manifest.json, using empty models"
+                            "Failed to parse manifest.json, using defaults"
                         );
-                        vec![]
+                        (vec![], false)
                     }
                 }
             }
@@ -165,13 +167,13 @@ pub async fn prepare_page(
                     page_id = %page_id,
                     app_name = %app_name,
                     error = %e,
-                    "Failed to read manifest.json, using empty models"
+                    "Failed to read manifest.json, using defaults"
                 );
-                vec![]
+                (vec![], false)
             }
         }
     } else {
-        vec![]
+        (vec![], false)
     };
 
     tracing::info!(
@@ -196,6 +198,7 @@ pub async fn prepare_page(
         all_apps,
         data_layers,
         models,
+        tick_enabled,
         temp_dir: temp_path,
     })
 }

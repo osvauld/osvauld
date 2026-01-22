@@ -536,6 +536,9 @@ impl SlintRuntime {
             "on_pointer_event",  // For canvas/drawing apps that need x,y coordinates
             "on_scroll",         // For canvas/drawing apps that need scroll/zoom
             "on_hover",          // For cursor sync without drag (timer-based polling)
+            "on_key_pressed",    // For games/interactive apps that need keyboard input
+            "on_submit",         // For form submissions (chat, search, etc.)
+            "on_text_input",     // For text input changes (typing indicators, etc.)
         ];
 
         let mut callback_count = 0;

@@ -62,6 +62,12 @@ pub enum LuaWorkerCommand {
     /// Shutdown worker thread
     Shutdown,
 
+    /// Game tick (called periodically for games/animations)
+    ///
+    /// **Context**: Timer fires, call Lua's `tick()` if defined
+    /// **We do**: Call tick() and flush UI mutations
+    Tick,
+
     /// Debug: Execute Lua code and return result
     ///
     /// **Context**: Called from debug server for introspection
@@ -410,6 +416,66 @@ impl UserData for UiBindings {
     }
 }
 
+/// Emoji bindings for Lua - lookup emojis by shortcode
+///
+/// **Usage in Lua**:
+/// - `emoji:get("smile")` → "😄" (returns Unicode emoji string)
+/// - `emoji:name("😄")` → "grinning face with smiling eyes"
+///
+/// **Note**: Requires emoji-capable fonts installed on system
+struct EmojiBindings;
+
+impl UserData for EmojiBindings {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // emoji:get(shortcode) -> Unicode emoji string or nil
+        methods.add_method("get", |_lua, _this, shortcode: String| {
+            match emojis::get_by_shortcode(&shortcode) {
+                Some(emoji) => Ok(LuaValue::String(_lua.create_string(emoji.as_str())?)),
+                None => Ok(LuaValue::Nil),
+            }
+        });
+
+        // emoji:name(unicode) -> emoji name string or nil
+        methods.add_method("name", |_lua, _this, unicode: String| {
+            match emojis::get(&unicode) {
+                Some(emoji) => Ok(LuaValue::String(_lua.create_string(emoji.name())?)),
+                None => Ok(LuaValue::Nil),
+            }
+        });
+
+        // emoji:search(query) -> array of matching emoji objects
+        // Returns up to 10 matches: [{ emoji = "😄", name = "...", shortcode = "..." }, ...]
+        methods.add_method("search", |lua, _this, query: String| {
+            let table = lua.create_table()?;
+            let mut count = 0;
+
+            for emoji in emojis::iter() {
+                if count >= 10 {
+                    break;
+                }
+
+                let name_matches = emoji.name().to_lowercase().contains(&query.to_lowercase());
+                let shortcode_matches = emoji.shortcode()
+                    .map(|s| s.to_lowercase().contains(&query.to_lowercase()))
+                    .unwrap_or(false);
+
+                if name_matches || shortcode_matches {
+                    let entry = lua.create_table()?;
+                    entry.set("emoji", emoji.as_str())?;
+                    entry.set("name", emoji.name())?;
+                    if let Some(shortcode) = emoji.shortcode() {
+                        entry.set("shortcode", shortcode)?;
+                    }
+                    count += 1;
+                    table.set(count, entry)?;
+                }
+            }
+
+            Ok(LuaValue::Table(table))
+        });
+    }
+}
+
 /// Convert Event to Lua table
 fn event_to_lua(lua: &Lua, event: &Event) -> Result<LuaValue, LuaError> {
     let table = lua.create_table()?;
@@ -716,6 +782,13 @@ impl LuaWorker {
                     let _ = response_tx.send(state);
                 }
 
+                // ==================== Game Tick ====================
+
+                Some(LuaWorkerCommand::Tick) => {
+                    self.handle_tick();
+                    self.flush_mutations();
+                }
+
                 // ==================== Ephemeral Events ====================
 
                 Some(LuaWorkerCommand::Ephemeral { user_did, payload }) => {
@@ -804,6 +877,10 @@ impl LuaWorker {
         let layout_binding = LayoutBindings::new();
         globals.set("layout", layout_binding)?;
 
+        // emoji binding - lookup emojis by shortcode
+        let emoji_binding = EmojiBindings;
+        globals.set("emoji", emoji_binding)?;
+
         // Note: api module is loaded earlier in spawn() before app code loads
         // (because app code uses api.export() at load time)
 
@@ -812,7 +889,7 @@ impl LuaWorker {
             user_did = %self.user_did,
             user_role = %self.user_role,
             app_name = %self.app_name,
-            "Lua globals initialized (loro, butler, ui, permit, page, datetime, layout, api)"
+            "Lua globals initialized (loro, butler, ui, permit, page, datetime, layout, emoji, api)"
         );
 
         Ok(())
@@ -1407,6 +1484,25 @@ impl LuaWorker {
 
         globals.sort();
         globals
+    }
+
+    // ==================== Game Tick Handler ====================
+
+    /// Handle game tick
+    ///
+    /// **Context**: Timer fires periodically for games/animations
+    /// **Calls**: Lua `tick()` if defined
+    fn handle_tick(&self) {
+        if let Ok(func) = self.lua.globals().get::<mlua::Function>("tick") {
+            if let Err(e) = func.call::<()>(()) {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    error = %e,
+                    "tick() callback failed"
+                );
+            }
+        }
+        // Silently ignore if tick() not defined - not all apps need game loop
     }
 
     // ==================== Ephemeral Event Handlers ====================

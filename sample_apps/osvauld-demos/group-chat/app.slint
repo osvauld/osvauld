@@ -1,5 +1,6 @@
 // Group Chat App UI
 // Real-time messaging with emoji support and typing indicators
+// Supports Unicode including Malayalam (മലയാളം)
 
 // Message data structure
 export struct Message {
@@ -9,6 +10,12 @@ export struct Message {
     text: string,
     timestamp: string,
     is_mine: bool,
+}
+
+// Emoji entry for picker
+export struct EmojiEntry {
+    name: string,
+    char: string,
 }
 
 // Theme colors
@@ -254,50 +261,70 @@ export component App inherits Rectangle {
                     }
                 }
 
-                // Emoji grid
+                // Emoji grid - row 1
                 HorizontalLayout {
                     spacing: 4px;
 
-                    for emoji in ["Smile", "Laugh", "Heart", "Thumbs", "Fire", "Party", "Rocket", "Star", "Check", "Wave"]: Rectangle {
+                    for emoji in [
+                        { name: "Smile", char: "😀" },
+                        { name: "Laugh", char: "😂" },
+                        { name: "Heart", char: "❤️" },
+                        { name: "Thumbs", char: "👍" },
+                        { name: "Fire", char: "🔥" },
+                        { name: "Party", char: "🎉" },
+                        { name: "Rocket", char: "🚀" },
+                        { name: "Star", char: "⭐" },
+                        { name: "Check", char: "✅" },
+                        { name: "Wave", char: "👋" },
+                    ]: Rectangle {
                         width: 40px;
                         height: 40px;
                         background: emoji-area.has-hover ? Theme.bg-card : transparent;
                         border-radius: 8px;
 
                         Text {
-                            text: emoji;
-                            font-size: 10px;
-                            color: Theme.text-primary;
+                            text: emoji.char;
+                            font-size: 22px;
                             horizontal-alignment: center;
                             vertical-alignment: center;
                         }
 
                         emoji-area := TouchArea {
-                            clicked => { AppAPI.on_click("emoji:" + emoji); }
+                            clicked => { AppAPI.on_click("emoji:" + emoji.name); }
                         }
                     }
                 }
 
-                // Common emoji row 2
+                // Emoji grid - row 2
                 HorizontalLayout {
                     spacing: 4px;
 
-                    for emoji in ["Eyes", "Think", "Clap", "100", "Sad", "Angry", "Cool", "Wink", "LOL", "Love"]: Rectangle {
+                    for emoji in [
+                        { name: "Eyes", char: "👀" },
+                        { name: "Think", char: "🤔" },
+                        { name: "Clap", char: "👏" },
+                        { name: "100", char: "💯" },
+                        { name: "Sad", char: "😢" },
+                        { name: "Angry", char: "😠" },
+                        { name: "Cool", char: "😎" },
+                        { name: "Wink", char: "😉" },
+                        { name: "LOL", char: "🤣" },
+                        { name: "Love", char: "😍" },
+                    ]: Rectangle {
                         width: 40px;
                         height: 40px;
                         background: emoji-area2.has-hover ? Theme.bg-card : transparent;
                         border-radius: 8px;
 
                         Text {
-                            text: emoji;
-                            font-size: 10px;
-                            color: Theme.text-primary;
+                            text: emoji.char;
+                            font-size: 22px;
                             horizontal-alignment: center;
                             vertical-alignment: center;
                         }
 
                         emoji-area2 := TouchArea {
-                            clicked => { AppAPI.on_click("emoji:" + emoji); }
+                            clicked => { AppAPI.on_click("emoji:" + emoji.name); }
                         }
                     }
                 }

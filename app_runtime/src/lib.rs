@@ -90,4 +90,8 @@ pub struct Manifest {
     /// Example: ["products", "orders"]
     #[serde(default)]
     pub models: Vec<String>,
+    /// Enable game loop tick() calls at ~60fps
+    /// Set to true for games/animations that need tick()
+    #[serde(default)]
+    pub tick_enabled: bool,
 }

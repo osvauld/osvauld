@@ -841,6 +841,21 @@ fn create_app_runtime(
         });
     }
 
+    // Start tick timer for games/animations (~60fps) if enabled in manifest
+    if prepared.tick_enabled {
+        let lua_tx_tick = lua_tx.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(16));
+                if lua_tx_tick.try_send(app_runtime::LuaWorkerCommand::Tick).is_err() {
+                    // Channel closed, app shutting down
+                    break;
+                }
+            }
+        });
+        println!("Game tick timer started (~60fps)");
+    }
+
     println!(
         "App '{}' loaded successfully with parallel Lua worker!",
         prepared.app_name

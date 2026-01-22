@@ -475,6 +475,155 @@ async fn test_add_item() {
 }
 ```
 
+## Keyboard Input
+
+For games and interactive apps that need keyboard input, use the `on_key_pressed` callback.
+
+### Slint Setup
+
+```slint
+export global AppAPI {
+    // Keyboard callback - receives key name as string
+    callback on_key_pressed(string);
+}
+
+export component App inherits Rectangle {
+    // Make app focusable to receive keyboard events
+    focus-scope := FocusScope {
+        key-pressed(event) => {
+            AppAPI.on_key_pressed(event.text);
+            accept
+        }
+    }
+}
+```
+
+### Lua Handler
+
+```lua
+function on_key_pressed(key)
+    if key == "w" or key == "W" then
+        move_up()
+    elseif key == "a" or key == "A" then
+        move_left()
+    elseif key == "s" or key == "S" then
+        move_down()
+    elseif key == "d" or key == "D" then
+        move_right()
+    elseif key == " " then  -- Space
+        toggle_pause()
+    end
+end
+```
+
+### Special Keys
+
+Common key names from Slint:
+- Arrow keys: `"↑"`, `"↓"`, `"←"`, `"→"`
+- Space: `" "`
+- Enter: `"\n"`
+- Escape: `"\u{1b}"`
+- Letters: `"a"`, `"A"`, etc.
+
+## Emoji Support
+
+The `emoji` binding provides emoji lookup by shortcode.
+
+### Emoji API
+
+```lua
+-- Get emoji by shortcode
+local smile = emoji:get("smile")  -- Returns "😄" or nil
+
+-- Get emoji name from Unicode
+local name = emoji:name("😄")  -- Returns "grinning face with smiling eyes"
+
+-- Search emojis (returns up to 10 matches)
+local results = emoji:search("heart")
+-- Returns: [{ emoji = "❤️", name = "red heart", shortcode = "heart" }, ...]
+```
+
+### Display in Slint
+
+For proper emoji rendering, use emoji-capable fonts:
+
+```slint
+Text {
+    text: "Hello 😊";
+    font-family: "Noto Color Emoji, sans-serif";
+}
+```
+
+### System Requirements
+
+**Linux**: Install emoji fonts
+```bash
+sudo apt install fonts-noto-color-emoji  # Debian/Ubuntu
+sudo pacman -S noto-fonts-emoji          # Arch
+```
+
+**macOS/Windows**: Emoji fonts are included by default.
+
+## Internationalization (i18n)
+
+Use Slint's built-in `@tr()` macro for translatable strings.
+
+### Marking Strings for Translation
+
+```slint
+Button {
+    text: @tr("Send Message");
+}
+
+Text {
+    // With context for translators
+    text: @tr("Welcome, {}" => user_name);
+}
+
+Text {
+    // Plural forms
+    text: @tr("{} item" | "{} items" % count);
+}
+```
+
+### Translation Workflow
+
+1. **Mark strings** with `@tr()` in your `.slint` files
+
+2. **Extract strings** to a `.pot` template:
+   ```bash
+   slint-tr-extractor app.slint -o translations/messages.pot
+   ```
+
+3. **Create translations** for each language (`.po` files):
+   ```bash
+   msginit -i translations/messages.pot -o translations/es.po -l es
+   ```
+
+4. **Translate** the `.po` files using any PO editor (Poedit, Lokalize, etc.)
+
+5. **Compile** to binary `.mo` files:
+   ```bash
+   msgfmt translations/es.po -o translations/es/LC_MESSAGES/messages.mo
+   ```
+
+### Directory Structure
+
+```
+my-app/
+├── manifest.json
+├── app.slint
+├── app.lua
+└── translations/
+    ├── messages.pot          # Template
+    ├── es/LC_MESSAGES/messages.mo  # Spanish
+    └── fr/LC_MESSAGES/messages.mo  # French
+```
+
+### Runtime Language Selection
+
+Language is typically set via system locale. Apps can also provide a language picker that stores preference in a Loro layer.
+
 ## Best Practices
 
 1. **Separate Concerns**: UI in Slint, logic in Lua

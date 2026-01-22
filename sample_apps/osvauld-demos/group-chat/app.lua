@@ -1,28 +1,28 @@
 -- Group Chat App Logic
 -- Real-time messaging with emoji and typing indicators
 
--- Emoji mapping (text to emoji)
-local EMOJI_MAP = {
-    Smile = ":)",
-    Laugh = "XD",
-    Heart = "<3",
-    Thumbs = "+1",
-    Fire = "**",
-    Party = "!!",
-    Rocket = ">>",
-    Star = "*",
-    Check = "OK",
-    Wave = "Hi",
-    Eyes = "o_o",
-    Think = "...",
-    Clap = "^^",
+-- Emoji shortcode mapping (UI name -> emoji shortcode)
+local EMOJI_SHORTCODES = {
+    Smile = "grinning_face",
+    Laugh = "joy",
+    Heart = "heart",
+    Thumbs = "thumbsup",
+    Fire = "fire",
+    Party = "tada",
+    Rocket = "rocket",
+    Star = "star",
+    Check = "white_check_mark",
+    Wave = "wave",
+    Eyes = "eyes",
+    Think = "thinking",
+    Clap = "clap",
     ["100"] = "100",
-    Sad = ":(",
-    Angry = ">:(",
-    Cool = "B)",
-    Wink = ";)",
-    LOL = "lol",
-    Love = "<3<3",
+    Sad = "cry",
+    Angry = "angry",
+    Cool = "sunglasses",
+    Wink = "wink",
+    LOL = "rofl",
+    Love = "heart_eyes",
 }
 
 -- State
@@ -39,7 +39,8 @@ local last_typing_sent = 0
 function on_init()
     page_id = permit:page_id()
     my_did = permit:my_did()
-    my_short_did = my_did:sub(-8)
+    -- Use USERNAME global if set, otherwise short DID
+    my_short_did = USERNAME or my_did:sub(-8)
 
     -- Messages layer (synced)
     messages_layer = loro:get_or_create_layer(page_id .. "/messages", "list")
@@ -101,11 +102,14 @@ function send_message(text)
     ui:set("show_emoji_picker", false)
 end
 
--- Insert emoji into draft
+-- Insert emoji into draft (uses emoji binding for Unicode lookup)
 function insert_emoji(emoji_name)
-    local emoji = EMOJI_MAP[emoji_name] or emoji_name
+    local shortcode = EMOJI_SHORTCODES[emoji_name]
+    local emoji_char = shortcode and emoji:get(shortcode)
+    -- Fallback to name if emoji not found
+    local to_insert = emoji_char or emoji_name
     local current = ui:get("draft_text") or ""
-    ui:set("draft_text", current .. emoji)
+    ui:set("draft_text", current .. to_insert)
 end
 
 -- Handle click events

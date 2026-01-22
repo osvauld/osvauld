@@ -4,7 +4,7 @@
 -- Grid settings
 local GRID_SIZE = 20
 local CELL_SIZE = 20
-local TICK_INTERVAL = 150 -- ms between game ticks
+local MOVE_EVERY_N_FRAMES = 5  -- Move snake every N frames (~12 moves/sec at 60fps)
 
 -- Game state
 local game = {
@@ -16,7 +16,10 @@ local game = {
     high_score = 0,
     game_over = false,
     paused = true,
-    last_tick = 0,
+    frame_count = 0,   -- Frame counter for movement timing
+    fps_frames = 0,    -- Frames in current second
+    fps_last_time = 0, -- Last FPS calculation time
+    fps = 0,           -- Current FPS
 }
 
 -- Loro layers
@@ -89,11 +92,28 @@ function spawn_food()
     ui:set("food_y", y)
 end
 
--- Game tick - called by runtime
+-- Game tick - called by runtime at ~60fps
 function tick()
+    -- Update FPS counter
+    game.fps_frames = game.fps_frames + 1
+    local now = os.time()
+    if now ~= game.fps_last_time then
+        game.fps = game.fps_frames
+        game.fps_frames = 0
+        game.fps_last_time = now
+        ui:set("fps", game.fps)
+    end
+
     if game.paused or game.game_over then
         return
     end
+
+    -- Only move snake every N frames
+    game.frame_count = game.frame_count + 1
+    if game.frame_count < MOVE_EVERY_N_FRAMES then
+        return
+    end
+    game.frame_count = 0
 
     -- Apply direction change
     game.direction = game.next_direction
@@ -112,11 +132,16 @@ function tick()
         new_head.x = new_head.x + 1
     end
 
-    -- Check wall collision
-    if new_head.x < 0 or new_head.x >= GRID_SIZE or
-       new_head.y < 0 or new_head.y >= GRID_SIZE then
-        end_game()
-        return
+    -- Wrap around walls (come out the other side)
+    if new_head.x < 0 then
+        new_head.x = GRID_SIZE - 1
+    elseif new_head.x >= GRID_SIZE then
+        new_head.x = 0
+    end
+    if new_head.y < 0 then
+        new_head.y = GRID_SIZE - 1
+    elseif new_head.y >= GRID_SIZE then
+        new_head.y = 0
     end
 
     -- Check self collision

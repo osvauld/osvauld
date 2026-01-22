@@ -4,5 +4,6 @@
     "description": "Classic snake game with synced high scores via Loro",
     "entry_ui": "app.slint",
     "entry_logic": "app.lua",
-    "models": ["snake", "leaderboard"]
+    "models": ["snake", "leaderboard"],
+    "tick_enabled": true
 }

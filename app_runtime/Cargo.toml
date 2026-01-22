@@ -42,3 +42,6 @@ ractor = "0.14"
 
 # Graph layout algorithms for canvas apps
 layout-rs = "0.1"
+
+# Emoji lookup by shortcode
+emojis = "0.6"
