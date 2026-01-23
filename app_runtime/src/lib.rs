@@ -95,3 +95,41 @@ pub struct Manifest {
     #[serde(default)]
     pub tick_enabled: bool,
 }
+
+/// App version combining semantic version and content hash
+///
+/// **Context**: Provides a deterministic version string for apps.
+/// - `semantic`: From manifest.json (e.g., "1.0.0")
+/// - `content_hash`: SHA256 of all app files (first 8 hex chars)
+/// - `display`: Combined format (e.g., "1.0.0-a1b2c3d4")
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AppVersion {
+    pub semantic: String,
+    pub content_hash: String,
+    pub display: String,
+}
+
+impl AppVersion {
+    /// Create a new AppVersion from semantic version and app files
+    ///
+    /// **Why sorted BTreeMap**: Ensures deterministic hash regardless of file iteration order
+    pub fn new(semantic: &str, files: &std::collections::HashMap<String, String>) -> Self {
+        use std::collections::BTreeMap;
+        use sha2::{Sha256, Digest};
+
+        let mut hasher = Sha256::new();
+        let sorted: BTreeMap<_, _> = files.iter().collect();
+        for (path, content) in sorted {
+            hasher.update(path.as_bytes());
+            hasher.update(content.as_bytes());
+        }
+        let hash = hasher.finalize();
+        let content_hash = hex::encode(&hash[..4]); // First 4 bytes = 8 hex chars
+
+        Self {
+            semantic: semantic.to_string(),
+            content_hash: content_hash.clone(),
+            display: format!("{}-{}", semantic, content_hash),
+        }
+    }
+}

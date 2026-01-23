@@ -1,8 +1,0 @@
-{
-    "name": "Landing",
-    "version": "1.0.0",
-    "description": "Osvauld platform landing page - overview and getting started",
-    "entry_ui": "app.slint",
-    "entry_logic": "app.lua",
-    "models": ["navigation"]
-}

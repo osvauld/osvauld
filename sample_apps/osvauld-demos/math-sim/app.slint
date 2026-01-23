@@ -61,6 +61,7 @@ export component App inherits Rectangle {
         // Simulation area
         VerticalLayout {
             spacing: 16px;
+            horizontal-stretch: 1;
 
             // Header
             HorizontalLayout {
@@ -101,20 +102,20 @@ export component App inherits Rectangle {
                 }
             }
 
-            // Canvas
+            // Canvas - fills available space
             Rectangle {
-                width: AppAPI.canvas_width * 1px;
-                height: AppAPI.canvas_height * 1px;
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
                 background: Theme.bg-secondary;
                 border-radius: 8px;
                 border-width: 2px;
                 border-color: Theme.border;
                 clip: true;
 
-                // Particles
+                // Particles - scale positions by actual canvas size
                 for particle in AppAPI.particles: Rectangle {
-                    x: (particle.x - particle.radius) * 1px;
-                    y: (particle.y - particle.radius) * 1px;
+                    x: (particle.x / AppAPI.canvas_width) * parent.width - particle.radius * 1px;
+                    y: (particle.y / AppAPI.canvas_height) * parent.height - particle.radius * 1px;
                     width: particle.radius * 2 * 1px;
                     height: particle.radius * 2 * 1px;
                     border-radius: particle.radius * 1px;

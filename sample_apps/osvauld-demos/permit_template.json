@@ -48,11 +48,6 @@
                 "sync": true,
                 "write": true
             },
-            "app:Demos": {
-                "type": "map",
-                "sync": true,
-                "write": true
-            },
             "app:Group Chat": {
                 "type": "map",
                 "sync": true,
@@ -68,7 +63,7 @@
                 "sync": true,
                 "write": true
             },
-            "app:Landing": {
+            "app:Sthalam Guide": {
                 "type": "map",
                 "sync": true,
                 "write": true
@@ -122,11 +117,6 @@
                         "sync": true,
                         "write": true
                     },
-                    "app:Demos": {
-                        "type": "map",
-                        "sync": true,
-                        "write": false
-                    },
                     "app:Group Chat": {
                         "type": "map",
                         "sync": true,
@@ -142,7 +132,7 @@
                         "sync": true,
                         "write": false
                     },
-                    "app:Landing": {
+                    "app:Sthalam Guide": {
                         "type": "map",
                         "sync": true,
                         "write": false
@@ -203,11 +193,6 @@
                                 "sync": true,
                                 "write": true
                             },
-                            "app:Demos": {
-                                "type": "map",
-                                "sync": true,
-                                "write": false
-                            },
                             "app:Group Chat": {
                                 "type": "map",
                                 "sync": true,
@@ -223,7 +208,7 @@
                                 "sync": true,
                                 "write": false
                             },
-                            "app:Landing": {
+                            "app:Sthalam Guide": {
                                 "type": "map",
                                 "sync": true,
                                 "write": false
@@ -283,11 +268,6 @@
                         "type": "map",
                         "sync": true,
                         "write": true
-                    },
-                    "app:Demos": {
-                        "type": "map",
-                        "sync": true,
-                        "write": false
                     }
                 },
                 "auth_capabilities": {
@@ -326,10 +306,6 @@
                 "sync": true,
                 "write": true
             },
-            "app:Demos": {
-                "sync": true,
-                "write": false
-            },
             "app:Group Chat": {
                 "sync": true,
                 "write": false
@@ -342,7 +318,7 @@
                 "sync": true,
                 "write": false
             },
-            "app:Landing": {
+            "app:Sthalam Guide": {
                 "sync": true,
                 "write": false
             }

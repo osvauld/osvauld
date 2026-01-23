@@ -238,11 +238,16 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
                 full_data,
             };
             if let Ok(subs) = page_event_subscribers_for_task.read() {
+                info!(
+                    layer_name = %layer_name_for_task,
+                    subscriber_count = subs.len(),
+                    "Observer checking page_event_subscribers"
+                );
                 for tx in subs.iter() {
                     let _ = tx.try_send(page_event.clone());
                 }
                 if !subs.is_empty() {
-                    debug!(
+                    info!(
                         layer_name = %layer_name_for_task,
                         subscriber_count = subs.len(),
                         "Sent PageEvent to unified subscribers"

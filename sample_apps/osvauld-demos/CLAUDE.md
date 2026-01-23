@@ -2,6 +2,8 @@
 
 Demo apps for testing the app runtime. Each app demonstrates different features.
 
+**Full AI Development Guide:** See `AI_APP_DEV_GUIDE.md` for comprehensive debugging, logs, crash handling, and manual operations.
+
 ## Apps
 
 | App | Directory | Features |
@@ -9,7 +11,7 @@ Demo apps for testing the app runtime. Each app demonstrates different features.
 | Snake Game | `snake-game/` | `tick_enabled`, keyboard input (`on_key_pressed`), game loop |
 | Math Simulation | `math-sim/` | `tick_enabled`, particle physics, lazy VecModel creation |
 | Group Chat | `group-chat/` | Real-time sync, ephemeral events, text input |
-| Landing | `landing/` | Static content, navigation |
+| Sthalam Guide | `guide/` | Tab navigation, static content, documentation |
 
 ## manifest.json Reference
 
@@ -72,4 +74,31 @@ end
 ```lua
 -- VecModels are created automatically on first use
 ui:set("particles", particle_array)  -- Creates "particles" model if needed
+```
+
+### Datagrams (Real-time Multiplayer)
+```lua
+-- Send ephemeral data to peers (player movements, cursors)
+datagram:send({type = "move", x = 10, y = 20})
+
+-- Receive datagrams
+function on_datagram(data)
+    if data.type == "move" then
+        update_player(data.x, data.y)
+    end
+end
+```
+
+## Debugging
+
+```bash
+# Check logs for warnings (permit issues)
+grep -i "warn" ~/.local/share/osvauld/logs/*.log
+
+# Check for errors (protocol bugs - report these)
+grep -i "error" ~/.local/share/osvauld/logs/*.log
+
+# Clean DB and restart when stuck
+rm -rf ~/.local/share/osvauld
+python scripts/run_demo.py <app>
 ```

@@ -90,9 +90,10 @@ export component App inherits Rectangle {
         padding: 20px;
         spacing: 20px;
 
-        // Game area
+        // Game area - fills available space
         VerticalLayout {
             spacing: 16px;
+            horizontal-stretch: 1;
 
             // Header
             HorizontalLayout {
@@ -130,10 +131,16 @@ export component App inherits Rectangle {
                 }
             }
 
-            // Game canvas
+            // Game canvas - centered in available space
             Rectangle {
-                width: canvas_size;
-                height: canvas_size;
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+
+                Rectangle {
+                    width: canvas_size;
+                    height: canvas_size;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
                 background: Theme.bg-secondary;
                 border-radius: 8px;
                 border-width: 2px;
@@ -241,11 +248,39 @@ export component App inherits Rectangle {
                             horizontal-alignment: center;
                         }
 
-                        Text {
-                            text: "Press SPACE to start";
-                            font-size: 14px;
-                            color: Theme.text-secondary;
-                            horizontal-alignment: center;
+                        HorizontalLayout {
+                            alignment: center;
+                            spacing: 4px;
+
+                            Text {
+                                text: "Press ";
+                                font-size: 14px;
+                                color: Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle {
+                                width: 52px;
+                                height: 22px;
+                                background: Theme.accent;
+                                border-radius: 4px;
+
+                                Text {
+                                    text: "SPACE";
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    color: Theme.bg-primary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Text {
+                                text: " to start";
+                                font-size: 14px;
+                                color: Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
                         }
 
                         Text {
@@ -260,6 +295,7 @@ export component App inherits Rectangle {
                 // Click to focus
                 TouchArea {
                     clicked => { key-handler.focus(); }
+                }
                 }
             }
 

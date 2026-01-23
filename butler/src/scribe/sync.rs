@@ -396,6 +396,48 @@ pub async fn handle_apply_update(
     state.dirty_layers.insert(layer_name.to_string());
     debug!("Update applied successfully to layer {}", layer_name);
 
+    // Manually notify page event subscribers after remote update applied
+    // (subscribe_root may not fire for apply(), only for commit())
+    if from_peer.is_some() {
+        // For app layers, flush immediately to storage so restart loads new code
+        // (app restart reads from storage, not in-memory layer)
+        if layer_name.starts_with("app:") {
+            if let Some(layer) = state.layers.get(layer_name) {
+                let snapshot = layer.export_snapshot();
+                if let Err(e) = (state.save_layer)(layer_name, &snapshot) {
+                    error!(layer = %layer_name, error = %e, "Failed to save app layer immediately");
+                } else {
+                    info!(layer = %layer_name, "Saved app layer immediately for restart");
+                    // Remove from dirty set since we just saved it
+                    state.dirty_layers.remove(layer_name);
+                }
+            }
+        }
+
+        if let Some(layer) = state.layers.get(layer_name) {
+            let page_event = PageEvent {
+                layer_name: layer_name.to_string(),
+                from_peer: from_peer.clone(),
+                event_type: PageEventType::Updated,
+                delta: None,  // Delta not available after apply
+                full_data: layer.to_json_value(),
+            };
+            if let Ok(subs) = state.page_event_subscribers.read() {
+                for tx in subs.iter() {
+                    let _ = tx.try_send(page_event.clone());
+                }
+                if !subs.is_empty() {
+                    debug!(
+                        layer_name = %layer_name,
+                        subscriber_count = subs.len(),
+                        from_peer = ?from_peer,
+                        "Sent PageEvent after apply (manual notification for remote update)"
+                    );
+                }
+            }
+        }
+    }
+
     // Update sender's vector to reflect what they've sent us
     if let Some(ref peer) = from_peer {
         if let Ok(mut subs) = state.subscribers.write() {

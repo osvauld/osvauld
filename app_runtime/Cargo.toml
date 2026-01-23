@@ -45,3 +45,7 @@ layout-rs = "0.1"
 
 # Emoji lookup by shortcode
 emojis = "0.6"
+
+# Content hashing for app versioning
+sha2 = "0.10"
+hex = "0.4"

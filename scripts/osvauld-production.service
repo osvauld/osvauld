@@ -1,0 +1,39 @@
+[Unit]
+Description=Osvauld Production Node
+Documentation=https://github.com/osvauld/osvauld
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=abe
+Group=abe
+
+# Working directory
+WorkingDirectory=/home/abe/osvauld
+
+# Environment
+Environment="OSVAULD_DATA_DIR=/home/abe/.local/share/osvauld-production"
+Environment="OSVAULD_USERNAME=production"
+Environment="OSVAULD_PASSPHRASE=test"
+Environment="PATH=/home/abe/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
+
+# Main command
+ExecStart=/usr/bin/python3 /home/abe/osvauld/scripts/run_production.py
+
+# Restart configuration
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=osvauld-production
+
+# Security (optional, comment out if issues)
+# PrivateTmp=true
+# ProtectSystem=strict
+# ReadWritePaths=/home/abe/.local/share/osvauld-production /tmp
+
+[Install]
+WantedBy=multi-user.target

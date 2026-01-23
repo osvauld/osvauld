@@ -3,10 +3,10 @@
 Run a demo app interactively.
 
 Usage:
+    python scripts/run_demo.py guide      # Run Sthalam Guide
     python scripts/run_demo.py snake      # Run snake game
     python scripts/run_demo.py math       # Run math simulation
     python scripts/run_demo.py chat       # Run group chat
-    python scripts/run_demo.py landing    # Run landing page
 
 After starting, attach to tmux:
     tmux attach -t demo
@@ -28,7 +28,7 @@ APP_MAP = {
     "snake": ("snake-game", "Snake Game"),
     "math": ("math-sim", "Math Simulation"),
     "chat": ("group-chat", "Group Chat"),
-    "landing": ("landing", "Landing"),
+    "guide": ("guide", "Sthalam Guide"),
 }
 
 

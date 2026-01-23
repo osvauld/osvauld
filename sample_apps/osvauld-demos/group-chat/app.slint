@@ -115,9 +115,9 @@ export component App inherits Rectangle {
         // Messages area
         Flickable {
             vertical-stretch: 1;
-            viewport-height: self.height;
+            viewport-height: messages-content.preferred-height;
 
-            VerticalLayout {
+            messages-content := VerticalLayout {
                 padding: 16px;
                 spacing: 8px;
 
@@ -151,17 +151,20 @@ export component App inherits Rectangle {
 
                     VerticalLayout {
                         spacing: 4px;
+                        horizontal-stretch: 0;
 
-                        if !msg.is_mine: Text {
+                        // Sender name
+                        Text {
                             text: msg.sender_short;
                             font-size: 10px;
-                            color: Theme.text-secondary;
+                            color: msg.is_mine ? Theme.accent : Theme.text-secondary;
+                            horizontal-alignment: msg.is_mine ? right : left;
                         }
 
+                        // Message bubble
                         Rectangle {
                             background: msg.is_mine ? Theme.mine-bg : Theme.other-bg;
                             border-radius: 12px;
-                            max-width: 300px;
 
                             HorizontalLayout {
                                 padding-top: 8px;
@@ -178,6 +181,7 @@ export component App inherits Rectangle {
                             }
                         }
 
+                        // Timestamp
                         Text {
                             text: msg.timestamp;
                             font-size: 10px;

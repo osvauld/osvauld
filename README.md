@@ -91,26 +91,33 @@ Your App (Lua + Slint)
 | **My Booking** | Service booking with provider/customer roles | `sample_apps/my-booking/` |
 | **Canvas** | Collaborative whiteboard with shapes, connectors, live cursors | `sample_apps/canvas-app/` |
 | **Photo Gallery** | Shared photo albums with blob sync | `sample_apps/photo-gallery/` |
-| **Demos** | Landing page, Snake game, Math sim, Group chat | `sample_apps/osvauld-demos/` |
+| **Demos** | Sthalam Guide, Snake game, Math sim, Group chat | `sample_apps/osvauld-demos/` |
 
 ## Getting Started
+
+### Quick Start
+
+```bash
+git clone https://github.com/osvauld/osvauld.git
+cd osvauld
+cargo run -p slint_shell
+```
+
+This launches Sthalam with the **Sthalam Guide** app - an interactive introduction to the Xtended Web. The guide covers:
+- What is the Xtended Web
+- How Sthalam and Osvauld work
+- Architecture overview
+- Building your own apps
 
 ### Prerequisites
 
 - Rust 1.75+ (with nightly for some features)
 - Linux, macOS, or Windows
 
-### Build
+### Build for Release
 
 ```bash
-# Clone the repository
-git clone https://github.com/osvauld/osvauld.git
-cd osvauld
-
-# Build the desktop shell
 cargo build -p slint_shell --release
-
-# Run with a sample app
 ./target/release/slint_shell
 ```
 

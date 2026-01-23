@@ -313,6 +313,7 @@ version = "0.1.0"
 dependencies = [
  "butler",
  "emojis",
+ "hex",
  "layout-rs",
  "loro",
  "mlua",
@@ -320,6 +321,7 @@ dependencies = [
  "ractor",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "slint",
  "slint-interpreter",
  "tempfile",
