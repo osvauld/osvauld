@@ -26,6 +26,7 @@ DEMOS_APP = Path(__file__).parent.parent / "sample_apps" / "osvauld-demos"
 
 APP_MAP = {
     "snake": ("snake-game", "Snake Game"),
+    "tank": ("tank-game", "Tank Game"),
     "math": ("math-sim", "Math Simulation"),
     "chat": ("group-chat", "Group Chat"),
     "guide": ("guide", "Sthalam Guide"),

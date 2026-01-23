@@ -1,0 +1,9 @@
+{
+    "name": "Tank Game",
+    "version": "1.0.0",
+    "description": "Classic brick game tanks - destroy enemies and defeat bosses",
+    "entry_ui": "app.slint",
+    "entry_logic": "app.lua",
+    "models": ["enemies", "bullets", "obstacles", "leaderboard"],
+    "tick_enabled": true
+}
