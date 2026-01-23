@@ -1,0 +1,1086 @@
+// Sthalam Guide - Welcome to the Xtended Web
+// Tab-based documentation and introduction
+
+// Theme colors (dark theme matching Astro landing page)
+global Theme {
+    // Backgrounds (from Astro tailwind.config.cjs)
+    out property<color> bg-primary: #010102;      // dark1 - page background
+    out property<color> bg-secondary: #0D0E13;    // dark4 - body/section bg
+    out property<color> bg-card: #111218;         // faqDark - card background
+    out property<color> bg-elevated: #101117;     // dark5 - elevated surfaces
+    out property<color> bg-tab: #292A36;          // tabBg - tab background
+
+    // Borders
+    out property<color> border: #2F303E;          // faqBorder - default borders
+    out property<color> border-light: #16171F;    // calBorder - subtle borders
+
+    // Text
+    out property<color> text-primary: #FFFFFF;    // white1 - headings
+    out property<color> text-secondary: #A6B0BB;  // white4 - body text
+    out property<color> text-muted: #85889C;      // trialFieldText - muted
+    out property<color> text-answer: #BFC0CC;     // faqAnswer - descriptions
+
+    // Accents
+    out property<color> accent: #4A86FF;          // blue1 - primary accent
+    out property<color> accent-purple: #8A86E5;   // livnotePrimary
+    out property<color> accent-sthalam: #cba6f7;  // sthalamPrimary
+    out property<color> accent-green: #22c55e;    // success/code color
+}
+
+// App state
+export global AppAPI {
+    in-out property<int> active_tab: 0;
+    callback on_click(string);
+}
+
+// Simple icons using basic shapes
+
+// P2P Network icon
+component P2PIcon inherits Rectangle {
+    width: 32px;
+    height: 32px;
+
+    // Center node
+    Rectangle {
+        x: 12px; y: 12px;
+        width: 8px; height: 8px;
+        background: Theme.accent;
+        border-radius: 4px;
+    }
+    // Top node
+    Rectangle {
+        x: 12px; y: 2px;
+        width: 8px; height: 8px;
+        background: Theme.accent;
+        border-radius: 4px;
+    }
+    // Bottom left
+    Rectangle {
+        x: 4px; y: 22px;
+        width: 8px; height: 8px;
+        background: Theme.accent;
+        border-radius: 4px;
+    }
+    // Bottom right
+    Rectangle {
+        x: 20px; y: 22px;
+        width: 8px; height: 8px;
+        background: Theme.accent;
+        border-radius: 4px;
+    }
+    // Lines
+    Path {
+        width: 100%;
+        height: 100%;
+        stroke: Theme.accent;
+        stroke-width: 2px;
+
+        MoveTo { x: 16; y: 12; }
+        LineTo { x: 16; y: 10; }
+        MoveTo { x: 12; y: 16; }
+        LineTo { x: 8; y: 22; }
+        MoveTo { x: 20; y: 16; }
+        LineTo { x: 24; y: 22; }
+    }
+}
+
+// Fingerprint icon (simplified)
+component FingerprintIcon inherits Rectangle {
+    width: 32px;
+    height: 32px;
+
+    // Concentric arcs represented as partial circles
+    Rectangle {
+        x: 6px; y: 6px;
+        width: 20px; height: 20px;
+        background: transparent;
+        border-color: Theme.accent;
+        border-width: 2px;
+        border-radius: 10px;
+    }
+    Rectangle {
+        x: 10px; y: 10px;
+        width: 12px; height: 12px;
+        background: transparent;
+        border-color: Theme.accent;
+        border-width: 2px;
+        border-radius: 6px;
+    }
+    Rectangle {
+        x: 14px; y: 14px;
+        width: 4px; height: 4px;
+        background: Theme.accent;
+        border-radius: 2px;
+    }
+}
+
+// Storage icon
+component StorageIcon inherits Rectangle {
+    width: 32px;
+    height: 32px;
+
+    // Box shape
+    Rectangle {
+        x: 4px; y: 8px;
+        width: 24px; height: 16px;
+        background: transparent;
+        border-color: Theme.accent;
+        border-width: 2px;
+        border-radius: 2px;
+    }
+    // Shelf
+    Rectangle {
+        x: 4px; y: 14px;
+        width: 24px; height: 2px;
+        background: Theme.accent;
+    }
+    // Top lid
+    Path {
+        width: 100%;
+        height: 100%;
+        stroke: Theme.accent;
+        stroke-width: 2px;
+
+        MoveTo { x: 4; y: 8; }
+        LineTo { x: 8; y: 4; }
+        LineTo { x: 24; y: 4; }
+        LineTo { x: 28; y: 8; }
+    }
+}
+
+// Key icon
+component KeyIcon inherits Rectangle {
+    width: 32px;
+    height: 32px;
+
+    // Key head (circle)
+    Rectangle {
+        x: 4px; y: 4px;
+        width: 14px; height: 14px;
+        background: transparent;
+        border-color: Theme.accent;
+        border-width: 3px;
+        border-radius: 7px;
+    }
+    // Key shaft
+    Rectangle {
+        x: 16px; y: 9px;
+        width: 12px; height: 4px;
+        background: Theme.accent;
+    }
+    // Key teeth
+    Rectangle {
+        x: 22px; y: 13px;
+        width: 4px; height: 6px;
+        background: Theme.accent;
+    }
+    Rectangle {
+        x: 26px; y: 13px;
+        width: 2px; height: 4px;
+        background: Theme.accent;
+    }
+}
+
+// Community icon (person + heart)
+component CommunityIcon inherits Rectangle {
+    width: 32px;
+    height: 32px;
+
+    // Head
+    Rectangle {
+        x: 10px; y: 2px;
+        width: 8px; height: 8px;
+        background: Theme.accent;
+        border-radius: 4px;
+    }
+    // Body
+    Path {
+        width: 100%;
+        height: 100%;
+        fill: Theme.accent;
+
+        MoveTo { x: 8; y: 12; }
+        LineTo { x: 20; y: 12; }
+        LineTo { x: 22; y: 28; }
+        LineTo { x: 6; y: 28; }
+        Close {}
+    }
+    // Heart (simplified)
+    Rectangle {
+        x: 20px; y: 4px;
+        width: 8px; height: 8px;
+        background: Theme.accent-purple;
+        border-radius: 4px;
+    }
+}
+
+// Shield icon
+component ShieldIcon inherits Rectangle {
+    width: 32px;
+    height: 32px;
+
+    Path {
+        width: 100%;
+        height: 100%;
+        fill: Theme.accent-green;
+
+        MoveTo { x: 16; y: 2; }
+        LineTo { x: 28; y: 8; }
+        LineTo { x: 28; y: 16; }
+        QuadraticTo { control-x: 28; control-y: 28; x: 16; y: 30; }
+        QuadraticTo { control-x: 4; control-y: 28; x: 4; y: 16; }
+        LineTo { x: 4; y: 8; }
+        Close {}
+    }
+}
+
+// Sync icon
+component SyncIcon inherits Rectangle {
+    width: 32px;
+    height: 32px;
+
+    Path {
+        width: 100%;
+        height: 100%;
+        stroke: Theme.accent-purple;
+        stroke-width: 2.5px;
+
+        MoveTo { x: 24; y: 8; }
+        LineTo { x: 28; y: 12; }
+        LineTo { x: 24; y: 16; }
+        MoveTo { x: 28; y: 12; }
+        QuadraticTo { control-x: 28; control-y: 4; x: 16; y: 4; }
+        LineTo { x: 10; y: 4; }
+
+        MoveTo { x: 8; y: 24; }
+        LineTo { x: 4; y: 20; }
+        LineTo { x: 8; y: 16; }
+        MoveTo { x: 4; y: 20; }
+        QuadraticTo { control-x: 4; control-y: 28; x: 16; y: 28; }
+        LineTo { x: 22; y: 28; }
+    }
+}
+
+// Feature card with icon
+component FeatureCard inherits Rectangle {
+    in property<string> title;
+    in property<string> content;
+    in property<string> icon_type: "p2p";
+
+    background: Theme.bg-card;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border-light;
+
+    HorizontalLayout {
+        padding: 20px;
+        spacing: 16px;
+
+        // Icon container
+        Rectangle {
+            width: 56px;
+            height: 56px;
+            background: Theme.bg-elevated;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            if icon_type == "p2p": P2PIcon { x: 12px; y: 12px; }
+            if icon_type == "fingerprint": FingerprintIcon { x: 12px; y: 12px; }
+            if icon_type == "storage": StorageIcon { x: 12px; y: 12px; }
+            if icon_type == "key": KeyIcon { x: 12px; y: 12px; }
+            if icon_type == "community": CommunityIcon { x: 12px; y: 12px; }
+            if icon_type == "shield": ShieldIcon { x: 12px; y: 12px; }
+            if icon_type == "sync": SyncIcon { x: 12px; y: 12px; }
+        }
+
+        VerticalLayout {
+            spacing: 6px;
+            vertical-stretch: 1;
+
+            Text {
+                text: title;
+                font-size: 16px;
+                font-weight: 600;
+                color: Theme.text-primary;
+            }
+
+            Text {
+                text: content;
+                font-size: 13px;
+                color: Theme.text-answer;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+// Simple section card (no icon)
+component SectionCard inherits Rectangle {
+    in property<string> title;
+    in property<string> content;
+
+    background: Theme.bg-card;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border-light;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+
+        Text {
+            text: title;
+            font-size: 15px;
+            font-weight: 600;
+            color: Theme.accent;
+        }
+
+        Text {
+            text: content;
+            font-size: 13px;
+            color: Theme.text-answer;
+            wrap: word-wrap;
+        }
+    }
+}
+
+// Tab button
+component TabButton inherits Rectangle {
+    in property<string> label;
+    in property<bool> active;
+    in property<string> tab_id;
+
+    height: 40px;
+    horizontal-stretch: 1;
+    background: active ? Theme.accent : Theme.bg-tab;
+    border-radius: 8px;
+
+    Text {
+        text: label;
+        font-size: 13px;
+        font-weight: active ? 600 : 400;
+        color: active ? white : Theme.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    TouchArea {
+        clicked => { AppAPI.on_click("tab:" + tab_id); }
+    }
+}
+
+// Code block
+component CodeBlock inherits Rectangle {
+    in property<string> code;
+
+    background: Theme.bg-card;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        padding: 16px;
+
+        Text {
+            text: code;
+            font-size: 13px;
+            color: Theme.accent-green;
+            font-family: "monospace";
+        }
+    }
+}
+
+// Main app
+export component App inherits Rectangle {
+    background: Theme.bg-primary;
+
+    VerticalLayout {
+        padding: 0;
+        spacing: 0;
+
+        // Header
+        Rectangle {
+            height: 70px;
+            background: Theme.bg-secondary;
+
+            HorizontalLayout {
+                padding: 16px;
+                spacing: 16px;
+
+                Rectangle {
+                    width: 44px;
+                    height: 44px;
+                    background: Theme.accent-sthalam;
+                    border-radius: 10px;
+
+                    Text {
+                        text: "S";
+                        font-size: 26px;
+                        font-weight: 700;
+                        color: Theme.bg-primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 2px;
+
+                    Text {
+                        text: "Sthalam Guide";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    Text {
+                        text: "Welcome to the Xtended Web";
+                        font-size: 12px;
+                        color: Theme.text-muted;
+                    }
+                }
+            }
+        }
+
+        // Tab bar
+        Rectangle {
+            height: 56px;
+            background: Theme.bg-secondary;
+
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                padding-top: 8px;
+                padding-bottom: 8px;
+                spacing: 8px;
+
+                TabButton { label: "Welcome"; active: AppAPI.active_tab == 0; tab_id: "0"; }
+                TabButton { label: "Features"; active: AppAPI.active_tab == 1; tab_id: "1"; }
+                TabButton { label: "Run Node"; active: AppAPI.active_tab == 2; tab_id: "2"; }
+                TabButton { label: "Build Apps"; active: AppAPI.active_tab == 3; tab_id: "3"; }
+                TabButton { label: "AI Dev"; active: AppAPI.active_tab == 4; tab_id: "4"; }
+            }
+        }
+
+        // Content area
+        Flickable {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 20px;
+
+                // WELCOME TAB
+                if AppAPI.active_tab == 0: VerticalLayout {
+                    spacing: 24px;
+
+                    VerticalLayout {
+                        spacing: 16px;
+
+                        Rectangle { height: 20px; }
+
+                        Text {
+                            text: "The Extended Web";
+                            font-size: 36px;
+                            font-weight: 700;
+                            color: #ff3333;
+                            horizontal-alignment: center;
+                        }
+
+                        Rectangle { height: 8px; }
+
+                        Text {
+                            text: "The internet was meant to be decentralized.";
+                            font-size: 18px;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: "Somewhere along the way, we gave up our data,\nour identity, and our privacy to centralized platforms.";
+                            font-size: 14px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                        }
+
+                        Rectangle { height: 16px; }
+
+                        Text {
+                            text: "We're taking it back.";
+                            font-size: 24px;
+                            font-weight: 600;
+                            color: Theme.accent-sthalam;
+                            horizontal-alignment: center;
+                        }
+
+                        Rectangle { height: 24px; }
+                    }
+
+                    Rectangle {
+                        background: Theme.bg-card;
+                        border-radius: 16px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        VerticalLayout {
+                            padding: 24px;
+                            spacing: 16px;
+
+                            Text {
+                                text: "Our Vision";
+                                font-size: 20px;
+                                font-weight: 600;
+                                color: Theme.text-primary;
+                            }
+
+                            Text {
+                                text: "A world where your digital life belongs to you. Where apps run on your devices, data stays under your control, and connections are direct.";
+                                font-size: 14px;
+                                color: Theme.text-answer;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "Core Principles";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    FeatureCard {
+                        icon_type: "storage";
+                        title: "Your Data, Your Device";
+                        content: "No cloud servers storing your information. Your data stays with you, encrypted and under your control.";
+                    }
+
+                    FeatureCard {
+                        icon_type: "p2p";
+                        title: "Direct Connections";
+                        content: "Peer-to-peer connections mean no middlemen. Communicate directly with friends, family, or collaborators.";
+                    }
+
+                    FeatureCard {
+                        icon_type: "fingerprint";
+                        title: "Trusted Access";
+                        content: "Fine-grained permission system. You decide exactly what each connection can access.";
+                    }
+                }
+
+                // FEATURES TAB
+                if AppAPI.active_tab == 1: VerticalLayout {
+                    spacing: 24px;
+
+                    Text {
+                        text: "Features";
+                        font-size: 28px;
+                        font-weight: 700;
+                        color: Theme.accent;
+                        horizontal-alignment: center;
+                    }
+
+                    FeatureCard {
+                        icon_type: "p2p";
+                        title: "Peer-to-Peer Network";
+                        content: "Connect directly with others using QUIC protocol. Fast, encrypted, with built-in NAT traversal.";
+                    }
+
+                    FeatureCard {
+                        icon_type: "fingerprint";
+                        title: "Trusted Access";
+                        content: "UCAN-based permission tokens for fine-grained, delegatable access control.";
+                    }
+
+                    FeatureCard {
+                        icon_type: "storage";
+                        title: "Offline-First";
+                        content: "Apps work without internet. Loro CRDTs handle automatic, conflict-free sync.";
+                    }
+
+                    FeatureCard {
+                        icon_type: "key";
+                        title: "Self-Sovereign Identity";
+                        content: "Your identity is your cryptographic keypair. No passwords, no accounts.";
+                    }
+
+                    FeatureCard {
+                        icon_type: "community";
+                        title: "Open Source";
+                        content: "Built in the open. Contribute, audit, or fork.";
+                    }
+
+                    FeatureCard {
+                        icon_type: "shield";
+                        title: "Sovereign Node";
+                        content: "Run your own node. Your data, your rules.";
+                    }
+
+                    Text {
+                        text: "Osvauld Protocol";
+                        font-size: 24px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                    }
+
+                    SectionCard {
+                        title: "Herald - Identity & Encryption";
+                        content: "Ed25519 keys for signing, X25519 for encryption.";
+                    }
+
+                    SectionCard {
+                        title: "Gurkha - Authorization";
+                        content: "UCAN permits for fine-grained access control.";
+                    }
+
+                    SectionCard {
+                        title: "Courier - P2P Networking";
+                        content: "QUIC/Iroh-based connections with relay support.";
+                    }
+
+                    SectionCard {
+                        title: "Butler - Storage & Sync";
+                        content: "Loro CRDTs for conflict-free synchronization.";
+                    }
+                }
+
+                // RUN YOUR OWN NODE TAB
+                if AppAPI.active_tab == 2: VerticalLayout {
+                    spacing: 24px;
+
+                    Text {
+                        text: "Run Your Own Node";
+                        font-size: 28px;
+                        font-weight: 700;
+                        color: Theme.accent;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: "Run Sthalam on your laptop and own your data.";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: "1. Clone & Build";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    CodeBlock {
+                        code: "git clone https://github.com/osvauld/osvauld\ncd osvauld\ncargo build --release -p slint_shell";
+                    }
+
+                    Text {
+                        text: "2. Run Your Node";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    CodeBlock {
+                        code: "# Interactive mode (development)\ncargo run -p slint_shell\n\n# Or run the demo script\npython scripts/run_demo.py";
+                    }
+
+                    SectionCard {
+                        title: "Your Identity";
+                        content: "First run creates your keypair at ~/.local/share/osvauld/. This is your cryptographic identity - back it up!";
+                    }
+
+                    Text {
+                        text: "3. Connect to Others";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    SectionCard {
+                        title: "Share Links";
+                        content: "Create a Space, add apps, then share the viewer link with friends. They paste the link to connect directly to your node.";
+                    }
+
+                    SectionCard {
+                        title: "Relay Support";
+                        content: "When direct connection fails (NAT), the relay server helps establish the connection. Your data still flows encrypted end-to-end.";
+                    }
+
+                    Text {
+                        text: "4. Keep Node Running";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    CodeBlock {
+                        code: "# Use tmux to keep running after logout\ntmux new -s sthalam\ncargo run -p slint_shell\n# Ctrl+B then D to detach";
+                    }
+
+                    SectionCard {
+                        title: "Systemd Service (Linux)";
+                        content: "For always-on: copy osvauld-production.service to ~/.config/systemd/user/, run 'systemctl --user enable osvauld-production'";
+                    }
+
+                    Rectangle { height: 32px; }
+                }
+
+                // BUILD APPS TAB
+                if AppAPI.active_tab == 3: VerticalLayout {
+                    spacing: 24px;
+
+                    Text {
+                        text: "Build Apps with Claude";
+                        font-size: 28px;
+                        font-weight: 700;
+                        color: Theme.accent;
+                        horizontal-alignment: center;
+                    }
+
+                    Rectangle {
+                        background: Theme.accent-sthalam;
+                        border-radius: 8px;
+
+                        VerticalLayout {
+                            padding: 16px;
+
+                            Text {
+                                text: "Development is designed for AI. Claude has full context of the codebase and can build, run, and test apps automatically.";
+                                font-size: 14px;
+                                font-weight: 600;
+                                color: Theme.bg-primary;
+                                wrap: word-wrap;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "Run Apps with Scripts";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    CodeBlock {
+                        code: "# Run any demo app\npython scripts/run_demo.py snake\npython scripts/run_demo.py math\npython scripts/run_demo.py chat\npython scripts/run_demo.py guide\n\n# Claude runs these automatically!";
+                    }
+
+                    SectionCard {
+                        title: "scripts/run_demo.py";
+                        content: "Main script for running apps. Claude uses this to test changes instantly. Handles tmux sessions, app loading, and hot reload.";
+                    }
+
+                    Text {
+                        text: "App Structure";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    CodeBlock {
+                        code: "sample_apps/osvauld-demos/my-app/\n  manifest.json   # App config\n  app.slint       # UI (Slint)\n  app.lua         # Logic (Lua)";
+                    }
+
+                    Text {
+                        text: "manifest.json";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    CodeBlock {
+                        code: "{\n  \"name\": \"My App\",\n  \"version\": \"1.0.0\",\n  \"entry_ui\": \"app.slint\",\n  \"entry_logic\": \"app.lua\",\n  \"tick_enabled\": false\n}";
+                    }
+
+                    SectionCard {
+                        title: "tick_enabled: true";
+                        content: "For games/animations. Calls tick() at ~60fps. See snake-game and math-sim for examples.";
+                    }
+
+                    Text {
+                        text: "Slint UI (app.slint)";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    CodeBlock {
+                        code: "export global AppAPI {\n  in-out property<string> msg;\n  callback on_click(string);\n}\n\nexport component App {\n  Text { text: AppAPI.msg; }\n  TouchArea {\n    clicked => { AppAPI.on_click(\"btn\"); }\n  }\n}";
+                    }
+
+                    Text {
+                        text: "Lua Logic (app.lua)";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    CodeBlock {
+                        code: "function on_init()\n  ui:set(\"msg\", \"Hello!\")\nend\n\nfunction on_click(target)\n  ui:set(\"msg\", \"Clicked: \" .. target)\nend\n\nfunction tick()  -- if tick_enabled\n  -- called ~60fps\nend";
+                    }
+
+                    Text {
+                        text: "Key Lua APIs";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    SectionCard {
+                        title: "ui:set(prop, value) / ui:get(prop)";
+                        content: "Read/write UI properties. Arrays become VecModels automatically.";
+                    }
+
+                    SectionCard {
+                        title: "layer:set(key, val) / layer:get(key)";
+                        content: "CRDT storage - auto-syncs to peers. Use for shared state.";
+                    }
+
+                    SectionCard {
+                        title: "layer:list_push(val)";
+                        content: "Append to synced list (e.g., chat messages, scores).";
+                    }
+
+                    Text {
+                        text: "Reference Apps";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    SectionCard {
+                        title: "snake-game/";
+                        content: "Game loop, keyboard input, tick(), leaderboard sync.";
+                    }
+
+                    SectionCard {
+                        title: "math-sim/";
+                        content: "Particle physics, tick(), VecModel arrays, settings sync.";
+                    }
+
+                    SectionCard {
+                        title: "group-chat/";
+                        content: "Real-time sync, list layers, text input, reactions.";
+                    }
+
+                    Text {
+                        text: "Claude reads these examples to understand patterns.\nJust say 'build an app like snake but for X'";
+                        font-size: 14px;
+                        color: Theme.accent-sthalam;
+                        horizontal-alignment: center;
+                    }
+
+                    Rectangle { height: 32px; }
+                }
+
+                // AI DEVELOPMENT TAB
+                if AppAPI.active_tab == 4: VerticalLayout {
+                    spacing: 24px;
+
+                    Text {
+                        text: "AI-Powered Development";
+                        font-size: 28px;
+                        font-weight: 700;
+                        color: Theme.accent;
+                        horizontal-alignment: center;
+                    }
+
+                    Rectangle {
+                        background: Theme.accent-sthalam;
+                        border-radius: 8px;
+
+                        VerticalLayout {
+                            padding: 16px;
+
+                            Text {
+                                text: "The entire development process can be automated with AI - from writing code to running, debugging, and reloading apps.";
+                                font-size: 14px;
+                                font-weight: 600;
+                                color: Theme.bg-primary;
+                                wrap: word-wrap;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "What AI Can Do";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    SectionCard {
+                        title: "Write All App Files";
+                        content: "AI creates manifest.json, app.slint, app.lua from your description. No manual coding needed.";
+                    }
+
+                    SectionCard {
+                        title: "Run & Restart Automatically";
+                        content: "AI executes scripts, kills old processes, and restarts with new code - all in the feedback loop.";
+                    }
+
+                    SectionCard {
+                        title: "Read Errors & Fix";
+                        content: "AI reads tmux output, sees compiler errors, fixes the code, and reruns until it works.";
+                    }
+
+                    SectionCard {
+                        title: "Hot Reload Apps";
+                        content: "AI can trigger app reload by rerunning run_demo.py with updated files. No manual restart needed.";
+                    }
+
+                    Text {
+                        text: "tmux Setup (Key for AI)";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    CodeBlock {
+                        code: "# AI uses tmux for the feedback loop:\ntmux new -s dev\n\n# AI can send commands directly:\ntmux send-keys -t dev 'python run.py' Enter\n\n# AI reads output to debug:\ntmux capture-pane -t dev -p";
+                    }
+
+                    Text {
+                        text: "Automated Dev Loop";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    Rectangle {
+                        background: Theme.bg-card;
+                        border-radius: 12px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Rectangle { width: 24px; height: 24px; background: Theme.accent; border-radius: 12px;
+                                    Text { text: "1"; font-size: 12px; font-weight: 700; color: white; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                                Text { text: "You describe the app"; font-size: 13px; color: Theme.text-primary; vertical-alignment: center; }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Rectangle { width: 24px; height: 24px; background: Theme.accent; border-radius: 12px;
+                                    Text { text: "2"; font-size: 12px; font-weight: 700; color: white; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                                Text { text: "AI writes code files"; font-size: 13px; color: Theme.text-primary; vertical-alignment: center; }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Rectangle { width: 24px; height: 24px; background: Theme.accent; border-radius: 12px;
+                                    Text { text: "3"; font-size: 12px; font-weight: 700; color: white; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                                Text { text: "AI runs the app via tmux"; font-size: 13px; color: Theme.text-primary; vertical-alignment: center; }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Rectangle { width: 24px; height: 24px; background: Theme.accent; border-radius: 12px;
+                                    Text { text: "4"; font-size: 12px; font-weight: 700; color: white; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                                Text { text: "AI reads errors, fixes, reruns"; font-size: 13px; color: Theme.text-primary; vertical-alignment: center; }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Rectangle { width: 24px; height: 24px; background: Theme.accent-green; border-radius: 12px;
+                                    Text { text: "5"; font-size: 12px; font-weight: 700; color: white; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                                Text { text: "App works! (repeat for changes)"; font-size: 13px; color: Theme.accent-green; vertical-alignment: center; }
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "Example: Complete App in Minutes";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    CodeBlock {
+                        code: "You: \"Make a todo list with sync\"\n\nAI: Creates 3 files, runs script,\n    sees Slint error, fixes syntax,\n    reruns, app launches!\n\nYou: \"Add a delete button\"\n\nAI: Edits files, restarts app,\n    done.";
+                    }
+
+                    Text {
+                        text: "Getting Started";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    CodeBlock {
+                        code: "# Install Claude Code CLI\ncurl -fsSL https://claude.ai/code/install | sh\n\n# Run in osvauld directory\ncd osvauld\nclaude\n\n# Tell it what app to build!";
+                    }
+
+                    SectionCard {
+                        title: "Reference Apps";
+                        content: "sample_apps/osvauld-demos/ has snake-game, math-sim, group-chat. AI studies these to learn patterns.";
+                    }
+
+                    SectionCard {
+                        title: "CLAUDE.md Context";
+                        content: "Repo's CLAUDE.md gives AI coding policies. It knows the architecture and can write idiomatic code.";
+                    }
+
+                    Text {
+                        text: "Zero manual coding required.\nJust describe what you want and iterate!";
+                        font-size: 15px;
+                        font-weight: 600;
+                        color: Theme.accent-sthalam;
+                        horizontal-alignment: center;
+                    }
+
+                    Rectangle { height: 32px; }
+                }
+            }
+        }
+
+        // Footer
+        Rectangle {
+            height: 48px;
+            background: Theme.bg-secondary;
+
+            HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                spacing: 24px;
+
+                Text {
+                    text: "Telegram: t.me/osvauld";
+                    font-size: 12px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: "GitHub: github.com/osvauld";
+                    font-size: 12px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                Text {
+                    text: "Built with Osvauld";
+                    font-size: 12px;
+                    color: Theme.accent-sthalam;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

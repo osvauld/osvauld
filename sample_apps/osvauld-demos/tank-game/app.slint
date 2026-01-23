@@ -1,0 +1,598 @@
+// Tank Brick Game UI
+// Classic tank battle with enemies, bosses, and synced high scores
+
+// Game entity structs
+export struct Tank {
+    x: int,
+    y: int,
+    direction: string,
+    alive: bool,
+}
+
+export struct Enemy {
+    x: int,
+    y: int,
+    direction: string,
+    hp: int,
+    is_boss: bool,
+}
+
+export struct Bullet {
+    x: int,
+    y: int,
+    direction: string,
+}
+
+export struct Obstacle {
+    x: int,
+    y: int,
+    kind: string,
+}
+
+export struct ScoreEntry {
+    player: string,
+    score: int,
+    stage: int,
+    date: string,
+}
+
+// Classic brick game LCD theme
+global Theme {
+    out property<color> bg: #9bbc0f;           // Classic LCD green
+    out property<color> bg-dark: #0f380f;      // Dark green
+    out property<color> bg-medium: #306230;    // Medium green
+    out property<color> tank-player: #0f380f;  // Player tank (dark)
+    out property<color> tank-enemy: #306230;   // Enemy tank
+    out property<color> tank-boss: #8b0000;    // Boss (dark red)
+    out property<color> bullet: #0f380f;       // Bullets
+    out property<color> brick: #8b4513;        // Brick walls
+    out property<color> steel: #4a4a4a;        // Steel walls
+    out property<color> text: #0f380f;         // Text color
+    out property<color> text-light: #306230;   // Light text
+}
+
+// App API
+export global AppAPI {
+    // Game entities
+    in-out property<Tank> tank: { x: 10, y: 13, direction: "up", alive: true };
+    in-out property<[Enemy]> enemies: [];
+    in-out property<[Bullet]> bullets: [];
+    in-out property<[Obstacle]> obstacles: [];
+
+    // Game state
+    in-out property<int> score: 0;
+    in-out property<int> high_score: 0;
+    in-out property<int> lives: 3;
+    in-out property<int> stage: 1;
+    in-out property<bool> game_over: false;
+    in-out property<bool> game_paused: true;
+
+    // Grid settings
+    in-out property<int> grid_width: 20;
+    in-out property<int> grid_height: 15;
+    in-out property<int> cell_size: 24;
+
+    // Leaderboard
+    in-out property<[ScoreEntry]> leaderboard: [];
+
+    // Performance
+    in-out property<int> fps: 0;
+
+    callback on_click(string);
+    callback on_key_pressed(string);
+}
+
+// Tank visual component - draws tank body with turret pointing in direction
+component TankSprite {
+    in property<int> cell_size;
+    in property<string> direction;
+    in property<color> tank_color;
+    in property<bool> is_boss: false;
+
+    property<float> size_factor: is_boss ? 0.9 : 0.75;
+    property<length> tank_size: cell_size * size_factor * 1px;
+    property<length> offset: (cell_size * 1px - tank_size) / 2;
+
+    // Tank body
+    Rectangle {
+        x: offset;
+        y: offset;
+        width: tank_size;
+        height: tank_size;
+        background: tank_color;
+        border-radius: 3px;
+
+        // Turret - up
+        if direction == "up": Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: -self.height / 2;
+            width: parent.width * 0.3;
+            height: parent.height * 0.5;
+            background: tank_color;
+            border-radius: 2px;
+        }
+
+        // Turret - down
+        if direction == "down": Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: parent.height - self.height / 2;
+            width: parent.width * 0.3;
+            height: parent.height * 0.5;
+            background: tank_color;
+            border-radius: 2px;
+        }
+
+        // Turret - left
+        if direction == "left": Rectangle {
+            x: -self.width / 2;
+            y: (parent.height - self.height) / 2;
+            width: parent.width * 0.5;
+            height: parent.height * 0.3;
+            background: tank_color;
+            border-radius: 2px;
+        }
+
+        // Turret - right
+        if direction == "right": Rectangle {
+            x: parent.width - self.width / 2;
+            y: (parent.height - self.height) / 2;
+            width: parent.width * 0.5;
+            height: parent.height * 0.3;
+            background: tank_color;
+            border-radius: 2px;
+        }
+
+        // Center dot
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: parent.width * 0.3;
+            height: parent.height * 0.3;
+            background: is_boss ? #ff0000 : Theme.bg;
+            border-radius: 2px;
+        }
+    }
+}
+
+export component App inherits Rectangle {
+    background: Theme.bg;
+
+    // Calculate canvas size
+    property<length> canvas_width: AppAPI.grid_width * AppAPI.cell_size * 1px;
+    property<length> canvas_height: AppAPI.grid_height * AppAPI.cell_size * 1px;
+
+    // Key handler
+    forward-focus: key-handler;
+    key-handler := FocusScope {
+        width: 100%;
+        height: 100%;
+
+        key-pressed(event) => {
+            if event.text == "w" || event.text == "W" || event.text == "↑" {
+                AppAPI.on_key_pressed("up");
+            } else if event.text == "s" || event.text == "S" || event.text == "↓" {
+                AppAPI.on_key_pressed("down");
+            } else if event.text == "a" || event.text == "A" || event.text == "←" {
+                AppAPI.on_key_pressed("left");
+            } else if event.text == "d" || event.text == "D" || event.text == "→" {
+                AppAPI.on_key_pressed("right");
+            } else if event.text == " " || event.text == "j" || event.text == "J" {
+                if AppAPI.game_paused && !AppAPI.game_over {
+                    AppAPI.on_click("toggle_pause");
+                } else {
+                    AppAPI.on_key_pressed("shoot");
+                }
+            } else if event.text == "r" || event.text == "R" {
+                AppAPI.on_click("restart");
+            } else if event.text == "p" || event.text == "P" {
+                AppAPI.on_click("toggle_pause");
+            }
+            accept
+        }
+
+        key-released(event) => {
+            accept
+        }
+
+        init => { self.focus(); }
+    }
+
+    HorizontalLayout {
+        padding: 16px;
+        spacing: 16px;
+
+        // Game area
+        VerticalLayout {
+            spacing: 12px;
+
+            // Header
+            HorizontalLayout {
+                spacing: 12px;
+
+                Text {
+                    text: "TANK BATTLE";
+                    font-size: 20px;
+                    font-weight: 700;
+                    color: Theme.bg-dark;
+                    letter-spacing: 2px;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                // Lives display
+                HorizontalLayout {
+                    spacing: 4px;
+                    for i in AppAPI.lives: Rectangle {
+                        width: 16px;
+                        height: 16px;
+                        background: Theme.tank-player;
+                        border-radius: 2px;
+                    }
+                }
+
+                Text {
+                    text: "STAGE " + AppAPI.stage;
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: Theme.bg-dark;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: "SCORE: " + AppAPI.score;
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: Theme.bg-dark;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: AppAPI.fps + " fps";
+                    font-size: 10px;
+                    color: Theme.text-light;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Game canvas
+            Rectangle {
+                width: canvas_width;
+                height: canvas_height;
+                background: Theme.bg;
+                border-width: 3px;
+                border-color: Theme.bg-dark;
+
+                // Grid pattern (subtle)
+                for row in AppAPI.grid_height: Rectangle {
+                    y: row * AppAPI.cell_size * 1px;
+                    width: 100%;
+                    height: 1px;
+                    background: Theme.bg-medium;
+                    opacity: 0.2;
+                }
+
+                for col in AppAPI.grid_width: Rectangle {
+                    x: col * AppAPI.cell_size * 1px;
+                    width: 1px;
+                    height: 100%;
+                    background: Theme.bg-medium;
+                    opacity: 0.2;
+                }
+
+                // Obstacles
+                for obs in AppAPI.obstacles: Rectangle {
+                    x: obs.x * AppAPI.cell_size * 1px + 1px;
+                    y: obs.y * AppAPI.cell_size * 1px + 1px;
+                    width: (AppAPI.cell_size - 2) * 1px;
+                    height: (AppAPI.cell_size - 2) * 1px;
+                    background: obs.kind == "brick" ? Theme.brick : Theme.steel;
+                    border-radius: obs.kind == "brick" ? 1px : 0;
+
+                    // Brick pattern
+                    if obs.kind == "brick": Rectangle {
+                        x: parent.width * 0.45;
+                        y: 0;
+                        width: 2px;
+                        height: parent.height * 0.5;
+                        background: #6b3410;
+                    }
+                    if obs.kind == "brick": Rectangle {
+                        x: 0;
+                        y: parent.height * 0.5 - 1px;
+                        width: parent.width;
+                        height: 2px;
+                        background: #6b3410;
+                    }
+
+                    // Steel shine
+                    if obs.kind == "steel": Rectangle {
+                        x: 2px;
+                        y: 2px;
+                        width: parent.width * 0.3;
+                        height: parent.height * 0.3;
+                        background: #6a6a6a;
+                    }
+                }
+
+                // Bullets
+                for bullet in AppAPI.bullets: Rectangle {
+                    x: bullet.x * AppAPI.cell_size * 1px + (AppAPI.cell_size / 2 - 3) * 1px;
+                    y: bullet.y * AppAPI.cell_size * 1px + (AppAPI.cell_size / 2 - 3) * 1px;
+                    width: 6px;
+                    height: 6px;
+                    background: Theme.bullet;
+                    border-radius: 3px;
+                }
+
+                // Enemies
+                for enemy in AppAPI.enemies: Rectangle {
+                    x: enemy.x * AppAPI.cell_size * 1px;
+                    y: enemy.y * AppAPI.cell_size * 1px;
+                    width: AppAPI.cell_size * 1px;
+                    height: AppAPI.cell_size * 1px;
+
+                    TankSprite {
+                        cell_size: AppAPI.cell_size;
+                        direction: enemy.direction;
+                        tank_color: enemy.is_boss ? Theme.tank-boss : Theme.tank-enemy;
+                        is_boss: enemy.is_boss;
+                    }
+
+                    // Boss HP indicator
+                    if enemy.is_boss: Rectangle {
+                        x: 2px;
+                        y: -8px;
+                        width: (AppAPI.cell_size - 4) * 1px;
+                        height: 4px;
+                        background: #333;
+                        border-radius: 2px;
+
+                        Rectangle {
+                            width: parent.width * (enemy.hp / 5.0);
+                            height: 100%;
+                            background: #ff0000;
+                            border-radius: 2px;
+                        }
+                    }
+                }
+
+                // Player tank
+                if AppAPI.tank.alive: Rectangle {
+                    x: AppAPI.tank.x * AppAPI.cell_size * 1px;
+                    y: AppAPI.tank.y * AppAPI.cell_size * 1px;
+                    width: AppAPI.cell_size * 1px;
+                    height: AppAPI.cell_size * 1px;
+
+                    TankSprite {
+                        cell_size: AppAPI.cell_size;
+                        direction: AppAPI.tank.direction;
+                        tank_color: Theme.tank-player;
+                    }
+                }
+
+                // Game over overlay
+                if AppAPI.game_over: Rectangle {
+                    width: 100%;
+                    height: 100%;
+                    background: #0f380f80;
+
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 16px;
+
+                        Text {
+                            text: "GAME OVER";
+                            font-size: 32px;
+                            font-weight: 700;
+                            color: Theme.bg;
+                            horizontal-alignment: center;
+                            letter-spacing: 3px;
+                        }
+
+                        Text {
+                            text: "SCORE: " + AppAPI.score;
+                            font-size: 20px;
+                            font-weight: 600;
+                            color: Theme.bg;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: "STAGE: " + AppAPI.stage;
+                            font-size: 16px;
+                            color: Theme.bg;
+                            horizontal-alignment: center;
+                        }
+
+                        Rectangle {
+                            width: 140px;
+                            height: 40px;
+                            background: Theme.bg;
+                            border-radius: 4px;
+
+                            Text {
+                                text: "PLAY AGAIN";
+                                font-size: 14px;
+                                font-weight: 700;
+                                color: Theme.bg-dark;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.on_click("restart"); }
+                            }
+                        }
+                    }
+                }
+
+                // Pause overlay
+                if AppAPI.game_paused && !AppAPI.game_over: Rectangle {
+                    width: 100%;
+                    height: 100%;
+                    background: #0f380f60;
+
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 12px;
+
+                        Text {
+                            text: "PAUSED";
+                            font-size: 28px;
+                            font-weight: 700;
+                            color: Theme.bg;
+                            horizontal-alignment: center;
+                            letter-spacing: 2px;
+                        }
+
+                        Text {
+                            text: "SPACE to start";
+                            font-size: 14px;
+                            color: Theme.bg;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: "WASD to move";
+                            font-size: 12px;
+                            color: Theme.bg;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: "SPACE/J to shoot";
+                            font-size: 12px;
+                            color: Theme.bg;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+
+                // Click to focus
+                TouchArea {
+                    clicked => { key-handler.focus(); }
+                }
+            }
+
+            // Controls
+            HorizontalLayout {
+                spacing: 8px;
+
+                Rectangle {
+                    width: 90px;
+                    height: 32px;
+                    background: AppAPI.game_paused ? Theme.bg-dark : Theme.bg-medium;
+                    border-radius: 4px;
+
+                    Text {
+                        text: AppAPI.game_paused ? "START" : "PAUSE";
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: Theme.bg;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => { AppAPI.on_click("toggle_pause"); }
+                    }
+                }
+
+                Rectangle {
+                    width: 90px;
+                    height: 32px;
+                    background: Theme.bg-medium;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "RESTART";
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: Theme.bg;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => { AppAPI.on_click("restart"); }
+                    }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                Text {
+                    text: "HIGH: " + AppAPI.high_score;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Theme.bg-dark;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Leaderboard panel
+        Rectangle {
+            width: 180px;
+            background: Theme.bg-medium;
+            border-radius: 8px;
+
+            VerticalLayout {
+                padding: 12px;
+                spacing: 10px;
+
+                Text {
+                    text: "LEADERBOARD";
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: Theme.bg;
+                    letter-spacing: 1px;
+                }
+
+                Rectangle {
+                    height: 2px;
+                    background: Theme.bg-dark;
+                }
+
+                if AppAPI.leaderboard.length == 0: Text {
+                    text: "No scores yet";
+                    font-size: 11px;
+                    color: Theme.bg;
+                }
+
+                for entry[rank] in AppAPI.leaderboard: HorizontalLayout {
+                    spacing: 6px;
+
+                    Text {
+                        text: (rank + 1) + ".";
+                        font-size: 11px;
+                        color: rank == 0 ? Theme.bg : Theme.bg;
+                        font-weight: rank == 0 ? 700 : 400;
+                        width: 18px;
+                    }
+
+                    Text {
+                        text: entry.player;
+                        font-size: 11px;
+                        color: Theme.bg;
+                        font-weight: rank == 0 ? 700 : 400;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        text: "S" + entry.stage;
+                        font-size: 10px;
+                        color: Theme.bg;
+                    }
+
+                    Text {
+                        text: entry.score + "";
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: rank == 0 ? Theme.bg : Theme.bg;
+                    }
+                }
+            }
+        }
+    }
+}

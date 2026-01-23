@@ -1,0 +1,404 @@
+// Snake Game App UI
+// Classic snake with canvas rendering and high score leaderboard
+
+// Snake segment for rendering
+export struct SnakeSegment {
+    x: int,
+    y: int,
+}
+
+// Score entry for leaderboard
+export struct ScoreEntry {
+    player: string,
+    score: int,
+    date: string,
+}
+
+// Theme colors
+global Theme {
+    out property<color> bg-primary: #0f172a;
+    out property<color> bg-secondary: #1e293b;
+    out property<color> bg-card: #334155;
+    out property<color> border: #475569;
+    out property<color> text-primary: #f1f5f9;
+    out property<color> text-secondary: #94a3b8;
+    out property<color> accent: #22c55e;
+    out property<color> food: #ef4444;
+    out property<color> snake-head: #22c55e;
+    out property<color> snake-body: #16a34a;
+}
+
+// App API
+export global AppAPI {
+    // Game state
+    in-out property<[SnakeSegment]> snake: [];
+    in-out property<int> food_x: 10;
+    in-out property<int> food_y: 10;
+    in-out property<int> score: 0;
+    in-out property<int> high_score: 0;
+    in-out property<bool> game_over: false;
+    in-out property<bool> game_paused: true;
+
+    // Leaderboard
+    in-out property<[ScoreEntry]> leaderboard: [];
+
+    // Grid settings
+    in-out property<int> grid_size: 20;
+    in-out property<int> cell_size: 20;
+
+    // Performance
+    in-out property<int> fps: 0;
+
+    callback on_click(string);
+    callback on_key_pressed(string);
+}
+
+export component App inherits Rectangle {
+    background: Theme.bg-primary;
+
+    // Calculate canvas size
+    property<length> canvas_size: AppAPI.grid_size * AppAPI.cell_size * 1px;
+
+    // Key handler - covers entire window
+    forward-focus: key-handler;
+    key-handler := FocusScope {
+        width: 100%;
+        height: 100%;
+
+        key-pressed(event) => {
+            if event.text == "w" || event.text == "W" || event.text == "↑" {
+                AppAPI.on_key_pressed("up");
+            } else if event.text == "s" || event.text == "S" || event.text == "↓" {
+                AppAPI.on_key_pressed("down");
+            } else if event.text == "a" || event.text == "A" || event.text == "←" {
+                AppAPI.on_key_pressed("left");
+            } else if event.text == "d" || event.text == "D" || event.text == "→" {
+                AppAPI.on_key_pressed("right");
+            } else if event.text == " " {
+                AppAPI.on_click("toggle_pause");
+            } else if event.text == "r" || event.text == "R" {
+                AppAPI.on_click("restart");
+            }
+            accept
+        }
+
+        // Auto-focus on init
+        init => { self.focus(); }
+    }
+
+    HorizontalLayout {
+        padding: 20px;
+        spacing: 20px;
+
+        // Game area - fills available space
+        VerticalLayout {
+            spacing: 16px;
+            horizontal-stretch: 1;
+
+            // Header
+            HorizontalLayout {
+                spacing: 16px;
+
+                Text {
+                    text: "Snake Game";
+                    font-size: 24px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                Text {
+                    text: "Score: " + AppAPI.score;
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: Theme.accent;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: "High: " + AppAPI.high_score;
+                    font-size: 14px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: AppAPI.fps + " fps";
+                    font-size: 12px;
+                    color: #64748b;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Game canvas - centered in available space
+            Rectangle {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+
+                Rectangle {
+                    width: canvas_size;
+                    height: canvas_size;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                background: Theme.bg-secondary;
+                border-radius: 8px;
+                border-width: 2px;
+                border-color: Theme.border;
+
+                // Grid lines (subtle)
+                for row in AppAPI.grid_size: Rectangle {
+                    y: row * AppAPI.cell_size * 1px;
+                    width: 100%;
+                    height: 1px;
+                    background: Theme.border;
+                    opacity: 0.3;
+                }
+
+                for col in AppAPI.grid_size: Rectangle {
+                    x: col * AppAPI.cell_size * 1px;
+                    width: 1px;
+                    height: 100%;
+                    background: Theme.border;
+                    opacity: 0.3;
+                }
+
+                // Food
+                Rectangle {
+                    x: AppAPI.food_x * AppAPI.cell_size * 1px + 2px;
+                    y: AppAPI.food_y * AppAPI.cell_size * 1px + 2px;
+                    width: (AppAPI.cell_size - 4) * 1px;
+                    height: (AppAPI.cell_size - 4) * 1px;
+                    background: Theme.food;
+                    border-radius: (AppAPI.cell_size / 2) * 1px;
+                }
+
+                // Snake
+                for segment[index] in AppAPI.snake: Rectangle {
+                    x: segment.x * AppAPI.cell_size * 1px + 1px;
+                    y: segment.y * AppAPI.cell_size * 1px + 1px;
+                    width: (AppAPI.cell_size - 2) * 1px;
+                    height: (AppAPI.cell_size - 2) * 1px;
+                    background: index == 0 ? Theme.snake-head : Theme.snake-body;
+                    border-radius: index == 0 ? 4px : 2px;
+                }
+
+                // Game over overlay
+                if AppAPI.game_over: Rectangle {
+                    width: 100%;
+                    height: 100%;
+                    background: #00000080;
+
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 16px;
+
+                        Text {
+                            text: "Game Over";
+                            font-size: 32px;
+                            font-weight: 700;
+                            color: Theme.food;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: "Score: " + AppAPI.score;
+                            font-size: 24px;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                        }
+
+                        Rectangle {
+                            width: 120px;
+                            height: 40px;
+                            background: Theme.accent;
+                            border-radius: 8px;
+
+                            Text {
+                                text: "Play Again";
+                                font-size: 14px;
+                                font-weight: 600;
+                                color: white;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => { AppAPI.on_click("restart"); }
+                            }
+                        }
+                    }
+                }
+
+                // Pause overlay
+                if AppAPI.game_paused && !AppAPI.game_over: Rectangle {
+                    width: 100%;
+                    height: 100%;
+                    background: #00000060;
+
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 16px;
+
+                        Text {
+                            text: "Paused";
+                            font-size: 28px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                        }
+
+                        HorizontalLayout {
+                            alignment: center;
+                            spacing: 4px;
+
+                            Text {
+                                text: "Press ";
+                                font-size: 14px;
+                                color: Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle {
+                                width: 52px;
+                                height: 22px;
+                                background: Theme.accent;
+                                border-radius: 4px;
+
+                                Text {
+                                    text: "SPACE";
+                                    font-size: 12px;
+                                    font-weight: 600;
+                                    color: Theme.bg-primary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Text {
+                                text: " to start";
+                                font-size: 14px;
+                                color: Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        Text {
+                            text: "WASD to move";
+                            font-size: 12px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+
+                // Click to focus
+                TouchArea {
+                    clicked => { key-handler.focus(); }
+                }
+                }
+            }
+
+            // Controls
+            HorizontalLayout {
+                spacing: 8px;
+
+                Rectangle {
+                    width: 100px;
+                    height: 36px;
+                    background: AppAPI.game_paused ? Theme.accent : Theme.bg-card;
+                    border-radius: 6px;
+
+                    Text {
+                        text: AppAPI.game_paused ? "Start" : "Pause";
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => { AppAPI.on_click("toggle_pause"); }
+                    }
+                }
+
+                Rectangle {
+                    width: 100px;
+                    height: 36px;
+                    background: Theme.bg-card;
+                    border-radius: 6px;
+
+                    Text {
+                        text: "Restart";
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => { AppAPI.on_click("restart"); }
+                    }
+                }
+            }
+        }
+
+        // Leaderboard
+        Rectangle {
+            width: 200px;
+            background: Theme.bg-secondary;
+            border-radius: 12px;
+
+            VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+
+                Text {
+                    text: "Leaderboard";
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Theme.border;
+                }
+
+                if AppAPI.leaderboard.length == 0: Text {
+                    text: "No scores yet";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+
+                for entry[rank] in AppAPI.leaderboard: HorizontalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: (rank + 1) + ".";
+                        font-size: 12px;
+                        color: rank == 0 ? Theme.accent : Theme.text-secondary;
+                        width: 20px;
+                    }
+
+                    Text {
+                        text: entry.player;
+                        font-size: 12px;
+                        color: Theme.text-primary;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        text: entry.score + "";
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: rank == 0 ? Theme.accent : Theme.text-secondary;
+                    }
+                }
+            }
+        }
+    }
+}

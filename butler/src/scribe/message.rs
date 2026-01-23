@@ -396,6 +396,16 @@ pub enum ScribeMessage {
         app_dir: PathBuf,
         reply: tokio::sync::oneshot::Sender<std::result::Result<Vec<String>, String>>,
     },
+
+    /// Get app files from in-memory layer
+    ///
+    /// **Context**: App restart needs current files from Scribe's in-memory layer
+    /// **We do**: Extract files from app layer and return
+    /// **Why**: Storage may be stale; Scribe has the latest synced content
+    GetAppFiles {
+        app_name: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<std::collections::HashMap<String, String>, String>>,
+    },
 }
 
 /// Payload sent to PeerActor for broadcast (3-step sync protocol)

@@ -79,6 +79,7 @@ pub fn generate_page_shell(
     tabs: &[AppTab],
     current_app: &str,
     page_name: &str,
+    version: Option<&str>,
 ) -> String {
     // Read app source to parse exported types
     let app_source = std::fs::read_to_string(app_slint_path).unwrap_or_default();
@@ -98,6 +99,30 @@ pub fn generate_page_shell(
         String::new()
     } else {
         format!("\nexport {{ {} }}", exported_types.globals.join(", "))
+    };
+
+    // Generate version footer if version is provided
+    let version_footer = if let Some(v) = version {
+        format!(
+            r#"
+        // Version footer
+        Rectangle {{
+            height: 20px;
+            background: #0d0d1a;
+
+            Text {{
+                text: "v{version}";
+                color: #555;
+                font-size: 10px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                x: parent.width - self.width - 10px;
+            }}
+        }}"#,
+            version = v
+        )
+    } else {
+        String::new()
     };
 
     format!(
@@ -123,6 +148,7 @@ export component App inherits Window {{
             width: 100%;
             vertical-stretch: 1;
         }}
+{version_footer}
     }}
 }}"#,
         import_list = import_list,
@@ -130,6 +156,7 @@ export component App inherits Window {{
         global_exports = global_exports,
         page_name = page_name,
         tab_bar = tab_bar,
+        version_footer = version_footer,
     )
 }
 
@@ -239,7 +266,8 @@ mod tests {
             &PathBuf::from("/tmp/app.slint"),
             &tabs,
             "signup",
-            "Waitlist"
+            "Waitlist",
+            Some("1.0.0-abcd1234"),
         );
 
         assert!(shell.contains("import { App as UserApp"));
@@ -247,6 +275,7 @@ mod tests {
         assert!(shell.contains("select-tab"));
         assert!(shell.contains("Signup"));
         assert!(shell.contains("Admin"));
+        assert!(shell.contains("v1.0.0-abcd1234"));
     }
 
     #[test]

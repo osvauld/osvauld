@@ -1,0 +1,9 @@
+{
+    "name": "Snake Game",
+    "version": "1.0.0",
+    "description": "Classic snake game with synced high scores via Loro",
+    "entry_ui": "app.slint",
+    "entry_logic": "app.lua",
+    "models": ["snake", "leaderboard"],
+    "tick_enabled": true
+}

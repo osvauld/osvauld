@@ -3,8 +3,24 @@
 //! Handles running apps with parallel Lua workers.
 //! Apps are components (not Windows) - browser provides the window with tabs.
 
+use std::collections::HashMap;
 use butler::Butler;
+use butler::scribe::ScribeMessage;
+use ractor::ActorRef;
 use app_runtime::{generate_page_shell, write_shell_slint, AppTab};
+
+/// Window geometry for in-place reload
+///
+/// **Context**: When an app restarts (layer update), we capture the window position/size
+/// before closing, then restore it after showing the new window. This preserves
+/// the user's window placement.
+#[derive(Debug, Clone, Default)]
+pub struct WindowGeometry {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
 
 /// Running app instance with parallel Lua worker
 pub struct RunningApp {
@@ -35,6 +51,8 @@ pub struct RunningApp {
     pub tab_switch_rx: std::sync::mpsc::Receiver<String>,
     /// Receiver for asset pick requests (triggered by Slint button click)
     pub asset_pick_rx: std::sync::mpsc::Receiver<app_runtime::AssetPickRequest>,
+    /// App version (semantic + content hash)
+    pub version: app_runtime::AppVersion,
 }
 
 /// Result of preparing a page for loading
@@ -55,8 +73,30 @@ pub struct PreparedPage {
     pub data_layers: Vec<String>,
     /// Model names from manifest (for VecModel initialization)
     pub models: Vec<String>,
+    /// Enable game loop tick() calls at ~60fps (from manifest)
+    pub tick_enabled: bool,
     /// Temp directory (must keep alive)
     pub temp_dir: std::path::PathBuf,
+    /// Window geometry to restore after reload (for in-place window reload)
+    pub restore_geometry: Option<WindowGeometry>,
+    /// App version (semantic + content hash)
+    pub version: app_runtime::AppVersion,
+}
+
+/// Get app files from Scribe's in-memory layer
+///
+/// **Why**: Scribe has the latest synced content; storage may be stale
+async fn get_app_files_from_scribe(
+    scribe: &ActorRef<ScribeMessage>,
+    app_name: &str,
+) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    scribe.cast(ScribeMessage::GetAppFiles {
+        app_name: app_name.to_string(),
+        reply: tx,
+    })?;
+    let result = rx.await??;
+    Ok(result)
 }
 
 /// Extract app and generate browser shell with tabs
@@ -66,10 +106,13 @@ pub struct PreparedPage {
 /// - Browser generates shell with Window + TabBar + imports App
 ///
 /// **Returns:** PreparedPage with paths to shell and lua files
+///
+/// **scribe**: Scribe reference to read files from in-memory layer (latest synced content)
 pub async fn prepare_page(
     butler: &Butler,
     page_id: &str,
     app_name: Option<&str>,
+    scribe: &ActorRef<ScribeMessage>,
 ) -> Result<PreparedPage, Box<dyn std::error::Error>> {
     use std::fs;
 
@@ -90,8 +133,8 @@ pub async fn prepare_page(
         None => all_apps.first().unwrap().clone(),
     };
 
-    // Get all files from the app layer
-    let files = butler.get_app_files(page_id, &app_name).await?;
+    // Get all files from Scribe's in-memory layer (has latest synced content)
+    let files = get_app_files_from_scribe(scribe, &app_name).await?;
 
     tracing::debug!(
         page_id = %page_id,
@@ -124,6 +167,48 @@ pub async fn prepare_page(
         "Retrieved data layers from page"
     );
 
+    let lua_path = temp_path.join("app.lua");
+
+    // Read models, tick_enabled, and version from manifest.json
+    let manifest_path = temp_path.join("manifest.json");
+    let (models, tick_enabled, semantic_version) = if manifest_path.exists() {
+        match fs::read_to_string(&manifest_path) {
+            Ok(content) => {
+                match serde_json::from_str::<app_runtime::Manifest>(&content) {
+                    Ok(manifest) => (manifest.models, manifest.tick_enabled, manifest.version),
+                    Err(e) => {
+                        tracing::warn!(
+                            page_id = %page_id,
+                            app_name = %app_name,
+                            error = %e,
+                            "Failed to parse manifest.json, using defaults"
+                        );
+                        (vec![], false, "0.0.0".to_string())
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    page_id = %page_id,
+                    app_name = %app_name,
+                    error = %e,
+                    "Failed to read manifest.json, using defaults"
+                );
+                (vec![], false, "0.0.0".to_string())
+            }
+        }
+    } else {
+        (vec![], false, "0.0.0".to_string())
+    };
+
+    // Compute app version (semantic + content hash)
+    let version = app_runtime::AppVersion::new(&semantic_version, &files);
+    tracing::info!(
+        app_name = %app_name,
+        version = %version.display,
+        "App version computed"
+    );
+
     // Build tabs for all apps
     let tabs: Vec<AppTab> = all_apps
         .iter()
@@ -133,46 +218,12 @@ pub async fn prepare_page(
         })
         .collect();
 
-    // Generate shell that imports the app
+    // Generate shell that imports the app (with version footer)
     let app_slint_path = temp_path.join("app.slint");
-    let shell_source = generate_page_shell(&app_slint_path, &tabs, &app_name, &page_name);
+    let shell_source = generate_page_shell(&app_slint_path, &tabs, &app_name, &page_name, Some(&version.display));
 
     // Write shell to temp directory
     let shell_path = write_shell_slint(&temp_path, &shell_source)?;
-
-    let lua_path = temp_path.join("app.lua");
-
-    // Read models from manifest.json (optional field)
-    let manifest_path = temp_path.join("manifest.json");
-    let models = if manifest_path.exists() {
-        match fs::read_to_string(&manifest_path) {
-            Ok(content) => {
-                match serde_json::from_str::<app_runtime::Manifest>(&content) {
-                    Ok(manifest) => manifest.models,
-                    Err(e) => {
-                        tracing::warn!(
-                            page_id = %page_id,
-                            app_name = %app_name,
-                            error = %e,
-                            "Failed to parse manifest.json, using empty models"
-                        );
-                        vec![]
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    page_id = %page_id,
-                    app_name = %app_name,
-                    error = %e,
-                    "Failed to read manifest.json, using empty models"
-                );
-                vec![]
-            }
-        }
-    } else {
-        vec![]
-    };
 
     tracing::info!(
         page_id = %page_id,
@@ -196,17 +247,9 @@ pub async fn prepare_page(
         all_apps,
         data_layers,
         models,
+        tick_enabled,
         temp_dir: temp_path,
+        restore_geometry: None,
+        version,
     })
-}
-
-/// Extract app files from Butler to temporary directory (legacy, use prepare_page instead)
-#[deprecated(note = "Use prepare_page instead for tabbed pages")]
-pub async fn extract_app_to_temp(
-    butler: &Butler,
-    page_id: &str,
-    app_name: Option<&str>,
-) -> Result<(std::path::PathBuf, String), Box<dyn std::error::Error>> {
-    let prepared = prepare_page(butler, page_id, app_name).await?;
-    Ok((prepared.temp_dir, prepared.app_name))
 }

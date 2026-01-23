@@ -4,6 +4,7 @@
 //! Flow: Spaces → Pages → Apps
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -314,8 +315,8 @@ fn setup_app_runtime(
                 }
             };
 
-            // Prepare page with specific app
-            let prepared = match prepare_page(&butler, &current_page_id, Some(&app_id_str)).await {
+            // Prepare page with specific app (read files from Scribe's in-memory layer)
+            let prepared = match prepare_page(&butler, &current_page_id, Some(&app_id_str), &scribe_ref).await {
                 Ok(p) => p,
                 Err(e) => {
                     println!("Failed to prepare page: {}", e);
@@ -336,8 +337,14 @@ fn setup_app_runtime(
         });
     });
 
+    // Geometry cache for in-place reload
+    // Key: (page_id, app_name), Value: captured window geometry
+    let pending_geometries: Rc<RefCell<HashMap<(String, String), crate::app_runner::WindowGeometry>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+
     // Timer to check for ready apps and process runtime updates
     let running_apps_timer = running_apps.clone();
+    let pending_geometries_timer = pending_geometries.clone();
     let butler_timer = butler.clone();
     let _courier_handle_timer = courier_handle.clone();  // Preserved for potential future use
     let tokio_handle_timer = tokio_handle.clone();
@@ -349,7 +356,13 @@ fn setup_app_runtime(
         std::time::Duration::from_millis(100),
         move || {
             // Handle ready apps
-            while let Ok((prepared, scribe_ref)) = app_ready_rx.try_recv() {
+            while let Ok((mut prepared, scribe_ref)) = app_ready_rx.try_recv() {
+                // Look up saved geometry for in-place reload
+                let geom_key = (prepared.page_id.clone(), prepared.app_name.clone());
+                if let Some(geom) = pending_geometries_timer.borrow_mut().remove(&geom_key) {
+                    prepared.restore_geometry = Some(geom);
+                }
+
                 // Get app_status from debug_server for AI feedback
                 let app_status = debug_server_timer.as_ref().map(|ds| ds.app_status());
                 if let Some(running_app) = create_app_runtime(prepared, scribe_ref, butler_timer.clone(), debug_server_timer.clone(), app_status) {
@@ -378,6 +391,7 @@ fn setup_app_runtime(
 
                 // Forward unified page events to Lua thread
                 while let Ok(event) = running_app.page_event_rx.try_recv() {
+                    println!("Received page event: layer={}, type={:?}", event.layer_name, event.event_type);
                     // Check if this is an app layer update (triggers restart)
                     let expected_app_layer = format!("app:{}", running_app.app_name);
                     if event.layer_name == expected_app_layer {
@@ -457,6 +471,22 @@ fn setup_app_runtime(
                 let mut apps = running_apps_timer.borrow_mut();
                 if let Some(pos) = apps.iter().position(|a| a.page_id == page_id && a.app_name == app_name) {
                     println!("Closing app '{}' for restart", apps[pos].app_name);
+
+                    // Capture window geometry before close (for in-place reload)
+                    let window = apps[pos].slint_runtime.slint_instance().window();
+                    let win_pos = window.position();
+                    let win_size = window.size();
+                    let geom = crate::app_runner::WindowGeometry {
+                        x: win_pos.x,
+                        y: win_pos.y,
+                        width: win_size.width,
+                        height: win_size.height,
+                    };
+                    pending_geometries_timer.borrow_mut().insert(
+                        (page_id.clone(), app_name.clone()),
+                        geom,
+                    );
+
                     // Hide the window
                     let _ = apps[pos].slint_runtime.slint_instance().hide();
                     // Send shutdown to Lua worker
@@ -480,8 +510,8 @@ fn setup_app_runtime(
                         }
                     };
 
-                    // Prepare page with same app (will extract updated files from layer)
-                    let prepared = match prepare_page(&butler, &page_id, Some(&app_name)).await {
+                    // Prepare page with same app (read files from Scribe's in-memory layer)
+                    let prepared = match prepare_page(&butler, &page_id, Some(&app_name), &scribe_ref).await {
                         Ok(p) => p,
                         Err(e) => {
                             println!("Failed to prepare page for app restart: {}", e);
@@ -505,6 +535,22 @@ fn setup_app_runtime(
                 let mut apps = running_apps_timer.borrow_mut();
                 if let Some(pos) = apps.iter().position(|a| a.page_id == page_id) {
                     println!("Closing app '{}' for tab switch", apps[pos].app_name);
+
+                    // Capture window geometry before close (for in-place reload)
+                    let window = apps[pos].slint_runtime.slint_instance().window();
+                    let win_pos = window.position();
+                    let win_size = window.size();
+                    let geom = crate::app_runner::WindowGeometry {
+                        x: win_pos.x,
+                        y: win_pos.y,
+                        width: win_size.width,
+                        height: win_size.height,
+                    };
+                    pending_geometries_timer.borrow_mut().insert(
+                        (page_id.clone(), new_app_name.clone()),
+                        geom,
+                    );
+
                     // Hide the window
                     let _ = apps[pos].slint_runtime.slint_instance().hide();
                     // Send shutdown to Lua worker
@@ -530,8 +576,8 @@ fn setup_app_runtime(
                         }
                     };
 
-                    // Prepare page with new app
-                    let prepared = match prepare_page(&butler, &page_id_clone, Some(&new_app_name_clone)).await {
+                    // Prepare page with new app (read files from Scribe's in-memory layer)
+                    let prepared = match prepare_page(&butler, &page_id_clone, Some(&new_app_name_clone), &scribe_ref).await {
                         Ok(p) => p,
                         Err(e) => {
                             println!("Failed to prepare page for tab switch: {}", e);
@@ -774,6 +820,19 @@ fn create_app_runtime(
         return None;
     }
 
+    // Restore window geometry if this is an in-place reload
+    if let Some(ref geom) = prepared.restore_geometry {
+        let window = slint_runtime.slint_instance().window();
+        window.set_position(slint::WindowPosition::Physical(
+            slint::PhysicalPosition::new(geom.x, geom.y)
+        ));
+        window.set_size(slint::WindowSize::Physical(
+            slint::PhysicalSize::new(geom.width, geom.height)
+        ));
+        println!("Restored window geometry: {}x{} at ({}, {})",
+            geom.width, geom.height, geom.x, geom.y);
+    }
+
     if let Err(e) = slint_runtime.setup_callbacks() {
         let error_msg = format!("Failed to setup shell callbacks: {}", e);
         println!("{}", error_msg);
@@ -841,6 +900,21 @@ fn create_app_runtime(
         });
     }
 
+    // Start tick timer for games/animations (~60fps) if enabled in manifest
+    if prepared.tick_enabled {
+        let lua_tx_tick = lua_tx.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(16));
+                if lua_tx_tick.try_send(app_runtime::LuaWorkerCommand::Tick).is_err() {
+                    // Channel closed, app shutting down
+                    break;
+                }
+            }
+        });
+        println!("Game tick timer started (~60fps)");
+    }
+
     println!(
         "App '{}' loaded successfully with parallel Lua worker!",
         prepared.app_name
@@ -852,6 +926,7 @@ fn create_app_runtime(
             s.status = "loaded".to_string();
             s.error = None;
             s.loaded_at = Some(chrono::Utc::now().to_rfc3339());
+            s.version = Some(prepared.version.display.clone());
         }
     }
 
@@ -867,6 +942,7 @@ fn create_app_runtime(
         ephemeral_event_rx,
         tab_switch_rx,
         asset_pick_rx,
+        version: prepared.version,
     })
 }
 

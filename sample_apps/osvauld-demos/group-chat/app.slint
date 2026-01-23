@@ -1,0 +1,426 @@
+// Group Chat App UI
+// Real-time messaging with emoji support and typing indicators
+// Supports Unicode including Malayalam (മലയാളം)
+
+// Message data structure
+export struct Message {
+    id: string,
+    sender: string,
+    sender_short: string,
+    text: string,
+    timestamp: string,
+    is_mine: bool,
+}
+
+// Emoji entry for picker
+export struct EmojiEntry {
+    name: string,
+    char: string,
+}
+
+// Theme colors
+global Theme {
+    out property<color> bg-primary: #0f172a;
+    out property<color> bg-secondary: #1e293b;
+    out property<color> bg-card: #334155;
+    out property<color> border: #475569;
+    out property<color> text-primary: #f1f5f9;
+    out property<color> text-secondary: #94a3b8;
+    out property<color> accent: #3b82f6;
+    out property<color> mine-bg: #1e40af;
+    out property<color> other-bg: #374151;
+}
+
+// App API
+export global AppAPI {
+    // Messages
+    in-out property<[Message]> messages: [];
+
+    // Input state
+    in-out property<string> draft_text: "";
+    in-out property<bool> show_emoji_picker: false;
+
+    // Typing indicator
+    in-out property<string> typing_text: "";
+
+    // Online users
+    in-out property<int> online_count: 1;
+
+    callback on_click(string);
+    callback on_text_input(string);
+    callback on_submit();
+}
+
+export component App inherits Rectangle {
+    background: Theme.bg-primary;
+
+    VerticalLayout {
+        padding: 0;
+        spacing: 0;
+
+        // Header
+        Rectangle {
+            height: 60px;
+            background: Theme.bg-secondary;
+
+            HorizontalLayout {
+                padding: 16px;
+                spacing: 12px;
+
+                // Chat icon
+                Rectangle {
+                    width: 40px;
+                    height: 40px;
+                    background: Theme.accent;
+                    border-radius: 20px;
+
+                    Text {
+                        text: "Chat";
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: white;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 2px;
+
+                    Text {
+                        text: "Group Chat";
+                        font-size: 18px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    Text {
+                        text: AppAPI.online_count + " online";
+                        font-size: 12px;
+                        color: #22c55e;
+                    }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                Text {
+                    text: AppAPI.messages.length + " messages";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Messages area
+        Flickable {
+            vertical-stretch: 1;
+            viewport-height: messages-content.preferred-height;
+
+            messages-content := VerticalLayout {
+                padding: 16px;
+                spacing: 8px;
+
+                if AppAPI.messages.length == 0: Rectangle {
+                    height: 200px;
+
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 8px;
+
+                        Text {
+                            text: "No messages yet";
+                            font-size: 16px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: "Start the conversation!";
+                            font-size: 12px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+
+                for msg in AppAPI.messages: HorizontalLayout {
+                    spacing: 8px;
+
+                    if msg.is_mine: Rectangle { horizontal-stretch: 1; }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        horizontal-stretch: 0;
+
+                        // Sender name
+                        Text {
+                            text: msg.sender_short;
+                            font-size: 10px;
+                            color: msg.is_mine ? Theme.accent : Theme.text-secondary;
+                            horizontal-alignment: msg.is_mine ? right : left;
+                        }
+
+                        // Message bubble
+                        Rectangle {
+                            background: msg.is_mine ? Theme.mine-bg : Theme.other-bg;
+                            border-radius: 12px;
+
+                            HorizontalLayout {
+                                padding-top: 8px;
+                                padding-bottom: 8px;
+                                padding-left: 12px;
+                                padding-right: 12px;
+
+                                Text {
+                                    text: msg.text;
+                                    font-size: 14px;
+                                    color: Theme.text-primary;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+
+                        // Timestamp
+                        Text {
+                            text: msg.timestamp;
+                            font-size: 10px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: msg.is_mine ? right : left;
+                        }
+                    }
+
+                    if !msg.is_mine: Rectangle { horizontal-stretch: 1; }
+                }
+
+                // Typing indicator
+                if AppAPI.typing_text != "": HorizontalLayout {
+                    spacing: 8px;
+
+                    Rectangle {
+                        width: 60px;
+                        height: 24px;
+                        background: Theme.other-bg;
+                        border-radius: 12px;
+
+                        HorizontalLayout {
+                            padding: 8px;
+                            spacing: 4px;
+
+                            Rectangle { width: 6px; height: 6px; background: Theme.text-secondary; border-radius: 3px; }
+                            Rectangle { width: 6px; height: 6px; background: Theme.text-secondary; border-radius: 3px; }
+                            Rectangle { width: 6px; height: 6px; background: Theme.text-secondary; border-radius: 3px; }
+                        }
+                    }
+
+                    Text {
+                        text: AppAPI.typing_text;
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle { horizontal-stretch: 1; }
+                }
+            }
+        }
+
+        // Emoji picker (overlay)
+        if AppAPI.show_emoji_picker: Rectangle {
+            height: 200px;
+            background: Theme.bg-secondary;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                HorizontalLayout {
+                    Text {
+                        text: "Emoji";
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                    }
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        background: Theme.bg-card;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "x";
+                            font-size: 14px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => { AppAPI.on_click("emoji_picker:close"); }
+                        }
+                    }
+                }
+
+                // Emoji grid - row 1
+                HorizontalLayout {
+                    spacing: 4px;
+
+                    for emoji in [
+                        { name: "Smile", char: "😀" },
+                        { name: "Laugh", char: "😂" },
+                        { name: "Heart", char: "❤️" },
+                        { name: "Thumbs", char: "👍" },
+                        { name: "Fire", char: "🔥" },
+                        { name: "Party", char: "🎉" },
+                        { name: "Rocket", char: "🚀" },
+                        { name: "Star", char: "⭐" },
+                        { name: "Check", char: "✅" },
+                        { name: "Wave", char: "👋" },
+                    ]: Rectangle {
+                        width: 40px;
+                        height: 40px;
+                        background: emoji-area.has-hover ? Theme.bg-card : transparent;
+                        border-radius: 8px;
+
+                        Text {
+                            text: emoji.char;
+                            font-size: 22px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        emoji-area := TouchArea {
+                            clicked => { AppAPI.on_click("emoji:" + emoji.name); }
+                        }
+                    }
+                }
+
+                // Emoji grid - row 2
+                HorizontalLayout {
+                    spacing: 4px;
+
+                    for emoji in [
+                        { name: "Eyes", char: "👀" },
+                        { name: "Think", char: "🤔" },
+                        { name: "Clap", char: "👏" },
+                        { name: "100", char: "💯" },
+                        { name: "Sad", char: "😢" },
+                        { name: "Angry", char: "😠" },
+                        { name: "Cool", char: "😎" },
+                        { name: "Wink", char: "😉" },
+                        { name: "LOL", char: "🤣" },
+                        { name: "Love", char: "😍" },
+                    ]: Rectangle {
+                        width: 40px;
+                        height: 40px;
+                        background: emoji-area2.has-hover ? Theme.bg-card : transparent;
+                        border-radius: 8px;
+
+                        Text {
+                            text: emoji.char;
+                            font-size: 22px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        emoji-area2 := TouchArea {
+                            clicked => { AppAPI.on_click("emoji:" + emoji.name); }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Input area
+        Rectangle {
+            height: 70px;
+            background: Theme.bg-secondary;
+
+            HorizontalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                // Emoji button
+                Rectangle {
+                    width: 44px;
+                    height: 44px;
+                    background: AppAPI.show_emoji_picker ? Theme.accent : Theme.bg-card;
+                    border-radius: 22px;
+
+                    Text {
+                        text: ":)";
+                        font-size: 18px;
+                        color: Theme.text-primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => { AppAPI.on_click("emoji_picker:toggle"); }
+                    }
+                }
+
+                // Text input
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 44px;
+                    background: Theme.bg-card;
+                    border-radius: 22px;
+
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+
+                        input := TextInput {
+                            text <=> AppAPI.draft_text;
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+
+                            edited => { AppAPI.on_text_input(self.text); }
+                            accepted => { AppAPI.on_submit(); }
+                        }
+                    }
+
+                    if AppAPI.draft_text == "": Text {
+                        text: "Type a message...";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        x: 16px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Send button
+                Rectangle {
+                    width: 44px;
+                    height: 44px;
+                    background: AppAPI.draft_text != "" ? Theme.accent : Theme.bg-card;
+                    border-radius: 22px;
+
+                    Text {
+                        text: ">";
+                        font-size: 20px;
+                        font-weight: 700;
+                        color: AppAPI.draft_text != "" ? white : Theme.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => {
+                            if AppAPI.draft_text != "" {
+                                AppAPI.on_submit();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

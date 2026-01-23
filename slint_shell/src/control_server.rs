@@ -317,6 +317,8 @@ pub struct AppStatus {
     pub status: String,
     pub error: Option<String>,
     pub loaded_at: Option<String>,
+    /// App version (semantic + content hash, e.g., "1.0.0-a1b2c3d4")
+    pub version: Option<String>,
 }
 
 impl AppStatus {
@@ -327,6 +329,7 @@ impl AppStatus {
             status: "idle".to_string(),
             error: None,
             loaded_at: None,
+            version: None,
         }
     }
 }

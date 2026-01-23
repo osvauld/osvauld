@@ -1,0 +1,8 @@
+{
+    "name": "Math Simulation",
+    "version": "1.0.0",
+    "description": "Particle physics simulation with real-time FPS counter",
+    "entry_ui": "app.slint",
+    "entry_logic": "app.lua",
+    "tick_enabled": true
+}

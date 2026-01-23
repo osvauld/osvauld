@@ -275,7 +275,7 @@ impl Actor for Scribe {
             ScribeMessage::SubscribeToPageEvents { event_tx } => {
                 if let Ok(mut subs) = state.page_event_subscribers.write() {
                     subs.push(event_tx);
-                    debug!(page_id = %state.page_id, subscriber_count = subs.len(), "Page event subscriber added");
+                    info!(page_id = %state.page_id, subscriber_count = subs.len(), "Page event subscriber added");
                 }
             }
 
@@ -655,6 +655,16 @@ impl Actor for Scribe {
 
             ScribeMessage::RefreshApp { app_name, app_dir, reply } => {
                 let result = handle_refresh_app(state, &app_name, &app_dir).await;
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::GetAppFiles { app_name, reply } => {
+                let layer_name = format!("app:{}", app_name);
+                let result = if let Some(layer) = state.layers.get(&layer_name) {
+                    Ok(layer.get_all_files())
+                } else {
+                    Err(format!("App layer '{}' not found", layer_name))
+                };
                 let _ = reply.send(result);
             }
         }
