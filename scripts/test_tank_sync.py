@@ -202,7 +202,7 @@ def main():
         # 8. Player 2 plays and adds score
         print("\n[8/8] Player 2: playing game...")
 
-        player2.eval("reset_game()")
+        player2.eval("request_restart()")
         player2.eval('on_click("toggle_pause")')
         time.sleep(0.3)
 

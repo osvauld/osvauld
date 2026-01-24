@@ -9,3 +9,6 @@ __pycache__/
 
 # Misc
 upload.png
+.claude/
+package.json
+package-lock.json

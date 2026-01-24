@@ -23,6 +23,11 @@
                 "sync": true,
                 "write": true
             },
+            "{page_id}/obstacles": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
             "{page_id}/game_state": {
                 "type": "map",
                 "sync": false,
@@ -67,6 +72,11 @@
                 "type": "map",
                 "sync": true,
                 "write": true
+            },
+            "app:Tank Game": {
+                "type": "map",
+                "sync": true,
+                "write": true
             }
         },
         "issue_on": {
@@ -89,6 +99,11 @@
                     },
                     "{page_id}/scores": {
                         "type": "list",
+                        "sync": true,
+                        "write": true
+                    },
+                    "{page_id}/obstacles": {
+                        "type": "map",
                         "sync": true,
                         "write": true
                     },
@@ -136,6 +151,11 @@
                         "type": "map",
                         "sync": true,
                         "write": false
+                    },
+                    "app:Tank Game": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
                     }
                 },
                 "auth_capabilities": {
@@ -165,6 +185,11 @@
                             },
                             "{page_id}/scores": {
                                 "type": "list",
+                                "sync": true,
+                                "write": true
+                            },
+                            "{page_id}/obstacles": {
+                                "type": "map",
                                 "sync": true,
                                 "write": true
                             },
@@ -212,6 +237,11 @@
                                 "type": "map",
                                 "sync": true,
                                 "write": false
+                            },
+                            "app:Tank Game": {
+                                "type": "map",
+                                "sync": true,
+                                "write": false
                             }
                         },
                         "auth_capabilities": {
@@ -241,6 +271,11 @@
                     },
                     "{page_id}/scores": {
                         "type": "list",
+                        "sync": true,
+                        "write": true
+                    },
+                    "{page_id}/obstacles": {
+                        "type": "map",
                         "sync": true,
                         "write": true
                     },
@@ -294,6 +329,10 @@
                 "sync": true,
                 "write": true
             },
+            "{page_id}/obstacles": {
+                "sync": true,
+                "write": true
+            },
             "{page_id}/sim_config": {
                 "sync": true,
                 "write": true
@@ -319,6 +358,10 @@
                 "write": false
             },
             "app:Sthalam Guide": {
+                "sync": true,
+                "write": false
+            },
+            "app:Tank Game": {
                 "sync": true,
                 "write": false
             }
