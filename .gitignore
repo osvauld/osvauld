@@ -2,3 +2,10 @@
 /target
 recordings/
 Cargo.lock
+
+# Python
+__pycache__/
+*.pyc
+
+# Misc
+upload.png
