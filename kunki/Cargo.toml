@@ -19,6 +19,7 @@ control_server = { path = "../control_server" }
 # CLI and async runtime
 clap = { version = "4.5.40", features = ["derive"] }
 tokio = { version = "1.44.2", features = ["full"] }
+ractor = "0.14"
 
 # Logging
 logging_utils = { path = "../logging_utils" }

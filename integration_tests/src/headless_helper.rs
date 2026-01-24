@@ -28,6 +28,14 @@ pub async fn create_headless_runtime(
         .await
         .map_err(|e| format!("Failed to get identity: {}", e))?;
 
+    // Get username from identity data
+    let username = butler
+        .identity_data()
+        .ok()
+        .flatten()
+        .map(|d| d.username)
+        .unwrap_or_else(|| "TestUser".to_string());
+
     // Get page data to extract role from permit
     let page = butler
         .get_page(page_id)
@@ -41,7 +49,7 @@ pub async fn create_headless_runtime(
         .unwrap_or_else(|| "viewer".to_string());
 
     // Create runtime with real bindings
-    let runtime = HeadlessRuntime::new(page_id, scribe_ref, identity.did(), &role)
+    let runtime = HeadlessRuntime::new(page_id, scribe_ref, identity.did(), &username, &role)
         .await
         .map_err(|e| format!("Failed to create HeadlessRuntime: {}", e))?;
 
@@ -107,7 +115,15 @@ pub async fn create_headless_runtime_with_role(
         .await
         .map_err(|e| format!("Failed to get identity: {}", e))?;
 
-    let runtime = HeadlessRuntime::new(page_id, scribe_ref, identity.did(), role)
+    // Get username from identity data
+    let username = butler
+        .identity_data()
+        .ok()
+        .flatten()
+        .map(|d| d.username)
+        .unwrap_or_else(|| "TestUser".to_string());
+
+    let runtime = HeadlessRuntime::new(page_id, scribe_ref, identity.did(), &username, role)
         .await
         .map_err(|e| format!("Failed to create HeadlessRuntime: {}", e))?;
 
