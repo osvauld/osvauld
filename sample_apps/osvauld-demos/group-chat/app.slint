@@ -2,6 +2,13 @@
 // Real-time messaging with emoji support and typing indicators
 // Supports Unicode including Malayalam (മലയാളം)
 
+// Reaction data structure
+export struct Reaction {
+    emoji: string,
+    count: int,
+    has_my_reaction: bool,
+}
+
 // Message data structure
 export struct Message {
     id: string,
@@ -10,6 +17,10 @@ export struct Message {
     text: string,
     timestamp: string,
     is_mine: bool,
+    deleted: bool,
+    reply_to: string,
+    reply_preview: string,
+    reactions: [Reaction],
 }
 
 // Emoji entry for picker
@@ -45,6 +56,14 @@ export global AppAPI {
 
     // Online users
     in-out property<int> online_count: 1;
+
+    // Context menu state
+    in-out property<bool> context_menu_visible: false;
+    in-out property<string> selected_message_id: "";
+
+    // Reply state
+    in-out property<string> replying_to_id: "";
+    in-out property<string> replying_to_text: "";
 
     callback on_click(string);
     callback on_text_input(string);
@@ -161,22 +180,124 @@ export component App inherits Rectangle {
                             horizontal-alignment: msg.is_mine ? right : left;
                         }
 
-                        // Message bubble
-                        Rectangle {
-                            background: msg.is_mine ? Theme.mine-bg : Theme.other-bg;
-                            border-radius: 12px;
+                        // Message bubble with dropdown menu
+                        HorizontalLayout {
+                            spacing: 4px;
 
-                            HorizontalLayout {
-                                padding-top: 8px;
-                                padding-bottom: 8px;
-                                padding-left: 12px;
-                                padding-right: 12px;
+                            // Dropdown button (left side for my messages)
+                            if msg.is_mine: msg-menu-btn-left := Rectangle {
+                                width: 32px;
+                                height: 32px;
+                                background: msg-menu-area-left.has-hover ? Theme.bg-secondary.transparentize(0.3) : transparent;
+                                border-radius: 6px;
 
                                 Text {
-                                    text: msg.text;
-                                    font-size: 14px;
-                                    color: Theme.text-primary;
-                                    wrap: word-wrap;
+                                    text: "▼";
+                                    font-size: 12px;
+                                    color: msg-menu-area-left.has-hover ? Theme.text-primary : Theme.text-secondary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                msg-menu-area-left := TouchArea {
+                                    clicked => {
+                                        AppAPI.on_click("toggle_menu:" + msg.id);
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                min-width: 200px;
+                                max-width: 600px;
+                                background: msg.is_mine ? Theme.mine-bg : Theme.other-bg;
+                                border-radius: 12px;
+
+                                VerticalLayout {
+                                    padding-top: 8px;
+                                    padding-bottom: 8px;
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    spacing: 4px;
+
+                                    // Reply indicator
+                                    if msg.reply_to != "": Rectangle {
+                                        background: Theme.bg-secondary.transparentize(0.5);
+                                        border-radius: 4px;
+                                        height: 40px;
+
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            alignment: center;
+
+                                            Text {
+                                                text: "↩️ " + msg.reply_preview;
+                                                color: Theme.text-secondary;
+                                                font-size: 14px;
+                                                overflow: elide;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
+
+                                    // Message text
+                                    Text {
+                                        text: msg.deleted ? "[Message deleted]" : msg.text;
+                                        font-size: 14px;
+                                        color: msg.deleted ? Theme.text-secondary : Theme.text-primary;
+                                        font-italic: msg.deleted;
+                                        wrap: word-wrap;
+                                    }
+
+                                    // Reactions
+                                    if msg.reactions.length > 0: HorizontalLayout {
+                                        spacing: 4px;
+                                        padding-top: 4px;
+
+                                        for reaction in msg.reactions: Rectangle {
+                                            background: reaction.has_my_reaction ? Theme.accent.transparentize(0.7) : Theme.bg-secondary;
+                                            border-radius: 12px;
+                                            height: 24px;
+
+                                            HorizontalLayout {
+                                                padding-left: 6px;
+                                                padding-right: 6px;
+                                                spacing: 2px;
+
+                                                Text {
+                                                    text: reaction.emoji + " " + reaction.count;
+                                                    font-size: 11px;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+
+                                            TouchArea {
+                                                clicked => { AppAPI.on_click("toggle_reaction:" + msg.id + ":" + reaction.emoji); }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Dropdown button (right side for other messages)
+                            if !msg.is_mine: msg-menu-btn-right := Rectangle {
+                                width: 32px;
+                                height: 32px;
+                                background: msg-menu-area-right.has-hover ? Theme.bg-secondary.transparentize(0.3) : transparent;
+                                border-radius: 6px;
+
+                                Text {
+                                    text: "▼";
+                                    font-size: 12px;
+                                    color: msg-menu-area-right.has-hover ? Theme.text-primary : Theme.text-secondary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                msg-menu-area-right := TouchArea {
+                                    clicked => {
+                                        AppAPI.on_click("toggle_menu:" + msg.id);
+                                    }
                                 }
                             }
                         }
@@ -187,6 +308,126 @@ export component App inherits Rectangle {
                             font-size: 10px;
                             color: Theme.text-secondary;
                             horizontal-alignment: msg.is_mine ? right : left;
+                        }
+
+                        // Local context menu for this message
+                        if AppAPI.context_menu_visible && AppAPI.selected_message_id == msg.id: Rectangle {
+                            width: 200px;
+                            height: 132px;
+                            background: Theme.bg-card;
+                            border-radius: 10px;
+                            border-width: 1px;
+                            border-color: Theme.border.transparentize(0.3);
+                            drop-shadow-color: #00000060;
+                            drop-shadow-blur: 16px;
+                            drop-shadow-offset-y: 6px;
+
+                            VerticalLayout {
+                                padding: 4px;
+                                spacing: 0px;
+
+                                // React option
+                                menu-item-react := Rectangle {
+                                    height: 38px;
+                                    background: touch-react.has-hover ? Theme.bg-secondary : transparent;
+                                    border-radius: 6px;
+
+                                    touch-react := TouchArea {
+                                        clicked => { AppAPI.on_click("context_menu:react"); }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 12px;
+                                        padding-right: 12px;
+                                        spacing: 8px;
+
+                                        Text {
+                                            text: "😊";
+                                            font-size: 16px;
+                                            vertical-alignment: center;
+                                        }
+
+                                        Text {
+                                            text: "React";
+                                            color: Theme.text-primary;
+                                            font-size: 14px;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                // Separator
+                                Rectangle {
+                                    height: 1px;
+                                    background: Theme.border.transparentize(0.7);
+                                }
+
+                                // Reply option
+                                menu-item-reply := Rectangle {
+                                    height: 38px;
+                                    background: touch-reply.has-hover ? Theme.bg-secondary : transparent;
+                                    border-radius: 6px;
+
+                                    touch-reply := TouchArea {
+                                        clicked => { AppAPI.on_click("context_menu:reply"); }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 12px;
+                                        padding-right: 12px;
+                                        spacing: 8px;
+
+                                        Text {
+                                            text: "↩️";
+                                            font-size: 16px;
+                                            vertical-alignment: center;
+                                        }
+
+                                        Text {
+                                            text: "Reply";
+                                            color: Theme.text-primary;
+                                            font-size: 14px;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                // Separator
+                                Rectangle {
+                                    height: 1px;
+                                    background: Theme.border.transparentize(0.7);
+                                }
+
+                                // Delete option
+                                menu-item-delete := Rectangle {
+                                    height: 38px;
+                                    background: touch-delete.has-hover ? #ef444420 : transparent;
+                                    border-radius: 6px;
+
+                                    touch-delete := TouchArea {
+                                        clicked => { AppAPI.on_click("context_menu:delete"); }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 12px;
+                                        padding-right: 12px;
+                                        spacing: 8px;
+
+                                        Text {
+                                            text: "🗑️";
+                                            font-size: 16px;
+                                            vertical-alignment: center;
+                                        }
+
+                                        Text {
+                                            text: "Delete";
+                                            color: #ef4444;
+                                            font-size: 14px;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -332,6 +573,76 @@ export component App inherits Rectangle {
                             clicked => { AppAPI.on_click("emoji:" + emoji.name); }
                         }
                     }
+                }
+            }
+        }
+
+        // Reply indicator above input
+        if AppAPI.replying_to_id != "": Rectangle {
+            height: 50px;
+            background: Theme.bg-secondary;
+
+            HorizontalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                // Empty space for emoji button alignment
+                Rectangle {
+                    width: 44px;
+                }
+
+                // Reply preview (same width as text input)
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 44px;
+                    background: Theme.bg-card.transparentize(0.3);
+                    border-radius: 22px;
+
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        alignment: center;
+
+                        Text {
+                            text: "↩️ Replying to: " + AppAPI.replying_to_text;
+                            color: Theme.text-secondary;
+                            font-size: 14px;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                            horizontal-alignment: left;
+                        }
+
+                        TouchArea {
+                            width: 24px;
+                            height: 24px;
+                            clicked => { AppAPI.on_click("cancel_reply"); }
+
+                            Rectangle {
+                                width: 24px;
+                                height: 24px;
+                                background: touch-cancel.has-hover ? Theme.bg-secondary : transparent;
+                                border-radius: 12px;
+
+                                Text {
+                                    text: "✕";
+                                    color: Theme.text-secondary;
+                                    font-size: 14px;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: center;
+                                }
+
+                                touch-cancel := TouchArea {
+                                    clicked => { AppAPI.on_click("cancel_reply"); }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Empty space for send button alignment
+                Rectangle {
+                    width: 44px;
                 }
             }
         }

@@ -26,6 +26,7 @@ local EMOJI_SHORTCODES = {
 -- State
 local page_id = nil
 local messages_layer = nil
+local reactions_layer = nil
 local my_did = nil
 local my_short_did = nil
 -- Typing indicator state
@@ -39,6 +40,8 @@ function on_init()
     my_short_did = USERNAME or my_did:sub(-8)
     -- Messages layer (synced)
     messages_layer = loro:get_or_create_layer(page_id .. "/messages", "list")
+    -- Reactions layer (synced)
+    reactions_layer = loro:get_or_create_layer(page_id .. "/reactions", "map")
     -- Load existing messages
     refresh_messages_ui()
 end
@@ -50,6 +53,7 @@ function refresh_messages_ui()
         local msg = messages_layer:get(i)
         if msg then
             local is_mine = msg.sender_did == my_did
+            local reactions = get_reactions_for_message(msg.id)
             table.insert(all_messages, {
                 id = msg.id or "",
                 sender = msg.sender_did or "",
@@ -58,6 +62,10 @@ function refresh_messages_ui()
                 text = msg.text or "",
                 timestamp = format_time(msg.timestamp),
                 is_mine = is_mine,
+                deleted = msg.deleted or false,
+                reply_to = msg.reply_to or "",
+                reply_preview = msg.reply_preview or "",
+                reactions = reactions,
             })
         end
     end
@@ -72,21 +80,43 @@ end
 function generate_id()
     return string.format("%x-%04x", os.time(), math.random(0, 65535))
 end
+-- Truncate text for previews
+function truncate_text(text, max_len)
+    if #text > max_len then
+        return text:sub(1, max_len) .. "..."
+    end
+    return text
+end
+
 -- Send a message
 function send_message(text)
     if not text or text == "" then return end
+
+    local replying_to = ui:get("replying_to_id") or ""
+    local reply_preview = ui:get("replying_to_text") or ""
+
     local msg = {
         id = generate_id(),
         sender_did = my_did,
         sender_name = my_short_did,
         text = text,
         timestamp = os.time(),
+        deleted = false,
     }
+
+    -- Add reply fields if replying
+    if replying_to ~= "" then
+        msg.reply_to = replying_to
+        msg.reply_preview = truncate_text(reply_preview, 30)
+    end
+
     messages_layer:push(msg)
     refresh_messages_ui()
-    -- Clear draft
+    -- Clear draft and reply state
     ui:set("draft_text", "")
     ui:set("show_emoji_picker", false)
+    ui:set("replying_to_id", "")
+    ui:set("replying_to_text", "")
 end
 -- Insert emoji into draft (uses emoji binding for Unicode lookup)
 function insert_emoji(emoji_name)
@@ -106,10 +136,92 @@ function on_click(target)
         ui:set("show_emoji_picker", false)
     elseif target:match("^emoji:") then
         local emoji_name = target:sub(7)
-        insert_emoji(emoji_name)
-        ui:set("show_emoji_picker", false)
+        -- Check if we're in reaction mode
+        local selected_msg = ui:get("selected_message_id") or ""
+        if selected_msg ~= "" then
+            -- Get emoji character for reaction
+            local shortcode = EMOJI_SHORTCODES[emoji_name]
+            local emoji_char = shortcode and emoji:get(shortcode) or emoji_name
+            toggle_reaction(selected_msg, emoji_char)
+            ui:set("show_emoji_picker", false)
+            ui:set("selected_message_id", "")
+        else
+            -- Insert emoji into text input
+            insert_emoji(emoji_name)
+            ui:set("show_emoji_picker", false)
+        end
+    -- Toggle context menu
+    elseif target:match("^toggle_menu:") then
+        local msg_id = target:sub(13)  -- Extract message ID after "toggle_menu:"
+        local current_id = ui:get("selected_message_id") or ""
+        if current_id == msg_id and ui:get("context_menu_visible") then
+            -- Close menu if clicking same message
+            ui:set("context_menu_visible", false)
+            ui:set("selected_message_id", "")
+        else
+            -- Open menu for this message
+            ui:set("selected_message_id", msg_id)
+            ui:set("context_menu_visible", true)
+        end
+    -- Context menu handlers
+    elseif target == "context_menu:close" then
+        ui:set("context_menu_visible", false)
+        ui:set("selected_message_id", "")
+    elseif target == "context_menu:react" then
+        ui:set("context_menu_visible", false)
+        ui:set("show_emoji_picker", true)
+        -- selected_message_id stays set for reaction mode
+    elseif target == "context_menu:reply" then
+        local msg_id = ui:get("selected_message_id") or ""
+        local msg, _ = find_message_by_id(msg_id)
+        if msg then
+            ui:set("replying_to_id", msg_id)
+            ui:set("replying_to_text", msg.text)
+            ui:set("context_menu_visible", false)
+            ui:set("selected_message_id", "")
+        end
+    elseif target == "context_menu:delete" then
+        local msg_id = ui:get("selected_message_id") or ""
+        delete_message(msg_id)
+        ui:set("context_menu_visible", false)
+        ui:set("selected_message_id", "")
+    elseif target == "cancel_reply" then
+        ui:set("replying_to_id", "")
+        ui:set("replying_to_text", "")
+    elseif target:match("^toggle_reaction:") then
+        local parts = {}
+        for part in target:gmatch("[^:]+") do
+            table.insert(parts, part)
+        end
+        if #parts >= 3 then
+            local msg_id = parts[2]
+            local emoji = parts[3]
+            toggle_reaction(msg_id, emoji)
+        end
     end
 end
+-- Find message by ID
+function find_message_by_id(msg_id)
+    local len = messages_layer:length()
+    for i = 0, len - 1 do
+        local msg = messages_layer:get(i)
+        if msg and msg.id == msg_id then
+            return msg, i
+        end
+    end
+    return nil, nil
+end
+
+-- Delete message (soft delete)
+function delete_message(msg_id)
+    local msg, index = find_message_by_id(msg_id)
+    if msg and msg.sender_did == my_did then
+        msg.deleted = true
+        messages_layer:set(index, msg)
+        refresh_messages_ui()
+    end
+end
+
 -- Handle text input changes
 function on_text_input(text)
     -- Send typing indicator (throttled)
@@ -165,9 +277,78 @@ end
 function tick()
     refresh_typing_indicator()
 end
+-- Get reactions for a message
+function get_reactions_for_message(msg_id)
+    local reactions_data = reactions_layer:get(msg_id)
+    if not reactions_data then return {} end
+
+    local reactions = {}
+    for _, reaction in ipairs(reactions_data) do
+        table.insert(reactions, {
+            emoji = reaction.emoji,
+            count = #reaction.users,
+            has_my_reaction = contains(reaction.users, my_did)
+        })
+    end
+    return reactions
+end
+
+-- Toggle a reaction on a message
+function toggle_reaction(msg_id, emoji)
+    local reactions_data = reactions_layer:get(msg_id) or {}
+
+    -- Find existing reaction with this emoji
+    local found = false
+    for i, reaction in ipairs(reactions_data) do
+        if reaction.emoji == emoji then
+            found = true
+            local user_index = find_index(reaction.users, my_did)
+            if user_index then
+                -- Remove my reaction
+                table.remove(reaction.users, user_index)
+                if #reaction.users == 0 then
+                    -- Remove empty reaction
+                    table.remove(reactions_data, i)
+                end
+            else
+                -- Add my reaction
+                table.insert(reaction.users, my_did)
+            end
+            break
+        end
+    end
+
+    if not found then
+        -- Create new reaction
+        table.insert(reactions_data, {
+            emoji = emoji,
+            users = {my_did}
+        })
+    end
+
+    reactions_layer:set(msg_id, reactions_data)
+    refresh_messages_ui()
+end
+
+-- Helper: check if table contains value
+function contains(tbl, value)
+    for _, v in ipairs(tbl) do
+        if v == value then return true end
+    end
+    return false
+end
+
+-- Helper: find index of value in table
+function find_index(tbl, value)
+    for i, v in ipairs(tbl) do
+        if v == value then return i end
+    end
+    return nil
+end
+
 -- Handle Loro changes
 function on_loro_change(layer_name, change_type)
-    if layer_name:match("/messages$") then
+    if layer_name:match("/messages$") or layer_name:match("/reactions$") then
         refresh_messages_ui()
     end
 end
