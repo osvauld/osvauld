@@ -672,15 +672,17 @@ fn create_app_runtime(
         prepared.page_name, prepared.page_id, prepared.app_name
     );
 
-    // Get user DID from Butler (sync call - no tokio runtime needed)
-    let user_did = butler.identity_data()
-        .ok()
-        .flatten()
-        .map(|data| data.did)
+    // Get user DID and username from Butler (sync call - no tokio runtime needed)
+    let identity_data = butler.identity_data().ok().flatten();
+    let user_did = identity_data.as_ref()
+        .map(|data| data.did.clone())
         .unwrap_or_else(|| {
             println!("WARNING: No identity data - using fallback DID (this will break sync!)");
             format!("did:key:unknown-{}", &prepared.page_id[..8])
         });
+    let user_name = identity_data.as_ref()
+        .map(|data| data.username.clone())
+        .unwrap_or_else(|| "Player".to_string());
 
     // Get role from page's permit (not hardcoded from app name)
     let user_role = butler.get_page(&prepared.page_id)
@@ -721,6 +723,7 @@ fn create_app_runtime(
     println!("SlintRuntime: spawning Lua worker thread first...");
     println!("  page_id: {}", prepared.page_id);
     println!("  user_did: {}", user_did);
+    println!("  user_name: {}", user_name);
     println!("  user_role: {} (from permit)", user_role);
 
     let page_id = prepared.page_id.clone();     // Page UUID (e.g., "bf57890c-70ce-...")
@@ -729,6 +732,7 @@ fn create_app_runtime(
         page_id.clone(),
         app_name.clone(),
         user_did.clone(),
+        user_name.clone(),
         user_role.clone(),
         lua_code,
         scribe_ref.clone(),

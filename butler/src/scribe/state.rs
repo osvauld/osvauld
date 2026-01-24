@@ -298,6 +298,13 @@ pub struct ScribeState {
     pub our_layer_permissions: HashMap<String, LayerWritePermission>,
     /// Patterns we can write to (parsed from our permit)
     pub our_writable_patterns: Vec<PatternRule>,
+
+    // ==================== Node Script (is_node mode) ====================
+
+    /// Shutdown sender for node script tick loop (if running)
+    /// **Context**: Set when is_node=true and entry_node found in manifest
+    /// **Usage**: Send () to shutdown the tick loop
+    pub node_script_shutdown: Option<mpsc::Sender<()>>,
 }
 
 /// Arguments for spawning Scribe
@@ -329,7 +336,9 @@ pub struct ScribeArgs {
     pub our_permit: Option<String>,
     /// Our DID (for pattern expansion and validation)
     pub our_did: String,
-    /// Whether this Scribe runs on a node (enables derivation engine)
+    /// Our username (for node script permit bindings)
+    pub our_username: String,
+    /// Whether this Scribe runs on a node (enables derivation engine and node scripts)
     pub is_node: bool,
     // Note: ephemeral_broadcast_tx removed - outbound ephemeral now goes directly via
     // SubscriberInfo.ephemeral_tx (Scribe → PeerActor channels)

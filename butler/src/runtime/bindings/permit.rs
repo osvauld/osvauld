@@ -1,6 +1,6 @@
 //! Permit bindings for Lua
 //!
-//! Provides permit:page_id(), permit:our_did(), permit:role() methods.
+//! Provides permit:page_id(), permit:our_did(), permit:role(), permit:my_name() methods.
 
 use mlua::{UserData, UserDataMethods};
 
@@ -9,16 +9,18 @@ use mlua::{UserData, UserDataMethods};
 /// **Methods**:
 /// - `permit:page_id()` - Get the page ID
 /// - `permit:our_did()` - Get our DID
+/// - `permit:my_name()` - Get our username
 /// - `permit:role()` - Get our role (owner/viewer)
 pub struct PermitBindings {
     page_id: String,
     our_did: String,
+    our_name: String,
     our_role: String,
 }
 
 impl PermitBindings {
-    pub fn new(page_id: String, our_did: String, our_role: String) -> Self {
-        Self { page_id, our_did, our_role }
+    pub fn new(page_id: String, our_did: String, our_name: String, our_role: String) -> Self {
+        Self { page_id, our_did, our_name, our_role }
     }
 }
 
@@ -39,6 +41,11 @@ impl UserData for PermitBindings {
 
         methods.add_method("role", |_, this, ()| {
             Ok(this.our_role.clone())
+        });
+
+        // Get our username (from signup)
+        methods.add_method("my_name", |_, this, ()| {
+            Ok(this.our_name.clone())
         });
 
         // Helper to construct layer paths like "{page_id}/{layer_type}/{my_did}"

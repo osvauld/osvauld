@@ -16,7 +16,7 @@ use std::sync::Mutex;
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
-use crate::scribe::{ScribeMessage, PageEvent};
+use crate::scribe::{ScribeMessage, PageEvent, EphemeralEvent};
 
 /// Stub UI bindings for headless runtime
 ///
@@ -63,6 +63,33 @@ impl UserData for StubUiBindings {
     }
 }
 
+/// Butler bindings for headless runtime
+///
+/// Provides butler:send_ephemeral() for broadcasting game state to peers
+struct HeadlessButlerBindings {
+    scribe_ref: ActorRef<ScribeMessage>,
+}
+
+impl HeadlessButlerBindings {
+    fn new(scribe_ref: ActorRef<ScribeMessage>) -> Self {
+        Self { scribe_ref }
+    }
+}
+
+impl UserData for HeadlessButlerBindings {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // butler:send_ephemeral(payload) - broadcast ephemeral to all peers
+        methods.add_method("send_ephemeral", |_, this, payload: String| {
+            debug!(payload_len = payload.len(), "butler:send_ephemeral called from headless Lua");
+            this.scribe_ref.cast(ScribeMessage::SendEphemeral {
+                payload: payload.into_bytes(),
+            })
+            .map_err(|e| mlua::Error::RuntimeError(format!("Failed to send ephemeral: {}", e)))?;
+            Ok(())
+        });
+    }
+}
+
 pub use bindings::{
     LoroBindings, PermitBindings, DerivationBindings, LuaLoroList, LuaLoroMap,
     // Loro <-> Lua
@@ -79,12 +106,17 @@ pub use bindings::{
 ///
 /// **Same Lua as apps, no UI bindings**
 /// **All access via Scribe actor (read + write)**
+/// **Supports tick loop and ephemeral events for game logic**
 pub struct HeadlessRuntime {
     lua: Lua,
     page_id: String,
     scribe_ref: ActorRef<ScribeMessage>,
     /// Receiver for page events from Scribe (unified event channel)
     page_event_rx: mpsc::Receiver<PageEvent>,
+    /// Receiver for ephemeral events from Scribe (player positions, etc.)
+    ephemeral_rx: mpsc::Receiver<EphemeralEvent>,
+    /// Whether tick is enabled for this runtime
+    tick_enabled: bool,
 }
 
 impl HeadlessRuntime {
@@ -95,6 +127,7 @@ impl HeadlessRuntime {
         page_id: &str,
         scribe_ref: ActorRef<ScribeMessage>,
         our_did: &str,
+        our_name: &str,
         our_role: &str,
     ) -> Result<Self, String> {
         let lua = Lua::new();
@@ -108,6 +141,7 @@ impl HeadlessRuntime {
         let permit = PermitBindings::new(
             page_id.to_string(),
             our_did.to_string(),
+            our_name.to_string(),
             our_role.to_string(),
         );
         lua.globals().set("permit", permit)
@@ -123,6 +157,11 @@ impl HeadlessRuntime {
         lua.globals().set("ui", ui)
             .map_err(|e| format!("Failed to set ui global: {}", e))?;
 
+        // Setup butler bindings (for sending ephemeral)
+        let butler = HeadlessButlerBindings::new(scribe_ref.clone());
+        lua.globals().set("butler", butler)
+            .map_err(|e| format!("Failed to set butler global: {}", e))?;
+
         // Load api module for function export/description
         let api_lib = include_str!("lua_libs/api.lua");
         let api_module: Value = lua.load(api_lib)
@@ -137,13 +176,21 @@ impl HeadlessRuntime {
             event_tx: page_event_tx,
         }).map_err(|e| format!("Failed to subscribe to page events: {}", e))?;
 
-        info!(page_id = %page_id, "HeadlessRuntime created");
+        // Subscribe to ephemeral events from Scribe (player positions, etc.)
+        let (ephemeral_tx, ephemeral_rx) = mpsc::channel(256);
+        scribe_ref.cast(ScribeMessage::SubscribeEphemeral {
+            tx: ephemeral_tx,
+        }).map_err(|e| format!("Failed to subscribe to ephemeral events: {}", e))?;
+
+        info!(page_id = %page_id, "HeadlessRuntime created with ephemeral support");
 
         Ok(Self {
             lua,
             page_id: page_id.to_string(),
             scribe_ref,
             page_event_rx,
+            ephemeral_rx,
+            tick_enabled: false,
         })
     }
 
@@ -247,6 +294,122 @@ impl HeadlessRuntime {
             .map_err(|e| format!("Derivation rebuild_all failed: {}", e))?;
 
         info!(page_id = %self.page_id, "Derivation initialization complete");
+        Ok(())
+    }
+
+    // ==================== Tick & Ephemeral Support ====================
+
+    /// Enable tick for this runtime
+    ///
+    /// **Context**: Call before run_tick_loop() to enable periodic tick() calls
+    pub fn enable_tick(&mut self) {
+        self.tick_enabled = true;
+        info!(page_id = %self.page_id, "Tick enabled");
+    }
+
+    /// Check if tick is enabled
+    pub fn is_tick_enabled(&self) -> bool {
+        self.tick_enabled
+    }
+
+    /// Process incoming ephemeral events
+    ///
+    /// **Context**: Call from event loop to handle ephemeral events (player positions, etc.)
+    /// **Calls**: Lua's `on_ephemeral(user_did, payload)` if defined
+    pub async fn process_ephemeral_events(&mut self) -> Result<(), String> {
+        while let Ok(event) = self.ephemeral_rx.try_recv() {
+            self.handle_ephemeral_event(event)?;
+        }
+        Ok(())
+    }
+
+    /// Handle a single ephemeral event
+    fn handle_ephemeral_event(&self, event: EphemeralEvent) -> Result<(), String> {
+        match event {
+            EphemeralEvent::Data { user_did, payload } => {
+                // Call Lua's on_ephemeral if defined
+                let globals = self.lua.globals();
+                if let Ok(func) = globals.get::<Function>("on_ephemeral") {
+                    let payload_str = String::from_utf8_lossy(&payload).to_string();
+                    func.call::<()>((user_did.clone(), payload_str))
+                        .map_err(|e| format!("on_ephemeral error: {}", e))?;
+                    debug!(page_id = %self.page_id, user_did = %user_did, "Called on_ephemeral");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Call Lua's tick() function once
+    ///
+    /// **Context**: Called periodically by run_tick_loop()
+    /// **Returns**: Ok(true) if tick was called, Ok(false) if tick() not defined
+    pub fn tick(&self) -> Result<bool, String> {
+        let globals = self.lua.globals();
+        if let Ok(func) = globals.get::<Function>("tick") {
+            func.call::<()>(())
+                .map_err(|e| format!("tick() error: {}", e))?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Run the tick loop
+    ///
+    /// **Context**: Main game loop for node-side game logic
+    /// **Flow**:
+    /// 1. Process page events (CRDT changes)
+    /// 2. Process ephemeral events (player positions)
+    /// 3. Call tick() for game logic (enemy AI, etc.)
+    /// 4. Sleep for frame duration
+    ///
+    /// **Parameters**:
+    /// - `tick_rate_hz`: Ticks per second (e.g., 30 for 30fps)
+    /// - `shutdown_rx`: Channel to receive shutdown signal
+    pub async fn run_tick_loop(
+        &mut self,
+        tick_rate_hz: u32,
+        mut shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<(), String> {
+        if !self.tick_enabled {
+            return Err("Tick not enabled. Call enable_tick() first.".to_string());
+        }
+
+        let frame_duration = std::time::Duration::from_micros(1_000_000 / tick_rate_hz as u64);
+        info!(page_id = %self.page_id, tick_rate_hz = tick_rate_hz, "Starting tick loop");
+
+        // Call on_init if defined
+        if self.has_function("on_init") {
+            self.call_no_args::<()>("on_init")?;
+            info!(page_id = %self.page_id, "Called on_init");
+        }
+
+        loop {
+            let frame_start = std::time::Instant::now();
+
+            // Check for shutdown
+            if shutdown_rx.try_recv().is_ok() {
+                info!(page_id = %self.page_id, "Tick loop shutdown requested");
+                break;
+            }
+
+            // Process page events (CRDT changes)
+            self.process_page_events().await?;
+
+            // Process ephemeral events (player positions, etc.)
+            self.process_ephemeral_events().await?;
+
+            // Call tick() for game logic
+            self.tick()?;
+
+            // Sleep for remaining frame time
+            let elapsed = frame_start.elapsed();
+            if elapsed < frame_duration {
+                tokio::time::sleep(frame_duration - elapsed).await;
+            }
+        }
+
         Ok(())
     }
 

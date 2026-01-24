@@ -43,6 +43,7 @@ use walkdir::WalkDir;
 
 use crate::error::{ButlerError, Result};
 use crate::models::Layer;
+use crate::runtime::HeadlessRuntime;
 
 // =============================================================================
 // Scribe Actor
@@ -202,10 +203,12 @@ impl Actor for Scribe {
             lua_runtime,
             // Our permit for local write authorization
             our_permit: args.our_permit,
-            our_did: args.our_did,
+            our_did: args.our_did.clone(),
             our_role,
             our_layer_permissions,
             our_writable_patterns,
+            // Node script shutdown handle (set later if is_node=true and entry_node found)
+            node_script_shutdown: None,
         };
 
         // Pre-create static layers from permit
@@ -244,6 +247,29 @@ impl Actor for Scribe {
                         Ok(()) => info!(sync_target = %sync_target, page_id = %state.page_id, "Emitted EnsureSync on page open"),
                         Err(e) => warn!(sync_target = %sync_target, error = %e, "Failed to emit EnsureSync on page open"),
                     }
+                }
+            }
+        }
+
+        // Start node script if is_node and entry_node found in manifest
+        // Pattern: Like derivation engine, node scripts start when Scribe starts
+        if args.is_node {
+            match find_and_start_node_script(
+                myself.clone(),
+                &state.page_id,
+                &state.layers,
+                &args.our_did,
+                &args.our_username,
+            ).await {
+                Ok(Some(shutdown_tx)) => {
+                    state.node_script_shutdown = Some(shutdown_tx);
+                    info!(page_id = %state.page_id, "Node script started");
+                }
+                Ok(None) => {
+                    debug!(page_id = %state.page_id, "No entry_node in any app manifest");
+                }
+                Err(e) => {
+                    warn!(page_id = %state.page_id, error = %e, "Failed to start node script");
                 }
             }
         }
@@ -677,6 +703,12 @@ impl Actor for Scribe {
         _myself: ActorRef<Self::Msg>,
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
+        // Stop node script if running
+        if let Some(tx) = state.node_script_shutdown.take() {
+            info!(page_id = %state.page_id, "Stopping node script tick loop");
+            let _ = tx.send(()).await;
+        }
+
         info!(page_id = %state.page_id, "Scribe stopped");
         Ok(())
     }
@@ -766,6 +798,139 @@ impl Scribe {
         debug!("Layer update from JSON complete, observer will broadcast");
         Ok(())
     }
+}
+
+// =============================================================================
+// Node Script Initialization (is_node mode)
+// =============================================================================
+
+/// Manifest structure for parsing entry_node
+#[derive(Debug, serde::Deserialize)]
+struct AppManifest {
+    #[allow(dead_code)]
+    name: String,
+    #[serde(default)]
+    entry_node: Option<String>,
+    #[allow(dead_code)]
+    #[serde(default)]
+    tick_enabled: bool,
+}
+
+/// Find and start node script from app layers
+///
+/// **Context**: Called in Scribe::pre_start when is_node=true
+/// **Flow**:
+/// 1. Scan layers for app:* names
+/// 2. For each app layer, get manifest.json
+/// 3. Parse manifest, check for entry_node field
+/// 4. If found, load node script and spawn HeadlessRuntime tick loop
+///
+/// **Returns**: Ok(Some(shutdown_tx)) if started, Ok(None) if no entry_node found
+async fn find_and_start_node_script(
+    scribe_ref: ActorRef<ScribeMessage>,
+    page_id: &str,
+    layers: &HashMap<String, Layer>,
+    our_did: &str,
+    our_username: &str,
+) -> std::result::Result<Option<tokio::sync::mpsc::Sender<()>>, String> {
+    // Find app:* layers
+    let app_layers: Vec<_> = layers
+        .iter()
+        .filter(|(name, _)| name.starts_with("app:"))
+        .collect();
+
+    if app_layers.is_empty() {
+        return Ok(None);
+    }
+
+    for (layer_name, layer) in app_layers {
+        let app_name = layer_name.strip_prefix("app:").unwrap_or(layer_name);
+
+        // Get files from the app layer
+        let files = layer.get_all_files();
+
+        // Get manifest.json
+        let manifest_str = match files.get("manifest.json") {
+            Some(s) => s,
+            None => {
+                debug!(page_id = %page_id, app_name = %app_name, "No manifest.json in app layer");
+                continue;
+            }
+        };
+
+        // Parse manifest
+        let manifest: AppManifest = match serde_json::from_str(manifest_str) {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(page_id = %page_id, app_name = %app_name, error = %e, "Failed to parse manifest");
+                continue;
+            }
+        };
+
+        // Check for entry_node
+        let node_script_name = match manifest.entry_node {
+            Some(name) => name,
+            None => {
+                debug!(page_id = %page_id, app_name = %app_name, "No entry_node in manifest");
+                continue;
+            }
+        };
+
+        info!(page_id = %page_id, app_name = %app_name, node_script = %node_script_name, "Starting node script");
+
+        // Get node script content
+        let node_script = match files.get(&node_script_name) {
+            Some(s) => s.clone(),
+            None => {
+                warn!(
+                    page_id = %page_id,
+                    app_name = %app_name,
+                    node_script = %node_script_name,
+                    "Node script not found in app files"
+                );
+                continue;
+            }
+        };
+
+        // Create HeadlessRuntime
+        let mut runtime = HeadlessRuntime::new(
+            page_id,
+            scribe_ref.clone(),
+            our_did,
+            our_username,
+            "node",  // Node has special role
+        ).await?;
+
+        // Load node script
+        runtime.load_code(&node_script)?;
+
+        // Enable tick (nodes always have tick enabled for game loops)
+        runtime.enable_tick();
+
+        // Create shutdown channel
+        let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel(1);
+
+        // Spawn tick loop in background
+        let page_id_owned = page_id.to_string();
+        let app_name_owned = app_name.to_string();
+        tokio::spawn(async move {
+            info!(page_id = %page_id_owned, app_name = %app_name_owned, "[Node] Tick loop starting");
+
+            // Run at 30fps for node (sufficient for game logic)
+            match runtime.run_tick_loop(30, shutdown_rx).await {
+                Ok(()) => info!(page_id = %page_id_owned, "[Node] Tick loop ended"),
+                Err(e) => warn!(page_id = %page_id_owned, error = %e, "[Node] Tick loop error"),
+            }
+        });
+
+        info!(page_id = %page_id, app_name = %app_name, "[Node] Script started successfully");
+
+        // Only start one node script per page
+        return Ok(Some(shutdown_tx));
+    }
+
+    // No entry_node found in any app
+    Ok(None)
 }
 
 // =============================================================================
