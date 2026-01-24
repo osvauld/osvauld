@@ -4,6 +4,7 @@
     "description": "Classic brick game tanks - destroy enemies and defeat bosses",
     "entry_ui": "app.slint",
     "entry_logic": "app.lua",
-    "models": ["enemies", "bullets", "obstacles", "leaderboard"],
+    "entry_node": "node.lua",
+    "models": ["enemies", "bullets", "obstacles", "leaderboard", "players"],
     "tick_enabled": true
 }

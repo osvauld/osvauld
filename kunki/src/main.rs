@@ -11,6 +11,8 @@ use butler::{Butler, RedbStore, LayerCache};
 use tokio::sync::RwLock;
 
 mod control_server;
+#[allow(dead_code)]
+mod node_runtime;  // Kept for reference, node scripts now managed by Scribe
 use control_server::{KunkiControlServer, NodeState};
 
 // Transport and Courier for P2P
@@ -271,7 +273,11 @@ async fn handle_start(
         courier.run(event_rx).await;
     });
 
-    // Spawn application event handler
+    // Note: Node scripts are now started automatically by Scribe when is_node=true
+    // Scribe manages the node script lifecycle via node_script_shutdown handle
+
+    // Spawn application event handler (logging only)
+    // Note: Node scripts are now started automatically by Scribe when is_node=true
     let _courier_handle = courier_handle.clone(); // Keep handle for future use
     tokio::spawn(async move {
         while let Some(event) = courier_events.recv().await {
@@ -391,6 +397,10 @@ async fn handle_start(
 
     info!("🛑 Shutdown signal received");
     info!("🛑 Initiating graceful shutdown...");
+
+    // Note: Node scripts are automatically stopped when Scribe actors stop
+    // via their node_script_shutdown handles
+
     info!("🔄 Cleaning up...");
     info!("✅ P2P service stopped gracefully");
     println!("\n🔴 SERVICE STATUS: OFFLINE");

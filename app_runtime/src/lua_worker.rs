@@ -541,6 +541,9 @@ pub struct LuaWorker {
     /// User's DID (e.g., "did:key:z6Mk...")
     user_did: String,
 
+    /// User's display name (from signup)
+    user_name: String,
+
     /// User's role from permit (e.g., "owner", "viewer")
     user_role: String,
 
@@ -581,6 +584,7 @@ impl LuaWorker {
     /// - `page_id`: Page UUID (e.g., "bf57890c-70ce-46e3-b205-f419163ab0f4")
     /// - `app_name`: App name (e.g., "Shop Customer") - for logging
     /// - `user_did`: User's DID (e.g., "did:key:z6Mk...") - for permit bindings
+    /// - `user_name`: User's display name (from signup) - for permit bindings
     /// - `user_role`: User's role from permit (e.g., "owner", "viewer") - for permit bindings
     /// - `lua_code`: Lua source code to execute
     /// - `scribe_ref`: Reference to Scribe actor
@@ -593,6 +597,7 @@ impl LuaWorker {
         page_id: String,
         app_name: String,
         user_did: String,
+        user_name: String,
         user_role: String,
         lua_code: String,
         scribe_ref: ActorRef<ScribeMessage>,
@@ -661,6 +666,7 @@ impl LuaWorker {
                 page_id,
                 app_name,
                 user_did,
+                user_name,
                 user_role,
                 ui_tx,
                 query_tx,
@@ -851,10 +857,11 @@ impl LuaWorker {
         globals.set("ui", ui_binding)?;
 
         // permit binding - provides identity and layer naming helpers
-        // Uses real page_id (UUID), user_did, and role from permit
+        // Uses real page_id (UUID), user_did, user_name, and role from permit
         let permit_binding = PermitBindings::new(
             self.page_id.clone(),
             self.user_did.clone(),
+            self.user_name.clone(),
             self.user_role.clone(),
         );
         globals.set("permit", permit_binding)?;

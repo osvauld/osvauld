@@ -36,6 +36,17 @@ export struct ScoreEntry {
     date: string,
 }
 
+// Multiplayer tank struct
+export struct PlayerTank {
+    x: int,
+    y: int,
+    direction: string,
+    alive: bool,
+    is_me: bool,
+    color_index: int,  // Index into player colors (0-5)
+    name: string,
+}
+
 // Classic brick game LCD theme
 global Theme {
     out property<color> bg: #9bbc0f;           // Classic LCD green
@@ -49,12 +60,15 @@ global Theme {
     out property<color> steel: #4a4a4a;        // Steel walls
     out property<color> text: #0f380f;         // Text color
     out property<color> text-light: #306230;   // Light text
+    // Player colors for multiplayer
+    out property<[color]> player-colors: [#0f380f, #0000ff, #ff00ff, #00ffff, #ff8800, #00ff00];
 }
 
 // App API
 export global AppAPI {
     // Game entities
     in-out property<Tank> tank: { x: 10, y: 13, direction: "up", alive: true };
+    in-out property<[PlayerTank]> players: [];  // All players (local + remote)
     in-out property<[Enemy]> enemies: [];
     in-out property<[Bullet]> bullets: [];
     in-out property<[Obstacle]> obstacles: [];
@@ -67,10 +81,9 @@ export global AppAPI {
     in-out property<bool> game_over: false;
     in-out property<bool> game_paused: true;
 
-    // Grid settings
+    // Grid settings (cell_size is computed by canvas-wrapper from available space)
     in-out property<int> grid_width: 20;
     in-out property<int> grid_height: 15;
-    in-out property<int> cell_size: 24;
 
     // Leaderboard
     in-out property<[ScoreEntry]> leaderboard: [];
@@ -155,11 +168,7 @@ component TankSprite {
 }
 
 export component App inherits Rectangle {
-    background: Theme.bg;
-
-    // Calculate canvas size
-    property<length> canvas_width: AppAPI.grid_width * AppAPI.cell_size * 1px;
-    property<length> canvas_height: AppAPI.grid_height * AppAPI.cell_size * 1px;
+    background: #1e293b;  // Dark background for unused space
 
     // Key handler
     forward-focus: key-handler;
@@ -168,13 +177,13 @@ export component App inherits Rectangle {
         height: 100%;
 
         key-pressed(event) => {
-            if event.text == "w" || event.text == "W" || event.text == "↑" {
+            if event.text == Key.UpArrow || event.text == "w" || event.text == "W" {
                 AppAPI.on_key_pressed("up");
-            } else if event.text == "s" || event.text == "S" || event.text == "↓" {
+            } else if event.text == Key.DownArrow || event.text == "s" || event.text == "S" {
                 AppAPI.on_key_pressed("down");
-            } else if event.text == "a" || event.text == "A" || event.text == "←" {
+            } else if event.text == Key.LeftArrow || event.text == "a" || event.text == "A" {
                 AppAPI.on_key_pressed("left");
-            } else if event.text == "d" || event.text == "D" || event.text == "→" {
+            } else if event.text == Key.RightArrow || event.text == "d" || event.text == "D" {
                 AppAPI.on_key_pressed("right");
             } else if event.text == " " || event.text == "j" || event.text == "J" {
                 if AppAPI.game_paused && !AppAPI.game_over {
@@ -201,8 +210,10 @@ export component App inherits Rectangle {
         padding: 16px;
         spacing: 16px;
 
-        // Game area
+        // Game area - stretch to fill available space
         VerticalLayout {
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
             spacing: 12px;
 
             // Header
@@ -254,223 +265,255 @@ export component App inherits Rectangle {
                 }
             }
 
-            // Game canvas
-            Rectangle {
-                width: canvas_width;
-                height: canvas_height;
-                background: Theme.bg;
-                border-width: 3px;
-                border-color: Theme.bg-dark;
+            // Canvas wrapper - stretches to fill, computes cell_size from available space
+            canvas-wrapper := Rectangle {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
 
-                // Grid pattern (subtle)
-                for row in AppAPI.grid_height: Rectangle {
-                    y: row * AppAPI.cell_size * 1px;
-                    width: 100%;
-                    height: 1px;
-                    background: Theme.bg-medium;
-                    opacity: 0.2;
-                }
+                // Compute cell_size from container dimensions (one-way, no recursion)
+                // Subtract 6px for border (3px each side), then divide by grid dimensions
+                property<int> cell_size: Math.max(16, Math.min(
+                    (self.width / 1px - 6) / AppAPI.grid_width,
+                    (self.height / 1px - 6) / AppAPI.grid_height
+                ));
 
-                for col in AppAPI.grid_width: Rectangle {
-                    x: col * AppAPI.cell_size * 1px;
-                    width: 1px;
-                    height: 100%;
-                    background: Theme.bg-medium;
-                    opacity: 0.2;
-                }
+                // Game canvas - centered within wrapper
+                Rectangle {
+                    width: AppAPI.grid_width * parent.cell_size * 1px;
+                    height: AppAPI.grid_height * parent.cell_size * 1px;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    background: Theme.bg;
+                    border-width: 3px;
+                    border-color: Theme.bg-dark;
 
-                // Obstacles
-                for obs in AppAPI.obstacles: Rectangle {
-                    x: obs.x * AppAPI.cell_size * 1px + 1px;
-                    y: obs.y * AppAPI.cell_size * 1px + 1px;
-                    width: (AppAPI.cell_size - 2) * 1px;
-                    height: (AppAPI.cell_size - 2) * 1px;
-                    background: obs.kind == "brick" ? Theme.brick : Theme.steel;
-                    border-radius: obs.kind == "brick" ? 1px : 0;
+                    // Local alias for cleaner entity code
+                    property<int> cs: parent.cell_size;
 
-                    // Brick pattern
-                    if obs.kind == "brick": Rectangle {
-                        x: parent.width * 0.45;
-                        y: 0;
-                        width: 2px;
-                        height: parent.height * 0.5;
-                        background: #6b3410;
-                    }
-                    if obs.kind == "brick": Rectangle {
-                        x: 0;
-                        y: parent.height * 0.5 - 1px;
-                        width: parent.width;
-                        height: 2px;
-                        background: #6b3410;
+                    // Grid pattern (subtle)
+                    for row in AppAPI.grid_height: Rectangle {
+                        y: row * cs * 1px;
+                        width: 100%;
+                        height: 1px;
+                        background: Theme.bg-medium;
+                        opacity: 0.2;
                     }
 
-                    // Steel shine
-                    if obs.kind == "steel": Rectangle {
-                        x: 2px;
-                        y: 2px;
-                        width: parent.width * 0.3;
-                        height: parent.height * 0.3;
-                        background: #6a6a6a;
-                    }
-                }
-
-                // Bullets
-                for bullet in AppAPI.bullets: Rectangle {
-                    x: bullet.x * AppAPI.cell_size * 1px + (AppAPI.cell_size / 2 - 3) * 1px;
-                    y: bullet.y * AppAPI.cell_size * 1px + (AppAPI.cell_size / 2 - 3) * 1px;
-                    width: 6px;
-                    height: 6px;
-                    background: Theme.bullet;
-                    border-radius: 3px;
-                }
-
-                // Enemies
-                for enemy in AppAPI.enemies: Rectangle {
-                    x: enemy.x * AppAPI.cell_size * 1px;
-                    y: enemy.y * AppAPI.cell_size * 1px;
-                    width: AppAPI.cell_size * 1px;
-                    height: AppAPI.cell_size * 1px;
-
-                    TankSprite {
-                        cell_size: AppAPI.cell_size;
-                        direction: enemy.direction;
-                        tank_color: enemy.is_boss ? Theme.tank-boss : Theme.tank-enemy;
-                        is_boss: enemy.is_boss;
+                    for col in AppAPI.grid_width: Rectangle {
+                        x: col * cs * 1px;
+                        width: 1px;
+                        height: 100%;
+                        background: Theme.bg-medium;
+                        opacity: 0.2;
                     }
 
-                    // Boss HP indicator
-                    if enemy.is_boss: Rectangle {
-                        x: 2px;
-                        y: -8px;
-                        width: (AppAPI.cell_size - 4) * 1px;
-                        height: 4px;
-                        background: #333;
-                        border-radius: 2px;
+                    // Obstacles
+                    for obs in AppAPI.obstacles: Rectangle {
+                        x: obs.x * cs * 1px + 1px;
+                        y: obs.y * cs * 1px + 1px;
+                        width: (cs - 2) * 1px;
+                        height: (cs - 2) * 1px;
+                        background: obs.kind == "brick" ? Theme.brick : Theme.steel;
+                        border-radius: obs.kind == "brick" ? 1px : 0;
 
-                        Rectangle {
-                            width: parent.width * (enemy.hp / 5.0);
-                            height: 100%;
-                            background: #ff0000;
+                        // Brick pattern
+                        if obs.kind == "brick": Rectangle {
+                            x: parent.width * 0.45;
+                            y: 0;
+                            width: 2px;
+                            height: parent.height * 0.5;
+                            background: #6b3410;
+                        }
+                        if obs.kind == "brick": Rectangle {
+                            x: 0;
+                            y: parent.height * 0.5 - 1px;
+                            width: parent.width;
+                            height: 2px;
+                            background: #6b3410;
+                        }
+
+                        // Steel shine
+                        if obs.kind == "steel": Rectangle {
+                            x: 2px;
+                            y: 2px;
+                            width: parent.width * 0.3;
+                            height: parent.height * 0.3;
+                            background: #6a6a6a;
+                        }
+                    }
+
+                    // Bullets
+                    for bullet in AppAPI.bullets: Rectangle {
+                        x: bullet.x * cs * 1px + (cs / 2 - 3) * 1px;
+                        y: bullet.y * cs * 1px + (cs / 2 - 3) * 1px;
+                        width: 6px;
+                        height: 6px;
+                        background: Theme.bullet;
+                        border-radius: 3px;
+                    }
+
+                    // Enemies
+                    for enemy in AppAPI.enemies: Rectangle {
+                        x: enemy.x * cs * 1px;
+                        y: enemy.y * cs * 1px;
+                        width: cs * 1px;
+                        height: cs * 1px;
+
+                        TankSprite {
+                            cell_size: cs;
+                            direction: enemy.direction;
+                            tank_color: enemy.is_boss ? Theme.tank-boss : Theme.tank-enemy;
+                            is_boss: enemy.is_boss;
+                        }
+
+                        // Boss HP indicator
+                        if enemy.is_boss: Rectangle {
+                            x: 2px;
+                            y: -8px;
+                            width: (cs - 4) * 1px;
+                            height: 4px;
+                            background: #333;
                             border-radius: 2px;
+
+                            Rectangle {
+                                width: parent.width * (enemy.hp / 5.0);
+                                height: 100%;
+                                background: #ff0000;
+                                border-radius: 2px;
+                            }
                         }
                     }
-                }
 
-                // Player tank
-                if AppAPI.tank.alive: Rectangle {
-                    x: AppAPI.tank.x * AppAPI.cell_size * 1px;
-                    y: AppAPI.tank.y * AppAPI.cell_size * 1px;
-                    width: AppAPI.cell_size * 1px;
-                    height: AppAPI.cell_size * 1px;
+                    // All players (local + remote)
+                    for player in AppAPI.players: Rectangle {
+                        x: player.x * cs * 1px;
+                        y: player.y * cs * 1px;
+                        width: cs * 1px;
+                        height: cs * 1px;
 
-                    TankSprite {
-                        cell_size: AppAPI.cell_size;
-                        direction: AppAPI.tank.direction;
-                        tank_color: Theme.tank-player;
-                    }
-                }
-
-                // Game over overlay
-                if AppAPI.game_over: Rectangle {
-                    width: 100%;
-                    height: 100%;
-                    background: #0f380f80;
-
-                    VerticalLayout {
-                        alignment: center;
-                        spacing: 16px;
-
-                        Text {
-                            text: "GAME OVER";
-                            font-size: 32px;
-                            font-weight: 700;
-                            color: Theme.bg;
-                            horizontal-alignment: center;
-                            letter-spacing: 3px;
+                        if player.alive: TankSprite {
+                            cell_size: cs;
+                            direction: player.direction;
+                            tank_color: Theme.player-colors[Math.clamp(player.color_index, 0, 5)];
                         }
 
-                        Text {
-                            text: "SCORE: " + AppAPI.score;
-                            font-size: 20px;
-                            font-weight: 600;
-                            color: Theme.bg;
-                            horizontal-alignment: center;
-                        }
-
-                        Text {
-                            text: "STAGE: " + AppAPI.stage;
-                            font-size: 16px;
-                            color: Theme.bg;
-                            horizontal-alignment: center;
-                        }
-
-                        Rectangle {
-                            width: 140px;
-                            height: 40px;
-                            background: Theme.bg;
-                            border-radius: 4px;
+                        // Name tag for remote players
+                        if !player.is_me && player.alive: Rectangle {
+                            y: -10px;
+                            width: parent.width;
+                            height: 10px;
 
                             Text {
-                                text: "PLAY AGAIN";
-                                font-size: 14px;
-                                font-weight: 700;
+                                text: player.name;
+                                font-size: 8px;
                                 color: Theme.bg-dark;
                                 horizontal-alignment: center;
-                                vertical-alignment: center;
-                            }
-
-                            TouchArea {
-                                clicked => { AppAPI.on_click("restart"); }
                             }
                         }
                     }
-                }
 
-                // Pause overlay
-                if AppAPI.game_paused && !AppAPI.game_over: Rectangle {
-                    width: 100%;
-                    height: 100%;
-                    background: #0f380f60;
+                    // Game over overlay
+                    if AppAPI.game_over: Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        background: #0f380f80;
 
-                    VerticalLayout {
-                        alignment: center;
-                        spacing: 12px;
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 16px;
 
-                        Text {
-                            text: "PAUSED";
-                            font-size: 28px;
-                            font-weight: 700;
-                            color: Theme.bg;
-                            horizontal-alignment: center;
-                            letter-spacing: 2px;
-                        }
+                            Text {
+                                text: "GAME OVER";
+                                font-size: 32px;
+                                font-weight: 700;
+                                color: Theme.bg;
+                                horizontal-alignment: center;
+                                letter-spacing: 3px;
+                            }
 
-                        Text {
-                            text: "SPACE to start";
-                            font-size: 14px;
-                            color: Theme.bg;
-                            horizontal-alignment: center;
-                        }
+                            Text {
+                                text: "SCORE: " + AppAPI.score;
+                                font-size: 20px;
+                                font-weight: 600;
+                                color: Theme.bg;
+                                horizontal-alignment: center;
+                            }
 
-                        Text {
-                            text: "WASD to move";
-                            font-size: 12px;
-                            color: Theme.bg;
-                            horizontal-alignment: center;
-                        }
+                            Text {
+                                text: "STAGE: " + AppAPI.stage;
+                                font-size: 16px;
+                                color: Theme.bg;
+                                horizontal-alignment: center;
+                            }
 
-                        Text {
-                            text: "SPACE/J to shoot";
-                            font-size: 12px;
-                            color: Theme.bg;
-                            horizontal-alignment: center;
+                            Rectangle {
+                                width: 140px;
+                                height: 40px;
+                                background: Theme.bg;
+                                border-radius: 4px;
+
+                                Text {
+                                    text: "PLAY AGAIN";
+                                    font-size: 14px;
+                                    font-weight: 700;
+                                    color: Theme.bg-dark;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    clicked => { AppAPI.on_click("restart"); }
+                                }
+                            }
                         }
                     }
-                }
 
-                // Click to focus
-                TouchArea {
-                    clicked => { key-handler.focus(); }
+                    // Pause overlay
+                    if AppAPI.game_paused && !AppAPI.game_over: Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        background: #0f380f60;
+
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 12px;
+
+                            Text {
+                                text: "PAUSED";
+                                font-size: 28px;
+                                font-weight: 700;
+                                color: Theme.bg;
+                                horizontal-alignment: center;
+                                letter-spacing: 2px;
+                            }
+
+                            Text {
+                                text: "SPACE to start";
+                                font-size: 14px;
+                                color: Theme.bg;
+                                horizontal-alignment: center;
+                            }
+
+                            Text {
+                                text: "WASD to move";
+                                font-size: 12px;
+                                color: Theme.bg;
+                                horizontal-alignment: center;
+                            }
+
+                            Text {
+                                text: "SPACE/J to shoot";
+                                font-size: 12px;
+                                color: Theme.bg;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+
+                    // Click to focus
+                    TouchArea {
+                        clicked => { key-handler.focus(); }
+                    }
                 }
             }
 
@@ -533,6 +576,7 @@ export component App inherits Rectangle {
         // Leaderboard panel
         Rectangle {
             width: 180px;
+            vertical-stretch: 1;
             background: Theme.bg-medium;
             border-radius: 8px;
 

@@ -1414,6 +1414,13 @@ impl Butler {
             .map(|id| id.did().to_string())
             .unwrap_or_default();
 
+        // Get our username (from identity data)
+        let our_username = self.identity_data()
+            .ok()
+            .flatten()
+            .map(|d| d.username)
+            .unwrap_or_default();
+
         // Determine if this Scribe runs on a node (enables derivation engine)
         // Node mode uses SyncMode::Broadcast, owner/customer use SyncMode::ToSource
         let is_node = sync_config.as_ref()
@@ -1435,6 +1442,7 @@ impl Butler {
             init_code,
             our_permit,
             our_did,
+            our_username,
             is_node,
             // Note: ephemeral_broadcast_tx removed - now uses SubscriberInfo.ephemeral_tx
         };
