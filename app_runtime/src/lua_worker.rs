@@ -98,6 +98,26 @@ pub enum LuaWorkerCommand {
         payload: Vec<u8>,
     },
 
+    // ==================== Peer Presence Events (from Scribe subscribe/unsubscribe) ====================
+
+    /// Peer joined this page (subscribed to Scribe)
+    ///
+    /// **Context**: Remote peer subscribed to this page's Scribe
+    /// **We do**: Call Lua's `on_peer_joined(user_did)` if defined
+    /// **Use cases**: Online counters, presence indicators
+    PeerJoined {
+        user_did: String,
+    },
+
+    /// Peer left this page (unsubscribed from Scribe)
+    ///
+    /// **Context**: Remote peer unsubscribed from this page's Scribe
+    /// **We do**: Call Lua's `on_peer_left(user_did)` if defined
+    /// **Use cases**: Online counters, presence indicators
+    PeerLeft {
+        user_did: String,
+    },
+
     // ==================== Asset Upload Events ====================
 
     /// Asset uploaded successfully
@@ -800,6 +820,18 @@ impl LuaWorker {
                 Some(LuaWorkerCommand::Ephemeral { user_did, payload }) => {
                     self.handle_ephemeral(&user_did, &payload);
                     // Flush accumulated UI mutations after ephemeral handler completes
+                    self.flush_mutations();
+                }
+
+                Some(LuaWorkerCommand::PeerJoined { user_did }) => {
+                    self.handle_peer_joined(&user_did);
+                    // Flush accumulated UI mutations after peer presence handler completes
+                    self.flush_mutations();
+                }
+
+                Some(LuaWorkerCommand::PeerLeft { user_did }) => {
+                    self.handle_peer_left(&user_did);
+                    // Flush accumulated UI mutations after peer presence handler completes
                     self.flush_mutations();
                 }
 
@@ -1545,6 +1577,58 @@ impl LuaWorker {
             }
         }
         // Silently ignore if callback not defined - not all apps need ephemeral data
+    }
+
+    // ==================== Peer Presence Handlers ====================
+
+    /// Handle peer joined event
+    ///
+    /// **Context**: Remote peer subscribed to this page's Scribe
+    /// **Calls**: Lua `on_peer_joined(user_did)` if defined
+    /// **Use cases**: Online counters, presence indicators
+    fn handle_peer_joined(&self, user_did: &str) {
+        if let Ok(func) = self.lua.globals().get::<mlua::Function>("on_peer_joined") {
+            if let Err(e) = func.call::<()>(user_did.to_string()) {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    user_did = %user_did,
+                    error = %e,
+                    "on_peer_joined callback failed"
+                );
+            } else {
+                tracing::info!(
+                    page_id = %self.page_id,
+                    user_did = %user_did,
+                    "on_peer_joined callback executed"
+                );
+            }
+        }
+        // Silently ignore if callback not defined - not all apps need presence tracking
+    }
+
+    /// Handle peer left event
+    ///
+    /// **Context**: Remote peer unsubscribed from this page's Scribe
+    /// **Calls**: Lua `on_peer_left(user_did)` if defined
+    /// **Use cases**: Online counters, presence indicators
+    fn handle_peer_left(&self, user_did: &str) {
+        if let Ok(func) = self.lua.globals().get::<mlua::Function>("on_peer_left") {
+            if let Err(e) = func.call::<()>(user_did.to_string()) {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    user_did = %user_did,
+                    error = %e,
+                    "on_peer_left callback failed"
+                );
+            } else {
+                tracing::info!(
+                    page_id = %self.page_id,
+                    user_did = %user_did,
+                    "on_peer_left callback executed"
+                );
+            }
+        }
+        // Silently ignore if callback not defined - not all apps need presence tracking
     }
 
     // ==================== Asset Upload Handlers ====================

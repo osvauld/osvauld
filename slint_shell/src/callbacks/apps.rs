@@ -438,6 +438,16 @@ fn setup_app_runtime(
                                 app_runtime::LuaWorkerCommand::Ephemeral { user_did, payload }
                             );
                         }
+                        butler::EphemeralEvent::PeerJoined { user_did } => {
+                            let _ = running_app.lua_tx.try_send(
+                                app_runtime::LuaWorkerCommand::PeerJoined { user_did }
+                            );
+                        }
+                        butler::EphemeralEvent::PeerLeft { user_did } => {
+                            let _ = running_app.lua_tx.try_send(
+                                app_runtime::LuaWorkerCommand::PeerLeft { user_did }
+                            );
+                        }
                     }
                 }
 

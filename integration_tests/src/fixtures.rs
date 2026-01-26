@@ -1,6 +1,18 @@
 //! Test fixtures and constants for integration tests
+//!
+//! This module provides:
+//! 1. Timing constants for test synchronization
+//! 2. Space/page templates for permit delegation
+//! 3. Fixture formats for Rust-Python interop
 
+use std::collections::HashMap;
+use std::path::Path;
 use std::time::Duration;
+
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+
+use crate::peer::PeerFixture;
 
 // =============================================================================
 // Timing constants for test synchronization

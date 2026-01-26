@@ -4,14 +4,16 @@ version = "0.1.0"
 edition = "2021"
 description = "Integration tests for Osvauld P2P protocol"
 license = "MIT"
+autobins = false
 
-[[bin]]
-name = "setup_test_dbs"
-path = "src/bin/setup_test_dbs.rs"
+# TODO: Rewrite with event-driven architecture
+# [[bin]]
+# name = "setup_test_dbs"
+# path = "src/bin/setup_test_dbs.rs"
 
-[[bin]]
-name = "setup_booking_db"
-path = "src/bin/setup_booking_db.rs"
+# [[bin]]
+# name = "setup_booking_db"
+# path = "src/bin/setup_booking_db.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

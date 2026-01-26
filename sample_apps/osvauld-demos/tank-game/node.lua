@@ -314,6 +314,11 @@ end
 
 -- Broadcast bullet via ephemeral
 function broadcast_bullet(x, y, direction, owner)
+    -- Skip if no active players (avoid ephemeral spam when users are in other apps)
+    if not has_active_players() then
+        return
+    end
+
     local vec = DIR_VECTORS[direction]
     local bullet_x = x + vec.dx
     local bullet_y = y + vec.dy
@@ -325,8 +330,25 @@ function broadcast_bullet(x, y, direction, owner)
     butler:send_ephemeral(payload)
 end
 
+-- Check if there are active players (users who sent positions recently)
+function has_active_players()
+    local now = os.time()
+    for did, player in pairs(players) do
+        -- Player is active if they sent position in last 10 seconds
+        if now - player.last_seen < 10 then
+            return true
+        end
+    end
+    return false
+end
+
 -- Broadcast enemies state via ephemeral
 function broadcast_enemies()
+    -- Skip if no active players (avoid ephemeral spam when users are in other apps)
+    if not has_active_players() then
+        return
+    end
+
     local enemies_data = {}
     for id, enemy in pairs(game.enemies) do
         table.insert(enemies_data, string.format(
@@ -342,6 +364,7 @@ end
 
 -- Broadcast score update to player who destroyed enemy
 function broadcast_score(points, player_did)
+    -- Score updates are always sent when there are active players
     local payload = string.format(
         '{"type":"score","points":%d,"player":"%s"}',
         points, player_did
@@ -351,6 +374,7 @@ end
 
 -- Broadcast stage change to all players
 function broadcast_stage()
+    -- Stage changes are always sent when there are active players
     local payload = string.format('{"type":"stage","stage":%d}', game.stage)
     butler:send_ephemeral(payload)
 end

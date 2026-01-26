@@ -117,16 +117,12 @@ fn spawn_auto_reconnect(butler: Arc<Butler>, handle: CourierHandle) {
         for node in nodes {
             println!("Auto-connecting to node: {} ({})", node.name, node.node_id);
             if let Some(permit) = &node.permit {
-                match handle.connect_and_wait_for_auth(&node.node_id, permit).await {
-                    Ok(_) => {
-                        println!("Connected and authenticated with node {}", node.name);
-                        let _ = butler.set_sovereign_node_connected(&node.node_id, true);
-                    }
-                    Err(e) => {
-                        println!("Failed to connect to node {}: {}", node.name, e);
-                        let _ = butler.set_sovereign_node_connected(&node.node_id, false);
-                    }
+                // Fire-and-forget: result comes via CourierEvent::PeerAuthenticated or ConnectionFailed
+                if let Err(e) = handle.connect(&node.node_id, permit) {
+                    println!("Failed to initiate connection to node {}: {}", node.name, e);
+                    let _ = butler.set_sovereign_node_connected(&node.node_id, false);
                 }
+                // Success/failure handled via event handler in events.rs
             } else {
                 println!("No permit stored for node {}, skipping", node.name);
                 let _ = butler.set_sovereign_node_connected(&node.node_id, false);

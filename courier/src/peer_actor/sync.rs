@@ -25,7 +25,6 @@
 use serde_json::{json, Value};
 use tracing::{debug, error, info, warn, instrument};
 
-use crate::coordinator::CoordinatorMessage;
 use crate::message::Message;
 use crate::CourierMode;
 
@@ -373,13 +372,6 @@ impl PeerActor {
 
         info!("Stored space {} with delegated permit and source_did={}, expecting {} pages", space_id, source_did, page_ids.len());
 
-        // Emit ViewerSpaceReceived to app
-        let _ = state.coordinator.cast(CoordinatorMessage::ViewerSpaceReceived {
-            node_id: self.node_id,
-            space: butler_space.clone(),
-            page_count: page_ids.len(),
-        });
-
         // Issue space consent permit immediately after receiving space
         self.issue_space_consent(space_id, delegated_permit, DEFAULT_SPACE_CONSENT_TEMPLATE, state).await;
 
@@ -460,13 +452,6 @@ impl PeerActor {
             }
         }
 
-        // Emit PageReceived to app
-        let _ = state.coordinator.cast(CoordinatorMessage::PageReceived {
-            node_id: self.node_id,
-            page: butler_page,
-            is_last,
-        });
-
         // Extract consent_template from permit_template.json layer (app-defined)
         // Falls back to default if not found
         let consent_template = layers.iter()
@@ -484,14 +469,8 @@ impl PeerActor {
         // Issue page consent permit for this page
         self.issue_page_consent(&meta.id, permit, &consent_template, state).await;
 
-        // If this is the last page, notify coordinator
         if is_last {
             info!("PageData stream complete for space {}", space_id);
-            let _ = state.coordinator.cast(CoordinatorMessage::ViewerSyncComplete {
-                node_id: self.node_id,
-                space_id: space_id.to_string(),
-                pages_synced: 1, // TODO: track total pages received
-            });
         }
     }
 
@@ -996,7 +975,7 @@ impl PeerActor {
         let conn_for_eph = state.conn.clone();
         let page_id_for_eph = page_id.to_string();
         let node_id_for_eph = self.node_id;
-        tokio::spawn(async move {
+        let ephemeral_listener_handle = tokio::spawn(async move {
             while let Some(outbound) = eph_rx.recv().await {
                 // Create protocol-level EphemeralDatagram
                 let datagram = crate::message::EphemeralDatagram {
@@ -1017,6 +996,7 @@ impl PeerActor {
         let subscription = super::PageSubscription {
             scribe,
             listener_handle,
+            ephemeral_listener_handle,
             user_did: peer_did,
             device_id,
         };
@@ -1538,11 +1518,7 @@ impl PeerActor {
             space_id, node_did, request_id
         );
 
-        // Notify coordinator that consent handshake is complete
-        let _ = state.coordinator.cast(CoordinatorMessage::SyncConsentComplete {
-            node_id: self.node_id,
-            space_id: space_id.to_string(),
-        });
+        info!("Sync consent complete for space {}", space_id);
     }
 
     // ==================== Asset Sync Helpers ====================

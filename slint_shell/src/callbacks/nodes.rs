@@ -101,7 +101,7 @@ fn register_add_node(
                 }
             };
 
-            // 3. Connect and authenticate via Courier
+            // 3. Connect via Courier (fire-and-forget, result via events)
             let courier_guard = courier.read().await;
             let courier_handle = match courier_guard.as_ref() {
                 Some(h) => h.clone(),
@@ -119,41 +119,18 @@ fn register_add_node(
             };
             drop(courier_guard);
 
-            match courier_handle
-                .connect_and_wait_for_auth(&node.node_id, &permit)
-                .await
-            {
-                Ok(_) => {
-                    println!("Successfully connected to node: {}", node.name);
-                    let _ = butler.set_sovereign_node_connected(&node.node_id, true);
-
-                    slint::invoke_from_event_loop(move || {
-                        if let Some(shell) = shell_weak.upgrade() {
-                            shell.set_connecting(false);
-                            shell.set_show_add_modal(false);
-                            shell.set_connection_string("".into());
-
-                            let nodes = butler.list_sovereign_nodes().unwrap_or_default();
-                            let node_infos: Vec<crate::NodeInfo> = nodes
-                                .iter()
-                                .map(sovereign_node_to_node_info)
-                                .collect();
-                            shell.set_nodes(slint::ModelRc::new(slint::VecModel::from(node_infos)));
-                        }
-                    })
-                    .ok();
-                }
-                Err(e) => {
-                    println!("Failed to connect: {}", e);
-                    slint::invoke_from_event_loop(move || {
-                        if let Some(shell) = shell_weak.upgrade() {
-                            shell.set_connecting(false);
-                            shell.set_error_message(format!("Connection failed: {}", e).into());
-                        }
-                    })
-                    .ok();
-                }
+            // Fire-and-forget: result comes via CourierEvent::PeerAuthenticated or ConnectionFailed
+            if let Err(e) = courier_handle.connect(&node.node_id, &permit) {
+                println!("Failed to initiate connection: {}", e);
+                slint::invoke_from_event_loop(move || {
+                    if let Some(shell) = shell_weak.upgrade() {
+                        shell.set_connecting(false);
+                        shell.set_error_message(format!("Connection failed: {}", e).into());
+                    }
+                })
+                .ok();
             }
+            // Success case: UI updated via event handler in events.rs
         });
     });
 }
@@ -207,6 +184,15 @@ fn register_connect_node(
                 }
             };
 
+            // Get stored permit for reconnection
+            let permit = match &node.permit {
+                Some(p) => p.clone(),
+                None => {
+                    println!("No permit stored for node {}, cannot reconnect", node_id_str);
+                    return;
+                }
+            };
+
             let courier_guard = courier.read().await;
             let courier_handle = match courier_guard.as_ref() {
                 Some(h) => h.clone(),
@@ -217,15 +203,11 @@ fn register_connect_node(
             };
             drop(courier_guard);
 
-            match courier_handle.connect(&node.node_id).await {
-                Ok(_) => {
-                    println!("Reconnected successfully");
-                    let _ = butler.set_sovereign_node_connected(&node_id_str, true);
-                }
-                Err(e) => {
-                    println!("Reconnection failed: {}", e);
-                }
+            // Fire-and-forget: result comes via CourierEvent::PeerAuthenticated or ConnectionFailed
+            if let Err(e) = courier_handle.connect(&node.node_id, &permit) {
+                println!("Reconnection failed to initiate: {}", e);
             }
+            // Success/failure handled via event handler in events.rs
         });
     });
 }

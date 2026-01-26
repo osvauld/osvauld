@@ -44,6 +44,8 @@ function on_init()
     reactions_layer = loro:get_or_create_layer(page_id .. "/reactions", "map")
     -- Load existing messages
     refresh_messages_ui()
+    -- Initialize online count to 1 (yourself)
+    ui:set("online_count", 1)
 end
 -- Refresh messages from Loro
 function refresh_messages_ui()
@@ -248,19 +250,46 @@ function on_ephemeral(user_did, payload)
     -- Parse JSON (simple)
     local msg_type = payload:match('"type":"([^"]+)"')
     local user = payload:match('"user":"([^"]+)"')
+
     if msg_type == "typing" and user_did ~= my_did then
-        typing_users[user_did] = os.time()
+        -- Store both timestamp and name
+        typing_users[user_did] = {
+            timestamp = os.time(),
+            name = user or user_did:sub(-8)
+        }
         refresh_typing_indicator()
+    elseif msg_type == "peer_count" then
+        -- Received current peer count on join (includes ourselves)
+        local count = tonumber(payload:match('"count":(%d+)'))
+        if count then
+            ui:set("online_count", count)
+        end
+    elseif msg_type == "peer_joined" then
+        -- Another peer joined - update online count
+        local joined_did = payload:match('"user_did":"([^"]+)"')
+        if joined_did and joined_did ~= my_did then
+            local count = ui:get("online_count") or 1
+            ui:set("online_count", count + 1)
+        end
+    elseif msg_type == "peer_left" then
+        -- Another peer left - update online count
+        local left_did = payload:match('"user_did":"([^"]+)"')
+        if left_did and left_did ~= my_did then
+            local count = ui:get("online_count") or 1
+            ui:set("online_count", math.max(1, count - 1))
+            -- Also clean up typing indicator
+            typing_users[left_did] = nil
+            refresh_typing_indicator()
+        end
     end
 end
 -- Refresh typing indicator text
 function refresh_typing_indicator()
     local now = os.time()
     local active_typers = {}
-    for did, ts in pairs(typing_users) do
-        if now - ts < 3 then
-            local short = did:sub(-8)
-            table.insert(active_typers, short)
+    for did, info in pairs(typing_users) do
+        if now - info.timestamp < 3 then
+            table.insert(active_typers, info.name)
         else
             typing_users[did] = nil
         end

@@ -349,6 +349,9 @@ async fn handle_start(
                         space_id, node_id
                     );
                 }
+                CourierEvent::ConnectionFailed { node_id, error } => {
+                    warn!("❌ Connection failed to {}: {}", node_id, error);
+                }
             }
         }
     });

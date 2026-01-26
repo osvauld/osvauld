@@ -1,10 +1,9 @@
 //! Handle module - Provides high-level API for tauri_handlers
 //!
-//! This module provides compatibility types that wrap the actor-based internals
-//! and expose a simpler async API for the Tauri handlers.
+//! This module provides a high-level API for P2P operations.
+//! App communicates with Coordinator for lifecycle, and directly with PeerActor for operations.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use ractor::{Actor, ActorRef};
 use tokio::sync::{mpsc, oneshot};
@@ -12,6 +11,7 @@ use tracing::{error, info, warn};
 use transport::{NodeId, Transport, TransportEvent};
 
 use crate::coordinator::{Coordinator, CoordinatorMessage, CourierMode};
+use crate::peer_actor::PeerMessage;
 use butler::Butler;
 
 /// Event emitted by Courier to the application
@@ -25,6 +25,11 @@ pub enum CourierEvent {
     },
     /// Peer disconnected
     PeerDisconnected { node_id: String },
+    /// Connection/authentication failed
+    ConnectionFailed {
+        node_id: String,
+        error: String,
+    },
     /// Space published successfully
     SpacePublished { node_id: String, space_id: String },
     /// Publish failed
@@ -77,94 +82,92 @@ pub enum CourierEvent {
 #[derive(Clone)]
 pub struct CourierHandle {
     coordinator: ActorRef<CoordinatorMessage>,
-    transport: Arc<Transport>,
 }
 
 impl CourierHandle {
     /// Create a new CourierHandle
-    pub fn new(coordinator: ActorRef<CoordinatorMessage>, transport: Arc<Transport>) -> Self {
-        Self {
-            coordinator,
-            transport,
-        }
+    pub fn new(coordinator: ActorRef<CoordinatorMessage>) -> Self {
+        Self { coordinator }
     }
 
-    /// Connect to a node and initiate handshake
+    /// Connect to a node (fire-and-forget)
     ///
     /// **Flow**:
-    /// 1. Mark outbound connection (so Coordinator knows to send Hello first)
-    /// 2. Connect via transport
-    /// 3. Coordinator's on_connected will lookup permit from SovereignNode and initiate handshake
-    pub async fn connect(&self, node_id: &str) -> Result<(), String> {
-        // Parse node_id to NodeId
+    /// 1. Coordinator stores permit and marks as pending
+    /// 2. CourierRunner connects via transport
+    /// 3. on_connected spawns PeerActor with permit (auto-initiates handshake)
+    /// 4. App receives PeerAuthenticated or ConnectionFailed event via event channel
+    ///
+    /// **Events**:
+    /// - `CourierEvent::PeerAuthenticated` on success
+    /// - `CourierEvent::ConnectionFailed` on failure
+    pub fn connect(&self, node_id: &str, permit: &str) -> Result<(), String> {
         let node_id: NodeId = node_id
             .parse()
             .map_err(|e| format!("Invalid node_id: {}", e))?;
 
-        // Mark as outbound BEFORE connecting so Coordinator knows to send Hello
         self.coordinator
-            .cast(CoordinatorMessage::OutboundConnection { node_id })
-            .map_err(|e| format!("Failed to send OutboundConnection: {:?}", e))?;
-
-        // Connect via transport (triggers TransportEvent::Connected)
-        // Coordinator's on_connected will auto-initiate handshake for outbound connections
-        self.transport
-            .connect(node_id)
-            .await
-            .map_err(|e| format!("Failed to connect: {}", e))?;
-
-        Ok(())
+            .cast(CoordinatorMessage::Connect {
+                node_id,
+                permit: permit.to_string(),
+            })
+            .map_err(|e| format!("Failed to send Connect: {:?}", e))
     }
 
-    /// Reconnect to a node (same as connect - permit is looked up from storage)
-    pub async fn reconnect(&self, node_id: &str) -> Result<(), String> {
-        self.connect(node_id).await
+    /// Get PeerActor ref for direct communication
+    async fn get_peer_actor(&self, node_id: NodeId) -> Result<ActorRef<PeerMessage>, String> {
+        let (tx, rx) = oneshot::channel();
+
+        self.coordinator
+            .cast(CoordinatorMessage::GetPeerActor { node_id, response: tx })
+            .map_err(|e| format!("Failed to send GetPeerActor: {:?}", e))?;
+
+        rx.await
+            .map_err(|_| "GetPeerActor channel closed".to_string())?
+            .ok_or_else(|| format!("No PeerActor for node {}", node_id))
     }
 
-    /// Publish a space to a node
+    /// Publish a space to a node (sends directly to PeerActor)
     pub async fn publish_space(&self, space_id: &str, node_id: &str) -> Result<(), String> {
         let node_id: NodeId = node_id
             .parse()
             .map_err(|e| format!("Invalid node_id: {}", e))?;
 
-        self.coordinator
-            .cast(CoordinatorMessage::PublishSpace {
-                node_id,
-                space_id: space_id.to_string(),
-            })
+        let peer_actor = self.get_peer_actor(node_id).await?;
+        peer_actor
+            .cast(PeerMessage::PublishSpace { space_id: space_id.to_string() })
             .map_err(|e| format!("Failed to send PublishSpace: {:?}", e))?;
 
         Ok(())
     }
 
-    /// Get shareable link for a space
+    /// Get shareable link for a space (sends request to PeerActor, awaits response)
     ///
-    /// **Context**: Request node to generate viewer permit with aud:* (wildcard audience)
-    /// **Returns**: Connection string containing node_id and viewer permit
+    /// **Flow**: Sends GetShareableLinkRequest to node, waits for GetShareableLinkResponse
     pub async fn get_shareable_link(&self, space_id: &str, node_id: &str) -> Result<String, String> {
         let node_id: NodeId = node_id
             .parse()
             .map_err(|e| format!("Invalid node_id: {}", e))?;
 
-        let (tx, rx) = oneshot::channel();
+        let peer_actor = self.get_peer_actor(node_id).await?;
 
-        self.coordinator
-            .cast(CoordinatorMessage::GetShareableLink {
-                node_id,
+        // Create callback channel
+        let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+
+        peer_actor
+            .cast(PeerMessage::GetShareableLink {
                 space_id: space_id.to_string(),
-                response: Some(tx),
+                response_tx,
             })
             .map_err(|e| format!("Failed to send GetShareableLink: {:?}", e))?;
 
-        // Wait for response with timeout
-        match tokio::time::timeout(Duration::from_secs(10), rx).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err("Response channel closed".to_string()),
-            Err(_) => Err("Timeout waiting for shareable link".to_string()),
-        }
+        // Wait for the response
+        response_rx
+            .await
+            .map_err(|_| "Response channel closed".to_string())?
     }
 
-    /// Request space as viewer
+    /// Request space as viewer (sends directly to PeerActor)
     pub async fn request_space_as_viewer(
         &self,
         space_id: &str,
@@ -175,57 +178,15 @@ impl CourierHandle {
             .parse()
             .map_err(|e| format!("Invalid node_id: {}", e))?;
 
-        self.coordinator
-            .cast(CoordinatorMessage::RequestSpace {
-                node_id,
+        let peer_actor = self.get_peer_actor(node_id).await?;
+        peer_actor
+            .cast(PeerMessage::RequestSpace {
                 space_id: space_id.to_string(),
                 viewer_permit: viewer_permit.to_string(),
             })
             .map_err(|e| format!("Failed to send RequestSpace: {:?}", e))?;
 
         Ok(())
-    }
-
-    /// Connect and wait for authentication to complete
-    ///
-    /// **Context**: Caller wants to connect to a node and wait for handshake to complete
-    /// **Returns**: Ok(NodeId) when auth completes, Err(String) on failure/timeout
-    ///
-    /// This replaces the old EnsureSubscription pattern - caller waits for auth,
-    /// then performs post-auth actions (request space, subscribe to pages, etc.)
-    pub async fn connect_and_wait_for_auth(
-        &self,
-        node_id: &str,
-        permit: &str,
-    ) -> Result<NodeId, String> {
-        let node_id: NodeId = node_id
-            .parse()
-            .map_err(|e| format!("Invalid node_id: {}", e))?;
-
-        let (tx, rx) = oneshot::channel();
-
-        // 1. Register auth waiter with coordinator
-        self.coordinator
-            .cast(CoordinatorMessage::ConnectAndAuth {
-                node_id,
-                permit: permit.to_string(),
-                response: tx,
-            })
-            .map_err(|e| format!("Failed to send ConnectAndAuth: {:?}", e))?;
-
-        // 2. Mark as outbound connection so coordinator knows to initiate handshake
-        self.coordinator
-            .cast(CoordinatorMessage::OutboundConnection { node_id })
-            .map_err(|e| format!("Failed to send OutboundConnection: {:?}", e))?;
-
-        // 3. Actually connect via transport (triggers TransportEvent::Connected)
-        self.transport
-            .connect(node_id)
-            .await
-            .map_err(|e| format!("Failed to connect: {}", e))?;
-
-        // 4. Wait for auth to complete
-        rx.await.map_err(|_| "Auth channel closed".to_string())?
     }
 
     /// Get a reference to the coordinator (for tests)
@@ -304,7 +265,7 @@ impl Courier {
         let coordinator = runner.spawn_coordinator_sync(connect_tx);
         runner.coordinator = Some(coordinator.clone());
 
-        let handle = CourierHandle::new(coordinator, transport);
+        let handle = CourierHandle::new(coordinator);
 
         (handle, event_rx, runner)
     }
@@ -376,19 +337,12 @@ impl CourierRunner {
                     }
                 }
 
-                // Handle connection requests from Coordinator
+                // Handle connection requests from Coordinator (e.g., EnsureSync)
+                // Note: Coordinator already stored permit in pending_permits before sending this request
                 Some(req) = self.connect_rx.recv() => {
                     info!(node_id = %req.node_id, "Processing connection request");
 
-                    // Mark as outbound connection so Coordinator knows to initiate handshake
-                    if let Err(e) = coordinator.cast(CoordinatorMessage::OutboundConnection {
-                        node_id: req.node_id,
-                    }) {
-                        error!("Failed to mark outbound connection: {:?}", e);
-                        continue;
-                    }
-
-                    // Connect via transport (async, spawned to not block event loop)
+                    // Connect via transport - on_connected will use stored permit
                     let transport = self.transport.clone();
                     let node_id = req.node_id;
                     tokio::spawn(async move {

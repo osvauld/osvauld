@@ -24,6 +24,72 @@ pub fn spawn_event_listener(
     tokio::spawn(async move {
         while let Some(event) = event_rx.recv().await {
             match event {
+                CourierEvent::PeerAuthenticated { node_id, username, .. } => {
+                    println!("Peer authenticated: {} ({})", username, node_id);
+                    let shell_weak = shell_weak.clone();
+                    let butler = butler.clone();
+                    let node_id_str = node_id.clone();
+                    slint::invoke_from_event_loop(move || {
+                        if let Some(shell) = shell_weak.upgrade() {
+                            shell.set_connecting(false);
+                            shell.set_show_add_modal(false);
+                            shell.set_connection_string("".into());
+
+                            // Mark node as connected in storage
+                            let _ = butler.set_sovereign_node_connected(&node_id_str, true);
+
+                            // Refresh nodes list
+                            let nodes = butler.list_sovereign_nodes().unwrap_or_default();
+                            let node_infos: Vec<crate::NodeInfo> = nodes
+                                .iter()
+                                .map(crate::utils::sovereign_node_to_node_info)
+                                .collect();
+                            shell.set_nodes(slint::ModelRc::new(slint::VecModel::from(node_infos)));
+
+                            shell.set_toast_message(format!("Connected to {}", username).into());
+                            shell.set_toast_is_error(false);
+                            shell.set_toast_visible(true);
+                        }
+                    })
+                    .ok();
+                }
+                CourierEvent::ConnectionFailed { node_id, error } => {
+                    println!("Connection failed for {}: {}", node_id, error);
+                    let shell_weak = shell_weak.clone();
+                    let err_msg = format!("Connection failed: {}", error);
+                    slint::invoke_from_event_loop(move || {
+                        if let Some(shell) = shell_weak.upgrade() {
+                            shell.set_connecting(false);
+                            shell.set_connecting_website(false);
+                            shell.set_error_message(err_msg.clone().into());
+                            shell.set_toast_message(err_msg.into());
+                            shell.set_toast_is_error(true);
+                            shell.set_toast_visible(true);
+                        }
+                    })
+                    .ok();
+                }
+                CourierEvent::PeerDisconnected { node_id } => {
+                    println!("Peer disconnected: {}", node_id);
+                    let shell_weak = shell_weak.clone();
+                    let butler = butler.clone();
+                    let node_id_str = node_id.clone();
+                    slint::invoke_from_event_loop(move || {
+                        if let Some(shell) = shell_weak.upgrade() {
+                            // Mark node as disconnected in storage
+                            let _ = butler.set_sovereign_node_connected(&node_id_str, false);
+
+                            // Refresh nodes list
+                            let nodes = butler.list_sovereign_nodes().unwrap_or_default();
+                            let node_infos: Vec<crate::NodeInfo> = nodes
+                                .iter()
+                                .map(crate::utils::sovereign_node_to_node_info)
+                                .collect();
+                            shell.set_nodes(slint::ModelRc::new(slint::VecModel::from(node_infos)));
+                        }
+                    })
+                    .ok();
+                }
                 CourierEvent::SpacePublished { node_id, space_id } => {
                     println!("Space {} published to node {}", space_id, node_id);
                     let shell_weak = shell_weak.clone();

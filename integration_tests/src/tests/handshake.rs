@@ -15,13 +15,12 @@ use transport::NodeId;
 use crate::TestHarness;
 use crate::helpers::{init_tracing, setup_butler_with_identity};
 
-/// Helper to initiate connection using production flow (ConnectAndAuth + OutboundConnection + connect)
+/// Helper to initiate connection using production flow (ConnectAndAuth + connect)
 ///
 /// This replicates what `connect_and_wait_for_auth` does:
-/// 1. Sends ConnectAndAuth to store permit in pending_permits
-/// 2. Sends OutboundConnection to mark as outbound
-/// 3. Connects via transport (triggers on_connected which looks up pending_permits)
-/// 4. Waits for auth to complete via oneshot channel
+/// 1. Sends ConnectAndAuth to store permit in pending_permits and mark as outbound
+/// 2. Connects via transport (triggers on_connected which spawns PeerActor with permit)
+/// 3. Waits for auth to complete via oneshot channel
 async fn connect_with_permit(
     harness: &TestHarness,
     from: &str,
@@ -32,7 +31,7 @@ async fn connect_with_permit(
 ) -> Result<NodeId, String> {
     let (tx, rx) = oneshot::channel();
 
-    // 1. Store permit in pending_permits
+    // 1. Store permit and mark as pending outbound connection
     coordinator
         .cast(CoordinatorMessage::ConnectAndAuth {
             node_id,
@@ -41,16 +40,11 @@ async fn connect_with_permit(
         })
         .map_err(|e| format!("Failed to send ConnectAndAuth: {}", e))?;
 
-    // 2. Mark as outbound connection
-    coordinator
-        .cast(CoordinatorMessage::OutboundConnection { node_id })
-        .map_err(|e| format!("Failed to send OutboundConnection: {}", e))?;
-
-    // 3. Connect (triggers on_connected which uses pending_permits)
+    // 2. Connect (triggers on_connected which spawns PeerActor with stored permit)
     harness.connect_and_notify(from, to).await
         .map_err(|e| e.to_string())?;
 
-    // 4. Wait for auth to complete
+    // 3. Wait for auth to complete
     tokio::time::timeout(Duration::from_secs(5), rx)
         .await
         .map_err(|_| "Timeout waiting for auth".to_string())?

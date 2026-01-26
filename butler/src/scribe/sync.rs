@@ -130,6 +130,46 @@ pub async fn handle_subscribe(
         debug!(subscriber_count = subs.len(), "Subscriber added");
     }
 
+    // Notify app subscribers about peer joining (for online counters, presence)
+    if let Ok(subs) = state.ephemeral_subscribers.read() {
+        for tx in subs.iter() {
+            let _ = tx.try_send(super::message::EphemeralEvent::PeerJoined {
+                user_did: user_did.clone(),
+            });
+        }
+        if !subs.is_empty() {
+            info!(user_did = %user_did, "Emitted PeerJoined event to {} local subscribers", subs.len());
+        }
+    }
+
+    // Broadcast PeerJoined to other connected peers so their client apps can update online count
+    // Also send peer_count to the joining peer so they know how many are already online
+    // Format: {"type":"peer_joined","user_did":"..."} or {"type":"peer_count","count":N}
+    let join_payload = format!(r#"{{"type":"peer_joined","user_did":"{}"}}"#, user_did);
+    if let Ok(subs) = state.subscribers.read() {
+        let total_count = subs.len();
+
+        for ((sub_did, sub_device), info) in subs.iter() {
+            if let Some(ref eph_tx) = info.ephemeral_tx {
+                if sub_did == &user_did && sub_device == &device_id {
+                    // Send current peer count to the joining peer
+                    let count_payload = format!(r#"{{"type":"peer_count","count":{}}}"#, total_count);
+                    let _ = eph_tx.try_send(super::message::EphemeralOutbound {
+                        page_id: state.page_id.clone(),
+                        payload: count_payload.as_bytes().to_vec(),
+                    });
+                } else {
+                    // Send join notification to other peers
+                    let _ = eph_tx.try_send(super::message::EphemeralOutbound {
+                        page_id: state.page_id.clone(),
+                        payload: join_payload.as_bytes().to_vec(),
+                    });
+                }
+            }
+        }
+        info!(user_did = %user_did, total_peers = total_count, "Broadcast PeerJoined/Count to peers");
+    }
+
     // Send initial state to new subscriber for layers they have access to
     // Read subscriber info to get patterns for access check
     let subscriber_info = if let Ok(subs) = state.subscribers.read() {
@@ -259,6 +299,33 @@ pub async fn handle_unsubscribe(
 
         subs.remove(&(user_did.to_string(), device_id.to_string()));
         debug!(subscriber_count = subs.len(), "Subscriber removed");
+    }
+
+    // Notify app subscribers about peer leaving (for online counters, presence)
+    if let Ok(subs) = state.ephemeral_subscribers.read() {
+        for tx in subs.iter() {
+            let _ = tx.try_send(super::message::EphemeralEvent::PeerLeft {
+                user_did: user_did.to_string(),
+            });
+        }
+        if !subs.is_empty() {
+            info!(user_did = %user_did, "Emitted PeerLeft event to {} local subscribers", subs.len());
+        }
+    }
+
+    // Broadcast PeerLeft to other connected peers so their client apps can update online count
+    // This is sent via ephemeral datagram - format: {"type":"peer_left","user_did":"..."}
+    let leave_payload = format!(r#"{{"type":"peer_left","user_did":"{}"}}"#, user_did);
+    if let Ok(subs) = state.subscribers.read() {
+        for (_, info) in subs.iter() {
+            if let Some(ref eph_tx) = info.ephemeral_tx {
+                let _ = eph_tx.try_send(super::message::EphemeralOutbound {
+                    page_id: state.page_id.clone(),
+                    payload: leave_payload.as_bytes().to_vec(),
+                });
+            }
+        }
+        info!(user_did = %user_did, "Broadcast PeerLeft to {} remaining peers", subs.len());
     }
 }
 

@@ -13,7 +13,6 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use tracing::{debug, error, info, warn, instrument};
 
-use crate::coordinator::CoordinatorMessage;
 use crate::message::Message;
 
 use super::guards::{
@@ -401,11 +400,6 @@ impl PeerActor {
             }
         }
 
-        let _ = state.coordinator.cast(CoordinatorMessage::PagePublished {
-            node_id: self.node_id,
-            page_id: page_id.to_string(),
-        });
-
         info!("Page {} published successfully to node {}", page_id, self.node_id);
     }
 
@@ -456,13 +450,29 @@ impl PeerActor {
             debug!("Stored node's permit for space {} (published state)", space_id);
         }
 
-        let _ = state.coordinator.cast(CoordinatorMessage::SpacePublished {
-            node_id: self.node_id,
-            space_id,
-            existing_pages: pages.to_vec(),
-        });
+        info!("Space {} published successfully to node {}", space_id, self.node_id);
 
-        info!("Space published successfully to node {}", self.node_id);
+        // Trigger page publishing for pages not already on node
+        let existing_pages_set: std::collections::HashSet<&str> = pages.iter().map(|s| s.as_str()).collect();
+        let all_pages = match state.butler.list_page_ids_for_space(&space_id) {
+            Ok(p) => p,
+            Err(e) => {
+                error!("Failed to list pages for space {}: {}", space_id, e);
+                return;
+            }
+        };
+
+        let pages_to_publish: Vec<String> = all_pages
+            .into_iter()
+            .filter(|p| !existing_pages_set.contains(p.as_str()))
+            .collect();
+
+        if !pages_to_publish.is_empty() {
+            info!("Publishing {} pages for space {} to node {}", pages_to_publish.len(), space_id, self.node_id);
+            for page_id in pages_to_publish {
+                self.initiate_publish_page(&page_id, state).await;
+            }
+        }
     }
 
     /// Handle PublishError (Owner receives from node)
@@ -478,12 +488,6 @@ impl PeerActor {
         }
 
         error!("Publish failed (request {}): {}", request_id, error);
-
-        let _ = state.coordinator.cast(CoordinatorMessage::PublishFailed {
-            node_id: self.node_id,
-            request_id: request_id.to_string(),
-            error: error.to_string(),
-        });
     }
 
     /// Send a PublishError message
@@ -501,19 +505,29 @@ impl PeerActor {
     ///
     /// **Context**: Owner wants to share a space with viewers
     /// **We send**: GetShareableLinkRequest to node
-    /// **Next**: Wait for GetShareableLinkResponse
-    #[instrument(skip(self, state), fields(space_id = %space_id))]
-    pub(super) async fn initiate_get_shareable_link(&self, space_id: &str, state: &mut PeerActorState) {
+    /// **Next**: Wait for GetShareableLinkResponse, send result through response_tx
+    #[instrument(skip(self, state, response_tx), fields(space_id = %space_id))]
+    pub(super) async fn initiate_get_shareable_link(
+        &self,
+        space_id: &str,
+        response_tx: tokio::sync::oneshot::Sender<Result<String, String>>,
+        state: &mut PeerActorState,
+    ) {
         if require_user_mode(state.mode, "initiate_get_shareable_link").is_some() {
+            let _ = response_tx.send(Err("Not in user mode".to_string()));
             return;
         }
 
         if require_auth(&state.state).is_err() {
             warn!("Cannot request shareable link: not authenticated");
+            let _ = response_tx.send(Err("Not authenticated".to_string()));
             return;
         }
 
         let request_id = uuid::Uuid::new_v4().to_string();
+
+        // Store the callback for when response arrives
+        state.pending_shareable_link_requests.insert(request_id.clone(), response_tx);
 
         info!("Requesting shareable link for space {} from node {}", space_id, self.node_id);
 
@@ -694,15 +708,14 @@ impl PeerActor {
     /// Handle GetShareableLinkResponse (Owner receives from node)
     ///
     /// **Context**: Node generated a shareable link for us
-    /// **Peer sends**: GetShareableLinkResponse with aud:* permit
-    /// **We store**: The permit for sharing out-of-band with viewers
-    /// **We notify**: Coordinator of successful link generation
-    #[instrument(skip(self, state, permit), fields(request_id = %request_id, space_id = %space_id))]
+    /// **Peer sends**: GetShareableLinkResponse with connection_string (contains aud:* permit)
+    /// **We do**: Send connection_string through the waiting callback
+    #[instrument(skip(self, state, connection_string), fields(request_id = %request_id, space_id = %space_id))]
     pub(super) async fn on_get_shareable_link_response(
         &self,
         request_id: &str,
         space_id: &str,
-        permit: &str,
+        connection_string: &str,
         state: &mut PeerActorState,
     ) {
         if require_user_mode(state.mode, "on_get_shareable_link_response").is_some() {
@@ -711,10 +724,11 @@ impl PeerActor {
 
         info!("Received shareable link for space {} (request: {})", space_id, request_id);
 
-        let _ = state.coordinator.cast(CoordinatorMessage::ShareableLinkReceived {
-            node_id: self.node_id,
-            space_id: space_id.to_string(),
-            permit: permit.to_string(),
-        });
+        // Look up and invoke the callback
+        if let Some(response_tx) = state.pending_shareable_link_requests.remove(request_id) {
+            let _ = response_tx.send(Ok(connection_string.to_string()));
+        } else {
+            warn!("No pending request found for shareable link request_id: {}", request_id);
+        }
     }
 }

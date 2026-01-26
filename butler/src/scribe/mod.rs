@@ -629,9 +629,23 @@ impl Actor for Scribe {
             }
 
             ScribeMessage::SubscribeEphemeral { tx } => {
+                info!(page_id = %state.page_id, "SubscribeEphemeral received");
+
+                // Send PeerJoined for all currently subscribed peers
+                // (peers that subscribed before this app opened)
+                if let Ok(subs) = state.subscribers.read() {
+                    info!(page_id = %state.page_id, peer_count = subs.len(), "Checking existing peers for PeerJoined");
+                    for ((user_did, device_id), _info) in subs.iter() {
+                        info!(page_id = %state.page_id, user_did = %user_did, device_id = %device_id, "Sending PeerJoined for existing peer");
+                        let _ = tx.try_send(message::EphemeralEvent::PeerJoined {
+                            user_did: user_did.clone(),
+                        });
+                    }
+                }
+
                 if let Ok(mut subscribers) = state.ephemeral_subscribers.write() {
                     subscribers.push(tx);
-                    debug!(page_id = %state.page_id, "Added ephemeral subscriber");
+                    info!(page_id = %state.page_id, "Added ephemeral subscriber");
                 }
             }
 
@@ -692,6 +706,13 @@ impl Actor for Scribe {
                     Err(format!("App layer '{}' not found", layer_name))
                 };
                 let _ = reply.send(result);
+            }
+
+            ScribeMessage::GetSubscriberCount { reply } => {
+                let count = state.subscribers.read()
+                    .map(|s| s.len())
+                    .unwrap_or(0);
+                let _ = reply.send(count);
             }
         }
 
@@ -876,6 +897,12 @@ async fn find_and_start_node_script(
             }
         };
 
+        // Skip if tick_enabled is false - node scripts need tick loop to process events
+        if !manifest.tick_enabled {
+            debug!(page_id = %page_id, app_name = %app_name, "Skipping node script (tick_enabled: false)");
+            continue;
+        }
+
         info!(page_id = %page_id, app_name = %app_name, node_script = %node_script_name, "Starting node script");
 
         // Get node script content
@@ -904,7 +931,7 @@ async fn find_and_start_node_script(
         // Load node script
         runtime.load_code(&node_script)?;
 
-        // Enable tick (nodes always have tick enabled for game loops)
+        // Enable tick (we already checked tick_enabled: true above)
         runtime.enable_tick();
 
         // Create shutdown channel

@@ -1616,9 +1616,19 @@ impl ControlServer {
         // Trigger reconnection via courier
         if let Some(ref courier_arc) = self.courier_handle {
             if let Some(courier) = courier_arc.read().await.as_ref() {
-                if let Err(e) = courier.reconnect(&node_id).await {
-                    // Don't fail - relay update succeeded
-                    warn!("Reconnect triggered but may not be immediate: {}", e);
+                // Get permit from stored node
+                let permit = match butler.get_sovereign_node(&node_id) {
+                    Ok(Some(node)) => node.permit,
+                    _ => None,
+                };
+
+                if let Some(permit) = permit {
+                    if let Err(e) = courier.connect(&node_id, &permit) {
+                        // Don't fail - relay update succeeded
+                        warn!("Connect triggered but may not be immediate: {}", e);
+                    }
+                } else {
+                    warn!("No permit stored for node {}, cannot reconnect", node_id);
                 }
             }
         }

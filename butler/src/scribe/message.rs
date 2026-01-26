@@ -406,6 +406,14 @@ pub enum ScribeMessage {
         app_name: String,
         reply: tokio::sync::oneshot::Sender<std::result::Result<std::collections::HashMap<String, String>, String>>,
     },
+
+    /// Get subscriber count (for Lua peers:count() binding)
+    ///
+    /// **Context**: Node script wants to check if anyone is listening before broadcasting
+    /// **We do**: Return count of current subscribers
+    GetSubscriberCount {
+        reply: tokio::sync::oneshot::Sender<usize>,
+    },
 }
 
 /// Payload sent to PeerActor for broadcast (3-step sync protocol)
@@ -565,5 +573,21 @@ pub enum EphemeralEvent {
     Data {
         user_did: String,
         payload: Vec<u8>,
+    },
+
+    /// Peer joined this page (subscribed)
+    ///
+    /// **Context**: Remote peer subscribed to this page's Scribe
+    /// **Consumers**: Lua apps for online counters, presence indicators
+    PeerJoined {
+        user_did: String,
+    },
+
+    /// Peer left this page (unsubscribed)
+    ///
+    /// **Context**: Remote peer unsubscribed from this page's Scribe
+    /// **Consumers**: Lua apps for online counters, presence indicators
+    PeerLeft {
+        user_did: String,
     },
 }

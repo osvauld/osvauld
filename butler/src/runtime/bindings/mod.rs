@@ -7,6 +7,7 @@ mod loro;
 mod convert;
 mod permit;
 mod derivation;
+mod peers;
 
 pub use loro::{LoroBindings, LayerWrapper, LuaLoroList, LuaLoroMap};
 pub use convert::{
@@ -21,6 +22,7 @@ pub use convert::{
 };
 pub use permit::PermitBindings;
 pub use derivation::DerivationBindings;
+pub use peers::PeersBindings;
 
 use mlua::Error as LuaError;
 

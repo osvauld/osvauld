@@ -91,7 +91,7 @@ impl UserData for HeadlessButlerBindings {
 }
 
 pub use bindings::{
-    LoroBindings, PermitBindings, DerivationBindings, LuaLoroList, LuaLoroMap,
+    LoroBindings, PermitBindings, DerivationBindings, PeersBindings, LuaLoroList, LuaLoroMap,
     // Loro <-> Lua
     loro_value_to_lua, lua_to_loro_value,
     // JSON <-> Lua
@@ -151,6 +151,11 @@ impl HeadlessRuntime {
         let derivation = DerivationBindings::new(scribe_ref.clone());
         lua.globals().set("derivation", derivation)
             .map_err(|e| format!("Failed to set derivation global: {}", e))?;
+
+        // Setup peers bindings (for checking subscriber count before broadcast)
+        let peers = PeersBindings::new(scribe_ref.clone());
+        lua.globals().set("peers", peers)
+            .map_err(|e| format!("Failed to set peers global: {}", e))?;
 
         // Setup stub UI bindings (for headless testing)
         let ui = StubUiBindings::new();
@@ -334,6 +339,24 @@ impl HeadlessRuntime {
                     func.call::<()>((user_did.clone(), payload_str))
                         .map_err(|e| format!("on_ephemeral error: {}", e))?;
                     debug!(page_id = %self.page_id, user_did = %user_did, "Called on_ephemeral");
+                }
+            }
+            EphemeralEvent::PeerJoined { user_did } => {
+                // Call Lua's on_peer_joined if defined
+                let globals = self.lua.globals();
+                if let Ok(func) = globals.get::<Function>("on_peer_joined") {
+                    func.call::<()>(user_did.clone())
+                        .map_err(|e| format!("on_peer_joined error: {}", e))?;
+                    info!(page_id = %self.page_id, user_did = %user_did, "Called on_peer_joined");
+                }
+            }
+            EphemeralEvent::PeerLeft { user_did } => {
+                // Call Lua's on_peer_left if defined
+                let globals = self.lua.globals();
+                if let Ok(func) = globals.get::<Function>("on_peer_left") {
+                    func.call::<()>(user_did.clone())
+                        .map_err(|e| format!("on_peer_left error: {}", e))?;
+                    info!(page_id = %self.page_id, user_did = %user_did, "Called on_peer_left");
                 }
             }
         }

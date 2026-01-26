@@ -107,29 +107,7 @@ fn register_add_website(
             };
             drop(courier_guard);
 
-            // 4. Connect and authenticate
-            match courier_handle
-                .connect_and_wait_for_auth(&node_id, &permit)
-                .await
-            {
-                Ok(_) => println!("Connected and authenticated with node"),
-                Err(e) => {
-                    println!("Failed to connect: {}", e);
-                    let err_msg = format!("Connection failed: {}", e);
-                    slint::invoke_from_event_loop(move || {
-                        if let Some(shell) = shell_weak.upgrade() {
-                            shell.set_connecting_website(false);
-                            shell.set_toast_message(err_msg.into());
-                            shell.set_toast_is_error(true);
-                            shell.set_toast_visible(true);
-                        }
-                    })
-                    .ok();
-                    return;
-                }
-            }
-
-            // 5. Store node as Contact for future reconnection
+            // 4. Store node as Contact (before connect - we have all the info)
             if let Ok(node_did) = conn.node_did() {
                 if let Err(e) = butler.add_node_contact(
                     &node_did,
@@ -144,13 +122,35 @@ fn register_add_website(
                 println!("Warning: Could not derive node DID, skipping contact storage");
             }
 
-            // 6. Request space as viewer (async - sync happens via events)
+            // 5. Initiate connection (fire-and-forget)
+            if let Err(e) = courier_handle.connect(&node_id, &permit) {
+                println!("Failed to initiate connection: {}", e);
+                let err_msg = format!("Connection failed: {}", e);
+                slint::invoke_from_event_loop(move || {
+                    if let Some(shell) = shell_weak.upgrade() {
+                        shell.set_connecting_website(false);
+                        shell.set_toast_message(err_msg.into());
+                        shell.set_toast_is_error(true);
+                        shell.set_toast_visible(true);
+                    }
+                })
+                .ok();
+                return;
+            }
+
+            // 6. Request space as viewer
+            // Note: This may fail if auth isn't complete yet. The proper solution
+            // is to request the space after PeerAuthenticated event, but for now
+            // we add a small delay to give handshake time to complete.
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
             match courier_handle
                 .request_space_as_viewer(&space_id, &node_id, &permit)
                 .await
             {
                 Ok(_) => {
                     println!("Space request sent, waiting for sync...");
+                    // UI update happens via ViewerSyncComplete event in events.rs
                 }
                 Err(e) => {
                     println!("Failed to request space: {}", e);

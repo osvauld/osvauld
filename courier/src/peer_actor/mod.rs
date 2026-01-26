@@ -67,9 +67,10 @@ pub enum PeerMessage {
     /// Internal: Request shareable link for a space (User mode)
     ///
     /// **Context**: Owner wants to share a space with a viewer.
-    /// **We do**: Send GetShareableLinkRequest to node.
+    /// **We do**: Send GetShareableLinkRequest to node, wait for response.
     GetShareableLink {
         space_id: String,
+        response_tx: tokio::sync::oneshot::Sender<Result<String, String>>,
     },
 
     /// Internal: Request space content as viewer (User mode)
@@ -147,6 +148,8 @@ pub struct PeerActorArgs {
     pub butler: Arc<Butler>,
     /// Blob store for asset transfer (real or mock)
     pub blob_store: BlobStore,
+    /// Permit for outbound connections - if Some, auto-initiate handshake
+    pub permit: Option<String>,
 }
 
 /// Pending viewer sync context (for streaming pages after SpaceDataAck)
@@ -180,8 +183,10 @@ pub struct PendingSyncOffer {
 pub struct PageSubscription {
     /// Scribe actor ref for sending Unsubscribe
     pub scribe: ActorRef<butler::ScribeMessage>,
-    /// Listener task handle (aborted on cleanup)
+    /// CRDT listener task handle (aborted on cleanup)
     pub listener_handle: tokio::task::JoinHandle<()>,
+    /// Ephemeral listener task handle (aborted on cleanup)
+    pub ephemeral_listener_handle: tokio::task::JoinHandle<()>,
     /// Subscriber's DID (for Unsubscribe message)
     pub user_did: String,
     /// Subscriber's device ID (for Unsubscribe message)
@@ -234,6 +239,9 @@ pub struct PeerActorState {
     /// Pending asset transfers: hash -> transfer state
     /// Tracks outgoing AssetPrepare requests for retry on failure
     pending_asset_transfers: std::collections::HashMap<String, PendingAssetTransfer>,
+    /// Pending shareable link requests: request_id -> response channel
+    /// Tracks outgoing GetShareableLinkRequest waiting for response
+    pending_shareable_link_requests: std::collections::HashMap<String, tokio::sync::oneshot::Sender<Result<String, String>>>,
 }
 
 /// PeerActor handles one P2P connection
@@ -347,6 +355,59 @@ impl Actor for PeerActor {
             }
         });
 
+        // Stream read loop - accepts bidirectional streams and processes protocol messages
+        let conn_for_streams = args.conn.clone();
+        let myself_for_streams = myself.clone();
+        let node_id_for_streams = self.node_id;
+        let coordinator_for_disconnect = args.coordinator.clone();
+        tokio::spawn(async move {
+            loop {
+                let (_, mut recv) = match conn_for_streams.accept_bi().await {
+                    Ok(streams) => streams,
+                    Err(_) => {
+                        let _ = coordinator_for_disconnect.cast(CoordinatorMessage::Disconnected {
+                            node_id: node_id_for_streams
+                        });
+                        break;
+                    }
+                };
+
+                // Read length-prefixed message
+                let mut len_buf = [0u8; 4];
+                if recv.read_exact(&mut len_buf).await.is_err() {
+                    continue;
+                }
+
+                let len = u32::from_be_bytes(len_buf) as usize;
+                if len > 10 * 1024 * 1024 {
+                    continue;
+                }
+
+                let mut data = vec![0u8; len];
+                if recv.read_exact(&mut data).await.is_err() {
+                    continue;
+                }
+
+                // Deserialize and process directly
+                match Message::from_bytes(&data) {
+                    Ok(msg) => {
+                        if myself_for_streams.cast(PeerMessage::Protocol(msg)).is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        debug!("Failed to deserialize message: {}", e);
+                    }
+                }
+            }
+        });
+
+        // If permit provided (outbound connection), auto-initiate handshake
+        if let Some(permit) = args.permit {
+            info!("Auto-initiating handshake with permit for {}", self.node_id);
+            let _ = myself.cast(PeerMessage::InitiateHandshake { permit });
+        }
+
         Ok(PeerActorState {
             mode: args.mode,
             state: PeerState::Connected,
@@ -359,6 +420,7 @@ impl Actor for PeerActor {
             page_subscriptions: std::collections::HashMap::new(),
             pending_sync_offers: std::collections::HashMap::new(),
             pending_asset_transfers: std::collections::HashMap::new(),
+            pending_shareable_link_requests: std::collections::HashMap::new(),
         })
     }
 
@@ -385,8 +447,8 @@ impl Actor for PeerActor {
                 self.initiate_publish_page(&page_id, state).await;
             }
 
-            PeerMessage::GetShareableLink { space_id } => {
-                self.initiate_get_shareable_link(&space_id, state).await;
+            PeerMessage::GetShareableLink { space_id, response_tx } => {
+                self.initiate_get_shareable_link(&space_id, response_tx, state).await;
             }
 
             PeerMessage::RequestSpace { space_id, viewer_permit } => {
@@ -431,8 +493,9 @@ impl Actor for PeerActor {
 
         // Clean up all page subscriptions
         for (page_id, subscription) in state.page_subscriptions.drain() {
-            // Abort the listener task
+            // Abort both listener tasks to prevent orphaned tasks on closed connections
             subscription.listener_handle.abort();
+            subscription.ephemeral_listener_handle.abort();
 
             // Send Unsubscribe to Scribe
             if let Err(e) = subscription.scribe.cast(butler::ScribeMessage::Unsubscribe {

@@ -26,7 +26,7 @@ pub mod pool;
 pub mod protocol;
 
 pub use events::TransportEvent;
-pub use pool::{ConnectionHandle, ConnectionPool, MockSender, MockSendEvent};
+pub use pool::{ConnectionHandle, ConnectionPool};
 pub use protocol::OsvaualdProtocol;
 
 // Re-export iroh types so consumers don't need direct iroh dependency
