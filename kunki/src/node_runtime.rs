@@ -1,31 +1,29 @@
 //! Node script runtime for kunki
 //!
 //! **Context**: Runs node.lua scripts for pages that define `entry_node` in manifest
-//! **Uses**: HeadlessRuntime from butler with tick loop and ephemeral support
+//! **Uses**: LuaRuntime from lua_runtime with PageUpdate bridge for CRDT events
 
-use butler::runtime::HeadlessRuntime;
-use butler::scribe::ScribeMessage;
+use lua_runtime::{LuaCommand, LuaRuntime, LuaRuntimeConfig};
+use butler::{PageUpdate, ScribeMessage};
 use butler::Butler;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 
 /// Manifest structure for parsing entry_node
 #[derive(Debug, serde::Deserialize)]
 struct AppManifest {
+    #[allow(dead_code)]
     name: String,
     #[serde(default)]
     entry_node: Option<String>,
-    #[serde(default)]
-    tick_enabled: bool,
 }
 
 /// Running node script instance
 struct NodeInstance {
-    page_id: String,
-    app_name: String,
-    shutdown_tx: mpsc::Sender<()>,
+    cmd_tx: mpsc::Sender<LuaCommand>,
+    thread_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 /// Manages node script instances for pages
@@ -50,7 +48,7 @@ impl NodeRuntimeManager {
     /// 1. Open page to get Scribe reference
     /// 2. List apps in page
     /// 3. For each app, check manifest for entry_node
-    /// 4. If present, load node script and start tick loop
+    /// 4. If present, spawn LuaRuntime with init.lua + node.lua and PageUpdate bridge
     pub async fn start_node_for_page(&self, page_id: &str) -> Result<(), String> {
         // Check if already running
         {
@@ -66,7 +64,7 @@ impl NodeRuntimeManager {
             .map_err(|e| format!("Failed to open page: {}", e))?;
 
         // List apps in this page
-        let apps = self.butler.list_apps(page_id)
+        let apps = self.butler.apps().list(page_id)
             .map_err(|e| format!("Failed to list apps: {}", e))?;
 
         if apps.is_empty() {
@@ -101,6 +99,15 @@ impl NodeRuntimeManager {
             let node_script = files.get(&node_script_name)
                 .ok_or_else(|| format!("Node script '{}' not found in app files", node_script_name))?;
 
+            // Get init.lua if present (derivation rules)
+            let init_code = files.get("init.lua").cloned();
+
+            // Bundle init.lua + node.lua into single lua_code string
+            let lua_code = match &init_code {
+                Some(init) => format!("{}\n{}", init, node_script),
+                None => node_script.clone(),
+            };
+
             // Get identity info for permit bindings
             let identity = self.butler.get_identity().await
                 .map_err(|e| format!("Failed to get identity: {}", e))?;
@@ -110,46 +117,90 @@ impl NodeRuntimeManager {
                 .flatten()
                 .ok_or_else(|| "Identity data not found".to_string())?;
 
-            // Create HeadlessRuntime
-            let mut runtime = HeadlessRuntime::new(
-                page_id,
-                scribe_ref.clone(),
-                identity.did(),
-                &identity_data.username,
-                "node",  // Node has special role
-            ).await?;
+            // Spawn LuaRuntime with ui_enabled: false
+            let (thread, cmd_tx) = LuaRuntime::spawn(LuaRuntimeConfig {
+                page_id: page_id.to_string(),
+                app_name: app_name.clone(),
+                scribe_ref: scribe_ref.clone(),
+                user_did: identity.did().to_string(),
+                user_name: identity_data.username.clone(),
+                user_role: "node".to_string(),
+                lua_code,
+                ui_enabled: false,
+                ui_tx: None,
+                query_tx: None,
+            })?;
 
-            // Load node script
-            runtime.load_code(node_script)?;
+            // Trigger derivation rebuild if init.lua was loaded
+            if init_code.is_some() {
+                cmd_tx.send(LuaCommand::RebuildDerivation).await
+                    .map_err(|_| "Failed to send RebuildDerivation command")?;
+                info!(page_id = %page_id, "Sent RebuildDerivation after init.lua");
+            }
 
-            // Enable tick (nodes always have tick enabled for game loops)
-            runtime.enable_tick();
+            // Subscribe to page updates from Scribe
+            let (page_update_tx, mut page_update_rx) = mpsc::channel(256);
+            scribe_ref.cast(ScribeMessage::SubscribeToPageUpdates {
+                tx: page_update_tx,
+            }).map_err(|e| format!("Failed to subscribe to page updates: {}", e))?;
 
-            // Create shutdown channel
-            let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+            // Spawn async bridge: forwards PageUpdate → LuaCommand
+            let bridge_cmd_tx = cmd_tx.clone();
+            let bridge_page_id = page_id.to_string();
+            tokio::spawn(async move {
+                while let Some(update) = page_update_rx.recv().await {
+                    match update {
+                        PageUpdate::LayerChanged { layer, ops, full_data, delta, created, .. } => {
+                            if created {
+                                let _ = bridge_cmd_tx.send(LuaCommand::LayerDiscovered {
+                                    layer_name: layer,
+                                }).await;
+                            } else {
+                                let _ = bridge_cmd_tx.send(LuaCommand::LoroChanged {
+                                    layer_name: layer,
+                                    ops,
+                                    delta,
+                                    full_data,  // Already Option<JsonValue> from PageUpdate
+                                }).await;
+                            }
+                        }
+                        PageUpdate::Ephemeral { user_did, payload, .. } => {
+                            let _ = bridge_cmd_tx.send(LuaCommand::Ephemeral {
+                                user_did,
+                                payload,
+                            }).await;
+                        }
+                        PageUpdate::StructuredEphemeral { from_did, func, args } => {
+                            let _ = bridge_cmd_tx.send(LuaCommand::StructuredEphemeral {
+                                from_did,
+                                func,
+                                args,
+                            }).await;
+                        }
+                        PageUpdate::PeerSubscribed { did, .. } => {
+                            let _ = bridge_cmd_tx.send(LuaCommand::PeerJoined {
+                                user_did: did,
+                            }).await;
+                        }
+                        PageUpdate::PeerUnsubscribed { did } => {
+                            let _ = bridge_cmd_tx.send(LuaCommand::PeerLeft {
+                                user_did: did,
+                            }).await;
+                        }
+                        PageUpdate::QueryUpdated { .. } => {}
+                    }
+                }
+                debug!(page_id = %bridge_page_id, "PageUpdate bridge ended");
+            });
 
             // Store instance
             {
                 let mut instances = self.instances.write().await;
                 instances.insert(page_id.to_string(), NodeInstance {
-                    page_id: page_id.to_string(),
-                    app_name: app_name.clone(),
-                    shutdown_tx,
+                    cmd_tx,
+                    thread_handle: Some(thread),
                 });
             }
-
-            // Spawn tick loop in background
-            let page_id_owned = page_id.to_string();
-            let app_name_owned = app_name.clone();
-            tokio::spawn(async move {
-                info!(page_id = %page_id_owned, app_name = %app_name_owned, "Node script tick loop starting");
-
-                // Run at 30fps for node (sufficient for game logic)
-                match runtime.run_tick_loop(30, shutdown_rx).await {
-                    Ok(()) => info!(page_id = %page_id_owned, "Node script tick loop ended"),
-                    Err(e) => error!(page_id = %page_id_owned, error = %e, "Node script tick loop error"),
-                }
-            });
 
             info!(page_id = %page_id, app_name = %app_name, "Node script started successfully");
 
@@ -168,9 +219,11 @@ impl NodeRuntimeManager {
             instances.remove(page_id)
         };
 
-        if let Some(instance) = instance {
-            instance.shutdown_tx.send(()).await
-                .map_err(|_| "Failed to send shutdown signal")?;
+        if let Some(mut instance) = instance {
+            let _ = instance.cmd_tx.send(LuaCommand::Shutdown).await;
+            if let Some(handle) = instance.thread_handle.take() {
+                let _ = handle.join();
+            }
             info!(page_id = %page_id, "Node script stopped");
         }
 
@@ -184,8 +237,11 @@ impl NodeRuntimeManager {
             instances.drain().collect()
         };
 
-        for (page_id, instance) in instances {
-            let _ = instance.shutdown_tx.send(()).await;
+        for (page_id, mut instance) in instances {
+            let _ = instance.cmd_tx.send(LuaCommand::Shutdown).await;
+            if let Some(handle) = instance.thread_handle.take() {
+                let _ = handle.join();
+            }
             info!(page_id = %page_id, "Node script stopped");
         }
     }

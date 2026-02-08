@@ -28,9 +28,7 @@ pub const TAG_SIZE: usize = 16;
 /// Size of ephemeral public key in sealed messages
 pub const EPHEMERAL_KEY_SIZE: usize = 32;
 
-// =============================================================================
 // Key Generation
-// =============================================================================
 
 /// Generate a random AES-256 key
 ///
@@ -42,9 +40,7 @@ pub fn generate_aes_key() -> [u8; KEY_SIZE] {
     key
 }
 
-// =============================================================================
 // Symmetric Encryption (AES-256-GCM)
-// =============================================================================
 
 /// Encrypt data using AES-256-GCM
 ///
@@ -128,9 +124,7 @@ pub fn decrypt_with_nonce(
         .map_err(|e| HeraldError::DecryptionFailed(e.to_string()))
 }
 
-// =============================================================================
 // Key Exchange (X25519 ECDH)
-// =============================================================================
 
 /// Perform X25519 ECDH key exchange
 ///
@@ -153,9 +147,7 @@ pub fn generate_ephemeral_keypair() -> ([u8; 32], [u8; 32]) {
     (secret_bytes, public.to_bytes())
 }
 
-// =============================================================================
 // Key Derivation (HKDF-SHA256)
-// =============================================================================
 
 /// Derive a key using HKDF-SHA256
 ///
@@ -185,9 +177,7 @@ pub fn derive_keys<const N: usize>(
     output
 }
 
-// =============================================================================
 // High-level: Encrypt for recipient (ECIES-style)
-// =============================================================================
 
 /// Context for ECIES key derivation
 const SEAL_CONTEXT: &[u8] = b"herald-seal-v1";
@@ -259,9 +249,7 @@ pub fn decrypt(recipient_secret: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>
     Ok(plaintext)
 }
 
-// =============================================================================
 // Transit Encryption (Ephemeral ECDH for peer-to-peer transfer)
-// =============================================================================
 
 /// Context for transit encryption key derivation
 const TRANSIT_CONTEXT: &[u8] = b"herald-transit-v1";

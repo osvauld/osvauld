@@ -43,3 +43,5 @@ logging_utils = { path = "../logging_utils" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
+proptest = "1.4"
+gurkha = { path = "../gurkha", features = ["test-support"] }

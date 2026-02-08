@@ -1,0 +1,86 @@
+{
+  "timestamp": "2026-02-08T16:16:35.052455",
+  "git_commit": "0c50d055",
+  "build_profile": "release",
+  "timeline": {
+    "instances_started": 1.7863667011260986,
+    "clients_ready": 1.7864720821380615,
+    "messages_start": 34.070889472961426,
+    "messages_done": 37.83351230621338,
+    "sync_wait_done": 39.83354139328003,
+    "test_complete": 43.8873393535614
+  },
+  "message_count": 10,
+  "throughput_msg_per_sec": 2.6577205431343267,
+  "memory_peak_mb": {
+    "node": 5.54296875,
+    "alice": 5.5703125,
+    "bob": 118.66796875,
+    "carol": 5.5703125
+  },
+  "memory_growth": {
+    "node": {
+      "start_mb": 5.5,
+      "end_mb": 5.5,
+      "growth_mb": 0.0,
+      "growth_per_msg_mb": 0.0
+    },
+    "alice": {
+      "start_mb": 5.6,
+      "end_mb": 5.6,
+      "growth_mb": 0.0,
+      "growth_per_msg_mb": 0.0
+    },
+    "bob": {
+      "start_mb": 118.7,
+      "end_mb": 118.5,
+      "growth_mb": -0.1,
+      "growth_per_msg_mb": -0.01
+    },
+    "carol": {
+      "start_mb": 5.6,
+      "end_mb": 5.6,
+      "growth_mb": 0.0,
+      "growth_per_msg_mb": 0.0
+    }
+  },
+  "cpu_avg_percent": {
+    "node": 0.0,
+    "alice": 0.0,
+    "bob": 8.2,
+    "carol": 0.0
+  },
+  "latency": {},
+  "samples": [
+    {
+      "time": 34.23586297035217,
+      "memory_mb": {
+        "node": 5.54296875,
+        "alice": 5.5703125,
+        "bob": 118.66796875,
+        "carol": 5.5703125
+      },
+      "cpu_percent": {
+        "node": 0.0,
+        "alice": 0.0,
+        "bob": 8.2,
+        "carol": 0.0
+      }
+    },
+    {
+      "time": 36.23571419715881,
+      "memory_mb": {
+        "node": 5.54296875,
+        "alice": 5.5703125,
+        "bob": 118.51953125,
+        "carol": 5.5703125
+      },
+      "cpu_percent": {
+        "node": 0.0,
+        "alice": 0.0,
+        "bob": 8.2,
+        "carol": 0.0
+      }
+    }
+  ]
+}

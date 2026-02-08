@@ -1,0 +1,20 @@
+{
+  "host": {
+    "token_type": "page_owner",
+    "layers": {
+      "{page_id}/game_state": { "sync": false, "write": true },
+      "{page_id}/scores": { "sync": true, "write": true },
+      "{page_id}/config": { "sync": true, "write": true },
+      "app:Game": { "sync": true, "write": true }
+    }
+  },
+  "player": {
+    "token_type": "page_viewer",
+    "layers": {
+      "{page_id}/game_state": { "sync": false, "write": true },
+      "{page_id}/scores": { "sync": true, "write": true },
+      "{page_id}/config": { "sync": true, "write": false },
+      "app:Game": { "sync": true, "write": false }
+    }
+  }
+}

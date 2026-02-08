@@ -4,25 +4,17 @@ version = "0.1.0"
 edition = "2021"
 description = "Integration tests for Osvauld P2P protocol"
 license = "MIT"
-autobins = false
-
-# TODO: Rewrite with event-driven architecture
-# [[bin]]
-# name = "setup_test_dbs"
-# path = "src/bin/setup_test_dbs.rs"
-
-# [[bin]]
-# name = "setup_booking_db"
-# path = "src/bin/setup_booking_db.rs"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
 # Internal crates
 courier = { path = "../courier" }
 butler = { path = "../butler" }
 transport = { path = "../transport" }
-gurkha = { path = "../gurkha" }
+gurkha = { path = "../gurkha", features = ["test-support"] }
 herald = { path = "../herald" }
+domains = { path = "../domains" }
+lua_runtime = { path = "../lua_runtime" }
+scribe = { path = "../scribe" }
 
 
 # JSON
@@ -50,6 +42,9 @@ tokio = { version = "1", features = ["sync", "time", "macros", "rt-multi-thread"
 tempfile = "3"
 mime_guess = "2"
 
+# Lua runtime for validation tests
+mlua = { version = "0.10", features = ["lua54", "vendored", "send"] }
+
 # Error handling
 anyhow = "1.0"
 
@@ -59,3 +54,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
+criterion = { workspace = true }
+
+[[bench]]
+name = "sync_latency"
+harness = false

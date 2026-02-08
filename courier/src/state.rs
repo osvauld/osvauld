@@ -22,8 +22,6 @@ pub enum PeerType {
     MyNode,
     /// Peer cannot publish, sync only
     Viewer,
-    /// Peer is a submitter with push-only access
-    Submitter,
 }
 
 impl PeerType {
@@ -139,6 +137,93 @@ impl PeerState {
             PeerState::AwaitingPermitGrant { .. } => "AwaitingPermitGrant",
             PeerState::Authenticated { .. } => "Authenticated",
             PeerState::Failed { .. } => "Failed",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_auth(peer_type: PeerType) -> PeerState {
+        PeerState::Authenticated {
+            peer_type,
+            did: "did:key:test".to_string(),
+            username: "alice".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_is_authenticated() {
+        assert!(make_auth(PeerType::Owner).is_authenticated());
+        assert!(!PeerState::Connected.is_authenticated());
+        assert!(!PeerState::fail("reason").is_authenticated());
+    }
+
+    #[test]
+    fn test_is_failed() {
+        assert!(PeerState::fail("reason").is_failed());
+        assert!(!PeerState::Connected.is_failed());
+        assert!(!make_auth(PeerType::Owner).is_failed());
+    }
+
+    #[test]
+    fn test_did_extraction() {
+        assert_eq!(make_auth(PeerType::Owner).did(), Some("did:key:test"));
+        assert_eq!(PeerState::Connected.did(), None);
+        assert_eq!(PeerState::fail("reason").did(), None);
+    }
+
+    #[test]
+    fn test_peer_type_extraction() {
+        assert_eq!(make_auth(PeerType::Owner).peer_type(), Some(PeerType::Owner));
+        assert_eq!(make_auth(PeerType::Viewer).peer_type(), Some(PeerType::Viewer));
+        assert_eq!(PeerState::Connected.peer_type(), None);
+        assert_eq!(PeerState::fail("reason").peer_type(), None);
+    }
+
+    #[test]
+    fn test_state_names_are_distinct() {
+        let states = [
+            PeerState::Connected,
+            PeerState::HelloReceived {
+                their_did: "did".to_string(),
+                their_username: "user".to_string(),
+                their_public_key: vec![],
+                their_permit: "permit".to_string(),
+                is_first_connection: false,
+            },
+            PeerState::AwaitingWelcome {
+                our_did: "did".to_string(),
+                our_username: "user".to_string(),
+                sent_at: 0,
+                can_publish: false,
+                expected_node_pubkey: vec![],
+                our_permit: "permit".to_string(),
+            },
+            PeerState::AwaitingPermitGrant {
+                their_did: "did".to_string(),
+                their_username: "user".to_string(),
+                is_first_connection: false,
+                can_publish: false,
+            },
+            PeerState::Authenticated {
+                peer_type: PeerType::Owner,
+                did: "did".to_string(),
+                username: "user".to_string(),
+            },
+            PeerState::fail("reason"),
+        ];
+
+        let names: Vec<&str> = states.iter().map(|s| s.name()).collect();
+
+        // Verify all names are unique
+        for (i, name) in names.iter().enumerate() {
+            for (j, other) in names.iter().enumerate() {
+                if i != j {
+                    assert_ne!(name, other, "State names should be unique");
+                }
+            }
         }
     }
 }

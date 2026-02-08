@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use redb::{ReadableTable, ReadableDatabase};
 use crate::error::{ButlerError, Result};
+use tracing::instrument;
 use super::{RedbStore, VECTORS};
 
 impl RedbStore {
@@ -13,6 +14,7 @@ impl RedbStore {
     ///
     /// **Context**: Used during sync to determine what updates a peer needs.
     /// Returns None if we haven't synced with this peer before.
+    #[instrument(skip_all)]
     pub fn get_peer_vectors(
         &self,
         page_id: &str,
@@ -39,6 +41,7 @@ impl RedbStore {
     ///
     /// **Context**: Called after successful sync to record the peer's state.
     /// Enables efficient delta sync on next connection.
+    #[instrument(skip_all)]
     pub fn put_peer_vectors(
         &self,
         page_id: &str,
@@ -62,6 +65,7 @@ impl RedbStore {
     /// Get a single layer's peer vector.
     ///
     /// **Context**: Convenience method for single-layer sync operations.
+    #[instrument(skip_all)]
     pub fn get_peer_vector_for_layer(
         &self,
         page_id: &str,
@@ -80,6 +84,7 @@ impl RedbStore {
     ///
     /// **Context**: Called after syncing a specific layer.
     /// Preserves other layer vectors in the map.
+    #[instrument(skip_all)]
     pub fn put_peer_vector_for_layer(
         &self,
         page_id: &str,
@@ -98,6 +103,7 @@ impl RedbStore {
     /// Delete all peer vectors for a specific peer on a page.
     ///
     /// **Context**: Called when a peer's access is revoked.
+    #[instrument(skip_all)]
     pub fn delete_peer_vectors(
         &self,
         page_id: &str,
@@ -118,6 +124,7 @@ impl RedbStore {
     /// Delete all peer vectors for a page (all peers).
     ///
     /// **Context**: Called when a page is deleted.
+    #[instrument(skip_all)]
     pub fn delete_all_peer_vectors_for_page(&self, page_id: &str) -> Result<usize> {
         let prefix = format!("{}/", page_id);
         let read_txn = self.db.begin_read()?;
@@ -154,6 +161,7 @@ impl RedbStore {
     ///
     /// **Context**: Used to iterate over all known peers for a page.
     /// Returns tuples of (user_did, device_id).
+    #[instrument(skip_all)]
     pub fn list_peers_for_page(&self, page_id: &str) -> Result<Vec<(String, String)>> {
         let prefix = format!("{}/", page_id);
         let read_txn = self.db.begin_read()?;

@@ -1,0 +1,25 @@
+{
+  "provider": {
+    "token_type": "page_owner",
+    "layers": {
+      "{page_id}/schedule": { "sync": true, "write": true },
+      "{page_id}/blocked": { "sync": true, "write": true },
+      "{page_id}/derived/calendar": { "sync": true, "write": false }
+    },
+    "layer_patterns": {
+      "{page_id}/bookings/*": { "sync": true, "write": true }
+    }
+  },
+  "customer": {
+    "token_type": "page_viewer",
+    "layers": {
+      "{page_id}/schedule": { "sync": true, "write": false },
+      "{page_id}/blocked": { "sync": true, "write": false },
+      "{page_id}/derived/calendar": { "sync": true, "write": false },
+      "{page_id}/drafts": { "sync": false, "create": true }
+    },
+    "layer_patterns": {
+      "{page_id}/bookings/{aud}": { "sync": true, "write": true }
+    }
+  }
+}

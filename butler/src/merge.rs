@@ -1,10 +1,9 @@
 //! Pure CRDT Merge Logic Layer
 //!
 //! Provides stateless Loro document merge operations.
-//! Moved from gurkha as part of crate boundary cleanup.
 
 use loro::{ExportMode, LoroDoc, LoroError, ToJson, VersionVector};
-use tracing::{debug, info};
+use tracing::{debug, info, instrument};
 
 /// Pure CRDT merge service for Loro documents
 ///
@@ -14,12 +13,14 @@ pub struct MergeService;
 
 impl MergeService {
     /// Create a new empty Loro document
+    #[instrument(skip_all)]
     pub fn create_doc() -> LoroDoc {
         debug!("📄 Creating new Loro document");
         LoroDoc::new()
     }
 
     /// Import snapshot into a new document
+    #[instrument(skip_all)]
     pub fn import_snapshot(snapshot_bytes: &[u8]) -> Result<LoroDoc, LoroError> {
         debug!("📥 Importing snapshot ({} bytes)", snapshot_bytes.len());
         let doc = LoroDoc::new();
@@ -29,6 +30,7 @@ impl MergeService {
     }
 
     /// Merge updates into an existing document
+    #[instrument(skip_all)]
     pub fn merge_updates(doc: &LoroDoc, updates_bytes: &[u8]) -> Result<(), LoroError> {
         debug!("🔀 Merging updates ({} bytes)", updates_bytes.len());
         doc.import(updates_bytes)?;
@@ -37,6 +39,7 @@ impl MergeService {
     }
 
     /// Export full snapshot with complete history
+    #[instrument(skip_all)]
     pub fn export_snapshot(doc: &LoroDoc) -> Vec<u8> {
         debug!("📤 Exporting full snapshot");
         let snapshot = doc
@@ -47,6 +50,7 @@ impl MergeService {
     }
 
     /// Export shallow snapshot without full history
+    #[instrument(skip_all)]
     pub fn export_shallow_snapshot(doc: &LoroDoc) -> Vec<u8> {
         debug!("📤 Exporting shallow snapshot");
         let frontiers = doc.state_frontiers();
@@ -58,6 +62,7 @@ impl MergeService {
     }
 
     /// Export updates from a specific version
+    #[instrument(skip_all)]
     pub fn export_updates(doc: &LoroDoc, from_version_bytes: &[u8]) -> Result<Vec<u8>, LoroError> {
         debug!(
             "📤 Exporting updates from version ({} bytes)",
@@ -121,6 +126,7 @@ impl MergeService {
     }
 
     /// Merge multiple updates in sequence
+    #[instrument(skip_all)]
     pub fn merge_batch(doc: &LoroDoc, updates_list: &[Vec<u8>]) -> Result<(), LoroError> {
         debug!("🔀 Merging batch of {} updates", updates_list.len());
         for (i, updates) in updates_list.iter().enumerate() {
@@ -139,15 +145,15 @@ impl MergeService {
     }
 
     /// Clone a document by exporting and importing
+    #[instrument(skip_all)]
     pub fn clone_doc(doc: &LoroDoc) -> Result<LoroDoc, LoroError> {
         debug!("📋 Cloning document");
         let snapshot = Self::export_snapshot(doc);
         Self::import_snapshot(&snapshot)
     }
 
-    // ==================== PERMIT-AWARE MERGE OPERATIONS ====================
-
     /// Filter documents to send to peer based on permit permissions
+    #[instrument(skip_all)]
     pub fn filter_documents_for_peer(
         documents: std::collections::HashMap<String, &LoroDoc>,
         our_permit_token: &str,
@@ -186,6 +192,7 @@ impl MergeService {
     }
 
     /// Apply updates from peer based on permit permissions
+    #[instrument(skip_all)]
     pub fn apply_peer_updates(
         documents: std::collections::HashMap<String, &LoroDoc>,
         updates: std::collections::HashMap<String, Vec<u8>>,
@@ -225,6 +232,7 @@ impl MergeService {
     }
 
     /// Generate state vector based on permit token type
+    #[instrument(skip_all)]
     pub fn generate_state_vector(
         doc: &LoroDoc,
         our_permit_token: &str,

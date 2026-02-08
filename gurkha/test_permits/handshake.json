@@ -1,0 +1,58 @@
+{
+  "owner_first_connection": {
+    "token_type": "one_time_connection",
+    "first_connection": true,
+    "relationship": "node_owner",
+    "peer_capabilities": {
+      "relay": false,
+      "share": true,
+      "accept_publish": true
+    },
+    "operations": {
+      "own": "allow",
+      "read": "allow",
+      "write": "allow"
+    }
+  },
+  "owner_reconnection": {
+    "token_type": "peer_connection",
+    "first_connection": false,
+    "relationship": "node_owner",
+    "peer_capabilities": {
+      "relay": false,
+      "share": true,
+      "accept_publish": true
+    },
+    "operations": {
+      "own": "allow",
+      "read": "allow",
+      "write": "allow"
+    }
+  },
+  "viewer": {
+    "token_type": "peer_connection",
+    "first_connection": false,
+    "relationship": "node_viewer",
+    "peer_capabilities": {
+      "relay": false,
+      "share": false,
+      "accept_publish": false
+    },
+    "operations": {
+      "read": "allow"
+    }
+  },
+  "viewer_first_connection": {
+    "token_type": "one_time_connection",
+    "first_connection": true,
+    "relationship": "node_viewer",
+    "peer_capabilities": {
+      "relay": false,
+      "share": false,
+      "accept_publish": false
+    },
+    "operations": {
+      "read": "allow"
+    }
+  }
+}

@@ -4,19 +4,76 @@
 //! - One-time connection tokens
 //! - Peer connection tokens
 //! - Viewer authentication tokens
+//!
+//! **Architecture**: Template-driven, not role-based.
+//! - Templates define capability sets (keyed by human-readable names like "node_owner")
+//! - Template lookup extracts capabilities into permit
+//! - Protocol code checks actual capabilities in permit, never the template key
+//!
+//! Note: `peer_capabilities` are for protocol-level decisions (capability-based, not role-based).
 
 use super::types::{DecisionResult, TokenDecision};
 use crate::errors::GurkhaError;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::VerifyingKey;
 use serde_json::json;
+use std::sync::LazyLock;
+
+/// Embedded connection templates (loaded at compile time)
+static CONNECTION_TEMPLATES: LazyLock<serde_json::Value> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../templates/connection.json"))
+        .expect("Invalid connection.json template")
+});
+
+/// Load connection template by key
+///
+/// Template keys ("node_owner", "viewer_node", etc.) are just lookup keys.
+/// The protocol never checks these keys - it checks the capabilities inside.
+fn load_connection_template(key: &str) -> Result<&'static serde_json::Value, GurkhaError> {
+    CONNECTION_TEMPLATES
+        .get(key)
+        .ok_or_else(|| GurkhaError::ValidationError(format!("Unknown connection template: {}", key)))
+}
+
+/// Build TokenDecision from a connection template
+///
+/// **Context**: Extracts capabilities from template into permit facts.
+/// No role matching happens here - just capability extraction.
+fn build_decision_from_template(
+    decision: &mut TokenDecision,
+    template: &serde_json::Value,
+    relationship: &str,
+) {
+    // Add relationship label (for logging/debugging only)
+    decision.add_fact("relationship".into(), json!(relationship));
+
+    // Extract peer_capabilities
+    if let Some(peer_caps) = template.get("peer_capabilities") {
+        decision.add_fact("peer_capabilities".into(), peer_caps.clone());
+    }
+
+    // Extract auth_capabilities
+    if let Some(auth_caps) = template.get("auth_capabilities") {
+        decision.add_fact("auth_capabilities".into(), auth_caps.clone());
+    }
+
+    // Extract operations
+    if let Some(ops) = template.get("operations") {
+        decision.add_fact("operations".into(), ops.clone());
+    }
+
+    // Extract presence config
+    if let Some(presence) = template.get("presence") {
+        decision.add_fact("presence".into(), presence.clone());
+    }
+}
 
 /// Decide what should be in a one-time connection token
 ///
 /// One-time tokens have:
 /// - Wildcard audience (for first connection)
 /// - Facts-based authorization (no URI capabilities)
-/// - Relationship determines permission level
+/// - Template-driven capabilities
 /// - 30 day expiry
 pub fn decide_one_time_token(
     verifying_key: &VerifyingKey,
@@ -24,71 +81,18 @@ pub fn decide_one_time_token(
 ) -> DecisionResult<TokenDecision> {
     let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
 
+    // Load template (validates relationship is known)
+    let template = load_connection_template(relationship)?;
+
     let mut decision = TokenDecision::new("*"); // Wildcard audience
 
-    // No URI capabilities - all authorization in facts
+    // Core facts
     decision.add_fact("token_type".into(), json!("one_time_connection"));
     decision.add_fact("first_connection".into(), json!(true));
-    decision.add_fact("relationship".into(), json!(relationship));
     decision.add_fact("user_id".into(), json!(pub_key_b64));
 
-    // Add CEL rules and operations based on relationship
-    // Bidirectional naming: {issuer}_{recipient}
-    match relationship {
-        "node_owner" => {
-            // Node issuing to owner: full admin capabilities
-            // peer_capabilities for protocol-level decisions (capability-based, not role-based)
-            decision.add_fact("peer_capabilities".into(), json!({
-                "relay": false,
-                "share": true,
-                "accept_publish": true  // Owner can publish spaces to this node
-            }));
-            decision.add_fact("auth_capabilities".into(), json!({
-                "can_connect": true,
-                "persist_share": true,
-                "can_delegate": true,
-                "sync_enabled": true
-            }));
-            decision.add_fact("operations".into(), json!({
-                "own": "allow",
-                "read": "allow",
-                "write": "allow"
-            }));
-            decision.add_fact("cel_rules".into(), json!({
-                "persist_share": "auth_capabilities.persist_share == true && relationship == 'node_owner'",
-                "can_connect": "auth_capabilities.can_connect == true",
-                "can_delegate": "auth_capabilities.can_delegate == true && operations.own == 'allow'",
-                "sync_enabled": "auth_capabilities.sync_enabled == true && operations.read == 'allow'"
-            }));
-        }
-        "node_viewer" => {
-            // Node issuing to viewer: restricted capabilities
-            // peer_capabilities for protocol-level decisions (capability-based, not role-based)
-            decision.add_fact("peer_capabilities".into(), json!({
-                "relay": false,
-                "share": false,
-                "accept_publish": false  // Viewers cannot publish spaces
-            }));
-            decision.add_fact("auth_capabilities".into(), json!({
-                "can_connect": true,
-                "persist_share": false,
-                "can_delegate": false,
-                "sync_enabled": true
-            }));
-            decision.add_fact("operations".into(), json!({
-                "own": "deny",
-                "read": "allow",
-                "write": "deny"
-            }));
-            decision.add_fact("cel_rules".into(), json!({
-                "persist_share": "auth_capabilities.persist_share == true && relationship == 'owner_node'",
-                "can_connect": "auth_capabilities.can_connect == true",
-                "can_delegate": "auth_capabilities.can_delegate == true && operations.own == 'allow'",
-                "sync_enabled": "auth_capabilities.sync_enabled == true && operations.read == 'allow'"
-            }));
-        }
-        _ => return Err(GurkhaError::ValidationError(format!("Unknown relationship: {}", relationship))),
-    }
+    // Extract capabilities from template
+    build_decision_from_template(&mut decision, template, relationship);
 
     decision.set_expiry(30 * 24 * 60 * 60); // 30 days
 
@@ -100,7 +104,7 @@ pub fn decide_one_time_token(
 /// Peer tokens have:
 /// - Specific peer's pubkey as audience
 /// - Facts-based authorization (no URI capabilities)
-/// - Relationship-based permissions
+/// - Template-driven capabilities
 /// - No expiry (persistent connection)
 pub fn decide_peer_connection(
     verifying_key: &VerifyingKey,
@@ -109,102 +113,20 @@ pub fn decide_peer_connection(
 ) -> DecisionResult<TokenDecision> {
     let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
 
+    // Load template (validates relationship is known)
+    let template = load_connection_template(relationship)?;
+
     let mut decision = TokenDecision::new(peer_pubkey);
 
-    // No URI capabilities - all authorization in facts
-    decision.add_fact("token_type".into(), json!(format!("{}_connection", relationship)));
-    decision.add_fact("relationship".into(), json!(relationship));
+    // Core facts
+    decision.add_fact(
+        "token_type".into(),
+        json!(format!("{}_connection", relationship)),
+    );
     decision.add_fact("user_id".into(), json!(pub_key_b64));
 
-    // Add relationship-based permissions
-    // Bidirectional naming: {issuer}_{recipient}
-    match relationship {
-        "node_owner" => {
-            // Node issuing to owner: full admin capabilities
-            // peer_capabilities for protocol-level decisions (capability-based, not role-based)
-            decision.add_fact("peer_capabilities".into(), json!({
-                "relay": false,
-                "share": true,
-                "accept_publish": true  // Owner can publish spaces to this node
-            }));
-            decision.add_fact("auth_capabilities".into(), json!({
-                "can_connect": true,
-                "persist_share": true,
-                "can_delegate": true,
-                "sync_enabled": true
-            }));
-            decision.add_fact("operations".into(), json!({
-                "own": "allow",
-                "read": "allow",
-                "write": "allow",
-                "admin": "allow"
-            }));
-        }
-        "node_viewer" => {
-            // Node issuing to viewer: restricted capabilities
-            // peer_capabilities for protocol-level decisions (capability-based, not role-based)
-            decision.add_fact("peer_capabilities".into(), json!({
-                "relay": false,
-                "share": false,
-                "accept_publish": false  // Viewers cannot publish spaces
-            }));
-            decision.add_fact("auth_capabilities".into(), json!({
-                "can_connect": true,
-                "persist_share": false,
-                "can_delegate": false,
-                "sync_enabled": false
-            }));
-            decision.add_fact("operations".into(), json!({
-                "own": "deny",
-                "read": "allow",
-                "write": "deny"
-            }));
-        }
-        "owner_node" => {
-            // Owner issuing to node: node capabilities
-            // peer_capabilities for protocol-level decisions (capability-based, not role-based)
-            decision.add_fact("peer_capabilities".into(), json!({
-                "relay": true,           // Node can relay data
-                "share": true,           // Node can issue delegated permits
-                "accept_publish": true   // Node accepts published spaces
-            }));
-            decision.add_fact("auth_capabilities".into(), json!({
-                "can_connect": true,
-                "persist_share": true,
-                "can_delegate": false,
-                "sync_enabled": true,
-                "add_folder": true
-            }));
-            decision.add_fact("operations".into(), json!({
-                "own": "deny",
-                "read": "allow",
-                "write": "allow",
-                "sync": "allow"
-            }));
-        }
-        "viewer_node" => {
-            // Viewer issuing to node: limited node capabilities
-            // peer_capabilities for protocol-level decisions (capability-based, not role-based)
-            decision.add_fact("peer_capabilities".into(), json!({
-                "relay": true,           // Node can relay data
-                "share": false,          // Viewer's node can't further delegate
-                "accept_publish": false  // Viewer's node doesn't accept publish
-            }));
-            decision.add_fact("auth_capabilities".into(), json!({
-                "can_connect": true,
-                "persist_share": false,
-                "can_delegate": false,
-                "sync_enabled": true
-            }));
-            decision.add_fact("operations".into(), json!({
-                "own": "deny",
-                "read": "allow",
-                "write": "deny",
-                "sync": "allow"
-            }));
-        }
-        _ => return Err(GurkhaError::ValidationError(format!("Unknown relationship: {}", relationship))),
-    }
+    // Extract capabilities from template
+    build_decision_from_template(&mut decision, template, relationship);
 
     Ok(decision)
 }
@@ -216,32 +138,18 @@ pub fn decide_page_viewer_auth(
 ) -> DecisionResult<TokenDecision> {
     let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
 
+    // Load viewer template
+    let template = load_connection_template("node_viewer")?;
+
     let mut decision = TokenDecision::new(&pub_key_b64); // Self-signed initially
 
-    // No URI capabilities - all authorization in facts
+    // Core facts
     decision.add_fact("token_type".into(), json!("viewer_auth"));
-    decision.add_fact("relationship".into(), json!("viewer"));
     decision.add_fact("page_id".into(), json!(page_id));
     decision.add_fact("user_id".into(), json!(pub_key_b64));
 
-    // peer_capabilities for protocol-level decisions (capability-based, not role-based)
-    decision.add_fact("peer_capabilities".into(), json!({
-        "relay": false,
-        "share": false,
-        "accept_publish": false  // Viewers cannot publish spaces
-    }));
-    // Viewer capabilities
-    decision.add_fact("auth_capabilities".into(), json!({
-        "can_connect": true,
-        "persist_share": false,
-        "can_delegate": false,
-        "sync_enabled": true
-    }));
-    decision.add_fact("operations".into(), json!({
-        "own": "deny",
-        "read": "allow",
-        "write": "deny"
-    }));
+    // Extract capabilities from template
+    build_decision_from_template(&mut decision, template, "viewer");
 
     Ok(decision)
 }
@@ -262,41 +170,30 @@ pub fn decide_space_viewer_auth(
 ) -> DecisionResult<TokenDecision> {
     let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
 
+    // Load viewer template
+    let template = load_connection_template("node_viewer")?;
+
     let mut decision = TokenDecision::new("*"); // Wildcard audience for shareable link
 
-    // No URI capabilities - all authorization in facts
+    // Core facts
     decision.add_fact("token_type".into(), json!("viewer_auth"));
     decision.add_fact("first_connection".into(), json!(false)); // Viewers never do first_connection
-    // Relationship is "node_viewer" = node issuing permit TO viewer (bidirectional naming)
-    decision.add_fact("relationship".into(), json!("node_viewer"));
     decision.add_fact("space_id".into(), json!(space_id));
     decision.add_fact("user_id".into(), json!(pub_key_b64));
 
-    // peer_capabilities for protocol-level decisions (capability-based, not role-based)
-    decision.add_fact("peer_capabilities".into(), json!({
-        "relay": false,
-        "share": false,
-        "accept_publish": false  // Viewers cannot publish spaces
-    }));
-    // Viewer capabilities for space access
-    decision.add_fact("auth_capabilities".into(), json!({
-        "can_connect": true,
-        "persist_share": false,
-        "can_delegate": false,
-        "sync_enabled": true
-    }));
-    decision.add_fact("operations".into(), json!({
-        "own": "deny",
-        "read": "allow",
-        "write": "deny",
-        "space_access": "allow"
-    }));
-    decision.add_fact("cel_rules".into(), json!({
-        "persist_share": "auth_capabilities.persist_share == true && relationship == 'node'",
-        "can_connect": "auth_capabilities.can_connect == true",
-        "can_delegate": "auth_capabilities.can_delegate == true && operations.own == 'allow'",
-        "sync_enabled": "auth_capabilities.sync_enabled == true && operations.read == 'allow'"
-    }));
+    // Extract capabilities from template
+    build_decision_from_template(&mut decision, template, "node_viewer");
+
+    // Add space_access operation
+    decision.add_fact(
+        "operations".into(),
+        json!({
+            "own": "deny",
+            "read": "allow",
+            "write": "deny",
+            "space_access": "allow"
+        }),
+    );
 
     // Short expiry for security (30 days like one-time connection)
     decision.set_expiry(30 * 24 * 60 * 60);

@@ -15,6 +15,14 @@
 //! - **ConnectionHandle**: Lightweight reference for sending bytes
 //! - **TransportEvent**: Events emitted to protocol layer via channel
 //!
+//! # Pluggable Transport Architecture
+//!
+//! The `traits` module defines abstract `Connection` and `Transport` traits that enable:
+//! - **Production flexibility**: Swap Iroh <-> Quinn based on deployment
+//! - **Testability**: Mock transport for unit tests, Sim for DST
+//! - **Protocol isolation**: PeerActor/sync code is transport-agnostic
+//! - **Zero-cost abstraction**: Compile-time dispatch via generics
+//!
 //! # Multi-ALPN Support
 //!
 //! The Router pattern allows handling multiple protocols on the same endpoint:
@@ -24,10 +32,20 @@
 pub mod events;
 pub mod pool;
 pub mod protocol;
+pub mod traits;
+pub mod iroh_connection;
+pub mod mock;
 
 pub use events::TransportEvent;
 pub use pool::{ConnectionHandle, ConnectionPool};
 pub use protocol::OsvaualdProtocol;
+
+// Re-export trait types for convenience
+pub use traits::{BiStream, Connection, ConnectionEvent, Transport as TransportTrait};
+
+// Re-export connection implementations
+pub use iroh_connection::{IrohBiStream, IrohConnection};
+pub use mock::{MockConnection, MockBiStream, mock_connection_pair, mock_connection_pair_named, mock_node_id, node_id_from_secret, DatagramCallback};
 
 // Re-export iroh types so consumers don't need direct iroh dependency
 // Note: iroh 0.95 renamed NodeId to EndpointId, we re-export as NodeId for compatibility
@@ -36,15 +54,16 @@ pub use iroh::EndpointId as NodeId;
 pub use iroh_blobs::Hash as BlobHash;
 
 use anyhow::{anyhow, Result};
-use iroh::endpoint::Connection;
+use iroh::endpoint::Connection as IrohQuicConnection;
 use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, RelayMode, SecretKey};
 use iroh_blobs::store::mem::MemStore;
 use iroh_blobs::BlobsProtocol;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// ALPN protocol identifier for Osvauld P2P
 pub const ALPN_PROTOCOL: &[u8] = b"osvauld/p2p/1";
@@ -183,6 +202,7 @@ impl Transport {
     /// Connect to a peer by NodeId
     ///
     /// Returns the ConnectionHandle for sending messages.
+    /// Uses exponential backoff retry for connection failures (e.g., DNS/relay flakiness).
     pub async fn connect(&self, node_id: NodeId) -> Result<ConnectionHandle> {
         // Check if already connected
         if let Some(handle) = self.pool.get(&node_id).await {
@@ -193,36 +213,70 @@ impl Transport {
         let endpoint_addr = EndpointAddr::from(node_id);
         info!("Connecting to: {}", node_id);
 
-        let conn = self
-            .router
-            .endpoint()
-            .connect(endpoint_addr, ALPN_PROTOCOL)
-            .await
-            .map_err(|e| anyhow!("Failed to connect: {}", e))?;
+        // Retry with exponential backoff for DNS/relay flakiness
+        let mut delay = Duration::from_millis(100);
+        let max_delay = Duration::from_secs(5);
+        let max_attempts = 5;
+        let mut last_error = None;
 
-        info!("Connected to: {}", node_id);
+        for attempt in 1..=max_attempts {
+            match self
+                .router
+                .endpoint()
+                .connect(endpoint_addr.clone(), ALPN_PROTOCOL)
+                .await
+            {
+                Ok(conn) => {
+                    if attempt > 1 {
+                        info!("Connected to {} (attempt {})", node_id, attempt);
+                    } else {
+                        info!("Connected to: {}", node_id);
+                    }
 
-        let handle = ConnectionHandle::new(conn.clone(), node_id);
-        self.pool.insert(handle.clone()).await;
+                    let handle = ConnectionHandle::new(conn.clone(), node_id);
+                    self.pool.insert(handle.clone()).await;
 
-        // Emit connected event - consumer (SessionManager) will spawn PeerSession
-        let _ = self
-            .event_tx
-            .send(TransportEvent::Connected {
-                node_id,
-                conn: handle.clone(),
-            })
-            .await;
+                    // Emit connected event - consumer (SessionManager) will spawn PeerSession
+                    let _ = self
+                        .event_tx
+                        .send(TransportEvent::Connected {
+                            node_id,
+                            conn: handle.clone(),
+                        })
+                        .await;
 
-        // Spawn disconnect watcher
-        let event_tx = self.event_tx.clone();
-        let pool = self.pool.clone();
-        tokio::spawn(connection_close_watcher(conn, node_id, event_tx, pool));
+                    // Spawn disconnect watcher
+                    let event_tx = self.event_tx.clone();
+                    let pool = self.pool.clone();
+                    tokio::spawn(connection_close_watcher(conn, node_id, event_tx, pool));
 
-        Ok(handle)
+                    return Ok(handle);
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < max_attempts {
+                        warn!(
+                            "Connection attempt {} to {} failed, retrying in {:?}",
+                            attempt, node_id, delay
+                        );
+                        tokio::time::sleep(delay).await;
+                        delay = std::cmp::min(delay * 2, max_delay);
+                    }
+                }
+            }
+        }
+
+        Err(anyhow!(
+            "Failed to connect to {} after {} attempts: {}",
+            node_id,
+            max_attempts,
+            last_error.map(|e| e.to_string()).unwrap_or_default()
+        ))
     }
 
     /// Connect to a peer with relay hint
+    ///
+    /// Uses exponential backoff retry for connection failures (e.g., DNS/relay flakiness).
     pub async fn connect_with_relay(
         &self,
         node_id: NodeId,
@@ -241,33 +295,65 @@ impl Transport {
 
         info!("Connecting to {} via relay {}", node_id, relay_url);
 
-        let conn = self
-            .router
-            .endpoint()
-            .connect(endpoint_addr, ALPN_PROTOCOL)
-            .await
-            .map_err(|e| anyhow!("Failed to connect: {}", e))?;
+        // Retry with exponential backoff for DNS/relay flakiness
+        let mut delay = Duration::from_millis(100);
+        let max_delay = Duration::from_secs(5);
+        let max_attempts = 5;
+        let mut last_error = None;
 
-        info!("Connected to: {}", node_id);
+        for attempt in 1..=max_attempts {
+            match self
+                .router
+                .endpoint()
+                .connect(endpoint_addr.clone(), ALPN_PROTOCOL)
+                .await
+            {
+                Ok(conn) => {
+                    if attempt > 1 {
+                        info!("Connected to {} via relay (attempt {})", node_id, attempt);
+                    } else {
+                        info!("Connected to: {}", node_id);
+                    }
 
-        let handle = ConnectionHandle::new(conn.clone(), node_id);
-        self.pool.insert(handle.clone()).await;
+                    let handle = ConnectionHandle::new(conn.clone(), node_id);
+                    self.pool.insert(handle.clone()).await;
 
-        // Emit connected event - consumer (SessionManager) will spawn PeerSession
-        let _ = self
-            .event_tx
-            .send(TransportEvent::Connected {
-                node_id,
-                conn: handle.clone(),
-            })
-            .await;
+                    // Emit connected event - consumer (SessionManager) will spawn PeerSession
+                    let _ = self
+                        .event_tx
+                        .send(TransportEvent::Connected {
+                            node_id,
+                            conn: handle.clone(),
+                        })
+                        .await;
 
-        // Spawn disconnect watcher
-        let event_tx = self.event_tx.clone();
-        let pool = self.pool.clone();
-        tokio::spawn(connection_close_watcher(conn, node_id, event_tx, pool));
+                    // Spawn disconnect watcher
+                    let event_tx = self.event_tx.clone();
+                    let pool = self.pool.clone();
+                    tokio::spawn(connection_close_watcher(conn, node_id, event_tx, pool));
 
-        Ok(handle)
+                    return Ok(handle);
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < max_attempts {
+                        warn!(
+                            "Connection attempt {} to {} via relay failed, retrying in {:?}",
+                            attempt, node_id, delay
+                        );
+                        tokio::time::sleep(delay).await;
+                        delay = std::cmp::min(delay * 2, max_delay);
+                    }
+                }
+            }
+        }
+
+        Err(anyhow!(
+            "Failed to connect to {} via relay after {} attempts: {}",
+            node_id,
+            max_attempts,
+            last_error.map(|e| e.to_string()).unwrap_or_default()
+        ))
     }
 
     /// Get a connection handle for a peer
@@ -324,9 +410,7 @@ impl Transport {
         self.broadcast_bytes(&peers, data).await;
     }
 
-    // ========================================================================
     // Blob Operations (iroh-blobs)
-    // ========================================================================
 
     /// Add plaintext bytes to blob store for transfer
     ///
@@ -407,16 +491,14 @@ impl Transport {
     }
 }
 
-// ============================================================================
 // Connection Lifecycle Helper
-// ============================================================================
 
 /// Watch for connection close and emit Disconnected event
 ///
 /// **Context**: Monitors connection lifecycle for outgoing connections
 /// **We do**: Wait for close, then cleanup pool and emit event
 async fn connection_close_watcher(
-    conn: Connection,
+    conn: IrohQuicConnection,
     node_id: NodeId,
     event_tx: mpsc::Sender<TransportEvent>,
     pool: Arc<ConnectionPool>,
@@ -432,9 +514,7 @@ async fn connection_close_watcher(
     info!("Disconnected from: {}", node_id);
 }
 
-// ============================================================================
 // Mock Blob Store (for testing without real iroh-blobs)
-// ============================================================================
 
 /// Mock blob store for testing asset transfer without real iroh-blobs infrastructure
 ///

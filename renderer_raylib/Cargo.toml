@@ -1,0 +1,17 @@
+[package]
+name = "renderer_raylib"
+version = "0.1.0"
+edition = "2021"
+description = "Raylib renderer for games with immediate-mode drawing"
+
+[dependencies]
+raylib = "5.0"
+lua_runtime = { path = "../lua_runtime" }
+butler = { path = "../butler" }
+scribe = { path = "../scribe" }
+tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+mlua = { version = "0.10", features = ["lua54", "vendored", "async", "send"] }
+ractor = "0.14"

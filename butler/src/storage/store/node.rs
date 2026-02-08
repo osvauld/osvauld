@@ -3,14 +3,14 @@
 use redb::{ReadableTable, ReadableDatabase};
 use crate::error::{ButlerError, Result};
 use crate::models::{SovereignNode, OwnerInfo};
+use tracing::instrument;
 use super::{RedbStore, SOVEREIGN_NODES, OWNER_INFO};
 
 impl RedbStore {
-    // =========================================================================
     // Sovereign Node Operations (external nodes we connect to)
     // Key: {node_id} (iroh NodeId)
-    // =========================================================================
 
+    #[instrument(skip_all)]
     pub fn put_sovereign_node(&self, node: &SovereignNode) -> Result<()> {
         let value = bincode::serialize(node)
             .map_err(|e| ButlerError::Serialization(e.to_string()))?;
@@ -24,6 +24,7 @@ impl RedbStore {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub fn get_sovereign_node(&self, node_id: &str) -> Result<Option<SovereignNode>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(SOVEREIGN_NODES)?;
@@ -39,6 +40,7 @@ impl RedbStore {
         }
     }
 
+    #[instrument(skip_all)]
     pub fn delete_sovereign_node(&self, node_id: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let removed = {
@@ -50,6 +52,7 @@ impl RedbStore {
         Ok(removed)
     }
 
+    #[instrument(skip_all)]
     pub fn list_sovereign_nodes(&self) -> Result<Vec<SovereignNode>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(SOVEREIGN_NODES)?;
@@ -72,6 +75,7 @@ impl RedbStore {
         Ok(nodes)
     }
 
+    #[instrument(skip_all)]
     pub fn get_connected_sovereign_nodes(&self) -> Result<Vec<SovereignNode>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(SOVEREIGN_NODES)?;
@@ -97,6 +101,7 @@ impl RedbStore {
         Ok(nodes)
     }
 
+    #[instrument(skip_all)]
     pub fn set_sovereign_node_connected(&self, node_id: &str, connected: bool) -> Result<bool> {
         if let Some(mut node) = self.get_sovereign_node(node_id)? {
             node.set_connected(connected);
@@ -108,6 +113,7 @@ impl RedbStore {
     }
 
     /// Store the permit for this sovereign node (single permit for owner<->node)
+    #[instrument(skip_all)]
     pub fn set_sovereign_node_permit(&self, node_id: &str, permit: String) -> Result<bool> {
         if let Some(mut node) = self.get_sovereign_node(node_id)? {
             node.set_permit(permit);
@@ -122,6 +128,7 @@ impl RedbStore {
     ///
     /// **Context**: After setup_test_dbs, stored nodes may have invalid relay URLs.
     /// This updates the relay URL with the real one from running kunki.
+    #[instrument(skip_all)]
     pub fn update_sovereign_node_relay(&self, node_id: &str, relay_url: Option<String>) -> Result<bool> {
         if let Some(mut node) = self.get_sovereign_node(node_id)? {
             node.relay_url = relay_url;
@@ -132,12 +139,11 @@ impl RedbStore {
         }
     }
 
-    // =========================================================================
     // Owner Info Operations (Node side - stores info about the owner)
     // Key: "owner" (only one owner per node)
-    // =========================================================================
 
     /// Get the owner info (only one owner per node)
+    #[instrument(skip_all)]
     pub fn get_owner(&self) -> Result<Option<OwnerInfo>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(OWNER_INFO)?;
@@ -154,6 +160,7 @@ impl RedbStore {
     }
 
     /// Store owner info (only one owner per node)
+    #[instrument(skip_all)]
     pub fn set_owner(&self, owner: &OwnerInfo) -> Result<()> {
         let value = bincode::serialize(owner)
             .map_err(|e| ButlerError::Serialization(e.to_string()))?;
@@ -168,6 +175,7 @@ impl RedbStore {
     }
 
     /// Update the permit for owner<->node relationship
+    #[instrument(skip_all)]
     pub fn set_owner_permit(&self, permit: String) -> Result<bool> {
         if let Some(mut owner) = self.get_owner()? {
             owner.set_permit(permit);
@@ -179,6 +187,7 @@ impl RedbStore {
     }
 
     /// Update owner's last connected timestamp
+    #[instrument(skip_all)]
     pub fn update_owner_last_connected(&self) -> Result<bool> {
         if let Some(mut owner) = self.get_owner()? {
             owner.update_last_connected();
@@ -190,6 +199,7 @@ impl RedbStore {
     }
 
     /// Check if this node has an owner
+    #[instrument(skip_all)]
     pub fn has_owner(&self) -> Result<bool> {
         Ok(self.get_owner()?.is_some())
     }

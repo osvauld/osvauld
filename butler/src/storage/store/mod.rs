@@ -15,8 +15,7 @@ use crate::error::{ButlerError, Result};
 use redb::{Database, TableDefinition};
 use std::path::Path;
 use std::sync::Arc;
-
-// ==================== Table Definitions ====================
+use tracing::instrument;
 
 // Core tables
 pub(crate) const IDENTITY: TableDefinition<&str, &[u8]> = TableDefinition::new("identity");
@@ -47,7 +46,10 @@ pub(crate) const VIEWER_CONSENT_PAGE: TableDefinition<&str, &str> = TableDefinit
 pub(crate) const USER_PAGE_PERMITS: TableDefinition<&str, &str> = TableDefinition::new("user_page_permits");
 pub(crate) const USER_SPACE_PERMITS: TableDefinition<&str, &str> = TableDefinition::new("user_space_permits");
 
-// Legacy tables
+// Connection permits (for node → viewer reconnection)
+// Key: user_did → permit (issued by viewer during PermitGrant)
+pub(crate) const CONNECTION_PERMITS: TableDefinition<&str, &str> = TableDefinition::new("connection_permits");
+
 pub(crate) const DEVICES: TableDefinition<&str, &[u8]> = TableDefinition::new("devices");
 
 /// RedbStore - Main persistent storage using redb
@@ -57,6 +59,7 @@ pub struct RedbStore {
 
 impl RedbStore {
     /// Open or create a redb database at the given path
+    #[instrument(skip_all)]
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let db = Database::create(path)?;
 
@@ -92,6 +95,9 @@ impl RedbStore {
             let _ = write_txn.open_table(USER_PAGE_PERMITS)?;
             let _ = write_txn.open_table(USER_SPACE_PERMITS)?;
 
+            // Connection permits table
+            let _ = write_txn.open_table(CONNECTION_PERMITS)?;
+
             // Legacy tables
             let _ = write_txn.open_table(DEVICES)?;
         }
@@ -101,6 +107,7 @@ impl RedbStore {
     }
 
     /// Flush all pending writes to disk
+    #[instrument(skip_all)]
     pub fn flush(&self) -> Result<()> {
         // redb commits are durable by default
         Ok(())

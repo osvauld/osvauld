@@ -1,0 +1,18 @@
+{
+  "owner": {
+    "token_type": "page_owner",
+    "layers": {
+      "{page_id}/canvas": { "sync": true, "write": true },
+      "{page_id}/shapes": { "sync": true, "write": true },
+      "app:Canvas": { "sync": true, "write": true }
+    }
+  },
+  "collaborator": {
+    "token_type": "page_viewer",
+    "layers": {
+      "{page_id}/canvas": { "sync": true, "write": true },
+      "{page_id}/shapes": { "sync": true, "write": true },
+      "app:Canvas": { "sync": true, "write": false }
+    }
+  }
+}

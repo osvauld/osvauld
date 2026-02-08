@@ -50,11 +50,6 @@ pub fn decide_space_owner_token(
         decision.add_fact("sync".into(), sync.clone());
     }
 
-    // Copy delegation templates (legacy, prefer issue_on)
-    if let Some(delegation) = owner_template.get("delegation") {
-        decision.add_fact("delegation".into(), delegation.clone());
-    }
-
     // Copy issue_on templates (self-describing permits)
     if let Some(issue_on) = owner_template.get("issue_on") {
         decision.add_fact("issue_on".into(), issue_on.clone());
@@ -147,14 +142,24 @@ pub fn decide_page_owner_token(
         decision.add_fact("sync".into(), sync.clone());
     }
 
-    // Copy delegation templates (legacy, prefer issue_on)
-    if let Some(delegation) = owner_template.get("delegation") {
-        decision.add_fact("delegation".into(), delegation.clone());
-    }
-
     // Copy issue_on templates (self-describing permits)
     if let Some(issue_on) = owner_template.get("issue_on") {
         decision.add_fact("issue_on".into(), issue_on.clone());
+    }
+
+    // Copy peer_capabilities if present (needed for accept_publish, etc.)
+    if let Some(peer_capabilities) = owner_template.get("peer_capabilities") {
+        decision.add_fact("peer_capabilities".into(), peer_capabilities.clone());
+    }
+
+    // Copy presence if present (visibility, display name for /users layer)
+    if let Some(presence) = owner_template.get("presence") {
+        decision.add_fact("presence".into(), presence.clone());
+    }
+
+    // Copy ephemeral_funcs if present (allowed ephemeral function names)
+    if let Some(ephemeral_funcs) = owner_template.get("ephemeral_funcs") {
+        decision.add_fact("ephemeral_funcs".into(), ephemeral_funcs.clone());
     }
 
     Ok(decision)

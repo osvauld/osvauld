@@ -1,9 +1,4 @@
 //! LayerCache - In-memory cache for Layer instances
-//!
-//! Terminology:
-//! - Space: Container for Pages
-//! - Page: A sub-application instance
-//! - Layer: CRDT data containers (the actual collaborative state)
 
 use crate::error::{ButlerError, Result};
 use crate::storage::RedbStore;
@@ -11,18 +6,14 @@ use crate::models::Layer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use tracing::instrument;
 
 /// Cached Layer entry with metadata
 pub struct CachedLayer {
-    /// The layer (decrypted, in memory) - uses core's Layer wrapper
     pub layer: Layer,
-    /// Whether this layer has unsaved changes
     pub dirty: bool,
-    /// Last access time for LRU eviction
     pub last_accessed: Instant,
-    /// Page ID (needed for flush)
     pub page_id: String,
-    /// Layer name (needed for flush)
     pub layer_name: String,
 }
 
@@ -42,17 +33,7 @@ impl CachedLayer {
     }
 }
 
-/// In-memory cache for Layer instances
-///
-/// - Source of truth during runtime (decrypted layers)
-/// - Required for merge operations (can't merge encrypted bytes)
-/// - Uses core's Layer wrapper (never loro directly)
-/// - LRU eviction for memory management
-/// - Periodic flush to redb
-///
-/// ## Key Format
-/// Cache uses composite keys: `{page_id}/{layer_name}` internally.
-/// All layers for a page use the same AES key (from PageMeta.encrypted_key).
+/// In-memory cache for Layer instances with LRU eviction
 pub struct LayerCache {
     layers: HashMap<String, CachedLayer>,
     max_size: usize,
@@ -89,13 +70,7 @@ impl LayerCache {
     }
 
     /// Get a layer from cache (loading from redb if needed)
-    ///
-    /// # Arguments
-    /// * `page_id` - Page ID
-    /// * `layer_name` - Layer name (from permit template)
-    /// * `decrypt_fn` - Function to decrypt bytes from redb
-    ///
-    /// Returns None if layer doesn't exist in cache or redb
+    #[instrument(skip_all)]
     pub fn get<F>(
         &mut self,
         page_id: &str,
@@ -119,7 +94,7 @@ impl LayerCache {
         if let Some(encrypted_bytes) = self.store.get_layer(page_id, layer_name)? {
             let decrypted = decrypt_fn(&encrypted_bytes)?;
             let layer = Layer::from_snapshot(&decrypted)
-                .map_err(|e| ButlerError::Loro(e.to_string()))?;
+                .map_err(|e| ButlerError::loro_error(e.to_string()))?;
 
             // Evict if needed before inserting
             self.evict_if_needed();
@@ -134,9 +109,8 @@ impl LayerCache {
         Ok(None)
     }
 
-    /// Get a layer mutably for editing
-    ///
-    /// Automatically marks the layer as dirty.
+    /// Get a layer mutably for editing (marks as dirty)
+    #[instrument(skip_all)]
     pub fn get_mut<F>(
         &mut self,
         page_id: &str,
@@ -161,9 +135,7 @@ impl LayerCache {
         Ok(None)
     }
 
-    /// Insert a new layer into the cache
-    ///
-    /// The layer is marked dirty so it will be flushed to redb.
+    /// Insert a new layer into the cache (marked dirty)
     pub fn insert(&mut self, page_id: String, layer_name: String, layer: Layer) {
         self.evict_if_needed();
         let key = cache_key(&page_id, &layer_name);
@@ -198,8 +170,7 @@ impl LayerCache {
     }
 
     /// Apply update bytes to a layer (merge operation)
-    ///
-    /// Loads the layer if not in cache, applies the update, marks dirty.
+    #[instrument(skip_all)]
     pub fn apply_update<F>(
         &mut self,
         page_id: &str,
@@ -217,19 +188,17 @@ impl LayerCache {
 
         if let Some(entry) = self.layers.get_mut(&key) {
             entry.layer.apply(update)
-                .map_err(|e| ButlerError::Loro(e.to_string()))?;
+                .map_err(|e| ButlerError::loro_error(e.to_string()))?;
             entry.dirty = true;
             entry.touch();
             Ok(())
         } else {
-            Err(ButlerError::LayerNotFound(key))
+            Err(ButlerError::layer_not_found(&key))
         }
     }
 
     /// Flush all dirty layers to redb
-    ///
-    /// # Arguments
-    /// * `encrypt_fn` - Function to encrypt snapshot bytes before storing
+    #[instrument(skip_all)]
     pub fn flush_all<F>(&mut self, encrypt_fn: F) -> Result<usize>
     where
         F: Fn(&[u8]) -> Result<Vec<u8>>,
@@ -255,6 +224,7 @@ impl LayerCache {
     }
 
     /// Flush a single layer to redb
+    #[instrument(skip_all)]
     pub fn flush_layer<F>(
         &mut self,
         page_id: &str,

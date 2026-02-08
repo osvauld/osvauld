@@ -4,17 +4,29 @@
 
 use redb::{ReadableTable, ReadableDatabase};
 use crate::error::Result;
+use tracing::instrument;
 use super::{RedbStore, LAYERS};
 
 impl RedbStore {
     /// Store a layer with hierarchical key: {page_id}/{layer_name}
+    ///
+    /// Note: If layer_name already starts with page_id prefix, it's used as-is
+    /// to avoid double-prefixing (Scribe stores layers with full names).
+    #[instrument(skip_all)]
     pub fn put_layer(
         &self,
         page_id: &str,
         layer_name: &str,
         encrypted_bytes: &[u8],
     ) -> Result<()> {
-        let key = format!("{}/{}", page_id, layer_name);
+        let prefix = format!("{}/", page_id);
+        let key = if layer_name.starts_with(&prefix) {
+            // Layer name already includes page_id prefix - use as-is
+            layer_name.to_string()
+        } else {
+            // Layer name without prefix - prepend page_id
+            format!("{}/{}", page_id, layer_name)
+        };
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(LAYERS)?;
@@ -25,12 +37,20 @@ impl RedbStore {
     }
 
     /// Get a layer by page_id and layer_name
+    ///
+    /// Note: If layer_name already starts with page_id prefix, it's used as-is.
+    #[instrument(skip_all)]
     pub fn get_layer(
         &self,
         page_id: &str,
         layer_name: &str,
     ) -> Result<Option<Vec<u8>>> {
-        let key = format!("{}/{}", page_id, layer_name);
+        let prefix = format!("{}/", page_id);
+        let key = if layer_name.starts_with(&prefix) {
+            layer_name.to_string()
+        } else {
+            format!("{}/{}", page_id, layer_name)
+        };
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(LAYERS)?;
 
@@ -41,8 +61,16 @@ impl RedbStore {
     }
 
     /// Delete a specific layer
+    ///
+    /// Note: If layer_name already starts with page_id prefix, it's used as-is.
+    #[instrument(skip_all)]
     pub fn delete_layer(&self, page_id: &str, layer_name: &str) -> Result<bool> {
-        let key = format!("{}/{}", page_id, layer_name);
+        let prefix = format!("{}/", page_id);
+        let key = if layer_name.starts_with(&prefix) {
+            layer_name.to_string()
+        } else {
+            format!("{}/{}", page_id, layer_name)
+        };
         let write_txn = self.db.begin_write()?;
         let removed = {
             let mut table = write_txn.open_table(LAYERS)?;
@@ -54,6 +82,11 @@ impl RedbStore {
     }
 
     /// List all layer names for a page
+    ///
+    /// Returns layer names WITHOUT the page_id prefix.
+    /// Handles legacy double-prefixed keys ({page_id}/{page_id}/layer) by
+    /// stripping both prefixes.
+    #[instrument(skip_all)]
     pub fn list_layer_names(&self, page_id: &str) -> Result<Vec<String>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(LAYERS)?;
@@ -71,7 +104,12 @@ impl RedbStore {
             }
 
             // Extract layer_name from key
-            if let Some(layer_name) = key_str.strip_prefix(&prefix) {
+            if let Some(mut layer_name) = key_str.strip_prefix(&prefix) {
+                // Handle legacy double-prefix: if layer_name still starts with page_id/,
+                // strip it again to get the actual layer name
+                if let Some(fixed_name) = layer_name.strip_prefix(&prefix) {
+                    layer_name = fixed_name;
+                }
                 layer_names.push(layer_name.to_string());
             }
         }
@@ -79,6 +117,7 @@ impl RedbStore {
     }
 
     /// Delete all layers for a page
+    #[instrument(skip_all)]
     pub fn delete_all_layers(&self, page_id: &str) -> Result<usize> {
         let layer_names = self.list_layer_names(page_id)?;
         let count = layer_names.len();
@@ -96,6 +135,7 @@ impl RedbStore {
     }
 
     /// Check if a layer exists
+    #[instrument(skip_all)]
     pub fn layer_exists(&self, page_id: &str, layer_name: &str) -> Result<bool> {
         let key = format!("{}/{}", page_id, layer_name);
         let read_txn = self.db.begin_read()?;

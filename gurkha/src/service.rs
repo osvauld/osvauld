@@ -17,8 +17,6 @@ use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::SigningKey;
 use tracing::{info, instrument, trace};
 
-// ==================== CONNECTION TOKENS ====================
-
 /// Issue a one-time connection token
 ///
 /// Used for initial device pairing (QR codes, connection strings).
@@ -127,8 +125,6 @@ pub async fn issue_space_viewer_auth(
     Ok((token, cid))
 }
 
-// ==================== PAGE TOKENS ====================
-
 /// Issue page owner token
 ///
 /// Creates a self-signed permit for the page owner with full permissions.
@@ -220,7 +216,6 @@ pub async fn delegate_page(
         &page_id,
         "page",
         audience_pubkey,
-        Some(delegator_token),
     )?;
 
     // Use builder to create token
@@ -229,8 +224,6 @@ pub async fn delegate_page(
 
     Ok((token, cid))
 }
-
-// ==================== SPACE TOKENS ====================
 
 /// Issue space owner token
 ///
@@ -354,7 +347,6 @@ pub async fn delegate_space(
         &space_id,
         "space",
         audience_pubkey,
-        Some(delegator_token),
     )?;
 
     // Use builder to create token
@@ -363,8 +355,6 @@ pub async fn delegate_space(
 
     Ok((token, cid))
 }
-
-// ==================== EXTRACTION & UTILITIES ====================
 
 /// Get public key from signing key bytes
 pub fn get_public_key(signing_key_bytes: &[u8; 32]) -> String {
@@ -402,8 +392,6 @@ impl From<crate::decision::DelegationDecision> for crate::decision::TokenDecisio
         }
     }
 }
-
-// ==================== SYNC CONSENT TOKENS ====================
 
 /// Issue a space sync consent permit
 ///

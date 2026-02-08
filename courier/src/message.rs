@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Protocol messages for peer-to-peer communication
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
-    // ==================== Handshake ====================
+    // --- Handshake ---
 
     /// Initial handshake from connecting peer
     ///
@@ -60,7 +60,7 @@ pub enum Message {
     /// Connection/request rejected
     Rejected { reason: String },
 
-    // ==================== Sync Protocol (3-Step) ====================
+    // --- Sync Protocol (3-Step) ---
 
     /// Sync offer: update data + sender's state vector
     ///
@@ -112,7 +112,39 @@ pub enum Message {
         state_vector: Vec<u8>,
     },
 
-    // ==================== Asset Sync (iroh-blobs) ====================
+    /// Request full snapshot replacement after max resyncs exceeded
+    ///
+    /// **Context**: Sync divergence couldn't be resolved after MAX_RESYNC_ATTEMPTS
+    /// **User mode**: Sends this to node to request authoritative snapshot
+    /// **Node mode**: Responds with SyncSnapshot containing full layer state
+    ///
+    /// **Invariant**: Node is source of truth - user accepts node's full state
+    SyncReset {
+        /// Page ID
+        page_id: String,
+        /// Layer name
+        layer_name: String,
+    },
+
+    /// Response to SyncReset - full layer snapshot
+    ///
+    /// **Context**: Node sends authoritative layer snapshot to resolve divergence
+    /// **User mode**: Replaces local layer entirely with this snapshot
+    /// **Result**: Vectors guaranteed to match after apply
+    SyncSnapshot {
+        /// Page ID
+        page_id: String,
+        /// Layer name
+        layer_name: String,
+        /// Full Loro snapshot (not incremental update)
+        snapshot: Vec<u8>,
+        /// State vector after snapshot (for verification)
+        state_vector: Vec<u8>,
+        /// Ephemeral X25519 public key for ECDH decryption
+        ephemeral_public: [u8; 32],
+    },
+
+    // --- Asset Sync (iroh-blobs) ---
 
     /// Request peer to prepare an asset for transfer
     ///
@@ -154,7 +186,7 @@ pub enum Message {
         error: Option<String>,
     },
 
-    // ==================== Publishing (Owner → Node) ====================
+    // --- Publishing (Owner → Node) ---
 
     /// Owner publishes a space to node (send first)
     ///
@@ -218,7 +250,7 @@ pub enum Message {
         error: String,
     },
 
-    // ==================== Shareable Links ====================
+    // --- Shareable Links ---
 
     /// Request shareable link for a space (Owner → Node)
     ///
@@ -240,7 +272,7 @@ pub enum Message {
         permit: String,
     },
 
-    // ==================== Viewer Space Request ====================
+    // --- Viewer Space Request ---
 
     /// Viewer requests space content from node (Viewer → Node)
     ///
@@ -317,7 +349,7 @@ pub enum Message {
         error: String,
     },
 
-    // ==================== Sync Consent (Viewer → Node) ====================
+    // --- Sync Consent (Viewer → Node) ---
 
     /// Viewer grants sync consent permits to node (Viewer → Node)
     ///
@@ -350,7 +382,7 @@ pub enum Message {
         space_id: String,
     },
 
-    // ==================== Errors ====================
+    // --- Errors ---
 
     /// Error response
     Error {
@@ -375,6 +407,8 @@ impl Message {
             Message::SyncOffer { .. } => "SyncOffer",
             Message::SyncAccept { .. } => "SyncAccept",
             Message::SyncAck { .. } => "SyncAck",
+            Message::SyncReset { .. } => "SyncReset",
+            Message::SyncSnapshot { .. } => "SyncSnapshot",
             Message::AssetPrepare { .. } => "AssetPrepare",
             Message::AssetReady { .. } => "AssetReady",
             Message::AssetAck { .. } => "AssetAck",
@@ -407,7 +441,7 @@ impl Message {
     }
 }
 
-// ==================== Publishing Types ====================
+// --- Publishing Types ---
 
 /// Space metadata for publishing (transport-layer representation)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -505,7 +539,7 @@ impl ConnectionString {
     }
 }
 
-// ==================== Ephemeral Datagram (Simplified) ====================
+// --- Ephemeral Datagram (Simplified) ---
 
 /// Ephemeral datagram - opaque payload routed by page_id
 ///
@@ -542,6 +576,7 @@ impl EphemeralDatagram {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn test_ephemeral_datagram_serialization() {
@@ -579,5 +614,175 @@ mod tests {
             }
             _ => panic!("Wrong message type"),
         }
+    }
+
+    // --- Property-Based Tests ---
+
+    prop_compose! {
+        fn arb_ephemeral_datagram()(
+            page_id in "[a-z0-9]{8,16}",
+            payload in prop::collection::vec(any::<u8>(), 0..100),
+        ) -> EphemeralDatagram {
+            EphemeralDatagram { page_id, payload }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_ephemeral_roundtrip(datagram in arb_ephemeral_datagram()) {
+            let serialized = datagram.to_bytes().unwrap();
+            let deserialized = EphemeralDatagram::from_bytes(&serialized).unwrap();
+            prop_assert_eq!(datagram.page_id, deserialized.page_id);
+            prop_assert_eq!(datagram.payload, deserialized.payload);
+        }
+    }
+
+    prop_compose! {
+        fn arb_hello()(
+            did in "[a-z0-9:]{10,30}",
+            username in "[a-zA-Z]{3,12}",
+            public_key in prop::array::uniform32(any::<u8>()),
+            encryption_key in prop::array::uniform32(any::<u8>()),
+            signature in prop::collection::vec(any::<u8>(), 32..64),
+            timestamp in any::<i64>(),
+            permit in "[a-zA-Z0-9]{20,50}",
+        ) -> Message {
+            Message::Hello { did, username, public_key, encryption_key, signature, timestamp, permit }
+        }
+    }
+
+    prop_compose! {
+        fn arb_sync_offer()(
+            page_id in "[a-z0-9]{8,16}",
+            layer_name in "[a-z0-9/_]{4,20}",
+            data in prop::collection::vec(any::<u8>(), 0..100),
+            state_vector in prop::collection::vec(any::<u8>(), 0..50),
+            ephemeral_public in prop::array::uniform32(any::<u8>()),
+            permit in "[a-zA-Z0-9]{20,50}",
+        ) -> Message {
+            Message::SyncOffer { page_id, layer_name, data, state_vector, ephemeral_public, permit }
+        }
+    }
+
+    prop_compose! {
+        fn arb_sync_accept()(
+            page_id in "[a-z0-9]{8,16}",
+            layer_name in "[a-z0-9/_]{4,20}",
+            state_vector in prop::collection::vec(any::<u8>(), 0..50),
+        ) -> Message {
+            Message::SyncAccept { page_id, layer_name, state_vector }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn test_hello_roundtrip(msg in arb_hello()) {
+            let serialized = bincode::serialize(&msg).unwrap();
+            let deserialized: Message = bincode::deserialize(&serialized).unwrap();
+            if let (
+                Message::Hello { did: d1, username: u1, permit: p1, public_key: pk1, encryption_key: ek1, timestamp: t1, .. },
+                Message::Hello { did: d2, username: u2, permit: p2, public_key: pk2, encryption_key: ek2, timestamp: t2, .. }
+            ) = (&msg, &deserialized) {
+                prop_assert_eq!(d1, d2);
+                prop_assert_eq!(u1, u2);
+                prop_assert_eq!(p1, p2);
+                prop_assert_eq!(pk1, pk2);
+                prop_assert_eq!(ek1, ek2);
+                prop_assert_eq!(t1, t2);
+            } else {
+                prop_assert!(false, "Deserialization changed message type");
+            }
+        }
+
+        #[test]
+        fn test_sync_offer_roundtrip(msg in arb_sync_offer()) {
+            let serialized = bincode::serialize(&msg).unwrap();
+            let deserialized: Message = bincode::deserialize(&serialized).unwrap();
+            if let (
+                Message::SyncOffer { page_id: p1, layer_name: l1, data: d1, state_vector: sv1, ephemeral_public: ep1, permit: pmt1 },
+                Message::SyncOffer { page_id: p2, layer_name: l2, data: d2, state_vector: sv2, ephemeral_public: ep2, permit: pmt2 }
+            ) = (&msg, &deserialized) {
+                prop_assert_eq!(p1, p2);
+                prop_assert_eq!(l1, l2);
+                prop_assert_eq!(d1, d2);
+                prop_assert_eq!(sv1, sv2);
+                prop_assert_eq!(ep1, ep2);
+                prop_assert_eq!(pmt1, pmt2);
+            } else {
+                prop_assert!(false, "Deserialization changed message type");
+            }
+        }
+
+        #[test]
+        fn test_sync_accept_roundtrip(msg in arb_sync_accept()) {
+            let serialized = bincode::serialize(&msg).unwrap();
+            let deserialized: Message = bincode::deserialize(&serialized).unwrap();
+            if let (
+                Message::SyncAccept { page_id: p1, layer_name: l1, state_vector: sv1 },
+                Message::SyncAccept { page_id: p2, layer_name: l2, state_vector: sv2 }
+            ) = (&msg, &deserialized) {
+                prop_assert_eq!(p1, p2);
+                prop_assert_eq!(l1, l2);
+                prop_assert_eq!(sv1, sv2);
+            } else {
+                prop_assert!(false, "Deserialization changed message type");
+            }
+        }
+    }
+
+    // --- Message Name Tests ---
+
+    #[test]
+    fn test_message_names_are_unique() {
+        // Create representative messages for each variant
+        let messages: Vec<Message> = vec![
+            Message::Hello {
+                did: "did".to_string(),
+                username: "u".to_string(),
+                public_key: [0; 32],
+                encryption_key: [0; 32],
+                signature: vec![],
+                timestamp: 0,
+                permit: "p".to_string(),
+            },
+            Message::Welcome {
+                node_id: "n".to_string(),
+                node_public_key: [0; 32],
+                node_encryption_key: [0; 32],
+                signature: vec![],
+                timestamp: 0,
+                permit_for_peer: "p".to_string(),
+            },
+            Message::PermitGrant { permit_for_node: "p".to_string() },
+            Message::Ack,
+            Message::Rejected { reason: "r".to_string() },
+            Message::SyncOffer {
+                page_id: "p".to_string(),
+                layer_name: "l".to_string(),
+                data: vec![],
+                state_vector: vec![],
+                ephemeral_public: [0; 32],
+                permit: "p".to_string(),
+            },
+            Message::SyncAccept {
+                page_id: "p".to_string(),
+                layer_name: "l".to_string(),
+                state_vector: vec![],
+            },
+            Message::SyncAck {
+                page_id: "p".to_string(),
+                layer_name: "l".to_string(),
+                state_vector: vec![],
+            },
+            Message::Error {
+                id: None,
+                code: ErrorCode::Internal,
+                message: "e".to_string(),
+            },
+        ];
+
+        let names: Vec<&str> = messages.iter().map(|m| m.name()).collect();
+        let unique_names: std::collections::HashSet<&str> = names.iter().cloned().collect();
+        assert_eq!(names.len(), unique_names.len(), "Message names should be unique");
     }
 }

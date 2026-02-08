@@ -67,10 +67,6 @@ impl KeyMaterial for Ed25519KeyMaterial {
 
 /// Sign a permit token based on a decision structure
 ///
-/// FACTS-ONLY ARCHITECTURE (v3):
-/// All authorization is stored in the facts field. The capabilities vec should be empty.
-/// The decision layer (decision.rs) ensures this by never adding URI capabilities.
-///
 /// # Arguments
 /// * `signing_key_bytes` - 32-byte Ed25519 secret key
 /// * `decision` - Token decision containing audience, facts, etc.
@@ -98,14 +94,10 @@ pub async fn sign_permit(
 
 /// Generate a permit token with its CID hash
 ///
-/// # Permit v3 Architecture Note
-/// The `capabilities` parameter exists for UCAN spec compliance but should be empty in v3.
-/// All authorization is stored in the `facts` field using CEL-based rules.
-///
 /// # Arguments
 /// * `signing_key_bytes` - 32-byte Ed25519 secret key
-/// * `capabilities` - Should be empty vec in v3 (all auth in facts)
-/// * `facts` - Contains all authorization: operations, documents, cel_rules, etc.
+/// * `capabilities` - UCAN capabilities (typically empty - auth is in facts)
+/// * `facts` - Contains all authorization: operations, auth_capabilities, presence, etc.
 pub async fn generate_permit_with_cid(
     signing_key_bytes: &[u8; 32],
     audience: &str,
@@ -136,7 +128,7 @@ pub async fn generate_permit_with_cid(
     }
 
     // 5. Add facts (v3: contains all authorization)
-    // Facts structure: operations, documents, cel_rules, relationship, auth_capabilities, etc.
+    // Facts structure: operations, relationship, auth_capabilities, peer_capabilities, presence, etc.
     let mut facts_map = facts.unwrap_or_default();
 
     // Add prf_tokens if not empty (extension for self-contained validation)

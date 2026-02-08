@@ -101,11 +101,11 @@ local colors = {
 -- =============================================================================
 
 function on_init()
-    page_id = permit:page_id()
+    page_id = scribe:page_id()
 
-    -- Get or create Loro layers
-    shapes_layer = loro:get_or_create_layer(page_id .. "/shapes", "map")
-    connectors_layer = loro:get_or_create_layer(page_id .. "/connectors", "map")
+    -- Get or create layers
+    shapes_layer = scribe:map(page_id .. "/shapes")
+    connectors_layer = scribe:map(page_id .. "/connectors")
 
     -- Load from Loro into graph
     load_from_loro()
@@ -140,9 +140,8 @@ end
 -- LORO CHANGE HANDLER
 -- =============================================================================
 
-function on_loro_change(layer_name, delta, full_data)
+function on_loro_change(layer_name, ops)
     if layer_name:match("/shapes$") or layer_name:match("/connectors$") then
-        -- Reload from Loro (could be optimized to apply delta only)
         graph.shapes = {}
         graph.connectors = {}
         graph.roots = {}

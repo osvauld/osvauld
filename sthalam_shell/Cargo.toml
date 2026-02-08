@@ -1,0 +1,27 @@
+[package]
+name = "sthalam_shell"
+version = "0.1.0"
+edition = "2021"
+description = "Platform shell UI (app list, spaces, pages, nodes) - Slint compiled"
+
+[features]
+default = []
+
+[dependencies]
+slint = { version = "1.14", features = ["backend-winit", "renderer-femtovg"] }
+# NO slint-interpreter (shell uses compiled Slint only)
+# NO lua_runtime (shell doesn't run Lua)
+butler = { path = "../butler" }
+courier = { path = "../courier" }
+herald = { path = "../herald" }
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+tracing = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5.0"
+i-slint-backend-testing = "1.14"
+arboard = "3"
+rfd = "0.15"
+
+[build-dependencies]
+slint-build = "1.14"

@@ -53,32 +53,52 @@
                 "sync": true,
                 "write": true
             },
-            "app:Group Chat": {
+            "{page_id}/app:Group Chat": {
                 "type": "map",
                 "sync": true,
                 "write": true
             },
-            "app:Snake Game": {
+            "{page_id}/app:Snake Game": {
                 "type": "map",
                 "sync": true,
                 "write": true
             },
-            "app:Math Simulation": {
+            "{page_id}/app:Math Simulation": {
                 "type": "map",
                 "sync": true,
                 "write": true
             },
-            "app:Sthalam Guide": {
+            "{page_id}/app:Sthalam Guide": {
                 "type": "map",
                 "sync": true,
                 "write": true
             },
-            "app:Tank Game": {
+            "{page_id}/app:Tank Game": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/app:Tank Raylib": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/app:Snake Raylib": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/presence": {
                 "type": "map",
                 "sync": true,
                 "write": true
             }
         },
+        "presence": {
+            "visible": true,
+            "can_see_others": true
+        },
+        "ephemeral_funcs": ["typing", "player", "bullet", "enemies", "score", "stage", "restart_request"],
         "issue_on": {
             "node": {
                 "token_type": "page_share",
@@ -132,30 +152,45 @@
                         "sync": true,
                         "write": true
                     },
-                    "app:Group Chat": {
+                    "{page_id}/app:Group Chat": {
                         "type": "map",
                         "sync": true,
                         "write": false
                     },
-                    "app:Snake Game": {
+                    "{page_id}/app:Snake Game": {
                         "type": "map",
                         "sync": true,
                         "write": false
                     },
-                    "app:Math Simulation": {
+                    "{page_id}/app:Math Simulation": {
                         "type": "map",
                         "sync": true,
                         "write": false
                     },
-                    "app:Sthalam Guide": {
+                    "{page_id}/app:Sthalam Guide": {
                         "type": "map",
                         "sync": true,
                         "write": false
                     },
-                    "app:Tank Game": {
+                    "{page_id}/app:Tank Game": {
                         "type": "map",
                         "sync": true,
                         "write": false
+                    },
+                    "{page_id}/app:Tank Raylib": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
+                    },
+                    "{page_id}/app:Snake Raylib": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
+                    },
+                    "{page_id}/presence": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
                     }
                 },
                 "auth_capabilities": {
@@ -218,36 +253,56 @@
                                 "sync": true,
                                 "write": true
                             },
-                            "app:Group Chat": {
+                            "{page_id}/app:Group Chat": {
                                 "type": "map",
                                 "sync": true,
                                 "write": false
                             },
-                            "app:Snake Game": {
+                            "{page_id}/app:Snake Game": {
                                 "type": "map",
                                 "sync": true,
                                 "write": false
                             },
-                            "app:Math Simulation": {
+                            "{page_id}/app:Math Simulation": {
                                 "type": "map",
                                 "sync": true,
                                 "write": false
                             },
-                            "app:Sthalam Guide": {
+                            "{page_id}/app:Sthalam Guide": {
                                 "type": "map",
                                 "sync": true,
                                 "write": false
                             },
-                            "app:Tank Game": {
+                            "{page_id}/app:Tank Game": {
                                 "type": "map",
                                 "sync": true,
                                 "write": false
+                            },
+                            "{page_id}/app:Tank Raylib": {
+                                "type": "map",
+                                "sync": true,
+                                "write": false
+                            },
+                            "{page_id}/app:Snake Raylib": {
+                                "type": "map",
+                                "sync": true,
+                                "write": false
+                            },
+                            "{page_id}/presence": {
+                                "type": "map",
+                                "sync": true,
+                                "write": true
                             }
                         },
                         "auth_capabilities": {
                             "can_connect": true,
                             "sync_enabled": true
                         },
+                        "presence": {
+                            "visible": true,
+                            "can_see_others": true
+                        },
+                        "ephemeral_funcs": ["typing", "player", "bullet", "enemies", "score", "stage", "restart_request"],
                         "relationship": "collaborator"
                     }
                 }
@@ -303,12 +358,22 @@
                         "type": "map",
                         "sync": true,
                         "write": true
+                    },
+                    "{page_id}/presence": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
                     }
                 },
                 "auth_capabilities": {
                     "can_connect": true,
                     "sync_enabled": true
                 },
+                "presence": {
+                    "visible": true,
+                    "can_see_others": true
+                },
+                "ephemeral_funcs": ["typing", "player", "bullet", "enemies", "score", "stage", "restart_request"],
                 "relationship": "collaborator"
             }
         }
@@ -345,31 +410,48 @@
                 "sync": true,
                 "write": true
             },
-            "app:Group Chat": {
+            "{page_id}/app:Group Chat": {
                 "sync": true,
                 "write": false
             },
-            "app:Snake Game": {
+            "{page_id}/app:Snake Game": {
                 "sync": true,
                 "write": false
             },
-            "app:Math Simulation": {
+            "{page_id}/app:Math Simulation": {
                 "sync": true,
                 "write": false
             },
-            "app:Sthalam Guide": {
+            "{page_id}/app:Sthalam Guide": {
                 "sync": true,
                 "write": false
             },
-            "app:Tank Game": {
+            "{page_id}/app:Tank Game": {
                 "sync": true,
                 "write": false
+            },
+            "{page_id}/app:Tank Raylib": {
+                "sync": true,
+                "write": false
+            },
+            "{page_id}/app:Snake Raylib": {
+                "sync": true,
+                "write": false
+            },
+            "{page_id}/presence": {
+                "sync": true,
+                "write": true
             }
         },
         "auth_capabilities": {
             "accept_sync": true,
             "can_send": true
         },
+        "presence": {
+            "visible": true,
+            "can_see_others": true
+        },
+        "ephemeral_funcs": ["typing", "player", "bullet", "enemies", "score", "stage", "restart_request"],
         "relationship": "sync_consent"
     }
 }

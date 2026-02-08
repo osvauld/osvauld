@@ -1,0 +1,44 @@
+[package]
+name = "scribe"
+version = "0.1.0"
+edition = "2021"
+description = "Scribe actor - CRDT document management with Loro"
+license = "MIT"
+
+[dependencies]
+# Domain models
+domains = { path = "../domains" }
+
+# Note: Lua validation moved to kunki/ValidationService (via lua_runtime crate)
+
+# Actor framework
+ractor = "0.14"
+
+# Async
+tokio = { version = "1", features = ["sync", "time"] }
+
+# CRDT
+loro = "1.5.4"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+tracing = "0.1"
+logging_utils = { path = "../logging_utils" }
+
+# Permit validation
+gurkha = { path = "../gurkha" }
+
+# Identity (for DID conversion from base64 pubkey)
+herald = { path = "../herald" }
+
+# Base64 encoding for binary data
+base64 = "0.22"
+
+[dev-dependencies]
+# Property-based testing
+proptest = "1.4"
+# Gurkha test support (test fixtures)
+gurkha = { path = "../gurkha", features = ["test-support"] }

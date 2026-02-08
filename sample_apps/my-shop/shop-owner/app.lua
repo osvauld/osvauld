@@ -1,12 +1,14 @@
 -- Shop Owner App Logic
 -- Manages products and processes customer orders
 -- Uses Event Bus pattern for unified human/AI interaction
+--
+-- MIGRATED to scribe:bind() declarative API
+-- No more: on_loro_change, on_layer_discovered, refresh_*_ui, order_layers tracking
 
 -- Local state
 local page_id = nil
 local products_layer = nil       -- synced products list
 local orders_summary_layer = nil -- Derived layer (aggregated orders)
-local order_layers = {}          -- Map of user_did -> orders_layer (for writing)
 
 -- Form state tracking (synced with UI via Event Bus)
 local form_state = {
@@ -18,67 +20,45 @@ local form_state = {
 
 -- Initialize the app
 function on_init()
-    page_id = permit:page_id()
-    products_layer = loro:get_or_create_layer(page_id .. "/products", "list")
-    refresh_products_ui()
+    page_id = scribe:page_id()
 
-    -- Subscribe to derived orders_summary layer
-    local summary_layer_name = page_id .. "/derived/orders_summary"
-    orders_summary_layer = loro:get_layer(summary_layer_name, "map")
+    -- Get layer references for writing
+    products_layer = scribe:list(page_id .. "/products")
+    orders_summary_layer = scribe:map(page_id .. "/derived/orders_summary")
 
-    -- Track source layers for writing (when owner updates status)
-    local pattern = page_id .. "/orders/*"
-    local layers = loro:list_layers(pattern)
-    for _, layer_name in ipairs(layers) do
-        local orders_layer = loro:get_layer(layer_name, "list")
-        if orders_layer then
-            local user_did = layer_name:match("/orders/(.+)$")
-            if user_did then
-                order_layers[user_did] = orders_layer
-            end
+    -- Declarative bindings: layer data auto-syncs to UI properties
+    -- Uses 'key' option for surgical updates (only changed products update)
+    scribe:bind("products", "products", {
+        key = "id",  -- Stable identity for surgical updates
+        transform = function(p)
+            return {
+                id = p.id or "",
+                name = p.name or "",
+                price = p.price or 0,
+                description = p.description or "",
+                stock = p.stock or 0
+            }
         end
-    end
+    })
 
-    refresh_orders_ui()
-end
-
--- Called when any Loro layer changes
-function on_loro_change(layer_name, change_type)
-    if layer_name == page_id .. "/products" then
-        refresh_products_ui()
-    elseif layer_name:match("/derived/orders_summary$") then
-        refresh_orders_ui()
-    elseif layer_name:match("/orders/") then
-        refresh_orders_ui()
-    end
-end
-
--- Called when a new layer is discovered
-function on_layer_discovered(layer_name)
-    log_info("on_layer_discovered: " .. layer_name)
-
-    local summary_layer_name = page_id .. "/derived/orders_summary"
-    if layer_name == summary_layer_name then
-        log_info("  -> orders_summary layer discovered!")
-        orders_summary_layer = loro:get_layer(layer_name, "map")
-        if orders_summary_layer then
-            refresh_orders_ui()
+    -- Orders binding with key for surgical updates
+    -- NOTE: Sorting is done in Slint UI, not here (enables stable indices)
+    scribe:bind("orders", "derived/orders_summary", {
+        key = "id",
+        transform = function(o)
+            return {
+                id = o.id or "",
+                customer_did = o.customer or "",
+                items = "",
+                quantity = o.item_count or 0,
+                notes = "",
+                shipping_address = "",
+                status = o.status or "",
+                total = o.total or 0,
+                created_at = o.created_at or ""
+            }
         end
-        return
-    end
-
-    local expected_prefix = page_id .. "/orders/"
-    if layer_name:sub(1, #expected_prefix) == expected_prefix then
-        log_info("  -> customer orders layer discovered!")
-        local orders_layer = loro:get_layer(layer_name, "list")
-        if orders_layer then
-            local user_did = layer_name:match("/orders/(.+)$")
-            if user_did then
-                log_info("  -> tracking orders for: " .. user_did)
-                order_layers[user_did] = orders_layer
-            end
-        end
-    end
+    })
 end
 
 -- ============================================================================
@@ -173,7 +153,9 @@ function update_order_status(customer_did, order_id, new_status)
         return
     end
 
-    local orders_layer = order_layers[customer_did]
+    -- Get the orders layer for this customer (on demand, no pre-tracking needed)
+    local orders_layer_name = page_id .. "/orders/" .. customer_did
+    local orders_layer = scribe:list(orders_layer_name)
     if not orders_layer then return end
 
     local len = orders_layer:length()
@@ -225,57 +207,6 @@ function add_product_via_ui(name, price, description, stock)
 end
 
 -- ============================================================================
--- UI REFRESH
--- ============================================================================
-
-function refresh_products_ui()
-    local products = {}
-    if products_layer then
-        local len = products_layer:length()
-        for i = 0, len - 1 do
-            local product = products_layer:get(i)
-            if product then
-                table.insert(products, {
-                    id = product.id or "",
-                    name = product.name or "",
-                    price = product.price or 0,
-                    description = product.description or "",
-                    stock = product.stock or 0
-                })
-            end
-        end
-    end
-    ui:set("products", products)
-end
-
-function refresh_orders_ui()
-    local all_orders = {}
-    if orders_summary_layer then
-        local keys = orders_summary_layer:keys()
-        for _, order_id in ipairs(keys) do
-            local order = orders_summary_layer:get(order_id)
-            if order then
-                table.insert(all_orders, {
-                    id = order.id or "",
-                    customer_did = order.customer or "",
-                    items = "",
-                    quantity = order.item_count or 0,
-                    notes = "",
-                    shipping_address = "",
-                    status = order.status or "",
-                    total = order.total or 0,
-                    created_at = order.created_at or ""
-                })
-            end
-        end
-    end
-    table.sort(all_orders, function(a, b)
-        return a.created_at > b.created_at
-    end)
-    ui:set("orders", all_orders)
-end
-
--- ============================================================================
 -- TEST HELPERS
 -- ============================================================================
 
@@ -288,19 +219,11 @@ end
 
 -- Debug helper: check internal state
 function debug_state()
-    local order_layers_count = 0
-    local order_layers_keys = {}
-    for k, _ in pairs(order_layers) do
-        order_layers_count = order_layers_count + 1
-        table.insert(order_layers_keys, k)
-    end
     return {
         page_id = page_id,
         has_products_layer = products_layer ~= nil,
         has_orders_summary_layer = orders_summary_layer ~= nil,
-        order_layers_count = order_layers_count,
-        order_layers_keys = order_layers_keys,
-        all_layers = loro:list_layers("*")
+        all_layers = scribe:list_layers("*")
     }
 end
 

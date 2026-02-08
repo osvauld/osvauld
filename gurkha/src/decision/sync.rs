@@ -70,19 +70,14 @@ pub fn should_send_updates(context: &SyncContext, layer_name: &str) -> SyncDecis
     SyncDecision::DontSend
 }
 
-/// Simple pattern matching for layer names
+/// Pattern matching for layer names (delegates to parser::matches_wildcard)
 fn matches_pattern(layer_name: &str, pattern: &str) -> bool {
-    // Split into parts and compare
-    let layer_parts: Vec<&str> = layer_name.split('/').collect();
-    let pattern_parts: Vec<&str> = pattern.split('/').collect();
-
-    if layer_parts.len() != pattern_parts.len() {
-        return false;
-    }
-
-    layer_parts.iter().zip(pattern_parts.iter()).all(|(layer, pat)| {
-        *pat == "*" || pat.starts_with('{') || layer == pat
-    })
+    // Treat placeholders like {aud} as wildcards for unexpanded patterns
+    let normalized = pattern
+        .replace("{page_id}", "*")
+        .replace("{aud}", "*")
+        .replace("{iss}", "*");
+    crate::parser::matches_wildcard(layer_name, &normalized)
 }
 
 /// Check if we can receive updates for a layer
@@ -127,4 +122,55 @@ pub fn should_request_updates(context: &SyncContext, layer_name: &str) -> SyncDe
         tracing::info!("🚫 [should_request_updates] '{}' → DontRequest", layer_name);
         SyncDecision::DontSend
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_strategies::*;
+    use proptest::prelude::*;
+
+    // matches_pattern: Placeholder-to-wildcard conversion
+
+    proptest! {
+        /// Patterns with placeholders are normalized to wildcards
+        #[test]
+        fn matches_pattern_normalizes_placeholders(
+            seg1 in segment_strategy(),
+            seg2 in segment_strategy(),
+            seg3 in segment_strategy(),
+        ) {
+            let layer = format!("{}/{}/{}", seg1, seg2, seg3);
+
+            // {page_id} becomes * - pattern matches any first segment
+            let pattern_page_id = format!("{{page_id}}/{}/{}", seg2, seg3);
+            prop_assert!(matches_pattern(&layer, &pattern_page_id),
+                "Pattern with {{page_id}} should match via wildcard conversion");
+
+            // {aud} becomes * - pattern matches any middle segment
+            let pattern_aud = format!("{}/{{aud}}/{}", seg1, seg3);
+            prop_assert!(matches_pattern(&layer, &pattern_aud),
+                "Pattern with {{aud}} should match via wildcard conversion");
+
+            // {iss} becomes * - pattern matches any last segment
+            let pattern_iss = format!("{}/{}/{{iss}}", seg1, seg2);
+            prop_assert!(matches_pattern(&layer, &pattern_iss),
+                "Pattern with {{iss}} should match via wildcard conversion");
+        }
+
+        /// Multiple placeholders all become wildcards
+        #[test]
+        fn matches_pattern_multiple_placeholders(
+            seg1 in segment_strategy(),
+            seg2 in segment_strategy(),
+            seg3 in segment_strategy(),
+        ) {
+            let layer = format!("{}/{}/{}", seg1, seg2, seg3);
+
+            // All placeholders become wildcards
+            prop_assert!(matches_pattern(&layer, "{page_id}/{aud}/{iss}"),
+                "All placeholders should become wildcards");
+        }
+    }
+
 }

@@ -210,9 +210,7 @@ pub fn change_passphrase(
     encrypt_identity(&identity, new_passphrase)
 }
 
-// =============================================================================
 // Internal helpers
-// =============================================================================
 
 fn derive_key_argon2(
     passphrase: &str,
@@ -230,6 +228,14 @@ fn derive_key_argon2(
     argon2
         .hash_password_into(passphrase.as_bytes(), salt, &mut output)
         .map_err(|e| HeraldError::KeyDerivation(e.to_string()))?;
+
+    // Argon2 allocates m_cost KiB (default 64 MB) internally for hashing.
+    // glibc doesn't return those pages to the OS after freeing.
+    // Force the allocator to release them now.
+    #[cfg(target_os = "linux")]
+    unsafe {
+        libc::malloc_trim(0);
+    }
 
     Ok(output)
 }

@@ -10,12 +10,13 @@ use crate::error::{ButlerError, Result};
 use crate::models::AssetMetadata;
 use crate::storage::AssetStore;
 use herald::Identity;
-use tracing::info;
+use tracing::{info, instrument};
 
 /// Derive an asset-specific encryption key from page key and asset hash
 ///
 /// Uses HKDF to derive a unique key per asset, so each asset has its own encryption key.
 /// This prevents issues if the same plaintext is uploaded to different pages.
+#[instrument(skip_all)]
 fn derive_asset_key(page_key: &[u8; 32], asset_hash: &str) -> [u8; 32] {
     let info = format!("osvauld-asset-key-v1:{}", asset_hash);
     herald::derive_key(page_key, None, info.as_bytes())
@@ -41,6 +42,7 @@ fn derive_asset_key(page_key: &[u8; 32], asset_hash: &str) -> [u8; 32] {
 ///
 /// # Returns
 /// AssetMetadata ready to be stored in Loro layer
+#[instrument(skip(asset_store, page_key, identity, data), fields(filename = %filename, mime_type = %mime_type))]
 pub fn upload_asset(
     asset_store: &AssetStore,
     page_key: &[u8; 32],
@@ -109,6 +111,7 @@ pub fn upload_asset(
 ///
 /// # Returns
 /// Decrypted plaintext bytes
+#[instrument(skip(asset_store, page_key), fields(hash = %hash))]
 pub fn get_asset(
     asset_store: &AssetStore,
     page_key: &[u8; 32],
@@ -132,6 +135,7 @@ pub fn get_asset(
 ///
 /// **Context**: Peer requests asset, we decrypt for transfer
 /// **Note**: Same as get_asset - the peer will encrypt with their own key after receiving
+#[instrument(skip(asset_store, page_key), fields(hash = %hash))]
 pub fn get_for_transfer(
     asset_store: &AssetStore,
     page_key: &[u8; 32],
@@ -156,6 +160,7 @@ pub fn get_for_transfer(
 ///
 /// # Returns
 /// () on success, error if verification fails
+#[instrument(skip_all)]
 pub fn store_received(
     asset_store: &AssetStore,
     page_key: &[u8; 32],
@@ -165,7 +170,7 @@ pub fn store_received(
     // 1. Verify hash
     let computed_hash = blake3::hash(plaintext).to_hex().to_string();
     if computed_hash != metadata.hash {
-        return Err(ButlerError::Verification(format!(
+        return Err(ButlerError::verification_failed(format!(
             "Hash mismatch: expected {}, got {}",
             metadata.hash, computed_hash
         )));
@@ -173,9 +178,7 @@ pub fn store_received(
 
     // 2. Verify signature
     if !verify_asset_signature(metadata)? {
-        return Err(ButlerError::Verification(
-            "Invalid asset signature".to_string(),
-        ));
+        return Err(ButlerError::verification_failed("Invalid asset signature"));
     }
 
     info!(
@@ -196,25 +199,26 @@ pub fn store_received(
 /// Verify an asset's signature against the creator's public key
 ///
 /// **Context**: Validate that the asset was signed by the claimed creator
+#[instrument(skip_all)]
 fn verify_asset_signature(metadata: &AssetMetadata) -> Result<bool> {
     // Decode signature from base64
     let signature_bytes = base64::Engine::decode(
         &base64::engine::general_purpose::STANDARD,
         &metadata.signature,
-    ).map_err(|e| ButlerError::Verification(format!("Invalid signature encoding: {}", e)))?;
+    ).map_err(|e| ButlerError::verification_failed(format!("Invalid signature encoding: {}", e)))?;
 
     if signature_bytes.len() != 64 {
-        return Err(ButlerError::Verification(
-            "Invalid signature length".to_string(),
+        return Err(ButlerError::verification_failed(
+            "Invalid signature length",
         ));
     }
 
     let signature: [u8; 64] = signature_bytes.try_into()
-        .map_err(|_| ButlerError::Verification("Invalid signature length".to_string()))?;
+        .map_err(|_| ButlerError::verification_failed("Invalid signature length"))?;
 
     // Get public key from creator's DID
     let public_key = Identity::public_key_from_did(&metadata.created_by)
-        .map_err(|e| ButlerError::Verification(format!("Invalid creator DID: {}", e)))?;
+        .map_err(|e| ButlerError::verification_failed(format!("Invalid creator DID: {}", e)))?;
 
     // Verify signature
     let hash_bytes = metadata.hash.as_bytes();
@@ -235,14 +239,15 @@ fn verify_asset_signature(metadata: &AssetMetadata) -> Result<bool> {
 ///
 /// # Returns
 /// New AssetMetadata with node's signature
+#[instrument(skip_all)]
 pub fn resign_asset(
     metadata: &AssetMetadata,
     node_identity: &Identity,
 ) -> Result<AssetMetadata> {
     // Verify original signature first
     if !verify_asset_signature(metadata)? {
-        return Err(ButlerError::Verification(
-            "Cannot re-sign: original signature invalid".to_string(),
+        return Err(ButlerError::verification_failed(
+            "Cannot re-sign: original signature invalid",
         ));
     }
 
@@ -269,6 +274,7 @@ pub fn resign_asset(
 /// Check if an asset exists in local storage
 ///
 /// **Context**: Quick check before requesting transfer from peer
+#[instrument(skip(asset_store), fields(hash = %hash))]
 pub fn asset_exists(asset_store: &AssetStore, hash: &str) -> bool {
     asset_store.exists(hash)
 }
@@ -287,6 +293,7 @@ pub fn asset_exists(asset_store: &AssetStore, hash: &str) -> bool {
 ///
 /// # Returns
 /// List of hashes that are missing locally
+#[instrument(skip_all)]
 pub fn list_missing(asset_store: &AssetStore, metadata_hashes: &[String]) -> Vec<String> {
     metadata_hashes
         .iter()
@@ -298,6 +305,7 @@ pub fn list_missing(asset_store: &AssetStore, metadata_hashes: &[String]) -> Vec
 /// Delete an asset from local storage
 ///
 /// **Context**: Asset removed from page, cleanup local storage
+#[instrument(skip(asset_store), fields(hash = %hash))]
 pub fn delete_asset(asset_store: &AssetStore, hash: &str) -> Result<bool> {
     asset_store.delete(hash)
 }
@@ -305,11 +313,11 @@ pub fn delete_asset(asset_store: &AssetStore, hash: &str) -> Result<bool> {
 /// List all locally stored asset hashes
 ///
 /// **Context**: For debugging or garbage collection
+#[instrument(skip_all)]
 pub fn list_local_assets(asset_store: &AssetStore) -> Result<Vec<String>> {
     asset_store.list()
 }
 
-// ==================== Assets Layer Operations ====================
 // These functions work with the `{page_id}/assets` Loro layer that stores
 // asset metadata (hash → AssetMetadata). The actual encrypted files are
 // stored separately in AssetStore.
@@ -322,36 +330,29 @@ use std::collections::HashMap;
 /// **Context**: Read the Loro layer to get metadata for all assets in a page
 /// **Layer format**: LoroMap keyed by hash → `{ "hash1": AssetMetadata, "hash2": AssetMetadata }`
 ///
-/// Handles two structures:
-/// 1. Direct: `{ "root": { "hash1": AssetMetadata } }` (from add_to_assets_layer)
-/// 2. Nested: `{ "root": { "root": { "hash1": AssetMetadata } } }` (from MapInsert path="root")
-///
 /// # Arguments
 /// * `layer` - The assets layer (already loaded from Scribe)
 ///
 /// # Returns
 /// HashMap of hash → AssetMetadata
+#[instrument(skip_all)]
 pub fn get_assets_from_layer(layer: &Layer) -> HashMap<String, AssetMetadata> {
-    let json = layer.to_json_value();
+    // Use get_content("root") to get the unwrapped asset map directly
+    let json = layer.get_content("root");
 
-    // The layer stores assets in a "root" map with hash as key
-    let Some(root_obj) = json.as_object() else {
-        return HashMap::new();
-    };
-
-    // Try to get the "root" map from Loro structure
-    let Some(root_map) = root_obj.get("root").and_then(|v| v.as_object()) else {
+    // The unwrapped content should be the assets map with hash as key
+    let Some(assets_map) = json.as_object() else {
         return HashMap::new();
     };
 
     // Check for nested "root" structure (from MapInsert with path="root")
-    // If root_map["root"] exists and is an object, use that instead
-    let assets_map = root_map.get("root")
+    // If assets_map["root"] exists and is an object, use that instead
+    let final_map = assets_map.get("root")
         .and_then(|v| v.as_object())
-        .unwrap_or(root_map);
+        .unwrap_or(assets_map);
 
     let mut result = HashMap::new();
-    for (hash, value) in assets_map {
+    for (hash, value) in final_map {
         if let Ok(metadata) = serde_json::from_value::<AssetMetadata>(value.clone()) {
             result.insert(hash.clone(), metadata);
         }
@@ -371,17 +372,18 @@ pub fn get_assets_from_layer(layer: &Layer) -> HashMap<String, AssetMetadata> {
 ///
 /// # Returns
 /// () on success
+#[instrument(skip_all)]
 pub fn add_to_assets_layer(layer: &Layer, metadata: &AssetMetadata) -> Result<()> {
     let map = layer.loro().get_map("root");
 
     // Serialize metadata to JSON, then to LoroValue
     let json_value = serde_json::to_value(metadata)
-        .map_err(|e| ButlerError::Layer(format!("Failed to serialize metadata: {}", e)))?;
+        .map_err(|e| ButlerError::Internal(format!("Layer: Failed to serialize metadata: {}", e)))?;
 
     // Convert JSON to LoroValue and insert
-    let loro_value = crate::runtime::json_to_loro_value(&json_value);
+    let loro_value = domains::json_to_loro_value(&json_value);
     map.insert(&metadata.hash, loro_value)
-        .map_err(|e| ButlerError::Layer(format!("Failed to insert metadata: {}", e)))?;
+        .map_err(|e| ButlerError::Internal(format!("Layer: Failed to insert metadata: {}", e)))?;
 
     layer.commit();
 
@@ -401,6 +403,7 @@ pub fn add_to_assets_layer(layer: &Layer, metadata: &AssetMetadata) -> Result<()
 /// # Arguments
 /// * `layer` - The assets layer to update
 /// * `hash` - The asset hash to remove
+#[instrument(skip(layer), fields(hash = %hash))]
 pub fn remove_from_assets_layer(layer: &Layer, hash: &str) -> Result<()> {
     let map = layer.loro().get_map("root");
     map.delete(hash).ok(); // Ignore if doesn't exist
@@ -424,6 +427,7 @@ pub fn remove_from_assets_layer(layer: &Layer, hash: &str) -> Result<()> {
 ///
 /// # Returns
 /// List of AssetMetadata for assets that are missing locally
+#[instrument(skip_all)]
 pub fn find_missing_assets_from_layer(
     asset_store: &AssetStore,
     layer: &Layer,
@@ -446,6 +450,7 @@ pub fn find_missing_assets_from_layer(
 ///
 /// # Returns
 /// List of hashes that are missing locally
+#[instrument(skip_all)]
 pub fn find_missing_asset_hashes(
     asset_store: &AssetStore,
     layer: &Layer,

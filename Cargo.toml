@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
+  "domains",
+  "scribe",
   "gurkha",
   "kunki",
   "logging_utils",
@@ -10,8 +12,12 @@ members = [
   "courier",
   "control_server",
   "integration_tests",
-  "slint_shell",
-  "app_runtime",
+  "lua_runtime",
+  # New crates for multi-renderer architecture
+  "renderer_slint",
+  "renderer_raylib",
+  "sthalam_shell",
+  "sthalam",
 ]
 
 # Speed up dev builds
@@ -23,6 +29,14 @@ incremental = true
 [profile.dev.package."*"]
 opt-level = 1
 
+# Release with debug symbols (for flamegraph profiling)
+[profile.profiling]
+inherits = "release"
+debug = true
+
 # Workspace dependencies to fix feature resolution issues
 [workspace.dependencies]
 zerovec = { version = "0.11", features = ["alloc"] }
+criterion = { version = "0.5", features = ["async_tokio"] }
+console-subscriber = "0.5"
+tracing-flame = "0.2"

@@ -1,7 +1,7 @@
 -- My-Booking Validation Logic
 -- Validates incoming updates on the node before syncing
 --
--- This file is loaded by the node's HeadlessRuntime to enforce
+-- This file is loaded by the node's LuaRuntime to enforce
 -- business rules on booking state transitions and prevent double-bookings.
 
 -- Booking State Machine

@@ -1,0 +1,40 @@
+{
+  "no_layers": {
+    "token_type": "minimal",
+    "layers": {}
+  },
+  "only_patterns": {
+    "token_type": "pattern_only",
+    "layer_patterns": {
+      "{page_id}/*": { "sync": true, "write": false }
+    }
+  },
+  "deep_nesting": {
+    "token_type": "nested",
+    "layers": {
+      "{page_id}/a/b/c/d": { "sync": true, "write": true }
+    },
+    "layer_patterns": {
+      "{page_id}/x/y/*": { "sync": true, "write": true }
+    }
+  },
+  "colon_layers": {
+    "token_type": "app_style",
+    "layers": {
+      "app:MyApp": { "sync": true, "write": true },
+      "did:key:*": { "sync": true, "write": false }
+    }
+  },
+  "write_no_sync": {
+    "token_type": "local_writer",
+    "layers": {
+      "{page_id}/local": { "sync": false, "write": true }
+    }
+  },
+  "sync_no_write": {
+    "token_type": "reader",
+    "layers": {
+      "{page_id}/readonly": { "sync": true, "write": false }
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "owner": {
+    "token_type": "page_owner",
+    "operations": { "own": "allow", "write": "allow" },
+    "layers": {
+      "{page_id}/products": { "sync": true, "write": true },
+      "{page_id}/drafts": { "sync": false, "write": true },
+      "app:Shop": { "sync": true, "write": true }
+    },
+    "layer_patterns": {
+      "{page_id}/orders/*": { "sync": true, "write": true }
+    }
+  },
+  "customer": {
+    "token_type": "page_viewer",
+    "layers": {
+      "{page_id}/products": { "sync": true, "write": false },
+      "{page_id}/drafts": { "sync": false, "create": true },
+      "app:Shop": { "sync": true, "write": false }
+    },
+    "layer_patterns": {
+      "{page_id}/orders/{aud}": { "sync": true, "write": true }
+    }
+  },
+  "admin": {
+    "token_type": "page_admin",
+    "layers": {
+      "{page_id}/products": { "sync": true, "write": true }
+    },
+    "layer_patterns": {
+      "{page_id}/orders/*": { "sync": true, "write": false }
+    }
+  }
+}

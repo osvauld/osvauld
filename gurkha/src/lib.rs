@@ -27,9 +27,17 @@ pub mod builder;
 pub mod service;
 pub mod errors;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_strategies;
+
+// Test fixtures are available for tests and when test-support feature is enabled
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_fixtures;
+
 // Re-export commonly used items
 pub use types::*;
-pub use parser::{Permit, DelegationTemplate, PermitCore, PermitError, PermitResult, LayerPatternConfig, PeerCapabilities, LayerConfig};
+pub use parser::{Permit, DelegationTemplate, PermitError, PermitResult, LayerPatternConfig, PeerCapabilities, LayerConfig};
+pub use parser::{expand_pattern, matches_wildcard};  // Pattern matching utilities
 pub use decision::{TokenDecision, DelegationDecision, SyncContext, should_send_updates, can_receive_updates, can_access_layer, extract_issue_template};
 
 // Re-export stateless permit functions

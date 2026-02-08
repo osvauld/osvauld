@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from lib.tmux import TmuxManager
+from osvauld.tmux import TmuxManager
 
 
 BOOKING_APP = Path(__file__).parent.parent / "sample_apps" / "my-booking"

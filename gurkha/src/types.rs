@@ -43,9 +43,6 @@ impl Capability {
     }
 }
 
-// Role enum removed in v3 migration - identity derived from facts instead
-// Relationship stored as string in facts: "owner", "node", "viewer", "user"
-
 /// Document type (domain concept with behavior)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DocType {
@@ -79,11 +76,6 @@ impl DocType {
         matches!(self, DocType::Asset)
     }
 }
-
-// ConnectionTokenType and ResourceTokenType enums removed in v3 migration
-// Token types now stored as strings in facts.token_type field:
-// - Connection: "one_time_connection", "owner_connection", "node_connection", "viewer_auth", "viewer_connection"
-// - Resource/Space: "resource_owner", "resource_share", "resource_viewer", "space_owner", "space_share", "space_viewer"
 
 /// Sync decision for a document (domain concept)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,12 +122,15 @@ impl ResourceAction {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SyncFacts {
     /// Documents that stay local (was: dont_send_to_node)
+    #[serde(default)]
     pub local_only: Vec<String>,
 
     /// Documents that don't accept incoming updates (was: no_update_from_node)
+    #[serde(default)]
     pub no_incoming_updates: Vec<String>,
 
     /// Documents that send full snapshots (was: full_doc_send)
+    #[serde(default)]
     pub send_full_snapshot: Vec<String>,
 }
 

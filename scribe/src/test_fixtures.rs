@@ -1,0 +1,206 @@
+//! Test fixtures for Scribe
+//!
+//! Re-exports gurkha fixtures and provides scribe-specific test helpers.
+
+// Re-export gurkha test fixtures (permit creation)
+pub use gurkha::test_fixtures::*;
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::mpsc;
+
+use crate::state::{ScribeArgs, SyncConfig, SyncMode, SubscriberInfo};
+use crate::storage::{
+    NullLayerStorage, NullPeerVectorStorage, NullPeerResolver,
+    LayerStorageRef, PeerVectorStorageRef,
+};
+use crate::BroadcastPayload;
+use domains::Layer;
+
+// Mock Storage
+
+/// Create null storage references for testing
+pub fn null_layer_storage() -> LayerStorageRef {
+    Arc::new(NullLayerStorage)
+}
+
+pub fn null_vector_storage() -> PeerVectorStorageRef {
+    Arc::new(NullPeerVectorStorage)
+}
+
+// ScribeArgs Builders
+
+/// Create minimal ScribeArgs for testing
+pub fn minimal_scribe_args(page_id: &str) -> ScribeArgs {
+    ScribeArgs {
+        page_id: page_id.to_string(),
+        layers: HashMap::new(),
+        layer_storage: null_layer_storage(),
+        vector_storage: null_vector_storage(),
+        peer_resolver: None,
+        sync_config: None,
+        sync_event_tx: None,
+        validation_handle: None,
+        our_permit: None,
+        our_did: String::new(),
+        our_username: String::new(),
+        is_node: false,
+    }
+}
+
+/// Create ScribeArgs with layers
+pub fn scribe_args_with_layers(page_id: &str, layer_names: &[&str]) -> ScribeArgs {
+    let mut layers = HashMap::new();
+    for name in layer_names {
+        layers.insert(name.to_string(), Layer::new());
+    }
+
+    ScribeArgs {
+        page_id: page_id.to_string(),
+        layers,
+        layer_storage: null_layer_storage(),
+        vector_storage: null_vector_storage(),
+        peer_resolver: None,
+        sync_config: None,
+        sync_event_tx: None,
+        validation_handle: None,
+        our_permit: None,
+        our_did: String::new(),
+        our_username: String::new(),
+        is_node: false,
+    }
+}
+
+/// Create ScribeArgs for node mode
+pub fn node_scribe_args(page_id: &str) -> ScribeArgs {
+    ScribeArgs {
+        page_id: page_id.to_string(),
+        layers: HashMap::new(),
+        layer_storage: null_layer_storage(),
+        vector_storage: null_vector_storage(),
+        peer_resolver: Some(Arc::new(NullPeerResolver)),
+        sync_config: Some(SyncConfig {
+            mode: SyncMode::Broadcast,
+            sync_target: None,
+        }),
+        sync_event_tx: None,
+        validation_handle: None,
+        our_permit: None,
+        our_did: "did:key:node123".to_string(),
+        our_username: "test_node".to_string(),
+        is_node: true,
+    }
+}
+
+/// Create ScribeArgs for viewer mode (sync to source)
+pub fn viewer_scribe_args(page_id: &str, sync_target: &str) -> ScribeArgs {
+    ScribeArgs {
+        page_id: page_id.to_string(),
+        layers: HashMap::new(),
+        layer_storage: null_layer_storage(),
+        vector_storage: null_vector_storage(),
+        peer_resolver: None,
+        sync_config: Some(SyncConfig {
+            mode: SyncMode::ToSource,
+            sync_target: Some(sync_target.to_string()),
+        }),
+        sync_event_tx: None,
+        validation_handle: None,
+        our_permit: None,
+        our_did: "did:key:viewer123".to_string(),
+        our_username: "test_viewer".to_string(),
+        is_node: false,
+    }
+}
+
+// SubscriberInfo Builders
+
+/// Create a mock SubscriberInfo for testing
+pub fn mock_subscriber_info(permit: gurkha::Permit, subscriber_did: &str) -> SubscriberInfo {
+    let (tx, _rx) = mpsc::channel::<BroadcastPayload>(16);
+    let is_visible = permit.is_visible();
+    let can_see_others = permit.can_see_others();
+    let display_name = permit.display_name().map(String::from);
+    SubscriberInfo {
+        permit,
+        subscriber_did: subscriber_did.to_string(),
+        is_visible,
+        can_see_others,
+        display_name,
+        broadcast_tx: tx,
+        ephemeral_tx: None,
+        vectors: HashMap::new(),
+    }
+}
+
+/// Create a subscriber with shop customer permit
+pub fn shop_customer_subscriber(page_id: &str, did: &str) -> SubscriberInfo {
+    let permit = gurkha::test_fixtures::shop_customer(page_id, did);
+    mock_subscriber_info(permit, did)
+}
+
+/// Create a subscriber with shop owner permit
+pub fn shop_owner_subscriber(page_id: &str, did: &str) -> SubscriberInfo {
+    let permit = gurkha::test_fixtures::shop_owner(page_id, did);
+    mock_subscriber_info(permit, did)
+}
+
+// BroadcastPayload Builders
+
+/// Create a test BroadcastPayload
+pub fn test_broadcast_payload(page_id: &str, layer_name: &str) -> BroadcastPayload {
+    BroadcastPayload {
+        page_id: page_id.to_string(),
+        layer_name: layer_name.to_string(),
+        update: vec![1, 2, 3, 4], // Dummy update bytes
+        state_vector: vec![0, 0, 0, 1], // Dummy state vector
+        permit: None,
+    }
+}
+
+/// Create a BroadcastPayload with specific update data
+pub fn broadcast_payload_with_data(
+    page_id: &str,
+    layer_name: &str,
+    update: Vec<u8>,
+    state_vector: Vec<u8>,
+) -> BroadcastPayload {
+    BroadcastPayload {
+        page_id: page_id.to_string(),
+        layer_name: layer_name.to_string(),
+        update,
+        state_vector,
+        permit: None,
+    }
+}
+
+// Ephemeral Testing
+
+use crate::EphemeralOutbound;
+
+/// Create a mock SubscriberInfo with ephemeral channel for testing ephemeral flow
+///
+/// Returns (SubscriberInfo, ephemeral_rx) so test can verify ephemerals arrive
+pub fn mock_subscriber_with_ephemeral(
+    permit: gurkha::Permit,
+    subscriber_did: &str,
+) -> (SubscriberInfo, mpsc::Receiver<EphemeralOutbound>) {
+    let (broadcast_tx, _broadcast_rx) = mpsc::channel::<BroadcastPayload>(16);
+    let (ephemeral_tx, ephemeral_rx) = mpsc::channel::<EphemeralOutbound>(16);
+    let is_visible = permit.is_visible();
+    let can_see_others = permit.can_see_others();
+    let display_name = permit.display_name().map(String::from);
+
+    let info = SubscriberInfo {
+        permit,
+        subscriber_did: subscriber_did.to_string(),
+        is_visible,
+        can_see_others,
+        display_name,
+        broadcast_tx,
+        ephemeral_tx: Some(ephemeral_tx),
+        vectors: HashMap::new(),
+    };
+
+    (info, ephemeral_rx)
+}

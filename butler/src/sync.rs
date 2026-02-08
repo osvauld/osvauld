@@ -1,12 +1,12 @@
 //! Pure Sync Logic Layer
 //!
 //! Provides permit-driven document synchronization operations.
-//! Moved from gurkha as part of crate boundary cleanup.
 
 use std::collections::HashMap;
 use loro::LoroDoc;
 use gurkha::decision::{SyncContext, should_send_updates, can_receive_updates, should_request_updates};
 use gurkha::types::SyncDecision;
+use tracing::instrument;
 use crate::merge::MergeService;
 
 /// Data to send in sync request
@@ -34,6 +34,7 @@ pub struct SyncResponseData {
 ///
 /// # Returns
 /// SyncRequestData containing state_vectors for incremental docs and full_docs for submitter docs
+#[instrument(skip_all)]
 pub fn prepare_sync_request(
     documents: &HashMap<String, LoroDoc>,
     our_permit: &str,
@@ -82,6 +83,7 @@ pub fn prepare_sync_request(
 ///
 /// # Returns
 /// SyncResponseData containing updates and our current state vectors
+#[instrument(skip_all)]
 pub fn generate_sync_response(
     documents: &HashMap<String, LoroDoc>,
     our_permit: &str,
@@ -132,6 +134,7 @@ pub fn generate_sync_response(
 /// * `our_permit` - Current user's permit token
 /// * `peer_permit` - Peer's permit token
 /// * `peer_full_docs` - Peer's full document snapshots
+#[instrument(skip_all)]
 pub fn apply_peer_docs(
     documents: &mut HashMap<String, LoroDoc>,
     our_permit: &str,
@@ -189,6 +192,7 @@ pub fn apply_peer_docs(
 /// * `our_permit` - Current user's permit token
 /// * `peer_permit` - Peer's permit token
 /// * `peer_updates` - Peer's update data per document
+#[instrument(skip_all)]
 pub fn apply_peer_updates(
     documents: &mut HashMap<String, LoroDoc>,
     our_permit: &str,
@@ -255,6 +259,7 @@ pub fn apply_peer_updates(
 ///
 /// # Returns
 /// Option<SyncResponseData> - Some if we have updates to send, None otherwise
+#[instrument(skip_all)]
 pub fn generate_collaborative_updates(
     documents: &HashMap<String, LoroDoc>,
     our_permit: &str,

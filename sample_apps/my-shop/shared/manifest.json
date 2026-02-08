@@ -1,4 +1,5 @@
 {
   "name": "shared",
-  "description": "Shared validation logic for my-shop"
+  "description": "Shared validation and derivation logic for my-shop",
+  "entry_node": "node.lua"
 }

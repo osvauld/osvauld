@@ -10,30 +10,11 @@ use crate::models::{
 };
 use herald::{generate_aes_key, encrypt, encrypt_symmetric};
 use std::collections::HashMap;
+use tracing::instrument;
 use uuid::Uuid;
 
-// =========================================================================
-// Page Operations
-// =========================================================================
-
 /// Create a new page with layers from permit template
-///
-/// # Arguments
-/// * `store` - RedbStore reference
-/// * `space_id` - Parent space ID
-/// * `name` - Page name
-/// * `owner_did` - Owner's DID
-/// * `owner_public_key` - Owner's X25519 public key for encrypting AES key
-/// * `signing_key` - Owner's Ed25519 signing key for permit issuance
-/// * `layer_names` - List of layer names from permit template (e.g., ["content", "comments"])
-/// * `permit_template_json` - JSON template for the page permit
-///
-/// # Flow
-/// 1. Generate random AES-256 key
-/// 2. For each layer_name: create empty Layer, encrypt with AES, store at {page_id}/{layer_name}
-/// 3. Encrypt AES key for owner using X25519 ECIES
-/// 4. Issue page owner permit via gurkha
-/// 5. Store page with encrypted_key and owner permit
+#[instrument(skip(store, owner_public_key, signing_key, layer_names, permit_template_json), fields(space_id = %space_id, name = %name, owner_did = %owner_did))]
 pub async fn create_page(
     store: &RedbStore,
     space_id: String,
@@ -46,7 +27,7 @@ pub async fn create_page(
 ) -> Result<Page> {
     // Verify space exists
     if store.get_space(&space_id)?.is_none() {
-        return Err(ButlerError::SpaceNotFound(space_id));
+        return Err(ButlerError::space_not_found(&space_id));
     }
 
     // Generate page ID first (needed for layer keys)
@@ -84,7 +65,7 @@ pub async fn create_page(
         signing_key,
         &page_id,
         permit_template_json,
-    ).await.map_err(|e| ButlerError::Permit(e.to_string()))?;
+    ).await.map_err(|e| ButlerError::permit_error(e.to_string()))?;
 
     // Create page metadata with encrypted key
     let mut meta = PageMeta::new(name, space_id, owner_did)
@@ -100,6 +81,7 @@ pub async fn create_page(
 }
 
 /// Create a private page (for private conversations)
+#[instrument(skip(store, owner_public_key, layer_names), fields(space_id = %space_id, name = %name, owner_did = %owner_did))]
 pub async fn create_private_page(
     store: &RedbStore,
     space_id: String,
@@ -110,7 +92,7 @@ pub async fn create_private_page(
 ) -> Result<Page> {
     // Verify space exists
     if store.get_space(&space_id)?.is_none() {
-        return Err(ButlerError::SpaceNotFound(space_id));
+        return Err(ButlerError::space_not_found(&space_id));
     }
 
     let page_id = Uuid::new_v4().to_string();
@@ -147,11 +129,13 @@ pub async fn create_private_page(
 }
 
 /// Get a page by ID
+#[instrument(skip(store), fields(space_id = %space_id, page_id = %page_id))]
 pub fn get_page(store: &RedbStore, space_id: &str, page_id: &str) -> Result<Option<Page>> {
     Ok(store.get_page(space_id, page_id)?.map(Page::from))
 }
 
 /// Get page with its shares
+#[instrument(skip(store), fields(space_id = %space_id, page_id = %page_id))]
 pub fn get_page_with_shares(
     store: &RedbStore,
     space_id: &str,
@@ -161,6 +145,7 @@ pub fn get_page_with_shares(
 }
 
 /// List pages in a space
+#[instrument(skip(store), fields(space_id = %space_id))]
 pub fn list_pages(store: &RedbStore, space_id: &str) -> Result<Vec<Page>> {
     Ok(store.list_pages_in_space(space_id)?
         .into_iter()
@@ -169,6 +154,7 @@ pub fn list_pages(store: &RedbStore, space_id: &str) -> Result<Vec<Page>> {
 }
 
 /// List all pages
+#[instrument(skip_all)]
 pub fn list_all_pages(store: &RedbStore) -> Result<Vec<Page>> {
     Ok(store.list_all_pages()?
         .into_iter()
@@ -177,6 +163,7 @@ pub fn list_all_pages(store: &RedbStore) -> Result<Vec<Page>> {
 }
 
 /// Delete a page and its layers
+#[instrument(skip(store), fields(space_id = %space_id, page_id = %page_id))]
 pub fn delete_page(store: &RedbStore, space_id: &str, page_id: &str) -> Result<bool> {
     // Delete all layers for this page (hierarchical keys: {page_id}/{layer_name})
     store.delete_all_layers(page_id)?;
@@ -188,6 +175,7 @@ pub fn delete_page(store: &RedbStore, space_id: &str, page_id: &str) -> Result<b
 /// Track that page was shared with a user (stores pubkey only)
 ///
 /// Note: Actual permits are stored elsewhere (Contact.shares on Node-side)
+#[instrument(skip(store), fields(space_id = %space_id, page_id = %page_id))]
 pub fn share_page(
     store: &RedbStore,
     space_id: &str,
@@ -195,13 +183,14 @@ pub fn share_page(
     user_pubkey: String,
 ) -> Result<()> {
     let mut page = store.get_page(space_id, page_id)?
-        .ok_or_else(|| ButlerError::PageNotFound(page_id.to_string()))?;
+        .ok_or_else(|| ButlerError::page_not_found(page_id))?;
     page.add_share(user_pubkey);
     store.put_page(&page)?;
     Ok(())
 }
 
 /// Remove share tracking for a user from page
+#[instrument(skip(store), fields(space_id = %space_id, page_id = %page_id, user_pubkey = %user_pubkey))]
 pub fn unshare_page(
     store: &RedbStore,
     space_id: &str,
@@ -209,13 +198,14 @@ pub fn unshare_page(
     user_pubkey: &str,
 ) -> Result<bool> {
     let mut page = store.get_page(space_id, page_id)?
-        .ok_or_else(|| ButlerError::PageNotFound(page_id.to_string()))?;
+        .ok_or_else(|| ButlerError::page_not_found(page_id))?;
     let removed = page.remove_share(user_pubkey);
     store.put_page(&page)?;
     Ok(removed)
 }
 
 /// Set permit for a page (stores MY permit)
+#[instrument(skip(store, permit), fields(space_id = %space_id, page_id = %page_id))]
 pub fn set_page_permit(
     store: &RedbStore,
     space_id: &str,
@@ -223,20 +213,14 @@ pub fn set_page_permit(
     permit: String,
 ) -> Result<()> {
     let mut page = store.get_page(space_id, page_id)?
-        .ok_or_else(|| ButlerError::PageNotFound(page_id.to_string()))?;
+        .ok_or_else(|| ButlerError::page_not_found(page_id))?;
     page.set_permit(permit);
     store.put_page(&page)?;
     Ok(())
 }
 
-// =========================================================================
-// Source Node Queries (for lazy sync)
-// =========================================================================
-
 /// Get the source node for a page (looks up space's source_node_id)
-///
-/// **Context**: Scribe needs to know which node to sync to for lazy subscription
-/// **We do**: Find page → get space_id → get space → return source_node_id
+#[instrument(skip(store), fields(page_id = %page_id))]
 pub fn get_source_node_for_page(store: &RedbStore, page_id: &str) -> Result<Option<String>> {
     // Find the page to get its space_id
     let page = match store.find_page_by_id(page_id)? {
@@ -253,20 +237,15 @@ pub fn get_source_node_for_page(store: &RedbStore, page_id: &str) -> Result<Opti
     Ok(space.source_node_id)
 }
 
-// =========================================================================
-// Access Queries
-// =========================================================================
-
-/// Get all pages (no filtering - if stored, user has access)
-///
-/// On viewer side: if page is in DB, viewer received it from an authorized node
-/// On owner side: if page is in DB, owner created it or has permit for it
+/// Get all pages (if stored, user has access)
+#[instrument(skip_all)]
 pub fn get_pages(store: &RedbStore) -> Result<Vec<Page>> {
     let all_pages = store.list_all_pages()?;
     Ok(all_pages.into_iter().map(Page::from).collect())
 }
 
 /// Check if a user has access to a page
+#[instrument(skip(store), fields(space_id = %space_id, page_id = %page_id, user_did = %user_did))]
 pub fn has_page_access(
     store: &RedbStore,
     space_id: &str,
@@ -280,24 +259,14 @@ pub fn has_page_access(
     }
 }
 
-// =========================================================================
-// Page Retrieval (for reading)
-// =========================================================================
-
 /// Find a page by ID without knowing the space_id
+#[instrument(skip(store), fields(page_id = %page_id))]
 pub fn find_page_by_id(store: &RedbStore, page_id: &str) -> Result<Option<PageData>> {
     store.find_page_by_id(page_id)
 }
 
 /// Get a page and decrypt its layers
-///
-/// # Arguments
-/// * `store` - RedbStore reference
-/// * `page_id` - The page ID to fetch
-/// * `private_key` - User's X25519 private key for decrypting the AES key
-///
-/// # Returns
-/// A map of layer_name -> decrypted Layer data as JSON
+#[instrument(skip(store, private_key), fields(page_id = %page_id))]
 pub fn get_page_decrypted(
     store: &RedbStore,
     page_id: &str,
@@ -305,7 +274,7 @@ pub fn get_page_decrypted(
 ) -> Result<(PageData, std::collections::HashMap<String, serde_json::Value>)> {
     // 1. Find the page
     let page = store.find_page_by_id(page_id)?
-        .ok_or_else(|| ButlerError::PageNotFound(page_id.to_string()))?;
+        .ok_or_else(|| ButlerError::page_not_found(page_id))?;
 
     // 2. Decrypt the AES key using user's private key
     let aes_key = herald::decrypt(private_key, &page.meta.encrypted_key)
@@ -326,10 +295,10 @@ pub fn get_page_decrypted(
 
         // Parse as Loro document and export as JSON
         let layer = Layer::from_snapshot(&decrypted_bytes)
-            .map_err(|e| ButlerError::Layer(format!("Failed to parse layer {}: {}", layer_name, e)))?;
+            .map_err(|e| ButlerError::Internal(format!("Layer: Failed to parse layer {}: {}", layer_name, e)))?;
 
-        // Export the layer state to JSON value
-        let json_value = layer.to_json_value();
+        // Export the unwrapped layer state to JSON value
+        let json_value = layer.get_content(&layer_name);
         decrypted_layers.insert(layer_name, json_value);
     }
 
@@ -337,25 +306,15 @@ pub fn get_page_decrypted(
 }
 
 /// Get just the page metadata by ID
+#[instrument(skip(store), fields(page_id = %page_id))]
 pub fn get_page_metadata(store: &RedbStore, page_id: &str) -> Result<Option<Page>> {
     Ok(store.find_page_by_id(page_id)?.map(Page::from))
 }
 
-/// Get a fully decrypted Page with all layer data
+/// Get a fully decrypted page with all layer data
 ///
-/// This is the primary method for fetching page data. It:
-/// 1. Loads page metadata
-/// 2. Decrypts all layers in parallel using futures
-/// 3. Returns a DecryptedPage domain object
-///
-/// # Arguments
-/// * `store` - RedbStore reference
-/// * `page_id` - The page ID to fetch
-/// * `user_did` - The user's DID (to get their UCAN token)
-/// * `private_key` - User's X25519 secret key for decryption
-///
-/// # Returns
-/// `(DecryptedPage, [u8; 32])` - page data and the decrypted AES key for re-encryption
+/// Returns (DecryptedPage, AES key for re-encryption)
+#[instrument(skip(store, private_key), fields(page_id = %page_id))]
 pub async fn get_decrypted_page(
     store: &RedbStore,
     page_id: &str,
@@ -364,7 +323,7 @@ pub async fn get_decrypted_page(
 ) -> Result<(DecryptedPage, [u8; 32])> {
     // 1. Find the page
     let page_data = store.find_page_by_id(page_id)?
-        .ok_or_else(|| ButlerError::PageNotFound(page_id.to_string()))?;
+        .ok_or_else(|| ButlerError::page_not_found(page_id))?;
 
     // 2. Get my permit for this page (stored directly on the page)
     let permit = page_data.permit.clone();
@@ -417,16 +376,7 @@ pub async fn get_decrypted_page(
 }
 
 /// Update a page's layers with new snapshot data
-///
-/// # Arguments
-/// * `store` - RedbStore reference
-/// * `page_id` - The page ID to update
-/// * `secret_key` - User's X25519 secret key for decrypting the AES key
-/// * `layer_updates` - Map of layer_name -> snapshot bytes (as JSON array of u8)
-///
-/// The data format matches the old Resource format:
-/// `{"layer_name": [1, 2, 3, ...], "other_layer": [4, 5, 6, ...]}`
-/// where each value is a Loro snapshot as a JSON array of bytes.
+#[instrument(skip(store, secret_key, layer_updates), fields(page_id = %page_id))]
 pub fn update_page_layers(
     store: &RedbStore,
     page_id: &str,
@@ -435,7 +385,7 @@ pub fn update_page_layers(
 ) -> Result<Page> {
     // 1. Find the page
     let mut page = store.find_page_by_id(page_id)?
-        .ok_or_else(|| ButlerError::PageNotFound(page_id.to_string()))?;
+        .ok_or_else(|| ButlerError::page_not_found(page_id))?;
 
     // 2. Decrypt the AES key using user's secret key
     let aes_key = herald::decrypt(secret_key, &page.meta.encrypted_key)

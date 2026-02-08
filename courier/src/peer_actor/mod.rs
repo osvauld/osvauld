@@ -29,14 +29,18 @@ mod guards;
 mod handshake;
 mod publish;
 mod sync;
+mod consent;
+mod assets;
 
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Instant;
 
 use logging_utils::short;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
+use tokio::io::AsyncReadExt;
 use tracing::{debug, error, info, warn, instrument};
-use transport::{ConnectionHandle, NodeId};
+use transport::{BiStream, Connection, NodeId};
 
 use crate::coordinator::{CoordinatorMessage, CourierMode};
 use crate::message::{Message, EphemeralDatagram};
@@ -129,6 +133,16 @@ pub enum PeerMessage {
         page_id: String,
         hash: String,
     },
+
+    /// Scribe initiates connection to receive messages
+    ///
+    /// **Context**: Scribe spawned and wants to receive ephemeral/sync messages
+    /// **We do**: Store connection, flush any buffered messages for this page
+    /// **Design**: Receiver-initiates pattern ensures no lost messages
+    ScribeConnect {
+        page_id: String,
+        scribe: ractor::ActorRef<butler::ScribeMessage>,
+    },
 }
 
 /// Blob store abstraction - either real transport or mock for testing
@@ -140,17 +154,76 @@ pub enum BlobStore {
     Mock(Arc<transport::MockBlobStore>),
 }
 
+impl BlobStore {
+    /// Add blob to store, returns iroh hash bytes
+    pub async fn add_blob(&self, data: &[u8]) -> Result<[u8; 32], String> {
+        match self {
+            BlobStore::Real(transport) => {
+                transport.add_blob(data).await
+                    .map(|h| *h.as_bytes())
+                    .map_err(|e| format!("Blob store error: {}", e))
+            }
+            BlobStore::Mock(mock) => Ok(mock.add_blob(data)),
+        }
+    }
+
+    /// Download blob from peer, returns plaintext bytes
+    pub async fn download_blob(&self, iroh_hash: &[u8; 32], node_id: NodeId) -> Result<Vec<u8>, String> {
+        match self {
+            BlobStore::Real(transport) => {
+                let hash = transport::BlobHash::from_bytes(*iroh_hash);
+                transport.download_blob(hash, node_id).await
+                    .map_err(|e| format!("Download failed: {}", e))
+            }
+            BlobStore::Mock(mock) => {
+                mock.download_blob(iroh_hash)
+                    .ok_or_else(|| "Blob not found in mock store".to_string())
+            }
+        }
+    }
+}
+
 /// Arguments for spawning PeerActor
-pub struct PeerActorArgs {
+///
+/// Generic over `C: Connection` to support different transport implementations.
+pub struct PeerActorArgs<C: Connection> {
     pub mode: CourierMode,
-    pub conn: ConnectionHandle,
-    pub coordinator: ActorRef<CoordinatorMessage>,
+    pub conn: C,
+    pub coordinator: ActorRef<CoordinatorMessage<C>>,
     pub butler: Arc<Butler>,
     /// Blob store for asset transfer (real or mock)
     pub blob_store: BlobStore,
     /// Permit for outbound connections - if Some, auto-initiate handshake
     pub permit: Option<String>,
 }
+
+// Unified Outbound Update (replaces BroadcastPayload + EphemeralOutbound)
+
+/// Unified update enum for outbound sync/ephemeral data
+///
+/// **Context**: Single channel replaces separate broadcast_tx + ephemeral_tx
+/// **Benefits**: One listener task instead of two per subscription
+/// **Migration**: Use this to replace BroadcastPayload/EphemeralOutbound channels
+#[derive(Debug, Clone)]
+pub enum OutboundUpdate {
+    /// CRDT sync update (3-step protocol)
+    Sync {
+        page_id: String,
+        layer: String,
+        update: Vec<u8>,
+        state_vector: Vec<u8>,
+    },
+    /// Ephemeral data (cursor, typing, presence)
+    Ephemeral {
+        page_id: String,
+        payload: Vec<u8>,
+    },
+}
+
+/// Type alias for unified outbound update channel
+pub type OutboundUpdateTx = tokio::sync::mpsc::Sender<OutboundUpdate>;
+
+// Pending Operations
 
 /// Pending viewer sync context (for streaming pages after SpaceDataAck)
 #[derive(Debug, Clone)]
@@ -175,7 +248,16 @@ pub struct PendingSyncOffer {
     pub our_state_vector: Vec<u8>,
     /// The consent permit we used
     pub permit: String,
+    /// Number of resync attempts for bounded retry
+    /// After MAX_RESYNC_ATTEMPTS, we fall back to SyncReset
+    pub resync_attempts: u8,
 }
+
+/// Maximum resync attempts before falling back to full snapshot
+///
+/// After this many SyncOffer/SyncAccept exchanges still show divergence,
+/// we request full snapshot replacement (SyncReset → SyncSnapshot).
+pub const MAX_RESYNC_ATTEMPTS: u8 = 3;
 
 /// Active subscription to a page's Scribe
 ///
@@ -207,19 +289,35 @@ pub struct PendingAssetTransfer {
     pub started: Instant,
 }
 
+/// Buffered message waiting for Scribe to connect
+///
+/// **Context**: When ephemeral/sync messages arrive before Scribe connects,
+/// we buffer them here and flush when Scribe calls ScribeConnect.
+#[derive(Debug, Clone)]
+pub struct BufferedScribeMessage {
+    /// Opaque payload (ephemeral data)
+    pub payload: Vec<u8>,
+    /// Sender's DID (if known from auth state)
+    pub user_did: Option<String>,
+    /// Sender's device ID (for relay exclusion)
+    pub device_id: Option<String>,
+}
+
 /// Maximum retry attempts for asset transfers
 const MAX_ASSET_TRANSFER_ATTEMPTS: u8 = 3;
 
 /// Actor state for PeerActor
-pub struct PeerActorState {
+///
+/// Generic over `C: Connection` to support different transport implementations.
+pub struct PeerActorState<C: Connection> {
     /// Our node's mode (User or Node)
     mode: CourierMode,
     /// Current handshake state
     state: PeerState,
-    /// Connection handle for sending messages
-    conn: ConnectionHandle,
+    /// Connection for sending messages (transport-agnostic)
+    conn: C,
     /// Reference to coordinator for callbacks
-    coordinator: ActorRef<CoordinatorMessage>,
+    coordinator: ActorRef<CoordinatorMessage<C>>,
     /// Butler for storage operations
     butler: Arc<Butler>,
     /// Blob store for asset transfer (real or mock)
@@ -242,20 +340,39 @@ pub struct PeerActorState {
     /// Pending shareable link requests: request_id -> response channel
     /// Tracks outgoing GetShareableLinkRequest waiting for response
     pending_shareable_link_requests: std::collections::HashMap<String, tokio::sync::oneshot::Sender<Result<String, String>>>,
+    /// Direct Scribe connections: page_id -> Scribe actor ref
+    ///
+    /// **Context**: Scribe calls ScribeConnect on spawn, we store the connection here.
+    /// Messages are forwarded directly to Scribe instead of via subscription pattern.
+    /// **Design**: Receiver-initiates - Scribe connects to us, we don't push to Scribe.
+    scribe_connections: std::collections::HashMap<String, ractor::ActorRef<butler::ScribeMessage>>,
+
+    /// Buffered messages waiting for Scribe to connect: page_id -> Vec<BufferedScribeMessage>
+    ///
+    /// **Context**: When ephemeral arrives before Scribe connects, buffer here.
+    /// Flushed when Scribe calls ScribeConnect.
+    pending_scribe_messages: std::collections::HashMap<String, Vec<BufferedScribeMessage>>,
 }
 
 /// PeerActor handles one P2P connection
-pub struct PeerActor {
+///
+/// Generic over `C: Connection` to support different transport implementations:
+/// - `IrohConnection`: Production transport with NAT traversal
+/// - `MockConnection`: In-memory transport for unit tests
+/// - `SimConnection`: Deterministic simulation for DST (future)
+pub struct PeerActor<C: Connection> {
     node_id: NodeId,
+    _phantom: PhantomData<C>,
 }
 
-impl PeerActor {
+impl<C: Connection> PeerActor<C> {
     pub fn new(node_id: NodeId) -> Self {
-        Self { node_id }
+        Self { node_id, _phantom: PhantomData }
     }
 
     /// Send a message to the peer
-    async fn send_message(&self, msg: &Message, state: &PeerActorState) {
+    #[instrument(skip_all, fields(node = %short(&self.node_id), msg = %msg.name()))]
+    async fn send_message(&self, msg: &Message, state: &PeerActorState<C>) {
         let bytes = match msg.to_bytes() {
             Ok(b) => b,
             Err(e) => {
@@ -273,7 +390,8 @@ impl PeerActor {
     ///
     /// **Context**: We want to request an asset from peer
     /// **We do**: Track the request, send AssetPrepare message
-    pub async fn send_asset_prepare(&self, page_id: &str, hash: &str, state: &mut PeerActorState) {
+    #[instrument(skip_all, fields(node = %short(&self.node_id), page_id = %page_id, hash = %hash))]
+    pub async fn send_asset_prepare(&self, page_id: &str, hash: &str, state: &mut PeerActorState<C>) {
         // Track the transfer for retry logic
         state.pending_asset_transfers.insert(
             hash.to_string(),
@@ -294,15 +412,33 @@ impl PeerActor {
     }
 
     /// Send rejection and transition to failed state
-    async fn reject(&self, reason: &str, state: &mut PeerActorState) {
+    #[instrument(skip_all, fields(node = %short(&self.node_id), reason = %reason))]
+    async fn reject(&self, reason: &str, state: &mut PeerActorState<C>) {
         warn!("Rejecting peer {}: {}", self.node_id, reason);
         self.send_message(&Message::Rejected { reason: reason.to_string() }, state).await;
         state.state = PeerState::fail(reason);
         self.notify_failed(state, reason);
     }
 
+    /// Parse permit or send error response on failure
+    async fn parse_permit_or_respond(
+        &self,
+        token: &str,
+        error_msg: Message,
+        state: &PeerActorState<C>,
+    ) -> Option<gurkha::Permit> {
+        match gurkha::Permit::from_token(token) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                error!("Invalid permit: {:?}", e);
+                self.send_message(&error_msg, state).await;
+                None
+            }
+        }
+    }
+
     /// Notify coordinator of authentication
-    fn notify_authenticated(&self, state: &PeerActorState, peer_type: PeerType, did: &str, username: &str) {
+    fn notify_authenticated(&self, state: &PeerActorState<C>, peer_type: PeerType, did: &str, username: &str) {
         let _ = state.coordinator.cast(CoordinatorMessage::PeerAuthenticated {
             node_id: self.node_id,
             peer_type,
@@ -312,7 +448,7 @@ impl PeerActor {
     }
 
     /// Notify coordinator of failure
-    fn notify_failed(&self, state: &PeerActorState, reason: &str) {
+    fn notify_failed(&self, state: &PeerActorState<C>, reason: &str) {
         let _ = state.coordinator.cast(CoordinatorMessage::PeerFailed {
             node_id: self.node_id,
             reason: reason.to_string(),
@@ -320,12 +456,12 @@ impl PeerActor {
     }
 }
 
-#[cfg_attr(feature = "async-trait", ractor::async_trait)]
-impl Actor for PeerActor {
+impl<C: Connection> Actor for PeerActor<C> {
     type Msg = PeerMessage;
-    type State = PeerActorState;
-    type Arguments = PeerActorArgs;
+    type State = PeerActorState<C>;
+    type Arguments = PeerActorArgs<C>;
 
+    #[instrument(skip_all, fields(node = %self.node_id))]
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -338,10 +474,12 @@ impl Actor for PeerActor {
         let myself_for_datagrams = myself.clone();
         let node_id = self.node_id;
         tokio::spawn(async move {
+            debug!(node_id = %node_id, "Datagram read loop started");
             loop {
                 match conn_for_datagrams.read_datagram().await {
                     Ok(data) => {
-                        if myself_for_datagrams.cast(PeerMessage::Datagram { data }).is_err() {
+                        debug!(node_id = %node_id, data_len = data.len(), "Datagram read loop: received datagram");
+                        if myself_for_datagrams.cast(PeerMessage::Datagram { data: data.to_vec() }).is_err() {
                             debug!("PeerActor gone, stopping datagram read loop for {}", node_id);
                             break;
                         }
@@ -362,7 +500,7 @@ impl Actor for PeerActor {
         let coordinator_for_disconnect = args.coordinator.clone();
         tokio::spawn(async move {
             loop {
-                let (_, mut recv) = match conn_for_streams.accept_bi().await {
+                let bi_stream = match conn_for_streams.accept_bi().await {
                     Ok(streams) => streams,
                     Err(_) => {
                         let _ = coordinator_for_disconnect.cast(CoordinatorMessage::Disconnected {
@@ -371,6 +509,8 @@ impl Actor for PeerActor {
                         break;
                     }
                 };
+
+                let (_, mut recv) = bi_stream.split();
 
                 // Read length-prefixed message
                 let mut len_buf = [0u8; 4];
@@ -421,9 +561,12 @@ impl Actor for PeerActor {
             pending_sync_offers: std::collections::HashMap::new(),
             pending_asset_transfers: std::collections::HashMap::new(),
             pending_shareable_link_requests: std::collections::HashMap::new(),
+            scribe_connections: std::collections::HashMap::new(),
+            pending_scribe_messages: std::collections::HashMap::new(),
         })
     }
 
+    #[instrument(skip_all, fields(node = %self.node_id))]
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -468,6 +611,10 @@ impl Actor for PeerActor {
             }
 
             PeerMessage::RefreshSubscriptions => {
+                info!(node_id = %self.node_id, "RefreshSubscriptions received");
+                // First check health of existing subscriptions (resubscribe if dead)
+                self.check_subscription_health(myself.clone(), state).await;
+                // Then subscribe to any new active scribes
                 self.subscribe_to_active_scribes(myself, state).await;
             }
 
@@ -479,17 +626,23 @@ impl Actor for PeerActor {
                 info!(page_id = %page_id, hash = %hash, "RequestAsset: sending AssetPrepare to peer");
                 self.send_asset_prepare(&page_id, &hash, state).await;
             }
+
+            PeerMessage::ScribeConnect { page_id, scribe } => {
+                self.handle_scribe_connect(&page_id, scribe, state).await;
+            }
         }
 
         Ok(())
     }
 
+    #[instrument(skip_all, fields(node = %self.node_id))]
     async fn post_stop(
         &self,
         _myself: ActorRef<Self::Msg>,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         let subscription_count = state.page_subscriptions.len();
+        let scribe_connection_count = state.scribe_connections.len();
 
         // Clean up all page subscriptions
         for (page_id, subscription) in state.page_subscriptions.drain() {
@@ -509,20 +662,23 @@ impl Actor for PeerActor {
             }
         }
 
-        info!("PeerActor stopped for {} ({} subscriptions cleaned up)",
-            self.node_id, subscription_count);
+        // Clear direct Scribe connections
+        state.scribe_connections.clear();
+
+        info!("PeerActor stopped for {} ({} subscriptions, {} scribe connections cleaned up)",
+            self.node_id, subscription_count, scribe_connection_count);
         Ok(())
     }
 }
 
-impl PeerActor {
+impl<C: Connection> PeerActor<C> {
     /// Handle protocol message
     #[instrument(skip(self, myself, message, state), fields(node = %short(&self.node_id), peer_state = %state.state.name(), msg = %message.name()))]
     async fn handle_protocol_message(
         &self,
         myself: ActorRef<PeerMessage>,
         message: Message,
-        state: &mut PeerActorState,
+        state: &mut PeerActorState<C>,
     ) {
         // Message name logged in instrument fields above
 
@@ -599,6 +755,15 @@ impl PeerActor {
                 self.on_sync_ack(&page_id, &layer_name, &state_vector, state).await;
             }
 
+            // Bounded resync fallback messages
+            Message::SyncReset { page_id, layer_name } => {
+                self.on_sync_reset(&page_id, &layer_name, state).await;
+            }
+
+            Message::SyncSnapshot { page_id, layer_name, snapshot, state_vector, ephemeral_public } => {
+                self.on_sync_snapshot(&page_id, &layer_name, &snapshot, &state_vector, &ephemeral_public, state).await;
+            }
+
             // Shareable link messages
             Message::GetShareableLinkRequest { request_id, space_id } => {
                 self.on_get_shareable_link_request(&request_id, &space_id, state).await;
@@ -618,11 +783,11 @@ impl PeerActor {
             }
 
             Message::SpaceDataAck { request_id, space_id, delegated_permit } => {
-                self.on_space_data_ack(&request_id, &space_id, &delegated_permit, state).await;
+                self.on_space_data_ack(myself.clone(), &request_id, &space_id, &delegated_permit, state).await;
             }
 
             Message::PageData { request_id, space_id, meta, permit, ephemeral_public, layers, is_last } => {
-                self.on_viewer_page(&request_id, &space_id, &meta, &permit, &ephemeral_public, &layers, is_last, state).await;
+                self.on_viewer_page(myself.clone(), &request_id, &space_id, &meta, &permit, &ephemeral_public, &layers, is_last, state).await;
             }
 
             Message::SpaceRequestError { request_id, error } => {
@@ -660,382 +825,115 @@ impl PeerActor {
         }
     }
 
-    // ========================================================================
-    // Asset Sync Handlers
-    // ========================================================================
-
-    /// Handle AssetPrepare request from peer
-    ///
-    /// **Context**: Peer wants us to prepare an asset for transfer
-    /// **We do**: Decrypt from local storage, add to iroh-blobs, send AssetReady
-    async fn on_asset_prepare(&self, page_id: &str, hash: &str, state: &mut PeerActorState) {
-        info!(
-            page_id = %page_id,
-            hash = %hash,
-            peer = %self.node_id,
-            "AssetPrepare received - preparing blob for transfer"
-        );
-
-        // 1. Get page key via butler
-        let (_, page_key) = match state.butler.get_decrypted_page(page_id).await {
-            Ok(result) => result,
-            Err(e) => {
-                warn!(page_id = %page_id, error = ?e, "Failed to get page key for asset");
-                self.send_message(&Message::AssetAck {
-                    page_id: page_id.to_string(),
-                    hash: hash.to_string(),
-                    success: false,
-                    error: Some(format!("Page not found: {}", e)),
-                }, state).await;
-                return;
-            }
-        };
-
-        // 2. Get plaintext via asset service
-        let plaintext = match butler::services::asset_service::get_for_transfer(
-            state.butler.asset_store(),
-            &page_key,
-            hash,
-        ) {
-            Ok(data) => data,
-            Err(e) => {
-                warn!(hash = %hash, error = ?e, "Failed to get asset for transfer");
-                self.send_message(&Message::AssetAck {
-                    page_id: page_id.to_string(),
-                    hash: hash.to_string(),
-                    success: false,
-                    error: Some(format!("Asset not found: {}", e)),
-                }, state).await;
-                return;
-            }
-        };
-
-        // 3. Add to blob store (real transport or mock)
-        let iroh_hash_bytes: [u8; 32] = match &state.blob_store {
-            BlobStore::Real(transport) => {
-                match transport.add_blob(&plaintext).await {
-                    Ok(h) => *h.as_bytes(),
-                    Err(e) => {
-                        warn!(hash = %hash, error = ?e, "Failed to add blob to transport");
-                        self.send_message(&Message::AssetAck {
-                            page_id: page_id.to_string(),
-                            hash: hash.to_string(),
-                            success: false,
-                            error: Some(format!("Blob store error: {}", e)),
-                        }, state).await;
-                        return;
-                    }
-                }
-            }
-            BlobStore::Mock(mock_store) => {
-                mock_store.add_blob(&plaintext)
-            }
-        };
-
-        info!(
-            page_id = %page_id,
-            hash = %hash,
-            iroh_hash = %hex::encode(&iroh_hash_bytes),
-            size = plaintext.len(),
-            "Asset prepared for transfer"
-        );
-
-        // 4. Send AssetReady with iroh_hash
-        self.send_message(&Message::AssetReady {
-            page_id: page_id.to_string(),
-            hash: hash.to_string(),
-            iroh_hash: iroh_hash_bytes,
-        }, state).await;
-    }
-
-    /// Handle AssetReady notification from peer
-    ///
-    /// **Context**: Peer has prepared asset, blob is ready for download
-    /// **We do**: Download via iroh-blobs, verify, encrypt, store locally
-    async fn on_asset_ready(
-        &self,
-        page_id: &str,
-        hash: &str,
-        iroh_hash_bytes: &[u8; 32],
-        state: &mut PeerActorState,
-    ) {
-        info!(
-            page_id = %page_id,
-            hash = %hash,
-            peer = %self.node_id,
-            "AssetReady received - downloading blob"
-        );
-
-        // 1. Download blob from peer (real transport or mock)
-        let plaintext = match &state.blob_store {
-            BlobStore::Real(transport) => {
-                let iroh_hash = transport::BlobHash::from_bytes(*iroh_hash_bytes);
-                match transport.download_blob(iroh_hash, self.node_id).await {
-                    Ok(data) => data,
-                    Err(e) => {
-                        warn!(hash = %hash, error = ?e, "Failed to download blob from peer");
-                        self.send_message(&Message::AssetAck {
-                            page_id: page_id.to_string(),
-                            hash: hash.to_string(),
-                            success: false,
-                            error: Some(format!("Download failed: {}", e)),
-                        }, state).await;
-                        return;
-                    }
-                }
-            }
-            BlobStore::Mock(mock_store) => {
-                match mock_store.download_blob(iroh_hash_bytes) {
-                    Some(data) => data,
-                    None => {
-                        warn!(hash = %hash, "Blob not found in mock store");
-                        self.send_message(&Message::AssetAck {
-                            page_id: page_id.to_string(),
-                            hash: hash.to_string(),
-                            success: false,
-                            error: Some("Blob not found in mock store".to_string()),
-                        }, state).await;
-                        return;
-                    }
-                }
-            }
-        };
-
-        // 2. Get page key for storage
-        let (_, page_key) = match state.butler.get_decrypted_page(page_id).await {
-            Ok(result) => result,
-            Err(e) => {
-                warn!(page_id = %page_id, error = ?e, "Failed to get page key for storing asset");
-                self.send_message(&Message::AssetAck {
-                    page_id: page_id.to_string(),
-                    hash: hash.to_string(),
-                    success: false,
-                    error: Some(format!("Page not found: {}", e)),
-                }, state).await;
-                return;
-            }
-        };
-
-        // 3. Get metadata from Loro-synced assets layer (for signature verification)
-        let assets_layer_name = format!("{}/assets", page_id);
-        let metadata = match self.get_asset_metadata_from_layer(page_id, &assets_layer_name, hash, state).await {
-            Ok(Some(m)) => m,
-            Ok(None) => {
-                warn!(hash = %hash, "Asset metadata not found in layer - cannot verify");
-                self.send_message(&Message::AssetAck {
-                    page_id: page_id.to_string(),
-                    hash: hash.to_string(),
-                    success: false,
-                    error: Some("Metadata not synced yet".to_string()),
-                }, state).await;
-                return;
-            }
-            Err(e) => {
-                warn!(hash = %hash, error = %e, "Failed to get asset metadata from layer");
-                self.send_message(&Message::AssetAck {
-                    page_id: page_id.to_string(),
-                    hash: hash.to_string(),
-                    success: false,
-                    error: Some(format!("Metadata lookup failed: {}", e)),
-                }, state).await;
-                return;
-            }
-        };
-
-        // 4. Verify and store the received asset
-        if let Err(e) = butler::services::asset_service::store_received(
-            state.butler.asset_store(),
-            &page_key,
-            &metadata,
-            &plaintext,
-        ) {
-            warn!(hash = %hash, error = ?e, "Failed to store received asset");
-            self.send_message(&Message::AssetAck {
-                page_id: page_id.to_string(),
-                hash: hash.to_string(),
-                success: false,
-                error: Some(format!("Storage failed: {}", e)),
-            }, state).await;
-            return;
-        }
-
-        info!(
-            page_id = %page_id,
-            hash = %hash,
-            size = plaintext.len(),
-            "Asset received and stored successfully"
-        );
-
-        // 5. Send AssetAck
-        self.send_message(&Message::AssetAck {
-            page_id: page_id.to_string(),
-            hash: hash.to_string(),
-            success: true,
-            error: None,
-        }, state).await;
-    }
-
-    /// Handle AssetAck from peer
-    ///
-    /// **Context**: Peer received and processed our AssetReady message
-    /// **Success**: Remove from pending transfers, log completion
-    /// **Failure**: Retry with exponential backoff (max 3 attempts)
-    async fn on_asset_ack(
-        &self,
-        page_id: &str,
-        hash: &str,
-        success: bool,
-        error: Option<&str>,
-        state: &mut PeerActorState,
-    ) {
-        if success {
-            // Success - remove from pending transfers
-            state.pending_asset_transfers.remove(hash);
-            info!(
-                page_id = %page_id,
-                hash = %hash,
-                peer = %self.node_id,
-                "Asset transfer acknowledged"
-            );
-            // MemStore auto-cleans via reference counting, no manual cleanup needed
-        } else {
-            // Failure - check retry logic
-            let should_retry = if let Some(pending) = state.pending_asset_transfers.get_mut(hash) {
-                pending.attempts += 1;
-                if pending.attempts < MAX_ASSET_TRANSFER_ATTEMPTS {
-                    let backoff_ms = 100 * (1 << pending.attempts); // Exponential: 200ms, 400ms, 800ms
-                    info!(
-                        page_id = %page_id,
-                        hash = %hash,
-                        attempt = pending.attempts,
-                        backoff_ms = backoff_ms,
-                        error = ?error,
-                        "Asset transfer failed, scheduling retry"
-                    );
-                    // Return true to retry
-                    true
-                } else {
-                    warn!(
-                        page_id = %page_id,
-                        hash = %hash,
-                        attempts = pending.attempts,
-                        error = ?error,
-                        "Asset transfer failed after max retries, giving up (will sync on next session)"
-                    );
-                    // Give up - remove from pending
-                    false
-                }
-            } else {
-                // Not tracked - this is a response to an externally triggered AssetPrepare
-                // or the transfer completed before we tracked it
-                warn!(
-                    page_id = %page_id,
-                    hash = %hash,
-                    error = ?error,
-                    "Asset transfer failed (not tracked for retry)"
-                );
-                false
-            };
-
-            if should_retry {
-                // Re-send AssetPrepare for retry
-                self.send_message(&Message::AssetPrepare {
-                    page_id: page_id.to_string(),
-                    hash: hash.to_string(),
-                }, state).await;
-            } else {
-                // Clean up
-                state.pending_asset_transfers.remove(hash);
-            }
-        }
-    }
-
-    /// Get asset metadata from the Loro-synced assets layer
-    ///
-    /// **Context**: When receiving an asset via iroh-blobs, we need the full metadata
-    /// (including signature) from the Loro layer for verification
-    ///
-    /// **Flow**:
-    ///   1. Get Scribe for the page
-    ///   2. Get layer snapshot
-    ///   3. Parse and find the specific asset metadata by hash
-    async fn get_asset_metadata_from_layer(
-        &self,
-        page_id: &str,
-        layer_name: &str,
-        hash: &str,
-        state: &mut PeerActorState,
-    ) -> Result<Option<butler::AssetMetadata>, String> {
-        // Get Scribe
-        let scribe = match state.page_subscriptions.get(page_id) {
-            Some(sub) => sub.scribe.clone(),
-            None => {
-                match state.butler.open_page(page_id).await {
-                    Ok(s) => s,
-                    Err(e) => return Err(format!("Failed to open page: {}", e)),
-                }
-            }
-        };
-
-        // Get layer snapshot
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        if let Err(e) = scribe.cast(butler::ScribeMessage::GetSnapshot {
-            layer_name: layer_name.to_string(),
-            reply: tx,
-        }) {
-            return Err(format!("Failed to request layer snapshot: {}", e));
-        }
-
-        let layer_bytes = match rx.await {
-            Ok(Some(bytes)) => bytes,
-            Ok(None) => return Ok(None), // Layer doesn't exist
-            Err(_) => return Err("Scribe dropped reply channel".to_string()),
-        };
-
-        // Parse layer
-        let layer = butler::models::Layer::from_snapshot(&layer_bytes)
-            .map_err(|e| format!("Failed to parse layer: {}", e))?;
-
-        // Get all assets from layer and find the one we need
-        let assets = butler::services::asset_service::get_assets_from_layer(&layer);
-        Ok(assets.get(hash).cloned())
-    }
-
     /// Handle ephemeral datagram received from peer
     ///
     /// **Context**: Datagram received via PeerActor's read loop
-    /// **We do**: Deserialize, route to Scribe via existing page_subscriptions
-    /// **Scribe then**: Emits to local app AND relays to other subscribers (node mode)
-    async fn handle_datagram(&self, data: &[u8], state: &PeerActorState) {
+    /// **We do**: Check for Scribe connection, forward directly or buffer
+    /// **Design**: Receiver-initiates pattern - Scribe connects to us via ScribeConnect
+    #[instrument(skip_all, fields(node = %short(&self.node_id), data_len = data.len()))]
+    async fn handle_datagram(&self, data: &[u8], state: &mut PeerActorState<C>) {
+        debug!(node_id = %self.node_id, data_len = data.len(), "handle_datagram: received datagram from peer");
+
         // Deserialize the datagram
-        let datagram: EphemeralDatagram = match EphemeralDatagram::from_bytes(data) {
+        let datagram = match EphemeralDatagram::from_bytes(data) {
             Ok(d) => d,
             Err(e) => {
-                debug!("Failed to deserialize ephemeral datagram from {}: {}", self.node_id, e);
+                warn!("Failed to deserialize ephemeral datagram from {}: {}", self.node_id, e);
                 return;
             }
         };
 
-        // Route to Scribe via existing page_subscriptions
-        if let Some(subscription) = state.page_subscriptions.get(&datagram.page_id) {
-            // Get peer's DID from state (set during handshake)
-            let user_did = state.state.did().map(|s| s.to_string());
-            // Use node_id as device_id for sender exclusion during relay
-            let device_id = Some(self.node_id.to_string());
+        debug!(
+            node_id = %self.node_id,
+            page_id = %datagram.page_id,
+            scribe_connections = ?state.scribe_connections.keys().collect::<Vec<_>>(),
+            "handle_datagram: deserialized, checking for Scribe connection"
+        );
 
-            // Send to Scribe - it will forward to app layer AND relay to other peers
-            if let Err(e) = subscription.scribe.cast(ScribeMessage::RemoteEphemeral {
+        // Get peer's DID from state (set during handshake)
+        let user_did = state.state.did().map(String::from);
+        // Use node_id as device_id for sender exclusion during relay
+        let device_id = Some(self.node_id.to_string());
+
+        // Check if we have a direct Scribe connection for this page
+        if let Some(scribe) = state.scribe_connections.get(&datagram.page_id) {
+            // Fast path: forward directly to Scribe
+            match scribe.cast(ScribeMessage::RemoteEphemeral {
+                user_did: user_did.clone(),
+                device_id: device_id.clone(),
+                payload: datagram.payload.clone(),
+            }) {
+                Ok(()) => {
+                    debug!(
+                        page_id = %datagram.page_id,
+                        from_did = ?user_did,
+                        "Ephemeral forwarded to Scribe via direct connection"
+                    );
+                }
+                Err(e) => {
+                    warn!("Failed to forward ephemeral to Scribe: {}", e);
+                    // Scribe might have stopped, remove connection
+                    state.scribe_connections.remove(&datagram.page_id);
+                }
+            }
+            return;
+        }
+
+        // No Scribe connection yet - buffer the message
+        info!(
+            page_id = %datagram.page_id,
+            from_did = ?user_did,
+            "No Scribe connection - buffering ephemeral for later delivery"
+        );
+
+        state.pending_scribe_messages
+            .entry(datagram.page_id.clone())
+            .or_default()
+            .push(BufferedScribeMessage {
+                payload: datagram.payload,
                 user_did,
                 device_id,
-                payload: datagram.payload,
-            }) {
-                debug!("Failed to forward ephemeral to Scribe for page {}: {}", datagram.page_id, e);
+            });
+    }
+
+    /// Handle Scribe connection request
+    ///
+    /// **Context**: Scribe spawned and wants to receive messages for a page
+    /// **We do**: Store connection, flush any buffered messages
+    /// **Design**: Receiver-initiates pattern ensures no lost messages
+    #[instrument(skip_all, fields(node = %short(&self.node_id), page_id = %page_id))]
+    async fn handle_scribe_connect(
+        &self,
+        page_id: &str,
+        scribe: ractor::ActorRef<butler::ScribeMessage>,
+        state: &mut PeerActorState<C>,
+    ) {
+        // Flush any buffered messages for this page
+        if let Some(buffered) = state.pending_scribe_messages.remove(page_id) {
+            let count = buffered.len();
+            info!(
+                page_id = %page_id,
+                buffered_count = count,
+                "ScribeConnect received, flushing {} buffered messages",
+                count
+            );
+
+            for msg in buffered {
+                if let Err(e) = scribe.cast(ScribeMessage::RemoteEphemeral {
+                    user_did: msg.user_did,
+                    device_id: msg.device_id,
+                    payload: msg.payload,
+                }) {
+                    warn!(page_id = %page_id, error = %e, "Failed to flush buffered message");
+                } else {
+                    debug!(page_id = %page_id, "Flushed buffered message to Scribe");
+                }
             }
         } else {
-            debug!(
-                "No subscription for page {} - dropping ephemeral from {}",
-                datagram.page_id, self.node_id
-            );
+            info!(page_id = %page_id, "ScribeConnect received, no buffered messages");
         }
+
+        // Store the connection for future messages
+        state.scribe_connections.insert(page_id.to_string(), scribe);
     }
 }

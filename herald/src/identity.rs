@@ -305,9 +305,7 @@ impl Identity {
         output
     }
 
-    // =========================================================================
     // Convenience methods for encryption (uses crypto module)
-    // =========================================================================
 
     /// Encrypt data for a recipient using their public encryption key
     ///

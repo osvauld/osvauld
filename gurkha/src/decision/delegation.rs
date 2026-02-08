@@ -29,7 +29,6 @@ pub fn decide_delegation(
     resource_id: &str,
     resource_type: &str,
     audience_pubkey: &str,
-    parent_token: Option<&str>,
 ) -> DecisionResult<DelegationDecision> {
     debug!(
         "📋 Deciding delegation: resource_type={}, id={}, audience={}",
@@ -52,24 +51,6 @@ pub fn decide_delegation(
         "page" => facts.insert("page_id".to_string(), json!(resource_id)),
         _ => return Err(GurkhaError::ValidationError(format!("Unknown resource type: {}", resource_type))),
     };
-
-    // Copy delegation templates from parent token (for further delegation)
-    if let Some(parent_token_str) = parent_token {
-        let parent_ucan = crate::parser::Permit::from_token(parent_token_str)
-            .map_err(|e| GurkhaError::ParseError(format!("Failed to parse parent token: {}", e)))?;
-
-        let delegation_templates = parent_ucan.delegation_templates();
-        if !delegation_templates.is_empty() {
-            // Convert delegation templates to JSON
-            let mut delegation_json = serde_json::Map::new();
-            for (key, template_obj) in delegation_templates {
-                let template_facts = template_obj.to_facts();
-                delegation_json.insert(key.clone(), json!(template_facts));
-            }
-            facts.insert("delegation".to_string(), json!(delegation_json));
-            trace!("✓ Copied {} delegation templates from parent token", delegation_templates.len());
-        }
-    }
 
     let decision = DelegationDecision {
         audience: audience_pubkey.to_string(),

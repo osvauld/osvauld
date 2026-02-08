@@ -35,11 +35,12 @@ use crate::message::Message;
 use crate::state::{PeerState, PeerType};
 use butler::OwnerInfo;
 
+use transport::Connection;
+
 use super::guards::{require_node_mode, require_user_mode, parse_permit};
 use super::{PeerActor, PeerActorState};
 
-impl PeerActor {
-    // ==================== User Mode: Initiate Handshake ====================
+impl<C: Connection> PeerActor<C> {
 
     /// Initiate handshake by sending Hello (User mode only)
     ///
@@ -47,7 +48,7 @@ impl PeerActor {
     /// **We send**: Hello with our identity and permit
     /// **Next**: Wait for Welcome
     #[instrument(skip(self, state, permit))]
-    pub(super) async fn initiate_handshake(&self, permit: &str, state: &mut PeerActorState) {
+    pub(super) async fn initiate_handshake(&self, permit: &str, state: &mut PeerActorState<C>) {
         if require_user_mode(state.mode, "initiate_handshake").is_some() {
             return;
         }
@@ -68,7 +69,7 @@ impl PeerActor {
         };
 
         // Extract capability from permit
-        let our_can_publish = can_publish(parsed_permit.core());
+        let our_can_publish = can_publish(&parsed_permit);
         debug!(can_publish = our_can_publish, "Extracted capabilities from permit");
 
         // Get our identity from Butler
@@ -84,7 +85,7 @@ impl PeerActor {
         // Get expected node verifying key from sovereign node record
         // We compare against the verifying key (extracted from DID), not the device key
         let node_id_str = self.node_id.to_string();
-        let expected_node_pubkey = match state.butler.get_sovereign_node(&node_id_str) {
+        let expected_node_pubkey = match state.butler.nodes().get(&node_id_str) {
             Ok(Some(sovereign_node)) => {
                 // Extract the 32-byte public key from DID format
                 // DID is "did:key:z6Mk..." - we need the raw bytes for comparison
@@ -113,7 +114,7 @@ impl PeerActor {
         let timestamp = chrono::Utc::now().timestamp();
 
         // TODO: Sign (did + timestamp) with signing key
-        let signature = vec![]; // Placeholder
+        let signature = vec![];
 
         // Convert public keys to [u8; 32] arrays
         let public_key: [u8; 32] = user_info.public_key.clone().try_into()
@@ -145,8 +146,6 @@ impl PeerActor {
         };
     }
 
-    // ==================== Node Mode: Handle Hello ====================
-
     /// Handle Hello message (Node mode receives this)
     ///
     /// **Context**: Peer connects to us (the Node)
@@ -162,7 +161,7 @@ impl PeerActor {
         public_key: &[u8; 32],
         encryption_key: &[u8; 32],
         permit: &str,
-        state: &mut PeerActorState,
+        state: &mut PeerActorState<C>,
     ) {
         if require_node_mode(state.mode, "on_hello").is_some() {
             return;
@@ -187,12 +186,12 @@ impl PeerActor {
             }
         };
 
-        let peer_can_publish = can_publish(parsed_permit.core());
+        let peer_can_publish = can_publish(&parsed_permit);
         let is_first_connection = parsed_permit.is_first_connection();
         debug!(can_publish = peer_can_publish, is_first_connection, "Permit capabilities parsed");
 
         // Check if we already have an owner
-        let existing_owner = match state.butler.get_owner() {
+        let existing_owner = match state.butler.nodes().get_owner() {
             Ok(owner) => owner,
             Err(e) => {
                 error!("Failed to check owner: {}", e);
@@ -203,7 +202,7 @@ impl PeerActor {
 
         // Build context for decision
         let ctx = HelloContext {
-            incoming_permit: parsed_permit.core(),
+            incoming_permit: &parsed_permit,
             incoming_did: did,
             existing_owner_did: existing_owner.as_ref().map(|o| o.did.as_str()),
             existing_owner_permit: existing_owner.as_ref().and_then(|o| o.permit.as_deref()),
@@ -242,6 +241,7 @@ impl PeerActor {
     /// **We store**: OwnerInfo (if can_publish)
     /// **We issue**: peer_connection permit
     /// **We send**: Welcome
+    #[instrument(skip_all, fields(peer_did = %did, peer_username = %username, can_publish = peer_can_publish))]
     async fn handle_first_connection(
         &self,
         did: &str,
@@ -249,7 +249,7 @@ impl PeerActor {
         public_key: &[u8; 32],
         encryption_key: &[u8; 32],
         peer_can_publish: bool,
-        state: &mut PeerActorState,
+        state: &mut PeerActorState<C>,
     ) {
         // Store owner info if peer can publish
         if peer_can_publish {
@@ -260,7 +260,7 @@ impl PeerActor {
                 username.to_string(),
             );
 
-            if let Err(e) = state.butler.set_owner(&owner_info) {
+            if let Err(e) = state.butler.nodes().set_owner(&owner_info) {
                 error!("Failed to store owner info: {}", e);
                 self.reject("Failed to store owner", state).await;
                 return;
@@ -284,7 +284,7 @@ impl PeerActor {
 
         // Store the permit we issued (for reconnection)
         if peer_can_publish {
-            if let Err(e) = state.butler.set_owner_permit(permit_for_peer.clone()) {
+            if let Err(e) = state.butler.nodes().set_owner_permit(permit_for_peer.clone()) {
                 warn!("Failed to store owner permit: {}", e);
             }
         }
@@ -305,17 +305,18 @@ impl PeerActor {
     ///
     /// **Context**: Known peer reconnecting
     /// **We send**: Welcome with stored permit
+    #[instrument(skip_all, fields(peer_did = %did, peer_username = %username, can_publish = peer_can_publish))]
     async fn handle_reconnection(
         &self,
         did: &str,
         username: &str,
         stored_permit: &str,
         peer_can_publish: bool,
-        state: &mut PeerActorState,
+        state: &mut PeerActorState<C>,
     ) {
         debug!(can_publish = peer_can_publish, "Reconnection from known peer");
         if peer_can_publish {
-            let _ = state.butler.update_owner_last_connected();
+            let _ = state.butler.nodes().update_owner_last_connected();
         }
 
         // Send Welcome with stored permit
@@ -333,16 +334,17 @@ impl PeerActor {
     /// Handle peer connection (Node mode)
     ///
     /// **Context**: Peer connecting without publish capability
-    /// **We store**: Contact record (as Node type contact)
+    /// **We store**: Contact record with peer's device (NodeId)
     /// **We issue**: peer_connection permit
     /// **We send**: Welcome
+    #[instrument(skip_all, fields(peer_did = %did, peer_username = %username))]
     async fn handle_peer_connection(
         &self,
         did: &str,
         username: &str,
         public_key: &[u8; 32],
-        _encryption_key: &[u8; 32],
-        state: &mut PeerActorState,
+        encryption_key: &[u8; 32],
+        state: &mut PeerActorState<C>,
     ) {
         info!("Accepting peer connection from {} ({})", username, did);
 
@@ -357,9 +359,20 @@ impl PeerActor {
             }
         };
 
-        // TODO: Store peer as contact with ContactType::Node
-        // For now just log
-        debug!("Peer permit issued, contact storage TODO");
+        // Store peer as User contact with their device (NodeId)
+        let encryption_key_base64 = STANDARD.encode(encryption_key);
+        let mut contact = butler::ContactData::new(
+            did.to_string(),
+            encryption_key_base64,
+            username.to_string(),
+        );
+        contact.add_device(self.node_id.to_string(), "default".to_string());
+
+        if let Err(e) = state.butler.contacts().upsert(&contact) {
+            warn!("Failed to store peer contact: {}", e);
+        } else {
+            debug!(did = %did, device_id = %self.node_id, "Stored peer contact with device");
+        }
 
         // Send Welcome
         self.send_welcome_message(&permit_for_peer, state).await;
@@ -374,7 +387,8 @@ impl PeerActor {
     }
 
     /// Send Welcome message with our identity and permit for peer
-    async fn send_welcome_message(&self, permit_for_peer: &str, state: &mut PeerActorState) {
+    #[instrument(skip_all, fields(node = %self.node_id))]
+    async fn send_welcome_message(&self, permit_for_peer: &str, state: &mut PeerActorState<C>) {
         let our_identity = match state.butler.get_identity().await {
             Ok(identity) => identity,
             Err(e) => {
@@ -405,8 +419,6 @@ impl PeerActor {
         self.send_message(&welcome, state).await;
     }
 
-    // ==================== User Mode: Handle Welcome ====================
-
     /// Handle Welcome message (User mode receives this)
     ///
     /// **Context**: Node responded to our Hello
@@ -421,14 +433,14 @@ impl PeerActor {
         permit_for_us: &str,
         node_public_key: &[u8; 32],
         node_encryption_key: &[u8; 32],
-        state: &mut PeerActorState,
+        state: &mut PeerActorState<C>,
     ) {
         if require_user_mode(state.mode, "on_welcome").is_some() {
             return;
         }
 
         // Extract state data
-        let (our_did, our_username, our_can_publish, expected_node_pubkey, our_permit) = match &state.state {
+        let (our_did, our_username, _our_can_publish, expected_node_pubkey, our_permit) = match &state.state {
             PeerState::AwaitingWelcome { our_did, our_username, can_publish, expected_node_pubkey, our_permit, .. } => {
                 (our_did.clone(), our_username.clone(), *can_publish, expected_node_pubkey.clone(), our_permit.clone())
             }
@@ -476,12 +488,12 @@ impl PeerActor {
 
         // Build context for decision
         let ctx = WelcomeContext {
-            our_permit: our_parsed_permit.core(),
+            our_permit: &our_parsed_permit,
             our_did: &our_did,
             our_pubkey_b64: &our_pubkey_b64,
             expected_node_pubkey: &expected_node_pubkey,
             received_node_pubkey: node_public_key,
-            received_permit: parsed_permit.core(),
+            received_permit: &parsed_permit,
         };
 
         // Get decision
@@ -519,6 +531,7 @@ impl PeerActor {
     /// **We issue**: Reciprocal permit
     /// **We send**: PermitGrant
     /// **On reconnection**: Also subscribe to active Scribes for live sync
+    #[instrument(skip_all, fields(node = %self.node_id, can_publish = our_can_publish))]
     async fn complete_welcome_flow(
         &self,
         myself: ractor::ActorRef<super::PeerMessage>,
@@ -527,7 +540,7 @@ impl PeerActor {
         _our_username: &str,
         our_can_publish: bool,
         node_public_key: &[u8],
-        state: &mut PeerActorState,
+        state: &mut PeerActorState<C>,
     ) {
         let node_id_str = self.node_id.to_string();
 
@@ -545,7 +558,7 @@ impl PeerActor {
 
         // Check if this is a reconnection
         let stored_permit = state.butler
-            .get_sovereign_node(&node_id_str)
+            .nodes().get(&node_id_str)
             .ok()
             .flatten()
             .and_then(|n| n.permit);
@@ -580,7 +593,7 @@ impl PeerActor {
         debug!(can_publish = our_can_publish, "First connection: issuing permit for node");
 
         // Store the permit from node
-        if let Err(e) = state.butler.set_sovereign_node_permit(&node_id_str, permit_for_us.to_string()) {
+        if let Err(e) = state.butler.nodes().set_permit(&node_id_str, permit_for_us.to_string()) {
             warn!("Failed to store permit: {}", e);
         }
 
@@ -615,8 +628,6 @@ impl PeerActor {
         };
     }
 
-    // ==================== Node Mode: Handle PermitGrant ====================
-
     /// Handle PermitGrant message (Node mode receives this)
     ///
     /// **Context**: User sent us their permit after Welcome
@@ -624,13 +635,13 @@ impl PeerActor {
     /// **We store**: The permit they gave us
     /// **We send**: Ack
     /// **Result**: Both sides authenticated
-    /// **Post-auth**: Subscribe peer to our active Scribes for live sync
-    #[instrument(skip(self, myself, state, permit_for_node))]
+    /// **Note**: Subscription happens later via refresh_subscriptions_after_page_data
+    #[instrument(skip(self, _myself, state, permit_for_node))]
     pub(super) async fn on_permit_grant(
         &self,
-        myself: ractor::ActorRef<super::PeerMessage>,
+        _myself: ractor::ActorRef<super::PeerMessage>,
         permit_for_node: &str,
-        state: &mut PeerActorState,
+        state: &mut PeerActorState<C>,
     ) {
         if require_node_mode(state.mode, "on_permit_grant").is_some() {
             return;
@@ -674,7 +685,7 @@ impl PeerActor {
             peer_can_publish,
             our_pubkey_b64: &our_pubkey_b64,
             their_did: &their_did,
-            received_permit: parsed_permit.core(),
+            received_permit: &parsed_permit,
         };
 
         // Get decision
@@ -684,12 +695,16 @@ impl PeerActor {
         // Execute decision
         match decision {
             PermitGrantDecision::Accept { can_publish } => {
-                // Log completion
+                // Store connection permit for non-owner peers (viewers)
+                // This allows node to reconnect to them later if needed
                 if can_publish {
                     debug!("Owner handshake complete - received reciprocal permit");
                 } else {
-                    // TODO: Store peer permit in contact record
-                    debug!("Peer permit storage TODO");
+                    if let Err(e) = state.butler.store().put_connection_permit(&their_did, permit_for_node) {
+                        warn!("Failed to store connection permit: {}", e);
+                    } else {
+                        debug!(their_did = %their_did, "Stored viewer connection permit");
+                    }
                 }
 
                 // Transition to Authenticated
@@ -708,8 +723,8 @@ impl PeerActor {
 
                 info!(can_publish = can_publish, "Handshake complete with {} ({})", their_username, self.node_id);
 
-                // Subscribe peer to our active Scribes for live sync
-                self.subscribe_to_active_scribes(myself, state).await;
+                // NOTE: Don't subscribe here for first connections - viewer has no pages yet.
+                // Subscription happens in refresh_subscriptions_after_page_data after PageData is sent.
             }
             PermitGrantDecision::RejectAudienceMismatch => {
                 warn!("PermitGrant audience mismatch");
@@ -722,8 +737,6 @@ impl PeerActor {
         }
     }
 
-    // ==================== Both Modes: Handle Ack ====================
-
     /// Handle Ack message
     ///
     /// **User mode**: Ack after PermitGrant completes first connection handshake
@@ -733,7 +746,7 @@ impl PeerActor {
     pub(super) async fn on_ack(
         &self,
         myself: ractor::ActorRef<super::PeerMessage>,
-        state: &mut PeerActorState,
+        state: &mut PeerActorState<C>,
     ) {
         // Extract state data
         let (their_did, their_username, is_first_connection, peer_can_publish) = match &state.state {
@@ -766,9 +779,13 @@ impl PeerActor {
             };
             self.notify_authenticated(state, peer_type, &their_did, &their_username);
             info!(can_publish = peer_can_publish, "Reconnection handshake complete with {}", their_username);
+
+            // Subscribe peer to our active Scribes for live sync (reconnection only)
+            // For reconnection, viewer already has pages and permits stored.
+            self.subscribe_to_active_scribes(myself, state).await;
         }
 
-        // Subscribe peer to our active Scribes for live sync (both paths)
-        self.subscribe_to_active_scribes(myself, state).await;
+        // NOTE: For first connection, subscription happens after PageData is sent
+        // via refresh_subscriptions_after_page_data when viewer's permit is stored.
     }
 }

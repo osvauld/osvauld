@@ -1,0 +1,10 @@
+{
+    "name": "Tank Raylib",
+    "version": "1.0.0",
+    "description": "Classic tank game using Raylib renderer",
+    "entry_logic": "app.lua",
+    "renderer": "raylib",
+    "width": 800,
+    "height": 600,
+    "target_fps": 60
+}

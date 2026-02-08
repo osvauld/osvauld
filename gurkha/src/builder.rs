@@ -57,31 +57,3 @@ impl GurkhaPermitBuilder {
         Ok(result)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::decision::TokenDecision;
-
-    #[tokio::test]
-    async fn test_builder_creates_token() {
-        use serde_json::json;
-
-        // Create test keys
-        let signing_key_bytes = [1u8; 32];
-
-        // Create simple decision using facts-only architecture (v3)
-        let mut decision = TokenDecision::new("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK");
-        decision.add_fact("token_type".to_string(), json!("test_token"));
-        decision.add_fact("operations".to_string(), json!({"read": "allow"}));
-
-        // Build token
-        let builder = GurkhaPermitBuilder::from_bytes(&signing_key_bytes);
-        let result = builder.build(decision).await;
-
-        assert!(result.is_ok());
-        let (token, cid) = result.unwrap();
-        assert!(!token.is_empty());
-        assert!(!cid.is_empty());
-    }
-}

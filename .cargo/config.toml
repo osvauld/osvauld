@@ -11,6 +11,11 @@ linker = "aarch64-linux-gnu-gcc"
 [target.aarch64-unknown-linux-musl]
 linker = "aarch64-linux-musl-gcc"
 
+# Prevent Slint from auto-detecting and compiling the Qt backend.
+# We use winit + femtovg exclusively.
+[env]
+SLINT_NO_QT = "1"
+
 # Optional: Enable parallel frontend for faster compilation
 [build]
 jobs = 8  # Adjust based on your CPU cores

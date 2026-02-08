@@ -60,16 +60,6 @@ pub fn decide_sync_space_consent(
         decision.add_fact("auth_capabilities".into(), auth_caps.clone());
     }
 
-    // CEL rules from template
-    if let Some(cel_rules) = consent_template.get("cel_rules") {
-        decision.add_fact("cel_rules".into(), cel_rules.clone());
-    }
-
-    // CEL functions from template
-    if let Some(functions) = consent_template.get("functions") {
-        decision.add_fact("functions".into(), functions.clone());
-    }
-
     // Calculate CID of the proof token and add to proof chain
     let proof_cid = crate::crypto::get_permit_cid(node_viewer_permit)?;
     decision.proofs.push(proof_cid.clone());
@@ -137,16 +127,6 @@ pub fn decide_sync_page_consent(
     // Auth capabilities from template
     if let Some(auth_caps) = consent_template.get("auth_capabilities") {
         decision.add_fact("auth_capabilities".into(), auth_caps.clone());
-    }
-
-    // CEL rules from template
-    if let Some(cel_rules) = consent_template.get("cel_rules") {
-        decision.add_fact("cel_rules".into(), cel_rules.clone());
-    }
-
-    // CEL functions from template
-    if let Some(functions) = consent_template.get("functions") {
-        decision.add_fact("functions".into(), functions.clone());
     }
 
     // Calculate CID of the proof token and add to proof chain

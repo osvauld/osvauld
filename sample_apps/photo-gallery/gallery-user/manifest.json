@@ -4,5 +4,6 @@
     "description": "Photo gallery with secure file upload",
     "entry_ui": "app.slint",
     "entry_logic": "app.lua",
-    "models": ["photos", "assets"]
+    "models": ["photos", "assets"],
+    "renderer": "slint"
 }

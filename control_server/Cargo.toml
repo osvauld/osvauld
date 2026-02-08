@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Shared control server infrastructure for Unix socket JSON-RPC"
 
+[features]
+default = []
+butler = ["dep:butler"]
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["net", "io-util", "sync", "macros", "rt"] }
@@ -17,3 +21,6 @@ tracing = "0.1"
 
 # Async trait
 async-trait = "0.1"
+
+# Optional: Butler for shared commands
+butler = { path = "../butler", optional = true }

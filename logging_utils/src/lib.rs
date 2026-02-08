@@ -3,9 +3,7 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use tracing_tree::HierarchicalLayer;
 
-// =============================================================================
 // ID Shortening Utilities
-// =============================================================================
 
 /// Wrapper for shortening long IDs in logs
 ///
@@ -134,9 +132,7 @@ pub struct DebugLogEntry {
     pub instance: Option<String>,
 }
 
-// =============================================================================
 // Debug Capture Layer
-// =============================================================================
 
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::Context;

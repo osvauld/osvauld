@@ -65,6 +65,17 @@ export global AppAPI {
     in-out property<string> replying_to_id: "";
     in-out property<string> replying_to_text: "";
 
+    // Mention suggestions state
+    in-out property<bool> show_mentions: false;
+    in-out property<[{did: string, name: string, online: bool}]> mention_suggestions: [];
+
+    // Online users panel
+    in-out property<bool> show_online_panel: false;
+    in-out property<[{did: string, name: string}]> online_users: [];
+
+    // Autoscroll
+    in-out property<bool> auto_scroll: true;
+
     callback on_click(string);
     callback on_text_input(string);
     callback on_submit();
@@ -113,20 +124,162 @@ export component App inherits Rectangle {
                         color: Theme.text-primary;
                     }
 
-                    Text {
-                        text: AppAPI.online_count + " online";
-                        font-size: 12px;
-                        color: #22c55e;
+                    Rectangle {
+                        height: 20px;
+                        background: online-touch.has-hover ? Theme.bg-card : transparent;
+                        border-radius: 10px;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
+
+                            Rectangle {
+                                width: 8px;
+                                height: 8px;
+                                background: #22c55e;
+                                border-radius: 4px;
+                                y: (parent.height - self.height) / 2;
+                            }
+
+                            Text {
+                                text: (AppAPI.online_users.length + 1) + " online ▼";
+                                font-size: 12px;
+                                color: #22c55e;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        online-touch := TouchArea {
+                            clicked => { AppAPI.on_click("toggle_online_panel"); }
+                        }
                     }
                 }
 
                 Rectangle { horizontal-stretch: 1; }
 
+                // Autoscroll toggle
+                Rectangle {
+                    width: 80px;
+                    height: 28px;
+                    background: autoscroll-touch.has-hover ? Theme.bg-card : Theme.bg-primary;
+                    border-radius: 14px;
+                    border-width: 1px;
+                    border-color: AppAPI.auto_scroll ? Theme.accent : Theme.border;
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 4px;
+
+                        Text {
+                            text: AppAPI.auto_scroll ? "▼" : "▢";
+                            font-size: 10px;
+                            color: AppAPI.auto_scroll ? Theme.accent : Theme.text-secondary;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: "Auto";
+                            font-size: 11px;
+                            color: AppAPI.auto_scroll ? Theme.accent : Theme.text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    autoscroll-touch := TouchArea {
+                        clicked => { AppAPI.on_click("toggle_autoscroll"); }
+                    }
+                }
+
                 Text {
-                    text: AppAPI.messages.length + " messages";
+                    text: AppAPI.messages.length + " msgs";
                     font-size: 12px;
                     color: Theme.text-secondary;
                     vertical-alignment: center;
+                }
+            }
+        }
+
+        // Online users panel (expandable)
+        if AppAPI.show_online_panel: Rectangle {
+            height: min(AppAPI.online_users.length * 36px + 48px, 200px);
+            background: Theme.bg-secondary;
+
+            // Bottom border
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.border;
+            }
+
+            VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                HorizontalLayout {
+                    Text {
+                        text: "Online Users";
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: Theme.text-secondary;
+                    }
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    Rectangle {
+                        width: 20px;
+                        height: 20px;
+                        background: close-panel-touch.has-hover ? Theme.bg-card : transparent;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "✕";
+                            font-size: 12px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        close-panel-touch := TouchArea {
+                            clicked => { AppAPI.on_click("toggle_online_panel"); }
+                        }
+                    }
+                }
+
+                if AppAPI.online_users.length == 0: Text {
+                    text: "No other users online";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+
+                for user in AppAPI.online_users: HorizontalLayout {
+                    spacing: 8px;
+                    height: 28px;
+
+                    Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        background: #22c55e;
+                        border-radius: 4px;
+                        y: (parent.height - self.height) / 2;
+                    }
+
+                    Text {
+                        text: user.name;
+                        font-size: 14px;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    Text {
+                        text: user.did;
+                        font-size: 10px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                    }
                 }
             }
         }
@@ -135,6 +288,22 @@ export component App inherits Rectangle {
         Flickable {
             vertical-stretch: 1;
             viewport-height: messages-content.preferred-height;
+
+            // Autoscroll helper: use property that depends on messages.length to trigger re-evaluation
+            property<length> scroll-target: min(0px, self.height - self.viewport-height);
+
+            init => {
+                // Start scrolled to bottom
+                self.viewport-y = self.scroll-target;
+            }
+
+            // When autoscroll is on and messages change, scroll to bottom
+            property<int> msg-count: AppAPI.messages.length;
+            changed msg-count => {
+                if AppAPI.auto_scroll {
+                    self.viewport-y = self.scroll-target;
+                }
+            }
 
             messages-content := VerticalLayout {
                 padding: 16px;
@@ -676,34 +845,85 @@ export component App inherits Rectangle {
                     }
                 }
 
-                // Text input
-                Rectangle {
+                // Text input with mention suggestions
+                VerticalLayout {
                     horizontal-stretch: 1;
-                    height: 44px;
-                    background: Theme.bg-card;
-                    border-radius: 22px;
+                    spacing: 0;
 
-                    HorizontalLayout {
-                        padding-left: 16px;
-                        padding-right: 16px;
+                    // Mention suggestions dropdown (above input)
+                    if AppAPI.show_mentions && AppAPI.mention_suggestions.length > 0: Rectangle {
+                        height: min(AppAPI.mention_suggestions.length * 40px + 8px, 168px);
+                        background: Theme.bg-card;
+                        border-radius: 12px;
+                        border-width: 1px;
+                        border-color: Theme.border;
 
-                        input := TextInput {
-                            text <=> AppAPI.draft_text;
-                            font-size: 14px;
-                            color: Theme.text-primary;
-                            vertical-alignment: center;
+                        VerticalLayout {
+                            padding: 4px;
+                            spacing: 0;
 
-                            edited => { AppAPI.on_text_input(self.text); }
-                            accepted => { AppAPI.on_submit(); }
+                            for user in AppAPI.mention_suggestions: Rectangle {
+                                height: 40px;
+                                background: mention-touch.has-hover ? Theme.bg-secondary : transparent;
+                                border-radius: 8px;
+
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    spacing: 8px;
+
+                                    // Online indicator
+                                    Rectangle {
+                                        width: 8px;
+                                        height: 8px;
+                                        background: user.online ? #22c55e : Theme.text-secondary;
+                                        border-radius: 4px;
+                                        y: (parent.height - self.height) / 2;
+                                    }
+
+                                    Text {
+                                        text: user.name;
+                                        color: Theme.text-primary;
+                                        font-size: 14px;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                mention-touch := TouchArea {
+                                    clicked => { AppAPI.on_click("mention:" + user.name); }
+                                }
+                            }
                         }
                     }
 
-                    if AppAPI.draft_text == "": Text {
-                        text: "Type a message...";
-                        font-size: 14px;
-                        color: Theme.text-secondary;
-                        x: 16px;
-                        vertical-alignment: center;
+                    // Text input
+                    Rectangle {
+                        height: 44px;
+                        background: Theme.bg-card;
+                        border-radius: 22px;
+
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+
+                            input := TextInput {
+                                text <=> AppAPI.draft_text;
+                                font-size: 14px;
+                                color: Theme.text-primary;
+                                vertical-alignment: center;
+
+                                edited => { AppAPI.on_text_input(self.text); }
+                                accepted => { AppAPI.on_submit(); }
+                            }
+                        }
+
+                        if AppAPI.draft_text == "": Text {
+                            text: "Type a message... (@ to mention)";
+                            font-size: 14px;
+                            color: Theme.text-secondary;
+                            x: 16px;
+                            vertical-alignment: center;
+                        }
                     }
                 }
 

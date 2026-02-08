@@ -1,18 +1,25 @@
-//! Handle module - Provides high-level API for tauri_handlers
-//!
 //! This module provides a high-level API for P2P operations.
 //! App communicates with Coordinator for lifecycle, and directly with PeerActor for operations.
+//!
+//! This module uses concrete `IrohConnection` type for production.
+//! For testing with mock connections, use the generic Coordinator directly.
 
 use std::sync::Arc;
 
 use ractor::{Actor, ActorRef};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, warn};
-use transport::{NodeId, Transport, TransportEvent};
+use transport::{IrohConnection, NodeId, Transport, TransportEvent};
 
 use crate::coordinator::{Coordinator, CoordinatorMessage, CourierMode};
 use crate::peer_actor::PeerMessage;
 use butler::Butler;
+
+/// Production coordinator message type (uses IrohConnection)
+pub type IrohCoordinatorMessage = CoordinatorMessage<IrohConnection>;
+
+/// Production coordinator type (uses IrohConnection)
+pub type IrohCoordinator = Coordinator<IrohConnection>;
 
 /// Event emitted by Courier to the application
 #[derive(Debug, Clone)]
@@ -79,14 +86,15 @@ pub enum CourierEvent {
 /// Handle for interacting with Courier
 ///
 /// Provides async methods for P2P operations.
+/// Uses `IrohConnection` (production) type internally.
 #[derive(Clone)]
 pub struct CourierHandle {
-    coordinator: ActorRef<CoordinatorMessage>,
+    coordinator: ActorRef<IrohCoordinatorMessage>,
 }
 
 impl CourierHandle {
     /// Create a new CourierHandle
-    pub fn new(coordinator: ActorRef<CoordinatorMessage>) -> Self {
+    pub fn new(coordinator: ActorRef<IrohCoordinatorMessage>) -> Self {
         Self { coordinator }
     }
 
@@ -107,7 +115,7 @@ impl CourierHandle {
             .map_err(|e| format!("Invalid node_id: {}", e))?;
 
         self.coordinator
-            .cast(CoordinatorMessage::Connect {
+            .cast(IrohCoordinatorMessage::Connect {
                 node_id,
                 permit: permit.to_string(),
             })
@@ -119,7 +127,7 @@ impl CourierHandle {
         let (tx, rx) = oneshot::channel();
 
         self.coordinator
-            .cast(CoordinatorMessage::GetPeerActor { node_id, response: tx })
+            .cast(IrohCoordinatorMessage::GetPeerActor { node_id, response: tx })
             .map_err(|e| format!("Failed to send GetPeerActor: {:?}", e))?;
 
         rx.await
@@ -190,7 +198,7 @@ impl CourierHandle {
     }
 
     /// Get a reference to the coordinator (for tests)
-    pub fn coordinator(&self) -> &ActorRef<CoordinatorMessage> {
+    pub fn coordinator(&self) -> &ActorRef<IrohCoordinatorMessage> {
         &self.coordinator
     }
 
@@ -200,7 +208,7 @@ impl CourierHandle {
     /// **Coordinator will**: Resolve user_did → device, connect if needed, PeerActor subscribes
     pub fn ensure_sync(&self, user_did: &str) -> Result<(), String> {
         self.coordinator
-            .cast(CoordinatorMessage::EnsureSync {
+            .cast(IrohCoordinatorMessage::EnsureSync {
                 user_did: user_did.to_string(),
             })
             .map_err(|e| format!("Failed to send EnsureSync: {:?}", e))
@@ -212,8 +220,41 @@ impl CourierHandle {
     /// **Coordinator will**: Send datagram to each authenticated peer's connection
     pub fn broadcast_datagram(&self, data: Vec<u8>) -> Result<(), String> {
         self.coordinator
-            .cast(CoordinatorMessage::BroadcastDatagram { data })
+            .cast(IrohCoordinatorMessage::BroadcastDatagram { data })
             .map_err(|e| format!("Failed to broadcast datagram: {:?}", e))
+    }
+
+    /// Notify that a page was opened - refreshes subscriptions
+    ///
+    /// **Context**: App opened a page, ensures sync subscriptions are established
+    /// **Coordinator will**: Send RefreshSubscriptions to all authenticated PeerActors
+    /// **Use case**: Fixes race condition where page opens after connection established
+    pub fn page_opened(&self, page_id: &str) -> Result<(), String> {
+        self.coordinator
+            .cast(IrohCoordinatorMessage::PageOpened {
+                page_id: page_id.to_string(),
+            })
+            .map_err(|e| format!("Failed to notify page opened: {:?}", e))
+    }
+
+    /// Check if a node is authenticated (handshake complete)
+    ///
+    /// **Context**: Script/app wants to wait for auth before publishing
+    /// **Returns**: true if handshake complete with this node
+    pub async fn is_node_authenticated(&self, node_id: &str) -> Result<bool, String> {
+        let node_id: NodeId = node_id
+            .parse()
+            .map_err(|e| format!("Invalid node_id: {}", e))?;
+
+        let (tx, rx) = oneshot::channel();
+        self.coordinator
+            .cast(IrohCoordinatorMessage::IsNodeAuthenticated {
+                node_id,
+                response: tx,
+            })
+            .map_err(|e| format!("Failed to send IsNodeAuthenticated: {:?}", e))?;
+
+        rx.await.map_err(|_| "Channel closed".to_string())
     }
 }
 
@@ -233,7 +274,7 @@ impl HandshakeServices {
 
 /// Courier initialization helper
 ///
-/// Provides a simpler initialization API that matches what tauri_handlers expects.
+/// Provides a simpler initialization API that matches for Courier consumers.
 pub struct Courier;
 
 impl Courier {
@@ -278,10 +319,28 @@ pub struct CourierRunner {
     butler: Arc<Butler>,
     event_tx: mpsc::Sender<CourierEvent>,
     connect_rx: mpsc::Receiver<crate::coordinator::ConnectRequest>,
-    coordinator: Option<ActorRef<CoordinatorMessage>>,
+    coordinator: Option<ActorRef<IrohCoordinatorMessage>>,
 }
 
 impl CourierRunner {
+    /// Convert TransportEvent to IrohCoordinatorMessage
+    ///
+    /// Maps the concrete TransportEvent (with ConnectionHandle) to the generic
+    /// CoordinatorMessage<IrohConnection> by wrapping the handle.
+    fn from_transport_event(event: TransportEvent) -> Option<IrohCoordinatorMessage> {
+        match event {
+            TransportEvent::Connected { node_id, conn } => {
+                Some(IrohCoordinatorMessage::Connected {
+                    node_id,
+                    conn: conn.into(), // ConnectionHandle -> IrohConnection
+                })
+            }
+            TransportEvent::Disconnected { node_id } => {
+                Some(IrohCoordinatorMessage::Disconnected { node_id })
+            }
+        }
+    }
+
     /// Spawn coordinator synchronously and return its ActorRef
     ///
     /// Uses block_in_place to spawn the actor synchronously so we can
@@ -289,7 +348,7 @@ impl CourierRunner {
     fn spawn_coordinator_sync(
         &self,
         connect_tx: mpsc::Sender<crate::coordinator::ConnectRequest>,
-    ) -> ActorRef<CoordinatorMessage> {
+    ) -> ActorRef<IrohCoordinatorMessage> {
         let node_id = self.transport.node_id();
         let butler = self.butler.clone();
         let transport = self.transport.clone();
@@ -298,7 +357,7 @@ impl CourierRunner {
 
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
-                let coordinator = Coordinator::new();
+                let coordinator = IrohCoordinator::new();
                 let blob_store = crate::peer_actor::BlobStore::Real(transport);
                 let (actor_ref, _) = Actor::spawn(
                     Some("coordinator".to_string()),
@@ -330,7 +389,7 @@ impl CourierRunner {
             tokio::select! {
                 // Handle transport events
                 Some(event) = transport_rx.recv() => {
-                    if let Some(msg) = Coordinator::from_transport_event(event) {
+                    if let Some(msg) = Self::from_transport_event(event) {
                         if let Err(e) = coordinator.cast(msg) {
                             error!("Failed to send message to coordinator: {:?}", e);
                         }
@@ -343,15 +402,24 @@ impl CourierRunner {
                     info!(node_id = %req.node_id, "Processing connection request");
 
                     // Connect via transport - on_connected will use stored permit
+                    // Transport::connect now includes retry with exponential backoff
                     let transport = self.transport.clone();
                     let node_id = req.node_id;
+                    let event_tx = self.event_tx.clone();
                     tokio::spawn(async move {
                         match transport.connect(node_id).await {
                             Ok(_handle) => {
                                 info!(node_id = %node_id, "Auto-connect successful for sync");
+                                // TransportEvent::Connected will be emitted by transport,
+                                // which triggers PeerActor spawn and handshake
                             }
                             Err(e) => {
-                                warn!(node_id = %node_id, error = %e, "Auto-connect failed for sync");
+                                warn!(node_id = %node_id, error = %e, "Auto-connect failed for sync (after retries)");
+                                // Notify app that connection failed
+                                let _ = event_tx.send(CourierEvent::ConnectionFailed {
+                                    node_id: node_id.to_string(),
+                                    error: e.to_string(),
+                                }).await;
                             }
                         }
                     });
@@ -363,7 +431,7 @@ impl CourierRunner {
         }
 
         // Shutdown coordinator
-        let _ = coordinator.cast(CoordinatorMessage::Shutdown);
+        let _ = coordinator.cast(IrohCoordinatorMessage::Shutdown);
         info!("Courier runner stopped");
     }
 }

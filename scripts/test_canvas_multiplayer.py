@@ -33,8 +33,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from lib.tmux import TmuxManager
-from lib.wait import wait_for_condition
+from osvauld.tmux import TmuxManager
+from osvauld.wait import wait_for_condition
 
 
 DEMOS_APP = Path(__file__).parent.parent / "sample_apps" / "canvas-app"

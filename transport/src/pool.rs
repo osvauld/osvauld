@@ -88,9 +88,7 @@ impl PeerConnection {
         &self.connection
     }
 
-    // =========================================================================
     // Datagram Primitives (unreliable, fire-and-forget)
-    // =========================================================================
 
     /// Send unreliable datagram (fire-and-forget)
     ///
@@ -119,9 +117,7 @@ impl PeerConnection {
         self.connection.max_datagram_size()
     }
 
-    // =========================================================================
     // Stream Primitives (reliable, ordered)
-    // =========================================================================
 
     /// Accept incoming bidirectional stream
     ///
@@ -191,9 +187,7 @@ impl ConnectionHandle {
         self.inner.close();
     }
 
-    // =========================================================================
     // Datagram Primitives (unreliable, fire-and-forget)
-    // =========================================================================
 
     /// Send unreliable datagram (fire-and-forget)
     ///
@@ -216,9 +210,7 @@ impl ConnectionHandle {
         self.inner.max_datagram_size()
     }
 
-    // =========================================================================
     // Stream Primitives (reliable, ordered)
-    // =========================================================================
 
     /// Accept incoming bidirectional stream
     ///

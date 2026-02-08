@@ -38,8 +38,6 @@ pub fn parse_permit(token: &str) -> Result<gurkha::Permit, String> {
     gurkha::Permit::from_token(token).map_err(|e| format!("Invalid permit: {:?}", e))
 }
 
-// ==================== Type Conversions ====================
-
 /// Convert butler::Space → message::PublishedSpace
 pub fn to_published_space(space: &butler::Space) -> crate::message::PublishedSpace {
     crate::message::PublishedSpace {

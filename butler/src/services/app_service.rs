@@ -5,15 +5,18 @@
 //! ## Layer Naming Convention
 //! - `app:{name}` - App layers (LoroMap of file paths -> content)
 //! - `static:{path}` - Static binary files (not CRDT)
-//! - No prefix - Data layers (LoroList/LoroMap from permit template)
+//! - No prefix - Data layers (LoroList/LoroMap from page definition)
+//!
+//! ## Page Definition
+//! Pages are defined using `page.lua` - the single source of truth for roles, layers, and apps.
 
 use crate::{Butler, Page};
 use crate::error::{ButlerError, Result};
 use crate::models::Layer;
 use std::path::Path;
 use std::collections::HashMap;
+use tracing::instrument;
 use walkdir::WalkDir;
-
 /// Prefix for app layers
 pub const APP_LAYER_PREFIX: &str = "app:";
 
@@ -45,10 +48,57 @@ pub fn app_layer_name(app_name: &str) -> String {
     format!("{}{}", APP_LAYER_PREFIX, app_name)
 }
 
-/// Extract layer names from permit template JSON
+/// Result of loading page templates
+pub struct PageTemplateResult {
+    /// Optional page name (from manifest.json or empty)
+    pub page_name: Option<String>,
+    /// The permit template JSON string (from permit_template.json)
+    pub permit_template: String,
+    /// Layer names extracted from the permit template
+    pub layer_names: Vec<String>,
+}
+
+/// Load page templates from permit_template.json
 ///
-/// **Context**: Permit templates define layers in `owner_template.layers`
-/// **We extract**: Layer names to create CRDT storage during page creation
+/// # Arguments
+/// * `page_dir` - Directory containing permit_template.json
+///
+/// # Returns
+/// * `Ok(PageTemplateResult)` - Permit template and layer names from JSON file
+/// * `Err(ButlerError)` - If permit_template.json is missing or invalid
+#[instrument(skip_all)]
+fn load_page_templates(page_dir: &Path) -> Result<PageTemplateResult> {
+    let permit_template_path = page_dir.join("permit_template.json");
+
+    if !permit_template_path.exists() {
+        return Err(ButlerError::Database(
+            format!("Page directory must contain permit_template.json: {}", page_dir.display())
+        ));
+    }
+
+    // Load permit template from JSON file
+    let permit_json = std::fs::read_to_string(&permit_template_path)
+        .map_err(|e| ButlerError::Database(
+            format!("Failed to read permit_template.json: {}", e)
+        ))?;
+
+    // Extract layer names from the permit template
+    let layer_names = extract_layer_names_from_permit(&permit_json)?;
+
+    tracing::info!(
+        layer_count = layer_names.len(),
+        "Loaded permit_template.json"
+    );
+
+    Ok(PageTemplateResult {
+        page_name: None, // Page name comes from directory or manifest
+        permit_template: permit_json,
+        layer_names,
+    })
+}
+
+/// Extract layer names from permit template JSON
+#[instrument(skip_all)]
 fn extract_layer_names_from_permit(permit_json: &str) -> Result<Vec<String>> {
     let permit: serde_json::Value = serde_json::from_str(permit_json)
         .map_err(|e| ButlerError::Serialization(
@@ -58,8 +108,8 @@ fn extract_layer_names_from_permit(permit_json: &str) -> Result<Vec<String>> {
     let layers = permit.get("owner_template")
         .and_then(|t| t.get("layers"))
         .and_then(|l| l.as_object())
-        .ok_or_else(|| ButlerError::Permit(
-            "Permit template missing owner_template.layers".to_string()
+        .ok_or_else(|| ButlerError::permit_error(
+            "Permit template missing owner_template.layers"
         ))?;
 
     Ok(layers.keys().map(|k| k.to_string()).collect())
@@ -68,6 +118,7 @@ fn extract_layer_names_from_permit(permit_json: &str) -> Result<Vec<String>> {
 /// Collect app files from a directory
 ///
 /// Returns a HashMap of relative_path -> content for text files.
+#[instrument(skip_all)]
 fn collect_app_files(app_dir: &Path) -> Result<HashMap<String, String>> {
     let mut files = HashMap::new();
 
@@ -94,22 +145,7 @@ fn collect_app_files(app_dir: &Path) -> Result<HashMap<String, String>> {
 }
 
 /// Import an app from a directory into Butler storage
-///
-/// **Context**: User wants to import a development app into Butler
-/// **We read**: All app files from directory (manifest, .slint, .lua, .json)
-/// **We create**: New page in space with:
-///   - Data layers from permit template
-///   - App layer `app:{app_name}` as LoroMap of files
-/// **We return**: Created page metadata
-///
-/// # Layer Storage
-/// - App files stored in `app:{app_name}` layer as LoroMap (CRDT, syncable)
-/// - Data layers from permit template (CRDT, syncable)
-///
-/// # Arguments
-/// * `butler` - Butler instance for storage operations
-/// * `space_id` - Target space ID for the app/page
-/// * `app_dir` - Directory containing app files
+#[instrument(skip(butler, app_dir), fields(space_id = %space_id))]
 pub async fn import_app_from_directory(
     butler: &Butler,
     space_id: &str,
@@ -118,7 +154,7 @@ pub async fn import_app_from_directory(
     // 1. Read and parse manifest
     let manifest_path = app_dir.join("manifest.json");
     let manifest_content = std::fs::read_to_string(&manifest_path)
-        .map_err(|e| ButlerError::Storage(
+        .map_err(|e| ButlerError::Database(
             format!("Failed to read manifest.json: {}", e)
         ))?;
 
@@ -129,7 +165,7 @@ pub async fn import_app_from_directory(
 
     let app_name = manifest.get("name")
         .and_then(|n| n.as_str())
-        .ok_or_else(|| ButlerError::Storage(
+        .ok_or_else(|| ButlerError::Database(
             "manifest.json missing 'name' field".to_string()
         ))?;
 
@@ -140,7 +176,7 @@ pub async fn import_app_from_directory(
 
     let template_path = app_dir.join(template_filename);
     let permit_template = std::fs::read_to_string(&template_path)
-        .map_err(|e| ButlerError::Storage(
+        .map_err(|e| ButlerError::Database(
             format!("Failed to read {}: {}", template_filename, e)
         ))?;
 
@@ -168,7 +204,7 @@ pub async fn import_app_from_directory(
     );
 
     // 6. Create page with all layers (data + app)
-    let page = butler.create_page(
+    let page = butler.pages().create(
         space_id,
         app_name,
         layer_names,
@@ -179,7 +215,7 @@ pub async fn import_app_from_directory(
 
     // 7. Populate app layer with files
     // Get AES key by decrypting page
-    let (_decrypted, aes_key) = butler.get_decrypted_page(&page.id).await?;
+    let (_decrypted, aes_key) = butler.pages().get_decrypted(&page.id).await?;
 
     // Create app layer with files
     let app_layer = Layer::new();
@@ -204,17 +240,8 @@ pub async fn import_app_from_directory(
 
 /// Refresh an app from directory (re-read files and update layer)
 ///
-/// **Context**: Developer edited files on disk, wants to reload into Butler
-/// **We do**: Re-read files, update the app layer, return changed files
-///
-/// # Arguments
-/// * `butler` - Butler instance
-/// * `page_id` - Page containing the app
-/// * `app_name` - Name of the app (used for layer name `app:{app_name}`)
-/// * `app_dir` - Directory with updated app files
-///
-/// # Returns
-/// List of file paths that were changed
+/// Returns list of changed file paths.
+#[instrument(skip(butler, app_dir), fields(page_id = %page_id, app_name = %app_name))]
 pub async fn refresh_app_from_directory(
     butler: &Butler,
     page_id: &str,
@@ -222,7 +249,7 @@ pub async fn refresh_app_from_directory(
     app_dir: &Path,
 ) -> Result<Vec<String>> {
     // Verify page exists
-    butler.get_page(page_id)?
+    butler.pages().get(page_id)?
         .ok_or_else(|| ButlerError::NotFound(
             format!("Page {} not found", page_id)
         ))?;
@@ -231,7 +258,7 @@ pub async fn refresh_app_from_directory(
     let new_files = collect_app_files(app_dir)?;
 
     // Get AES key and current layer
-    let (decrypted, aes_key) = butler.get_decrypted_page(page_id).await?;
+    let (decrypted, aes_key) = butler.pages().get_decrypted(page_id).await?;
 
     let app_layer_name = app_layer_name(app_name);
 
@@ -290,12 +317,10 @@ pub async fn refresh_app_from_directory(
     Ok(changed_files)
 }
 
-/// List all apps in a page
-///
-/// **Context**: Find all `app:*` layers in a page
-/// **Returns**: List of app names (without prefix)
+/// List all apps in a page (returns app names without prefix)
+#[instrument(skip(butler), fields(page_id = %page_id))]
 pub fn list_apps_in_page(butler: &Butler, page_id: &str) -> Result<Vec<String>> {
-    let (decrypted, _) = futures::executor::block_on(butler.get_decrypted_page(page_id))?;
+    let (decrypted, _) = futures::executor::block_on(butler.pages().get_decrypted(page_id))?;
 
     let apps: Vec<String> = decrypted.docs.keys()
         .filter_map(|name| app_name_from_layer(name).map(String::from))
@@ -305,16 +330,14 @@ pub fn list_apps_in_page(butler: &Butler, page_id: &str) -> Result<Vec<String>> 
 }
 
 /// Add another app to an existing page
-///
-/// **Context**: Page already has data layers, adding another app UI
-/// **We do**: Create new `app:{app_name}` layer with files
+#[instrument(skip(butler, app_dir), fields(page_id = %page_id))]
 pub async fn add_app_to_page(
     butler: &Butler,
     page_id: &str,
     app_dir: &Path,
 ) -> Result<String> {
     // Verify page exists
-    butler.get_page(page_id)?
+    butler.pages().get(page_id)?
         .ok_or_else(|| ButlerError::NotFound(
             format!("Page {} not found", page_id)
         ))?;
@@ -322,7 +345,7 @@ pub async fn add_app_to_page(
     // Read manifest to get app name
     let manifest_path = app_dir.join("manifest.json");
     let manifest_content = std::fs::read_to_string(&manifest_path)
-        .map_err(|e| ButlerError::Storage(
+        .map_err(|e| ButlerError::Database(
             format!("Failed to read manifest.json: {}", e)
         ))?;
 
@@ -333,16 +356,16 @@ pub async fn add_app_to_page(
 
     let app_name = manifest.get("name")
         .and_then(|n| n.as_str())
-        .ok_or_else(|| ButlerError::Storage(
+        .ok_or_else(|| ButlerError::Database(
             "manifest.json missing 'name' field".to_string()
         ))?;
 
     let app_layer_name = app_layer_name(app_name);
 
     // Check if app layer already exists
-    let (decrypted, aes_key) = butler.get_decrypted_page(page_id).await?;
+    let (decrypted, aes_key) = butler.pages().get_decrypted(page_id).await?;
     if decrypted.docs.contains_key(&app_layer_name) {
-        return Err(ButlerError::Storage(
+        return Err(ButlerError::Database(
             format!("App '{}' already exists in page", app_name)
         ));
     }
@@ -371,10 +394,6 @@ pub async fn add_app_to_page(
     Ok(app_name.to_string())
 }
 
-// ============================================================================
-// Page-level import (directory containing multiple apps)
-// ============================================================================
-
 /// Result of reloading a page from directory
 #[derive(Debug, Default)]
 pub struct PageReloadResult {
@@ -386,24 +405,13 @@ pub struct PageReloadResult {
     pub removed_apps: Vec<String>,
 }
 
-/// Scan a page directory for app subdirectories
-///
-/// **Structure:**
-/// ```text
-/// page_dir/
-///   ├── permit_template.json    ← page-level permit
-///   ├── shop-owner/             ← app (has manifest.json)
-///   │   └── manifest.json
-///   └── shop-customer/          ← app (has manifest.json)
-///       └── manifest.json
-/// ```
-///
-/// **Returns:** Vec<(app_name, app_dir_path)>
+/// Scan a page directory for app subdirectories (subdirs with manifest.json)
+#[instrument(skip_all)]
 fn scan_app_subdirectories(page_dir: &Path) -> Result<Vec<(String, std::path::PathBuf)>> {
     let mut apps = Vec::new();
 
     let entries = std::fs::read_dir(page_dir)
-        .map_err(|e| ButlerError::Storage(format!("Failed to read page directory: {}", e)))?;
+        .map_err(|e| ButlerError::Database(format!("Failed to read page directory: {}", e)))?;
 
     for entry in entries.filter_map(|e| e.ok()) {
         let path = entry.path();
@@ -419,14 +427,14 @@ fn scan_app_subdirectories(page_dir: &Path) -> Result<Vec<(String, std::path::Pa
 
         // Read manifest to get app name
         let manifest_content = std::fs::read_to_string(&manifest_path)
-            .map_err(|e| ButlerError::Storage(format!("Failed to read manifest: {}", e)))?;
+            .map_err(|e| ButlerError::Database(format!("Failed to read manifest: {}", e)))?;
 
         let manifest: serde_json::Value = serde_json::from_str(&manifest_content)
             .map_err(|e| ButlerError::Serialization(format!("Invalid manifest: {}", e)))?;
 
         let app_name = manifest.get("name")
             .and_then(|n| n.as_str())
-            .ok_or_else(|| ButlerError::Storage(
+            .ok_or_else(|| ButlerError::Database(
                 format!("manifest.json in {:?} missing 'name' field", path)
             ))?;
 
@@ -438,52 +446,39 @@ fn scan_app_subdirectories(page_dir: &Path) -> Result<Vec<(String, std::path::Pa
 
 /// Import a page directory containing multiple apps
 ///
-/// **Structure:**
-/// ```text
-/// page_dir/                     ← directory name = page name
-///   ├── permit_template.json    ← page-level permit (data layers)
-///   ├── shop-owner/             ← app 1
-///   │   ├── manifest.json
-///   │   ├── app.slint
-///   │   └── app.lua
-///   └── shop-customer/          ← app 2
-///       ├── manifest.json
-///       ├── app.slint
-///       └── app.lua
-/// ```
+/// Directory name becomes page name. Each subdirectory with manifest.json
+/// becomes an app layer.
 ///
-/// **We create:**
-/// - Page with name = directory name
-/// - Data layers from permit_template.json
-/// - App layers for each subdirectory with manifest.json
+/// Requires page.lua in the page directory for roles, layers, and app definitions.
+#[instrument(skip(butler, page_dir), fields(space_id = %space_id))]
 pub async fn import_page_from_directory(
     butler: &Butler,
     space_id: &str,
     page_dir: &Path,
 ) -> Result<Page> {
-    // 1. Get page name from directory name
-    let page_name = page_dir
+    // 1. Get page name from directory name (or from page.lua if present)
+    let default_page_name = page_dir
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| ButlerError::Storage("Invalid page directory name".to_string()))?;
+        .ok_or_else(|| ButlerError::Database("Invalid page directory name".to_string()))?
+        .to_string();
 
     tracing::info!(
-        page_name = %page_name,
+        page_name = %default_page_name,
         page_dir = %page_dir.display(),
         "Importing page from directory"
     );
 
-    // 2. Read permit template from page root
-    let permit_path = page_dir.join("permit_template.json");
-    let permit_template = std::fs::read_to_string(&permit_path)
-        .map_err(|e| ButlerError::Storage(
-            format!("Failed to read permit_template.json: {}", e)
-        ))?;
+    // 2. Load permit template from JSON file
+    let template_result = load_page_templates(page_dir)?;
+
+    // Use directory name as page name (or could read from manifest.json in future)
+    let page_name = template_result.page_name.unwrap_or(default_page_name);
 
     // 3. Scan for app subdirectories
     let app_dirs = scan_app_subdirectories(page_dir)?;
     if app_dirs.is_empty() {
-        return Err(ButlerError::Storage(
+        return Err(ButlerError::Database(
             "No apps found in page directory (subdirectories with manifest.json)".to_string()
         ));
     }
@@ -495,8 +490,8 @@ pub async fn import_page_from_directory(
         "Found apps in page directory"
     );
 
-    // 4. Extract data layer names from permit template
-    let mut layer_names = extract_layer_names_from_permit(&permit_template)?;
+    // 4. Get layer names from page definition
+    let mut layer_names = template_result.layer_names;
 
     // 5. Add app layers to the list
     for (app_name, _) in &app_dirs {
@@ -504,17 +499,17 @@ pub async fn import_page_from_directory(
     }
 
     // 6. Create page with all layers
-    let page = butler.create_page(
+    let page = butler.pages().create(
         space_id,
-        page_name,
+        &page_name,
         layer_names,
-        &permit_template,
+        &template_result.permit_template,
     ).await?;
 
     tracing::info!(page_id = %page.id, page_name = %page.name, "Created page");
 
     // 7. Get AES key for encrypting app layers
-    let (_decrypted, aes_key) = butler.get_decrypted_page(&page.id).await?;
+    let (_decrypted, aes_key) = butler.pages().get_decrypted(&page.id).await?;
 
     // 8. Populate each app layer with files
     for (app_name, app_path) in &app_dirs {
@@ -550,19 +545,15 @@ pub async fn import_page_from_directory(
 
 /// Reload a page from directory (sync from filesystem)
 ///
-/// **Behavior:**
-/// - Updates existing apps (files changed on disk)
-/// - Adds new apps (new subdirectories with manifest.json)
-/// - Does NOT remove apps (to preserve data; use explicit delete)
-///
-/// **Returns:** PageReloadResult with updated/added/removed app lists
+/// Updates existing apps, adds new ones, but does NOT remove apps (preserves data).
+#[instrument(skip(butler, page_dir), fields(page_id = %page_id))]
 pub async fn reload_page_from_directory(
     butler: &Butler,
     page_id: &str,
     page_dir: &Path,
 ) -> Result<PageReloadResult> {
     // Verify page exists
-    let page = butler.get_page(page_id)?
+    let page = butler.pages().get(page_id)?
         .ok_or_else(|| ButlerError::NotFound(format!("Page {} not found", page_id)))?;
 
     tracing::info!(
@@ -583,7 +574,7 @@ pub async fn reload_page_from_directory(
     let mut result = PageReloadResult::default();
 
     // Get AES key
-    let (_decrypted, aes_key) = butler.get_decrypted_page(page_id).await?;
+    let (_decrypted, aes_key) = butler.pages().get_decrypted(page_id).await?;
 
     // Process each app in directory
     for (app_name, app_path) in &app_dirs {

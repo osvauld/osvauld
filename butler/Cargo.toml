@@ -41,6 +41,8 @@ blake3 = "1.5"
 uuid = { version = "1", features = ["v4"] }
 
 # Internal crates
+domains = { path = "../domains" }
+scribe = { path = "../scribe" }
 herald = { path = "../herald" }
 gurkha = { path = "../gurkha" }
 # CEL is being replaced by Rune runtime
@@ -49,5 +51,11 @@ futures = "0.3.31"
 # Directory traversal for app import
 walkdir = "2"
 
-# Lua scripting for validation layer
-mlua = { version = "0.10", features = ["lua54", "vendored", "send"] }
+# Fast mutex
+parking_lot = "0.12"
+
+[dev-dependencies]
+# Property-based testing
+proptest = "1.4"
+# Gurkha test support (test fixtures)
+gurkha = { path = "../gurkha", features = ["test-support"] }

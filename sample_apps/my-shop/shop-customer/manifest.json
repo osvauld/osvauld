@@ -4,5 +4,6 @@
     "description": "E-commerce customer app - browse products and place orders",
     "entry_ui": "app.slint",
     "entry_logic": "app.lua",
-    "models": ["products", "my_orders"]
+    "models": ["products", "my_orders"],
+    "renderer": "slint"
 }

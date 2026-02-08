@@ -4,5 +4,5 @@
     "description": "Real-time group chat with emoji and typing indicators",
     "entry_ui": "app.slint",
     "entry_logic": "app.lua",
-    "tick_enabled": true
+    "renderer": "slint"
 }
