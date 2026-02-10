@@ -40,20 +40,6 @@ function on_init()
     threads.init(my_did, my_name)
     read_tracker.init(page_id, my_did, my_name)
 
-    -- Init channels — on switch, rebind messages to new channel layer
-    channels.init(page_id, my_did, my_name, function(channel_id, messages_layer)
-        scribe:rebind("messages", "channels/" .. channel_id .. "/messages")
-
-        -- Also refresh thread if open (may be in same channel)
-        if threads.is_open() then
-            threads.refresh_replies(messages_layer)
-        end
-
-        -- Mark as read and update sidebar badges
-        read_tracker.mark_read(channel_id, messages_layer)
-        channels.refresh_channel_list()
-    end, read_tracker)
-
     -- Init presence
     presence.init(page_id, my_did, my_name)
 
@@ -74,9 +60,9 @@ function on_init()
         end
     })
 
-    -- Bind initial channel's messages (channels.init already switched to "general")
-    local initial_channel = channels.get_active_channel()
-    scribe:bind("messages", "channels/" .. initial_channel .. "/messages", {
+    -- Bind messages for default channel BEFORE channels.init(),
+    -- because init() calls switch_channel("general") which fires the callback.
+    scribe:bind("messages", "channels/general/messages", {
         key = "id",
         transform = function(msg)
             if msg.thread_parent_id and msg.thread_parent_id ~= "" then
@@ -85,6 +71,20 @@ function on_init()
             return messages.to_ui_message(msg)
         end
     })
+
+    -- Init channels — on switch, rebind messages to new channel layer
+    channels.init(page_id, my_did, my_name, function(channel_id, messages_layer)
+        scribe:rebind("messages", "channels/" .. channel_id .. "/messages")
+
+        -- Also refresh thread if open (may be in same channel)
+        if threads.is_open() then
+            threads.refresh_replies(messages_layer)
+        end
+
+        -- Mark as read and update sidebar badges
+        read_tracker.mark_read(channel_id, messages_layer)
+        channels.refresh_channel_list()
+    end, read_tracker)
 
     -- Init UI state
     ui:set("auto_scroll", true)
@@ -423,3 +423,8 @@ api.export("send_message", function(text)
 end)
 api.export("switch_channel", function(id) channels.switch_channel(id) end)
 api.export("get_active_channel", function() return channels.get_active_channel() end)
+api.export("get_message_count", function()
+    local layer = channels.get_messages_layer()
+    if not layer then return 0 end
+    return layer:length()
+end)
