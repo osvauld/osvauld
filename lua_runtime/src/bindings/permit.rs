@@ -43,12 +43,13 @@ impl UserData for PermitBindings {
         // Get our username (from signup)
         methods.add_method("my_name", |_, this, ()| Ok(this.our_name.clone()));
 
-        // Helper to construct layer paths like "{page_id}/{layer_type}/{my_did}"
-        // Example: permit:my_layer("orders") -> "page123/orders/did:key:xyz"
+        // Helper to construct layer paths like "{layer_type}/{my_did}"
+        // Example: permit:my_layer("orders") -> "orders/did:key:xyz"
+        // Note: Scribe uses bare layer names (no page_id/ prefix)
         methods.add_method("my_layer", |_, this, layer_type: String| {
             Ok(format!(
-                "{}/{}/{}",
-                this.page_id, layer_type, this.our_did
+                "{}/{}",
+                layer_type, this.our_did
             ))
         });
     }

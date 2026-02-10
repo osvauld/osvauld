@@ -37,6 +37,11 @@
                 "type": "map",
                 "sync": true,
                 "write": true
+            },
+            "app:shared": {
+                "type": "map",
+                "sync": true,
+                "write": true
             }
         },
         "layer_patterns": {
@@ -69,6 +74,11 @@
                         "write": true
                     },
                     "app:Shop Customer": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
+                    },
+                    "app:shared": {
                         "type": "map",
                         "sync": true,
                         "write": false
@@ -218,6 +228,10 @@
                 "write": false
             },
             "app:Shop Customer": {
+                "sync": true,
+                "write": false
+            },
+            "app:shared": {
                 "sync": true,
                 "write": false
             }

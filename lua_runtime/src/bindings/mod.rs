@@ -67,25 +67,3 @@ pub use peers::PeersBindings;
 pub use permit::PermitBindings;
 pub use ui::{event_to_lua, parse_subscribe_options, UiBindings, UiSharedState};
 
-use mlua::Error as LuaError;
-
-// Helper: Block on async operation
-
-/// Block on async operation, handling both tokio runtime and non-runtime contexts
-///
-/// **Context**: When inside tokio runtime, uses block_in_place for efficiency.
-/// When outside (e.g., Qt/Slint event loop), creates temporary runtime.
-pub(crate) fn block_on_async<T, F: std::future::Future<Output = T>>(
-    future: F,
-) -> Result<T, LuaError> {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => {
-            // We're in a Tokio runtime, use block_in_place for efficiency
-            Ok(tokio::task::block_in_place(|| handle.block_on(future)))
-        }
-        Err(_) => {
-            // Not in a runtime (e.g., headless context), use futures executor
-            Ok(futures::executor::block_on(future))
-        }
-    }
-}

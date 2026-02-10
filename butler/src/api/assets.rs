@@ -51,8 +51,8 @@ impl<'a> AssetsApi<'a> {
             data,
         )?;
 
-        // Add metadata to {page_id}/assets layer via Scribe
-        let assets_layer_name = format!("{}/assets", page_id);
+        // Add metadata to assets layer via Scribe (bare name)
+        let assets_layer_name = "assets".to_string();
         let scribe = self.butler.open_page(page_id).await?;
 
         // Serialize metadata to JSON for MapInsert

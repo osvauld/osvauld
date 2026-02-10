@@ -43,8 +43,9 @@ use tracing::{debug, error, info, warn, instrument};
 use transport::{BiStream, Connection, NodeId};
 
 use crate::coordinator::{CoordinatorMessage, CourierMode};
-use crate::message::{Message, EphemeralDatagram};
+use crate::message::*;
 use crate::state::{PeerState, PeerType};
+use crate::trace::{MessageTrace, TraceDirection};
 use butler::{Butler, BroadcastPayload, ScribeMessage};
 
 /// Messages received by PeerActor
@@ -195,6 +196,10 @@ pub struct PeerActorArgs<C: Connection> {
     pub blob_store: BlobStore,
     /// Permit for outbound connections - if Some, auto-initiate handshake
     pub permit: Option<String>,
+    /// Optional trace channel for protocol message capture (tests only)
+    pub message_tx: Option<tokio::sync::mpsc::UnboundedSender<MessageTrace>>,
+    /// Our node ID (for trace context)
+    pub our_node_id: NodeId,
 }
 
 // Unified Outbound Update (replaces BroadcastPayload + EphemeralOutbound)
@@ -328,6 +333,9 @@ pub struct PeerActorState<C: Connection> {
     /// Peer's encryption key (set after handshake)
     /// Used for ECDH when sending SyncOffer messages
     peer_encryption_key: Option<[u8; 32]>,
+    /// Cached parsed permit from handshake (Hello/Welcome/PermitGrant)
+    /// Avoids re-parsing the permit on every message flow
+    cached_peer_permit: Option<gurkha::Permit>,
     /// Active page subscriptions: page_id -> subscription info
     /// Used for explicit cleanup on disconnect (abort task + send Unsubscribe)
     page_subscriptions: std::collections::HashMap<String, PageSubscription>,
@@ -352,6 +360,17 @@ pub struct PeerActorState<C: Connection> {
     /// **Context**: When ephemeral arrives before Scribe connects, buffer here.
     /// Flushed when Scribe calls ScribeConnect.
     pending_scribe_messages: std::collections::HashMap<String, Vec<BufferedScribeMessage>>,
+
+    /// Pending space request queued before handshake completes (User/Viewer mode)
+    ///
+    /// **Context**: Viewer sends SpaceRequest before Ack arrives (race condition).
+    /// Queued here and drained in on_ack after handshake completes.
+    pending_space_request: Option<(String, String)>,  // (space_id, viewer_permit)
+
+    /// Optional trace channel for protocol message capture (tests only)
+    message_tx: Option<tokio::sync::mpsc::UnboundedSender<MessageTrace>>,
+    /// Our node ID (for trace context)
+    our_node_id: NodeId,
 }
 
 /// PeerActor handles one P2P connection
@@ -381,6 +400,16 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
+        if let Some(tx) = &state.message_tx {
+            let _ = tx.send(MessageTrace {
+                direction: TraceDirection::Sent,
+                msg_name: msg.name(),
+                node_id: state.our_node_id,
+                peer_node_id: self.node_id,
+                timestamp: Instant::now(),
+            });
+        }
+
         if let Err(e) = state.conn.send_bytes(&bytes).await {
             error!("Failed to send message to {}: {}", self.node_id, e);
         }
@@ -403,10 +432,10 @@ impl<C: Connection> PeerActor<C> {
         );
 
         // Send the request
-        self.send_message(&Message::AssetPrepare {
+        self.send_message(&Message::AssetPrepare(AssetPrepareMsg {
             page_id: page_id.to_string(),
             hash: hash.to_string(),
-        }, state).await;
+        }), state).await;
 
         debug!(page_id = %page_id, hash = %hash, "Sent AssetPrepare (tracked for retry)");
     }
@@ -415,7 +444,7 @@ impl<C: Connection> PeerActor<C> {
     #[instrument(skip_all, fields(node = %short(&self.node_id), reason = %reason))]
     async fn reject(&self, reason: &str, state: &mut PeerActorState<C>) {
         warn!("Rejecting peer {}: {}", self.node_id, reason);
-        self.send_message(&Message::Rejected { reason: reason.to_string() }, state).await;
+        self.send_message(&Message::Rejected(RejectedMsg { reason: reason.to_string() }), state).await;
         state.state = PeerState::fail(reason);
         self.notify_failed(state, reason);
     }
@@ -557,12 +586,16 @@ impl<C: Connection> Actor for PeerActor<C> {
             blob_store: args.blob_store,
             pending_viewer_syncs: std::collections::HashMap::new(),
             peer_encryption_key: None,
+            cached_peer_permit: None,
             page_subscriptions: std::collections::HashMap::new(),
             pending_sync_offers: std::collections::HashMap::new(),
             pending_asset_transfers: std::collections::HashMap::new(),
             pending_shareable_link_requests: std::collections::HashMap::new(),
             scribe_connections: std::collections::HashMap::new(),
             pending_scribe_messages: std::collections::HashMap::new(),
+            pending_space_request: None,
+            message_tx: args.message_tx,
+            our_node_id: args.our_node_id,
         })
     }
 
@@ -587,7 +620,7 @@ impl<C: Connection> Actor for PeerActor<C> {
             }
 
             PeerMessage::PublishPage { page_id } => {
-                self.initiate_publish_page(&page_id, state).await;
+                self.initiate_page_announce(&page_id, state).await;
             }
 
             PeerMessage::GetShareableLink { space_id, response_tx } => {
@@ -595,7 +628,13 @@ impl<C: Connection> Actor for PeerActor<C> {
             }
 
             PeerMessage::RequestSpace { space_id, viewer_permit } => {
-                self.initiate_request_space_as_viewer(&space_id, &viewer_permit, state).await;
+                // Queue if handshake not complete yet (race: SpaceRequest sent before Ack)
+                if !matches!(state.state, PeerState::Authenticated { .. }) {
+                    info!("Queueing SpaceRequest for {} until handshake completes", space_id);
+                    state.pending_space_request = Some((space_id, viewer_permit));
+                } else {
+                    self.initiate_request_space_as_viewer(&space_id, &viewer_permit, state).await;
+                }
             }
 
             PeerMessage::SubscribeToPage { page_id, permit } => {
@@ -680,34 +719,27 @@ impl<C: Connection> PeerActor<C> {
         message: Message,
         state: &mut PeerActorState<C>,
     ) {
-        // Message name logged in instrument fields above
+        if let Some(tx) = &state.message_tx {
+            let _ = tx.send(MessageTrace {
+                direction: TraceDirection::Received,
+                msg_name: message.name(),
+                node_id: state.our_node_id,
+                peer_node_id: self.node_id,
+                timestamp: Instant::now(),
+            });
+        }
 
         match message {
-            Message::Hello {
-                did,
-                username,
-                public_key,
-                encryption_key,
-                signature: _,
-                timestamp: _,
-                permit,
-            } => {
-                self.on_hello(&did, &username, &public_key, &encryption_key, &permit, state).await;
+            Message::Hello(m) => {
+                self.on_hello(&m.did, &m.username, &m.public_key, &m.encryption_key, &m.permit, state).await;
             }
 
-            Message::Welcome {
-                node_id: _,
-                node_public_key,
-                node_encryption_key,
-                signature: _,
-                timestamp: _,
-                permit_for_peer,
-            } => {
-                self.on_welcome(myself.clone(), &permit_for_peer, &node_public_key, &node_encryption_key, state).await;
+            Message::Welcome(m) => {
+                self.on_welcome(myself.clone(), &m.permit_for_peer, &m.node_public_key, &m.node_encryption_key, state).await;
             }
 
-            Message::PermitGrant { permit_for_node } => {
-                self.on_permit_grant(myself.clone(), &permit_for_node, state).await;
+            Message::PermitGrant(m) => {
+                self.on_permit_grant(myself.clone(), &m.permit_for_node, state).await;
             }
 
             Message::Ack => {
@@ -715,111 +747,110 @@ impl<C: Connection> PeerActor<C> {
                 self.on_ack(myself.clone(), state).await;
             }
 
-            Message::Rejected { reason } => {
-                warn!("Connection rejected by {}: {}", self.node_id, reason);
-                state.state = PeerState::fail(&reason);
-                self.notify_failed(state, &reason);
+            Message::Rejected(m) => {
+                warn!("Connection rejected by {}: {}", self.node_id, m.reason);
+                state.state = PeerState::fail(&m.reason);
+                self.notify_failed(state, &m.reason);
             }
 
-            // Publishing messages - require authentication
-            Message::PublishSpace { request_id, space, space_permit } => {
-                self.on_publish_space(&request_id, &space, &space_permit, state).await;
+            // Publishing messages
+            Message::PublishSpace(m) => {
+                self.on_publish_space(&m.request_id, &m.space, &m.space_permit, state).await;
             }
 
-            Message::PublishPage { request_id, page, page_permit, owner_permit, ephemeral_public, layers } => {
-                self.on_publish_page(&request_id, &page, &page_permit, &owner_permit, &ephemeral_public, &layers, state).await;
+            Message::PageAnnounce(m) => {
+                self.on_page_announce(&m.request_id, &m.page, &m.page_permit, &m.owner_permit, state).await;
             }
 
-            Message::PublishPageAck { request_id, page_id, permit } => {
-                self.on_publish_page_ack(&request_id, &page_id, &permit, state).await;
+            Message::PageAnnounceAck(m) => {
+                self.on_page_announce_ack(myself.clone(), &m.request_id, &m.page_id, &m.permit, state).await;
             }
 
-            Message::PublishSpaceAck { request_id, permit, pages } => {
-                self.on_publish_space_ack(&request_id, &permit, &pages, state).await;
+            Message::PublishSpaceAck(m) => {
+                self.on_publish_space_ack(&m.request_id, &m.permit, &m.pages, state).await;
             }
 
-            Message::PublishError { request_id, error } => {
-                self.on_publish_error(&request_id, &error, state).await;
+            Message::PublishError(m) => {
+                self.on_publish_error(&m.request_id, &m.error, state).await;
+            }
+
+            Message::PermitUpdate(m) => {
+                self.on_permit_update(&m.permit, &m.scope, state).await;
             }
 
             // 3-Step Sync Protocol messages
-            Message::SyncOffer { page_id, layer_name, data, state_vector, ephemeral_public, permit } => {
-                self.on_sync_offer(myself.clone(), &page_id, &layer_name, &data, &state_vector, &ephemeral_public, &permit, state).await;
+            Message::SyncOffer(m) => {
+                self.on_sync_offer(myself.clone(), &m.page_id, &m.layer_name, &m.data, &m.state_vector, &m.ephemeral_public, state).await;
             }
 
-            Message::SyncAccept { page_id, layer_name, state_vector } => {
-                self.on_sync_accept(&page_id, &layer_name, &state_vector, state).await;
+            Message::SyncAccept(m) => {
+                self.on_sync_accept(&m.page_id, &m.layer_name, &m.state_vector, state).await;
             }
 
-            Message::SyncAck { page_id, layer_name, state_vector } => {
-                self.on_sync_ack(&page_id, &layer_name, &state_vector, state).await;
+            Message::SyncAck(m) => {
+                self.on_sync_ack(&m.page_id, &m.layer_name, &m.state_vector, state).await;
             }
 
-            // Bounded resync fallback messages
-            Message::SyncReset { page_id, layer_name } => {
-                self.on_sync_reset(&page_id, &layer_name, state).await;
+            Message::SyncReset(m) => {
+                self.on_sync_reset(&m.page_id, &m.layer_name, state).await;
             }
 
-            Message::SyncSnapshot { page_id, layer_name, snapshot, state_vector, ephemeral_public } => {
-                self.on_sync_snapshot(&page_id, &layer_name, &snapshot, &state_vector, &ephemeral_public, state).await;
+            Message::SyncSnapshot(m) => {
+                self.on_sync_snapshot(&m.page_id, &m.layer_name, &m.snapshot, &m.state_vector, &m.ephemeral_public, state).await;
             }
 
             // Shareable link messages
-            Message::GetShareableLinkRequest { request_id, space_id } => {
-                self.on_get_shareable_link_request(&request_id, &space_id, state).await;
+            Message::GetShareableLinkRequest(m) => {
+                self.on_get_shareable_link_request(&m.request_id, &m.space_id, state).await;
             }
 
-            Message::GetShareableLinkResponse { request_id, space_id, permit } => {
-                self.on_get_shareable_link_response(&request_id, &space_id, &permit, state).await;
+            Message::GetShareableLinkResponse(m) => {
+                self.on_get_shareable_link_response(&m.request_id, &m.space_id, &m.permit, state).await;
             }
 
             // Viewer space request messages
-            Message::SpaceRequest { request_id, space_id, viewer_did, viewer_public_key, viewer_encryption_key, viewer_permit } => {
-                self.on_space_request(&request_id, &space_id, &viewer_did, &viewer_public_key, &viewer_encryption_key, &viewer_permit, state).await;
+            Message::SpaceRequest(m) => {
+                self.on_space_request(&m.request_id, &m.space_id, &m.viewer_did, &m.viewer_public_key, &m.viewer_encryption_key, &m.viewer_permit, state).await;
             }
 
-            Message::SpaceData { request_id, space_id, delegated_permit, space, page_ids } => {
-                self.on_space_data(&request_id, &space_id, &delegated_permit, &space, &page_ids, state).await;
+            Message::SpaceData(m) => {
+                self.on_space_data(&m.request_id, &m.space_id, &m.delegated_permit, &m.space, &m.pages, state).await;
             }
 
-            Message::SpaceDataAck { request_id, space_id, delegated_permit } => {
-                self.on_space_data_ack(myself.clone(), &request_id, &space_id, &delegated_permit, state).await;
+            Message::SpaceDataAck(m) => {
+                self.on_space_data_ack(myself.clone(), &m.request_id, &m.space_id, &m.delegated_permit, state).await;
             }
 
-            Message::PageData { request_id, space_id, meta, permit, ephemeral_public, layers, is_last } => {
-                self.on_viewer_page(myself.clone(), &request_id, &space_id, &meta, &permit, &ephemeral_public, &layers, is_last, state).await;
+            Message::SpaceRequestError(m) => {
+                error!("SpaceRequestError: request={} error={}", m.request_id, m.error);
             }
 
-            Message::SpaceRequestError { request_id, error } => {
-                error!("SpaceRequestError: request={} error={}", request_id, error);
+            // Sync consent messages
+            Message::SyncConsentGrant(m) => {
+                self.on_sync_consent_grant(&m.request_id, &m.space_id, &m.space_consent_permit, &m.page_consent_permits, state).await;
             }
 
-            // Sync consent messages (Viewer → Node → Viewer)
-            Message::SyncConsentGrant { request_id, space_id, space_consent_permit, page_consent_permits } => {
-                self.on_sync_consent_grant(&request_id, &space_id, &space_consent_permit, &page_consent_permits, state).await;
+            Message::SyncConsentAck(m) => {
+                self.on_sync_consent_ack(&m.request_id, &m.space_id, state).await;
             }
 
-            Message::SyncConsentAck { request_id, space_id } => {
-                self.on_sync_consent_ack(&request_id, &space_id, state).await;
+            // Asset sync messages
+            Message::AssetPrepare(m) => {
+                self.on_asset_prepare(&m.page_id, &m.hash, state).await;
             }
 
-            // Asset sync messages (iroh-blobs)
-            Message::AssetPrepare { page_id, hash } => {
-                self.on_asset_prepare(&page_id, &hash, state).await;
+            Message::AssetReady(m) => {
+                self.on_asset_ready(&m.page_id, &m.hash, &m.iroh_hash, state).await;
             }
 
-            Message::AssetReady { page_id, hash, iroh_hash } => {
-                self.on_asset_ready(&page_id, &hash, &iroh_hash, state).await;
+            Message::AssetAck(m) => {
+                self.on_asset_ack(&m.page_id, &m.hash, m.success, m.error.as_deref(), state).await;
             }
 
-            Message::AssetAck { page_id, hash, success, error } => {
-                self.on_asset_ack(&page_id, &hash, success, error.as_deref(), state).await;
-            }
-
-            Message::Error { id, code, message } => {
+            Message::Error(m) => {
                 error!(
                     "Error from {}: {:?} - {} (id: {:?})",
-                    self.node_id, code, message, id
+                    self.node_id, m.code, m.message, m.id
                 );
             }
         }

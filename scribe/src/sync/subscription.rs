@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, warn, instrument};
 
 use crate::message::{BroadcastPayload, EphemeralOutbound};
-use crate::state::{ScribeState, SubscriberInfo};
+use crate::state::{ScribeState, SubscriberInfo, normalize_layer_name};
 use crate::ephemeral::{emit_peer_subscribed, emit_peer_unsubscribed};
 
 // Helper Functions
@@ -77,9 +77,11 @@ pub async fn handle_subscribe(
     // The UCAN audience may be base64-encoded public key or DID format
     let permit_holder_did = extract_permit_holder_did(&permit_token, &user_did);
 
-    // Load stored state vectors for this peer
+    // Load stored state vectors for this peer, normalizing keys to bare names
     let vectors = match state.vector_storage.load_vectors(&user_did, &device_id) {
-        Ok(Some(v)) => v,
+        Ok(Some(v)) => v.into_iter()
+            .map(|(k, v)| (normalize_layer_name(&k, &state.page_id), v))
+            .collect(),
         Ok(None) => HashMap::new(),
         Err(e) => {
             warn!(error = %e, "Failed to load peer vectors");
@@ -174,9 +176,11 @@ async fn send_initial_state_to_subscriber(
     permit: &gurkha::Permit,
     subscriber_did: &str,
 ) {
-    // Get peer's stored vectors (if any)
+    // Get peer's stored vectors (if any), normalizing keys to bare names
     let peer_vectors = match state.vector_storage.load_vectors(user_did, device_id) {
-        Ok(Some(v)) => v,
+        Ok(Some(v)) => v.into_iter()
+            .map(|(k, v)| (normalize_layer_name(&k, &state.page_id), v))
+            .collect(),
         Ok(None) => HashMap::new(),
         Err(_) => HashMap::new(),
     };
@@ -229,9 +233,9 @@ async fn send_initial_state_to_subscriber(
         let payload = BroadcastPayload {
             page_id: state.page_id.clone(),
             layer_name: layer_name.clone(),
+            layer_type: domains::LayerType::from_layer_name(&layer_name),
             update: data,
             state_vector,
-            permit: None, // TODO: Resolve consent permit for viewer sync
         };
 
         if let Err(e) = broadcast_tx.try_send(payload) {

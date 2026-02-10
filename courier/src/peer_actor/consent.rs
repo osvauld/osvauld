@@ -5,7 +5,7 @@
 
 use tracing::{error, info, warn, instrument};
 
-use crate::message::Message;
+use crate::message::*;
 use transport::Connection;
 
 use super::guards::{require_user_mode, require_auth, parse_permit};
@@ -169,12 +169,12 @@ impl<C: Connection> PeerActor<C> {
 
         // Send SyncConsentGrant to node
         let request_id = uuid::Uuid::new_v4().to_string();
-        let msg = Message::SyncConsentGrant {
+        let msg = Message::SyncConsentGrant(SyncConsentGrantMsg {
             request_id,
             space_id: space_id.to_string(),
             space_consent_permit,
             page_consent_permits,
-        };
+        });
 
         self.send_message(&msg, state).await;
         info!("Sent SyncConsentGrant for space {} to node", space_id);
@@ -232,12 +232,12 @@ impl<C: Connection> PeerActor<C> {
 
         // Send SyncConsentGrant with only space consent (no page consents yet)
         let request_id = uuid::Uuid::new_v4().to_string();
-        let msg = Message::SyncConsentGrant {
+        let msg = Message::SyncConsentGrant(SyncConsentGrantMsg {
             request_id,
             space_id: space_id.to_string(),
             space_consent_permit,
             page_consent_permits: vec![],
-        };
+        });
 
         self.send_message(&msg, state).await;
         info!("Sent space consent for space {} to node", space_id);
@@ -308,12 +308,12 @@ impl<C: Connection> PeerActor<C> {
 
         // Send SyncConsentGrant with only this page consent (empty space consent)
         let request_id = uuid::Uuid::new_v4().to_string();
-        let msg = Message::SyncConsentGrant {
+        let msg = Message::SyncConsentGrant(SyncConsentGrantMsg {
             request_id,
             space_id,
             space_consent_permit: String::new(), // Empty for page-only consent
             page_consent_permits: vec![(page_id.to_string(), page_consent_permit)],
-        };
+        });
 
         self.send_message(&msg, state).await;
         info!("Sent page consent for page {} to node", page_id);
@@ -376,10 +376,10 @@ impl<C: Connection> PeerActor<C> {
         info!("Stored viewer consent permits for {} space={}", viewer_did, space_id);
 
         // Send acknowledgment
-        let msg = Message::SyncConsentAck {
+        let msg = Message::SyncConsentAck(SyncConsentAckMsg {
             request_id: request_id.to_string(),
             space_id: space_id.to_string(),
-        };
+        });
         self.send_message(&msg, state).await;
     }
 

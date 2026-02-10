@@ -164,6 +164,20 @@ app("Shared Dashboard", {
 })
 ```
 
+### In-Page Navigation
+
+Apps within a page can navigate to sibling apps using `page:open_app()`:
+
+```lua
+function on_click(target)
+    if target == "cta:Read the Docs" then
+        page:open_app("Protocol Docs")  -- switches to the "Protocol Docs" app tab
+    end
+end
+```
+
+The name must match the target app's `"name"` in its `manifest.json` (or the name passed to `app()` in page.lua). Navigation only works between apps in the same page. See [LUA_API.md](LUA_API.md#page-navigation-and-change-subscriptions) for details.
+
 ## App Lifecycle
 
 1. **Load**: manifest.json parsed, .slint compiled, .lua executed

@@ -475,9 +475,7 @@ impl SlintRuntime {
                     }
                 };
                 let count = model.row_count();
-                for _ in 0..count {
-                    model.remove(0);
-                }
+                model.set_vec(vec![]);
 
                 tracing::debug!(
                     page_id = %self.page_id,

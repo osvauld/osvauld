@@ -1,0 +1,312 @@
+// Documentation sidebar — section + subsection navigation
+
+import { Theme } from "theme.slint";
+
+export struct SidebarSection {
+    id: int,
+    name: string,
+    is_active: bool,
+}
+
+// Single sidebar item
+component SidebarItem inherits Rectangle {
+    in property<string> label;
+    in property<bool> active;
+    in property<bool> is-sub: false;
+    callback clicked();
+
+    height: is-sub ? 28px : 32px;
+    background: active ? Theme.bg-active : (touch.has-hover ? Theme.bg-hover : transparent);
+    border-radius: 4px;
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: is-sub ? 28px : 12px;
+        padding-right: 12px;
+
+        Text {
+            text: label;
+            font-size: is-sub ? 12px : 13px;
+            font-weight: active ? 600 : 400;
+            color: active ? Theme.text-primary : (is-sub ? Theme.text-muted : Theme.text-secondary);
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// Full sidebar
+export component Sidebar inherits Rectangle {
+    in property<int> active_section: 0;
+    in property<int> active_subsection: 0;
+    callback section_clicked(int);
+    callback subsection_clicked(int);
+
+    width: 220px;
+    background: Theme.bg-sidebar;
+
+    VerticalLayout {
+        spacing: 0;
+
+        // Header
+        Rectangle {
+            height: 50px;
+            background: Theme.bg-sidebar;
+
+            HorizontalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                // Doc icon
+                Rectangle {
+                    width: 28px;
+                    height: 28px;
+                    background: Theme.accent;
+                    border-radius: 6px;
+
+                    Text {
+                        text: "D";
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: white;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Text {
+                    text: "Protocol Docs";
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                }
+            }
+
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.border;
+            }
+        }
+
+        // Scrollable nav
+        Flickable {
+            vertical-stretch: 1;
+            viewport-height: nav-layout.preferred-height;
+
+            nav-layout := VerticalLayout {
+                padding: 8px;
+                spacing: 2px;
+
+                // 0: Overview
+                SidebarItem {
+                    label: "Overview";
+                    active: active_section == 0 && active_subsection == -1;
+                    clicked => { root.section_clicked(0); }
+                }
+                if active_section == 0: SidebarItem {
+                    label: "Architecture";
+                    active: active_subsection == 0;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(0); }
+                }
+                if active_section == 0: SidebarItem {
+                    label: "Crate Map";
+                    active: active_subsection == 1;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(1); }
+                }
+
+                // 1: Protocol
+                SidebarItem {
+                    label: "Protocol";
+                    active: active_section == 1 && active_subsection == -1;
+                    clicked => { root.section_clicked(1); }
+                }
+                if active_section == 1: SidebarItem {
+                    label: "Wire Protocol";
+                    active: active_subsection == 0;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(0); }
+                }
+                if active_section == 1: SidebarItem {
+                    label: "Message Types";
+                    active: active_subsection == 1;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(1); }
+                }
+                if active_section == 1: SidebarItem {
+                    label: "Handshake";
+                    active: active_subsection == 2;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(2); }
+                }
+                if active_section == 1: SidebarItem {
+                    label: "Sync Protocol";
+                    active: active_subsection == 3;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(3); }
+                }
+
+                // 2: Data Model
+                SidebarItem {
+                    label: "Data Model";
+                    active: active_section == 2 && active_subsection == -1;
+                    clicked => { root.section_clicked(2); }
+                }
+                if active_section == 2: SidebarItem {
+                    label: "Hierarchy";
+                    active: active_subsection == 0;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(0); }
+                }
+                if active_section == 2: SidebarItem {
+                    label: "Loro CRDTs";
+                    active: active_subsection == 1;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(1); }
+                }
+                if active_section == 2: SidebarItem {
+                    label: "Encryption";
+                    active: active_subsection == 2;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(2); }
+                }
+                if active_section == 2: SidebarItem {
+                    label: "Derivation";
+                    active: active_subsection == 3;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(3); }
+                }
+
+                // 3: Building Apps
+                SidebarItem {
+                    label: "Building Apps";
+                    active: active_section == 3 && active_subsection == -1;
+                    clicked => { root.section_clicked(3); }
+                }
+                if active_section == 3: SidebarItem {
+                    label: "Getting Started";
+                    active: active_subsection == 0;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(0); }
+                }
+                if active_section == 3: SidebarItem {
+                    label: "Lua API";
+                    active: active_subsection == 1;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(1); }
+                }
+                if active_section == 3: SidebarItem {
+                    label: "Scribe API";
+                    active: active_subsection == 2;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(2); }
+                }
+                if active_section == 3: SidebarItem {
+                    label: "Permits";
+                    active: active_subsection == 3;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(3); }
+                }
+                if active_section == 3: SidebarItem {
+                    label: "Renderers";
+                    active: active_subsection == 4;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(4); }
+                }
+                if active_section == 3: SidebarItem {
+                    label: "Validation";
+                    active: active_subsection == 5;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(5); }
+                }
+
+                // 4: AI Development
+                SidebarItem {
+                    label: "AI Development";
+                    active: active_section == 4 && active_subsection == -1;
+                    clicked => { root.section_clicked(4); }
+                }
+                if active_section == 4: SidebarItem {
+                    label: "api.export";
+                    active: active_subsection == 0;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(0); }
+                }
+                if active_section == 4: SidebarItem {
+                    label: "Control Server";
+                    active: active_subsection == 1;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(1); }
+                }
+                if active_section == 4: SidebarItem {
+                    label: "Python Client";
+                    active: active_subsection == 2;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(2); }
+                }
+                if active_section == 4: SidebarItem {
+                    label: "Debugging";
+                    active: active_subsection == 3;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(3); }
+                }
+
+                // 5: Testing
+                SidebarItem {
+                    label: "Testing";
+                    active: active_section == 5 && active_subsection == -1;
+                    clicked => { root.section_clicked(5); }
+                }
+                if active_section == 5: SidebarItem {
+                    label: "Script Automation";
+                    active: active_subsection == 0;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(0); }
+                }
+                if active_section == 5: SidebarItem {
+                    label: "Integration Tests";
+                    active: active_subsection == 1;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(1); }
+                }
+                if active_section == 5: SidebarItem {
+                    label: "Performance";
+                    active: active_subsection == 2;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(2); }
+                }
+
+                // 6: Deployment
+                SidebarItem {
+                    label: "Deployment";
+                    active: active_section == 6 && active_subsection == -1;
+                    clicked => { root.section_clicked(6); }
+                }
+                if active_section == 6: SidebarItem {
+                    label: "Running Nodes";
+                    active: active_subsection == 0;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(0); }
+                }
+                if active_section == 6: SidebarItem {
+                    label: "Relay Setup";
+                    active: active_subsection == 1;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(1); }
+                }
+                if active_section == 6: SidebarItem {
+                    label: "IoT & Future";
+                    active: active_subsection == 2;
+                    is-sub: true;
+                    clicked => { root.subsection_clicked(2); }
+                }
+            }
+        }
+    }
+}

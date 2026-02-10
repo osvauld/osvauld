@@ -25,17 +25,15 @@
 
 use mlua::{Error as LuaError, Function, Lua, Result as LuaResult, Table, UserData, UserDataMethods, Value as LuaValue};
 use parking_lot::Mutex;
-use ractor::ActorRef;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use scribe::ScribeMessage;
+use crate::scribe_handle::ScribeHandle;
 
 use super::binding::{
     expand_pattern, is_wildcard_pattern, process_binding_data, BindingManager, BindingOptions,
 };
-use super::block_on_async;
 use super::convert::lua_to_json;
 use super::loro::{LuaLoroList, LuaLoroMap};
 use crate::ui_types::UiMutation;
@@ -44,7 +42,7 @@ use crate::ui_types::UiMutation;
 ///
 /// Provides identity, layers, contacts, binding, and ephemeral functionality.
 pub struct ScribeBindings {
-    scribe_ref: ActorRef<ScribeMessage>,
+    scribe: Arc<dyn ScribeHandle>,
     page_id: String,
     our_did: String,
     our_name: Option<String>,
@@ -59,13 +57,13 @@ pub struct ScribeBindings {
 impl ScribeBindings {
     /// Create new ScribeBindings (no UI)
     pub fn new(
-        scribe_ref: ActorRef<ScribeMessage>,
+        scribe: Arc<dyn ScribeHandle>,
         page_id: String,
         our_did: String,
         our_name: Option<String>,
     ) -> Self {
         Self {
-            scribe_ref,
+            scribe,
             page_id,
             our_did,
             our_name,
@@ -77,14 +75,14 @@ impl ScribeBindings {
 
     /// Create ScribeBindings with UI support
     pub fn with_ui(
-        scribe_ref: ActorRef<ScribeMessage>,
+        scribe: Arc<dyn ScribeHandle>,
         page_id: String,
         our_did: String,
         our_name: Option<String>,
         ui_tx: mpsc::Sender<UiMutation>,
     ) -> Self {
         Self {
-            scribe_ref,
+            scribe,
             page_id,
             our_did,
             our_name,
@@ -136,10 +134,7 @@ impl UserData for ScribeBindings {
             let payload_bytes = serde_json::to_vec(&payload)
                 .map_err(|e| LuaError::RuntimeError(format!("Failed to serialize ephemeral: {}", e)))?;
 
-            this.scribe_ref
-                .cast(ScribeMessage::SendEphemeral {
-                    payload: payload_bytes,
-                })
+            this.scribe.send_ephemeral(payload_bytes)
                 .map_err(|e| LuaError::RuntimeError(format!("Failed to send ephemeral: {}", e)))?;
 
             Ok(())
@@ -150,42 +145,18 @@ impl UserData for ScribeBindings {
         // Returns a handle to the specified list layer, creating it if it doesn't exist.
         // The layer name can include the page_id, e.g., `scribe:list(page_id .. "/messages")`
         methods.add_method("list", |_, this, name: String| {
-            let (tx, rx) = oneshot::channel();
-            this.scribe_ref
-                .cast(ScribeMessage::EnsureLoroList {
-                    layer_name: name.clone(),
-                    reply: tx,
-                })
-                .map_err(|e| LuaError::RuntimeError(format!("Failed to ensure list: {}", e)))?;
-
-            block_on_async(async {
-                rx.await
-                    .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))?
-                    .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
-            })??;
-
-            Ok(LuaLoroList::new(this.scribe_ref.clone(), name))
+            this.scribe.ensure_list(&name)
+                .map_err(|e| LuaError::RuntimeError(e))?;
+            Ok(LuaLoroList::new(this.scribe.clone(), name))
         });
 
         // Get or create a map layer
         //
         // Returns a handle to the specified map layer, creating it if it doesn't exist.
         methods.add_method("map", |_, this, name: String| {
-            let (tx, rx) = oneshot::channel();
-            this.scribe_ref
-                .cast(ScribeMessage::EnsureLoroMap {
-                    layer_name: name.clone(),
-                    reply: tx,
-                })
-                .map_err(|e| LuaError::RuntimeError(format!("Failed to ensure map: {}", e)))?;
-
-            block_on_async(async {
-                rx.await
-                    .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))?
-                    .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
-            })??;
-
-            Ok(LuaLoroMap::new(this.scribe_ref.clone(), name))
+            this.scribe.ensure_map(&name)
+                .map_err(|e| LuaError::RuntimeError(e))?;
+            Ok(LuaLoroMap::new(this.scribe.clone(), name))
         });
 
         // List layers matching a pattern
@@ -193,15 +164,8 @@ impl UserData for ScribeBindings {
         // Returns a table of layer names matching the glob pattern.
         // Example: scribe:list_layers("*:orders") returns all order layers
         methods.add_method("list_layers", |lua, this, pattern: String| {
-            let (tx, rx) = oneshot::channel();
-            this.scribe_ref
-                .cast(ScribeMessage::ListLayers { pattern, reply: tx })
-                .map_err(|e| LuaError::RuntimeError(format!("Failed to list layers: {}", e)))?;
-
-            let names = block_on_async(async {
-                rx.await
-                    .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))
-            })?;
+            let names = this.scribe.list_layers(&pattern)
+                .map_err(|e| LuaError::RuntimeError(e))?;
 
             let table = lua.create_table()?;
             for (i, name) in names.iter().enumerate() {
@@ -302,22 +266,12 @@ impl UserData for ScribeBindings {
                 // Perform initial sync
                 if is_wildcard {
                     // For wildcards, list matching layers and aggregate data
-                    let (tx, rx) = oneshot::channel();
-                    this.scribe_ref
-                        .cast(ScribeMessage::ListLayers {
-                            pattern: expanded_pattern.clone(),
-                            reply: tx,
-                        })
-                        .map_err(|e| LuaError::RuntimeError(format!("Failed to list layers: {}", e)))?;
-
-                    let layer_names: Vec<String> = block_on_async(async {
-                        rx.await
-                            .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))
-                    })??;
+                    let layer_names = this.scribe.list_layers(&expanded_pattern)
+                        .map_err(|e| LuaError::RuntimeError(e))?;
 
                     let mut aggregated_data = Vec::new();
                     for name in &layer_names {
-                        if let Ok(data) = fetch_layer_data(&this.scribe_ref, name) {
+                        if let Ok(data) = fetch_layer_data(&this.scribe, name) {
                             if let serde_json::Value::Array(items) = data {
                                 for item in items {
                                     aggregated_data.push(item);
@@ -330,7 +284,89 @@ impl UserData for ScribeBindings {
                     sync_binding_to_ui(lua, this, &ui_property, &aggregated_json, None)?;
                 } else {
                     // For exact patterns, fetch and sync single layer
-                    if let Ok(data) = fetch_layer_data(&this.scribe_ref, &expanded_pattern) {
+                    if let Ok(data) = fetch_layer_data(&this.scribe, &expanded_pattern) {
+                        sync_binding_to_ui(lua, this, &ui_property, &data, None)?;
+                    }
+                }
+
+                Ok(())
+            },
+        );
+
+        // Rebind an existing binding to a different layer
+        //
+        // Switches which layer backs a UI property while preserving
+        // transform/key/max_items options. Clears caches and performs
+        // a full initial sync from the new layer.
+        //
+        // # Arguments
+        // * `ui_property` - Name of the existing binding to rebind
+        // * `layer_pattern` - New layer pattern (page_id auto-prepended)
+        //
+        // # Examples
+        // ```lua
+        // -- Switch messages binding to a different channel
+        // scribe:rebind("messages", "channels/random/messages")
+        // ```
+        methods.add_method(
+            "rebind",
+            |lua, this, (ui_property, layer_pattern): (String, String)| {
+                if !this.ui_enabled {
+                    debug!(
+                        ui_property = %ui_property,
+                        layer_pattern = %layer_pattern,
+                        "scribe:rebind() called but UI not enabled, skipping"
+                    );
+                    return Ok(());
+                }
+
+                let expanded_pattern = expand_pattern(&layer_pattern, &this.page_id, &this.our_did);
+                let is_wildcard = is_wildcard_pattern(&layer_pattern);
+
+                info!(
+                    ui_property = %ui_property,
+                    raw_pattern = %layer_pattern,
+                    expanded_pattern = %expanded_pattern,
+                    is_wildcard = is_wildcard,
+                    "scribe:rebind() - switching binding layer"
+                );
+
+                // Rebind in the manager (preserves transform/key/max_items)
+                {
+                    let mut manager = this.binding_manager.lock();
+                    if !manager.rebind(
+                        &ui_property,
+                        expanded_pattern.clone(),
+                        layer_pattern.clone(),
+                        is_wildcard,
+                    ) {
+                        return Err(LuaError::RuntimeError(format!(
+                            "scribe:rebind() - no existing binding for '{}'",
+                            ui_property
+                        )));
+                    }
+                }
+
+                // Fetch and sync new layer's data
+                if is_wildcard {
+                    let layer_names = this.scribe.list_layers(&expanded_pattern)
+                        .map_err(|e| LuaError::RuntimeError(e))?;
+
+                    let mut aggregated_data = Vec::new();
+                    for name in &layer_names {
+                        if let Ok(data) = fetch_layer_data(&this.scribe, name) {
+                            if let serde_json::Value::Array(items) = data {
+                                for item in items {
+                                    aggregated_data.push(item);
+                                }
+                            }
+                        }
+                    }
+
+                    let aggregated_json = serde_json::Value::Array(aggregated_data);
+                    sync_binding_to_ui(lua, this, &ui_property, &aggregated_json, None)?;
+                } else {
+                    if let Ok(data) = fetch_layer_data(&this.scribe, &expanded_pattern) {
                         sync_binding_to_ui(lua, this, &ui_property, &data, None)?;
                     }
                 }
@@ -343,27 +379,12 @@ impl UserData for ScribeBindings {
 
 /// Fetch layer data as JSON from Scribe
 fn fetch_layer_data(
-    scribe_ref: &ActorRef<ScribeMessage>,
+    scribe: &Arc<dyn ScribeHandle>,
     layer_name: &str,
 ) -> Result<serde_json::Value, String> {
-    let (tx, rx) = oneshot::channel();
-    scribe_ref
-        .cast(ScribeMessage::GetLayerJson {
-            layer_name: layer_name.to_string(),
-            reply: tx,
-        })
-        .map_err(|e| format!("Failed to request layer data: {}", e))?;
-
-    let result = block_on_async(async {
-        rx.await
-            .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))
-    })
-    .map_err(|e| format!("Async error: {}", e))?;
-
-    match result {
-        Ok(Some(data)) => Ok(data),
-        Ok(None) => Ok(serde_json::Value::Array(vec![])),
-        Err(e) => Err(format!("Scribe error: {}", e)),
+    match scribe.get_layer_json(layer_name)? {
+        Some(data) => Ok(data),
+        None => Ok(serde_json::Value::Array(vec![])),
     }
 }
 

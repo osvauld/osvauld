@@ -1,0 +1,339 @@
+// Content: Data Model — Hierarchy, CRDTs, Encryption, Derivation
+
+import { Theme } from "theme.slint";
+import { SectionCard, CodeBlock, InfoCard, DiagramBox, TableRow } from "components.slint";
+
+export component ContentData inherits VerticalLayout {
+    in property<int> subsection: 0;
+    spacing: 20px;
+
+    // ── Hierarchy (subsection 0) ──
+    if subsection == 0: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Data Hierarchy";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Everything is organized in a three-level hierarchy: Space → Page → Layer. Each level has clear ownership and access rules.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        // Visual hierarchy
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+
+                // Identity
+                DiagramBox {
+                    label: "Identity (Ed25519 keypair from BIP39 seed)";
+                    box-color: Theme.accent-sthalam;
+                }
+
+                Text {
+                    text: "  owns →";
+                    font-size: 12px;
+                    color: Theme.text-muted;
+                }
+
+                // Space
+                DiagramBox {
+                    label: "Space (shared workspace between peers)";
+                    box-color: Theme.accent;
+                }
+
+                Text {
+                    text: "  contains →";
+                    font-size: 12px;
+                    color: Theme.text-muted;
+                }
+
+                // Pages
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    DiagramBox {
+                        horizontal-stretch: 1;
+                        label: "Page (Chat App)";
+                        box-color: Theme.accent-purple;
+                    }
+
+                    DiagramBox {
+                        horizontal-stretch: 1;
+                        label: "Page (Game)";
+                        box-color: Theme.accent-purple;
+                    }
+                }
+
+                Text {
+                    text: "  each contains →";
+                    font-size: 12px;
+                    color: Theme.text-muted;
+                }
+
+                // Layers
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    DiagramBox {
+                        horizontal-stretch: 1;
+                        label: "Layer: messages";
+                        box-color: Theme.accent-green;
+                    }
+
+                    DiagramBox {
+                        horizontal-stretch: 1;
+                        label: "Layer: scores";
+                        box-color: Theme.accent-green;
+                    }
+
+                    DiagramBox {
+                        horizontal-stretch: 1;
+                        label: "Layer: state";
+                        box-color: Theme.accent-green;
+                    }
+                }
+            }
+        }
+
+        InfoCard {
+            title: "Space";
+            content: "Top-level container shared between a group of peers. Has an owner who controls access. Contains pages (apps) and defines roles (owner, collaborator, node).";
+            accent-color: Theme.accent;
+        }
+
+        InfoCard {
+            title: "Page";
+            content: "An app instance — bundles UI (Slint/Raylib), logic (Lua), and data layers. Each page has its own Scribe actor managing CRDT state. Defined by page.lua + manifest.json.";
+            accent-color: Theme.accent-purple;
+        }
+
+        InfoCard {
+            title: "Layer";
+            content: "A Loro CRDT document. Three types: map (key-value), list (ordered), text (collaborative editing). Each layer has per-role permissions and can be encrypted at rest.";
+            accent-color: Theme.accent-green;
+        }
+
+        Text {
+            text: "Layer Naming Patterns";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Examples";
+            code: "messages          # Simple layer name\nchannels_meta     # Flat key-value\nchannels/{id}/messages  # Dynamic per-channel\norders/{did}      # Per-user scoped layer\nderived/summary   # Node-computed derivation\napp:*             # App metadata layers";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Loro CRDTs (subsection 1) ──
+    if subsection == 1: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Loro CRDTs";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Loro provides conflict-free replicated data types. Multiple peers can edit the same layer concurrently — changes merge automatically.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "Layer Types";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        SectionCard {
+            title: "Map (LoroMap)";
+            content: "Key-value store. Keys are strings, values are JSON-serializable. Last-write-wins for concurrent updates to the same key. Used for: settings, metadata, entity stores.";
+        }
+
+        SectionCard {
+            title: "List (LoroList)";
+            content: "Ordered collection. Supports push, insert, delete. Concurrent inserts at same position merge deterministically. Used for: messages, scores, ordered items.";
+        }
+
+        SectionCard {
+            title: "Text (LoroText)";
+            content: "Collaborative text editing. Character-level CRDT. Concurrent inserts merge with consistent ordering. Used for: documents, notes, chat input.";
+        }
+
+        Text {
+            text: "Map Operations";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Lua API";
+            code: "local layer = scribe:map(\"settings\")\n\nlayer:set(\"theme\", \"dark\")\nlayer:set(\"user\", { name = \"Alice\", role = \"owner\" })\n\nlocal theme = layer:get(\"theme\")  -- \"dark\"\nlocal keys = layer:keys()         -- {\"theme\", \"user\"}\nlayer:delete(\"theme\")\nlocal len = layer:length()        -- 1";
+        }
+
+        Text {
+            text: "List Operations";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Lua API";
+            code: "local layer = scribe:list(\"messages\")\n\nlayer:push({ text = \"Hello\", sender = my_did })\nlayer:push({ text = \"World\", sender = my_did })\n\nlocal msg = layer:get(0)    -- first message\nlayer:set(0, updated_msg)   -- update in place\nlayer:delete(1)             -- remove second\nlocal len = layer:length()  -- 1";
+        }
+
+        Text {
+            text: "State Vectors";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        InfoCard {
+            title: "What is a State Vector?";
+            content: "A compact representation of which operations a peer has seen. Maps each peer ID to the highest operation counter seen from that peer. Used to compute minimal sync deltas.";
+            accent-color: Theme.accent;
+        }
+
+        InfoCard {
+            title: "Delta Computation";
+            content: "Given two state vectors, Loro computes the exact set of operations that one peer has but the other doesn't. Only the missing operations are sent — no full snapshots needed.";
+            accent-color: Theme.accent-green;
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Encryption (subsection 2) ──
+    if subsection == 2: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Encryption";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "All data is encrypted at rest and in transit. The encryption scheme uses elliptic curve Diffie-Hellman for key exchange and ChaCha20-Poly1305 for symmetric encryption.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "At Rest";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        InfoCard {
+            title: "Layer Encryption";
+            content: "Each layer's Loro snapshot is encrypted with XChaCha20-Poly1305 before being written to redb. The encryption key is derived from the owner's identity key via HKDF.";
+            accent-color: Theme.accent-green;
+        }
+
+        SectionCard {
+            title: "Key Hierarchy";
+            content: "BIP39 Seed → HKDF → signing_key (Ed25519), encryption_key (X25519), device_key. Layer keys derived from encryption_key + layer salt. Each layer gets a unique key.";
+        }
+
+        Text {
+            text: "In Transit";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "ECDH Key Exchange";
+            code: "1. Sender generates ephemeral X25519 keypair\n2. shared_secret = ephemeral_private × receiver_public\n3. Encrypt: ChaCha20Poly1305(shared_secret, data)\n4. Send: ephemeral_public || nonce || ciphertext || tag\n5. Receiver: shared_secret = own_private × ephemeral_public\n6. Decrypt: ChaCha20Poly1305(shared_secret, ciphertext)";
+        }
+
+        InfoCard {
+            title: "Forward Secrecy";
+            content: "Each sync message uses a fresh ephemeral keypair. Compromising a long-term key doesn't reveal past messages — each exchange has a unique shared secret.";
+            accent-color: Theme.accent-purple;
+        }
+
+        InfoCard {
+            title: "Wire Format";
+            content: "Encrypted payload format: nonce (12 bytes) || ciphertext || authentication tag (16 bytes). The ephemeral public key is sent alongside in the SyncOffer message fields.";
+            accent-color: Theme.accent;
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Derivation (subsection 3) ──
+    if subsection == 3: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Derivation";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Derivations are server-side (node-only) aggregations that combine data from multiple per-user layers into a single derived layer.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        InfoCard {
+            title: "Why Derivations?";
+            content: "Per-user layers (orders/{did}) provide ownership guarantees but need aggregation for global views. Derivations run on the node, merging all per-user data into a single queryable layer.";
+            accent-color: Theme.accent;
+        }
+
+        CodeBlock {
+            label: "Derivation Definition (page.lua)";
+            code: "-- Aggregate all per-user orders into summary\nderivation(\"orders_summary\", {\n    source = \"orders/{did}\",\n    target = \"derived/orders_summary\",\n    key_fn = function(order)\n        return order.id\n    end,\n    transform = function(source, order)\n        return {\n            id = order.id,\n            status = order.status,\n            total = order.total\n        }\n    end\n})";
+        }
+
+        SectionCard {
+            title: "Trigger Mechanism";
+            content: "Derivations auto-trigger when any source layer changes (e.g., any orders/{did} layer gets a new entry). Can also be force-rebuilt with derivation:rebuild().";
+        }
+
+        SectionCard {
+            title: "Node-Only Execution";
+            content: "Derivations run only on nodes (kunki), not on client devices. The node has access to all per-user layers and aggregates them into the target derived layer.";
+        }
+
+        SectionCard {
+            title: "Use Cases";
+            content: "E-commerce: order summaries across all buyers. Booking: calendar aggregation from all users. Leaderboards: scores from all players. Any multi-user → single-view aggregation.";
+        }
+
+        Rectangle { height: 32px; }
+    }
+}

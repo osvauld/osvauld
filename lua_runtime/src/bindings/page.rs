@@ -13,7 +13,7 @@ pub struct PageHandler {
     pub callback: RegistryKey,
 }
 
-/// Page bindings providing `page:on_change()` API
+/// Page bindings providing `page:on_change()` and `page:open_app()` APIs
 ///
 /// **Usage in Lua**:
 /// ```lua
@@ -24,12 +24,16 @@ pub struct PageHandler {
 ///     local summary_layer = loro:get_layer("{page_id}/derived/orders_summary", "map")
 ///     summary_layer:set(event.full_data.id, transform(event.full_data))
 /// end)
+///
+/// page:open_app("Protocol Docs")  -- navigate to sibling app in same page
 /// ```
 pub struct PageBindings {
     /// Registered handlers (pattern -> callback)
     pub handlers: Arc<std::sync::RwLock<Vec<PageHandler>>>,
     /// Page ID for pattern expansion
     pub page_id: String,
+    /// Channel for in-page navigation (sends app name to tab switcher)
+    pub navigate_tx: Option<std::sync::mpsc::Sender<String>>,
 }
 
 impl UserData for PageBindings {
@@ -38,8 +42,13 @@ impl UserData for PageBindings {
         methods.add_method(
             "on_change",
             |lua, this, (pattern, callback): (String, mlua::Function)| {
-                // Expand {page_id} in pattern
-                let expanded_pattern = pattern.replace("{page_id}", &this.page_id);
+                // Expand {page_id} in pattern, then strip page_id/ prefix
+                // Scribe uses bare layer names (no page_id/ prefix)
+                let expanded = pattern.replace("{page_id}", &this.page_id);
+                let prefix = format!("{}/", this.page_id);
+                let expanded_pattern = expanded.strip_prefix(&prefix)
+                    .unwrap_or(&expanded)
+                    .to_string();
 
                 // Store callback in Lua registry (keeps it alive)
                 let registry_key = lua.create_registry_value(callback).map_err(|e| {
@@ -64,6 +73,16 @@ impl UserData for PageBindings {
                 Ok(())
             },
         );
+
+        // page:open_app(app_name) — navigate to a sibling app in the same page
+        methods.add_method("open_app", |_lua, this, app_name: String| {
+            if let Some(ref tx) = this.navigate_tx {
+                tx.send(app_name.clone()).map_err(|e| {
+                    LuaError::RuntimeError(format!("Failed to navigate to app '{}': {}", app_name, e))
+                })?;
+            }
+            Ok(())
+        });
     }
 }
 

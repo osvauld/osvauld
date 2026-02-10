@@ -16,15 +16,19 @@ Usage:
         assert s.viewers[0].eval("return #get_products()") == 1
 """
 
+import argparse
 import os
 import shutil
+import signal
 import subprocess
 import time
+import traceback
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .session import Session
 from .client import ControlClient
+from .tmux import TmuxManager
 from .wait import wait_for_condition, wait_for_eval, TimeoutError
 
 
@@ -446,3 +450,370 @@ class Scenario:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stop()
         return False
+
+
+class PeerHandle:
+    """Thin wrapper over ControlClient for a peer in an AppTestScenario.
+
+    Provides eval() and wait_for() for app-level testing.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        client: ControlClient,
+        role: str,
+        space_id: str,
+        page_id: str,
+        app_name: str,
+    ):
+        self.name = name
+        self.client = client
+        self.role = role
+        self.space_id = space_id
+        self.page_id = page_id
+        self.app_name = app_name
+
+    def eval(self, code: str) -> Any:
+        """Execute Lua code and return the result."""
+        return self.client.eval(code)
+
+    def wait_for(
+        self,
+        condition_fn: Callable[[], Any],
+        timeout: float = 15.0,
+        interval: float = 0.5,
+        desc: str = "condition",
+    ) -> Any:
+        """Poll until condition_fn returns a truthy value.
+
+        Args:
+            condition_fn: Callable returning truthy when done
+            timeout: Max seconds to wait
+            interval: Polling interval in seconds
+            desc: Description for timeout error
+
+        Returns:
+            The truthy value from condition_fn
+
+        Raises:
+            TimeoutError: If condition not met within timeout
+        """
+        start = time.time()
+        while time.time() - start < timeout:
+            try:
+                result = condition_fn()
+                if result:
+                    return result
+            except Exception:
+                pass
+            time.sleep(interval)
+        raise TimeoutError(f"Timeout waiting for {desc} on '{self.name}' (after {timeout}s)")
+
+
+class AppTestScenario:
+    """One-call E2E test setup.
+
+    Automates all boilerplate: TmuxManager, signup/login, create_space,
+    connect/publish, add_viewer, open_app, wait for readiness.
+
+    Usage:
+        args = AppTestScenario.parse_args("My test")
+        with AppTestScenario(
+            name="my_test",
+            app_path="sample_apps/my-shop",
+            peers={
+                "owner":    {"role": "owner",  "app": "Shop Owner"},
+                "customer": {"role": "viewer", "app": "Shop Customer"},
+            },
+            **args,
+        ) as s:
+            owner = s.peer("owner")
+            customer = s.peer("customer")
+            owner.eval('add_product_via_ui("Widget", 99, "Test", 50)')
+            customer.wait_for(
+                lambda: customer.eval("return get_products_count()") >= 1,
+                desc="product sync",
+            )
+    """
+
+    def __init__(
+        self,
+        name: str,
+        app_path: str,
+        peers: Dict[str, Dict[str, str]],
+        base_dir: Optional[str] = None,
+        release: bool = False,
+        profiling: bool = False,
+        flame_only: bool = False,
+        heaptrack: bool = False,
+        keep: bool = False,
+        debug: bool = False,
+    ):
+        """
+        Args:
+            name: Session name (tmux session + base dir name)
+            app_path: Path to the app directory (e.g., sample_apps/my-shop)
+            peers: Dict mapping peer name to {"role": "owner"|"viewer", "app": "App Name"}
+                   First peer with role "owner" creates the space.
+            base_dir: Override base dir (default: /tmp/{name})
+            release: Use release builds
+            profiling: Enable tokio-console + flame profiling
+            flame_only: Enable flame graphs only (no tokio-console overhead)
+            heaptrack: Wrap binaries with heaptrack for heap profiling
+            keep: Keep session alive after test (block until Ctrl+C)
+            debug: Keep session on failure for debugging
+        """
+        self.name = name
+        self.app_path = str(Path(app_path).resolve())
+        self.peers_config = peers
+        self.base_dir = Path(base_dir) if base_dir else Path(f"/tmp/{name}")
+        self.release = release
+        self.profiling = profiling
+        self.flame_only = flame_only
+        self.heaptrack = heaptrack
+        self.keep = keep
+        self.debug = debug
+
+        self._tm: Optional[TmuxManager] = None
+        self._handles: Dict[str, PeerHandle] = {}
+        self._space_id: Optional[str] = None
+        self._page_id: Optional[str] = None
+
+    def peer(self, name: str) -> PeerHandle:
+        """Get a PeerHandle by name."""
+        if name not in self._handles:
+            raise KeyError(f"Peer '{name}' not found. Available: {list(self._handles.keys())}")
+        return self._handles[name]
+
+    @property
+    def owner(self) -> PeerHandle:
+        """Get the first owner peer."""
+        for handle in self._handles.values():
+            if handle.role == "owner":
+                return handle
+        raise RuntimeError("No owner peer configured")
+
+    @property
+    def space_id(self) -> str:
+        if self._space_id is None:
+            raise RuntimeError("Space not created yet")
+        return self._space_id
+
+    @property
+    def page_id(self) -> str:
+        if self._page_id is None:
+            raise RuntimeError("Page not created yet")
+        return self._page_id
+
+    @staticmethod
+    def parse_args(description: str) -> dict:
+        """Parse standard CLI args (--keep, --debug, --release).
+
+        Returns:
+            Dict suitable for passing as **kwargs to AppTestScenario().
+        """
+        parser = argparse.ArgumentParser(description=description)
+        AppTestScenario.add_args(parser)
+        args = parser.parse_args()
+        return {
+            "keep": args.keep,
+            "debug": args.debug,
+            "release": args.release,
+        }
+
+    @staticmethod
+    def add_args(parser: argparse.ArgumentParser) -> None:
+        """Add standard flags to an argparse parser."""
+        parser.add_argument("--keep", action="store_true",
+                            help="Keep tmux session alive after test")
+        parser.add_argument("--debug", action="store_true",
+                            help="Keep session on failure for debugging")
+        parser.add_argument("--release", action="store_true",
+                            help="Use release builds")
+
+    def __enter__(self) -> "AppTestScenario":
+        self._setup()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            # Test failed
+            print(f"\n[FAIL] {exc_val}")
+            traceback.print_exception(exc_type, exc_val, exc_tb)
+
+            if self.debug:
+                self._print_debug_info()
+                self._block_until_ctrl_c()
+
+        if self.keep:
+            self._print_session_info()
+            self._block_until_ctrl_c()
+
+        if self._tm:
+            self._tm.stop()
+
+        return exc_type is not None  # Suppress exception if we handled it
+
+    def _setup(self) -> None:
+        """Run the full boilerplate setup."""
+        # Determine owner and viewer peers
+        owner_name = None
+        owner_app = None
+        viewer_peers = []
+
+        for pname, pconfig in self.peers_config.items():
+            if pconfig["role"] == "owner" and owner_name is None:
+                owner_name = pname
+                owner_app = pconfig["app"]
+            else:
+                viewer_peers.append((pname, pconfig))
+
+        if owner_name is None:
+            raise RuntimeError("At least one peer must have role 'owner'")
+
+        # 1. Create TmuxManager and add instances
+        print(f"\n{'=' * 60}")
+        print(f"  {self.name}")
+        print(f"{'=' * 60}")
+
+        self._tm = TmuxManager(
+            session_name=self.name,
+            base_dir=self.base_dir,
+            release=self.release,
+            profiling=self.profiling,
+            flame_only=self.flame_only,
+            heaptrack=self.heaptrack,
+        )
+        self._tm.add_node("node")
+        self._tm.add_shell(owner_name)
+        for pname, _ in viewer_peers:
+            self._tm.add_shell(pname)
+        self._tm.start()
+
+        node = self._tm.get_client("node")
+        owner_client = self._tm.get_client(owner_name)
+        print("  All instances ready")
+
+        # 2. Owner: signup, create space
+        print(f"\n  {owner_name}: signup, create space...")
+        owner_client.signup_or_login(owner_name)
+        space = owner_client.create_space_with_pages(self.app_path)
+        self._space_id = space["id"]
+
+        pages = owner_client.list_pages(self._space_id)
+        assert pages, "No pages after create_space_with_pages"
+        self._page_id = pages[0]["id"]
+        print(f"  Space: {self._space_id[:8]}..., Page: {self._page_id[:8]}...")
+
+        # 3. Connect to node, publish
+        print(f"  {owner_name}: connect to node, publish...")
+        owner_client.connect_to_node(node)
+        time.sleep(2)
+        owner_client.publish_to_node(self._space_id)
+        time.sleep(2)
+        print("  Published")
+
+        # 4. Setup each viewer
+        for pname, pconfig in viewer_peers:
+            viewer_client = self._tm.get_client(pname)
+            print(f"  {pname}: signup, subscribe...")
+            viewer_client.signup_or_login(pname)
+            owner_client.add_viewer(viewer_client, self._space_id)
+
+            # Wait for viewer to sync space
+            viewer_page_id = None
+            for i in range(30):
+                time.sleep(0.5)
+                spaces = viewer_client.list_spaces()
+                if spaces:
+                    viewer_pages = viewer_client.list_pages(spaces[0]["id"])
+                    if viewer_pages:
+                        viewer_page_id = viewer_pages[0]["id"]
+                        print(f"  {pname} synced in {(i+1)*0.5:.1f}s")
+                        break
+            if not viewer_page_id:
+                raise RuntimeError(f"{pname} failed to sync space")
+
+        # 5. Open apps on all peers
+        print("  Opening apps...")
+        owner_client.open_app(self._page_id, owner_app)
+        time.sleep(2)
+
+        for pname, pconfig in viewer_peers:
+            viewer_client = self._tm.get_client(pname)
+            # Viewer's page_id may differ from owner's
+            spaces = viewer_client.list_spaces()
+            viewer_pages = viewer_client.list_pages(spaces[0]["id"])
+            viewer_page_id = viewer_pages[0]["id"]
+            viewer_client.open_app(viewer_page_id, pconfig["app"])
+            time.sleep(1)
+        print("  All apps opened")
+
+        # 6. Wait for eval readiness on all peers
+        print("  Waiting for eval readiness...")
+        for pname in self.peers_config:
+            client = self._tm.get_client(pname)
+            for i in range(30):
+                try:
+                    client.eval("return 1")
+                    break
+                except Exception:
+                    time.sleep(0.5)
+            else:
+                raise RuntimeError(f"{pname} eval not ready after 15s")
+
+        # 7. Build PeerHandles
+        for pname, pconfig in self.peers_config.items():
+            client = self._tm.get_client(pname)
+            # Resolve viewer page_id
+            if pconfig["role"] == "owner":
+                peer_page_id = self._page_id
+            else:
+                spaces = client.list_spaces()
+                peer_pages = client.list_pages(spaces[0]["id"])
+                peer_page_id = peer_pages[0]["id"]
+
+            self._handles[pname] = PeerHandle(
+                name=pname,
+                client=client,
+                role=pconfig["role"],
+                space_id=self._space_id,
+                page_id=peer_page_id,
+                app_name=pconfig["app"],
+            )
+
+        print(f"\n  Ready! Peers: {list(self._handles.keys())}")
+        print(f"{'=' * 60}\n")
+
+    def _print_session_info(self) -> None:
+        """Print tmux session and socket info."""
+        print(f"\n{'=' * 60}")
+        print(f"  Session kept alive: tmux attach -t {self.name}")
+        print(f"{'=' * 60}")
+        print(f"\n  Sockets:")
+        for pname in self.peers_config:
+            path = self._tm.get_socket_path(pname)
+            print(f"    {pname:12s}: {path}")
+        node_path = self._tm.get_socket_path("node")
+        print(f"    {'node':12s}: {node_path}")
+
+    def _print_debug_info(self) -> None:
+        """Print debug state on failure."""
+        self._print_session_info()
+        print(f"\n  Debug state:")
+        for pname in self.peers_config:
+            try:
+                client = self._tm.get_client(pname)
+                state = client.get_state()
+                print(f"    {pname}: {state}")
+            except Exception as e:
+                print(f"    {pname}: error getting state: {e}")
+
+    def _block_until_ctrl_c(self) -> None:
+        """Block until user presses Ctrl+C."""
+        print("\n  Press Ctrl+C to stop and cleanup")
+        try:
+            signal.pause()
+        except KeyboardInterrupt:
+            pass

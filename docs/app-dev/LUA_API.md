@@ -11,7 +11,7 @@ Complete reference for all Lua APIs available in osvauld apps.
 | `ui:` | UI binding | App runtime |
 | `api:` | Function export for AI/tests | App runtime |
 | `derivation:` | Node-only transforms | Node only |
-| `page:` | Change subscriptions (deprecated, use `scribe:bind()`) | App runtime |
+| `page:` | In-page navigation + change subscriptions | App runtime |
 | `timer:` | Timers and intervals | All |
 | `binding:` | Reactive binding state for surgical updates | App runtime |
 | `emoji:` | Emoji lookup by shortcode | App runtime |
@@ -187,7 +187,29 @@ derivation:on_source_change(layer_name)
 
 ---
 
-## `page:` Change Subscriptions
+## `page:` Navigation and Change Subscriptions
+
+### In-Page Navigation
+
+Navigate to a sibling app within the same page. Apps can only link to other apps in the same page — the page is the boundary.
+
+```lua
+-- Navigate to another app by manifest name
+page:open_app("Protocol Docs")
+
+-- Example: CTA button navigates to docs app
+function on_click(target)
+    if target == "cta:Read the Docs" then
+        page:open_app("Protocol Docs")
+    end
+end
+```
+
+The app name must match the `"name"` field in the target app's `manifest.json`. Navigation triggers the same flow as clicking a tab in the shell — the current app shuts down and the target app launches in the same window.
+
+**Note:** `page:open_app()` is a no-op in headless/node mode (no UI to navigate).
+
+### Change Subscriptions
 
 ```lua
 -- Subscribe to changes on a specific layer pattern

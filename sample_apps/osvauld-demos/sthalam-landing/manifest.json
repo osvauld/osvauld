@@ -1,0 +1,8 @@
+{
+    "name": "Sthalam",
+    "version": "1.0.0",
+    "description": "The Browser for the Extended Internet",
+    "entry_ui": "app.slint",
+    "entry_logic": "app.lua",
+    "renderer": "slint"
+}

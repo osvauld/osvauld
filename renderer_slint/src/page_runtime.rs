@@ -133,6 +133,8 @@ import {{ {import_list} }} from "{app_path}";
 export component App inherits Window {{
     title: "{page_name}";
     background: #1a1a2e;
+    preferred-width: 1024px;
+    preferred-height: 768px;
     min-width: 800px;
     min-height: 600px;
 

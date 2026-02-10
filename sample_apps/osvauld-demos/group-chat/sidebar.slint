@@ -1,0 +1,354 @@
+// Sidebar — channel list + online users
+
+import { Theme } from "theme.slint";
+
+export struct Channel {
+    id: string,
+    name: string,
+    topic: string,
+    unread: int,
+    is_active: bool,
+    has_mention: bool,
+}
+
+export struct OnlineUser {
+    did: string,
+    name: string,
+    is_online: bool,
+}
+
+// Single channel row
+component ChannelItem inherits Rectangle {
+    in property<Channel> channel;
+    callback clicked();
+
+    height: 30px;
+    background: channel.is_active ? Theme.bg-active : (touch.has-hover ? Theme.bg-hover : transparent);
+    border-radius: 4px;
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+
+        Text {
+            text: "#";
+            font-size: 14px;
+            color: channel.is_active ? Theme.text-bright : Theme.text-secondary;
+            vertical-alignment: center;
+            width: 14px;
+        }
+
+        Text {
+            text: channel.name;
+            font-size: 14px;
+            font-weight: channel.unread > 0 ? 700 : 400;
+            color: channel.is_active ? Theme.text-bright : (channel.unread > 0 ? Theme.text-bright : Theme.text-secondary);
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+
+        // @mention badge
+        if channel.has_mention && !channel.is_active: Rectangle {
+            width: 18px;
+            height: 18px;
+            background: Theme.mention-badge;
+            border-radius: 9px;
+
+            Text {
+                text: "@";
+                font-size: 10px;
+                font-weight: 700;
+                color: white;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        // Unread count badge
+        if channel.unread > 0 && !channel.is_active: Rectangle {
+            width: 20px;
+            height: 18px;
+            background: Theme.unread-badge;
+            border-radius: 9px;
+
+            Text {
+                text: channel.unread;
+                font-size: 10px;
+                font-weight: 700;
+                color: white;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+// Single user row
+component UserItem inherits Rectangle {
+    in property<OnlineUser> user;
+
+    height: 26px;
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 10px;
+        spacing: 8px;
+
+        // Online dot
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            background: user.is_online ? Theme.green-online : Theme.text-secondary;
+            border-radius: 4px;
+            border-width: user.is_online ? 0 : 1px;
+            border-color: Theme.text-secondary;
+            y: (parent.height - self.height) / 2;
+        }
+
+        Text {
+            text: user.name;
+            font-size: 13px;
+            color: user.is_online ? Theme.text-primary : Theme.text-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// Full sidebar component
+export component Sidebar inherits Rectangle {
+    in property<[Channel]> channels;
+    in property<[OnlineUser]> online_users;
+    in property<string> workspace_name: "osvauld";
+    in property<string> my_name: "";
+    in property<bool> my_online: true;
+    in property<bool> channels_collapsed: false;
+    in property<bool> online_collapsed: false;
+    callback channel_clicked(string);
+    callback create_channel_clicked();
+    callback toggle_channels_collapsed();
+    callback toggle_online_collapsed();
+
+    width: 220px;
+    background: Theme.bg-workspace;
+
+    VerticalLayout {
+        padding: 0;
+        spacing: 0;
+
+        // Workspace header
+        Rectangle {
+            height: 50px;
+            background: Theme.bg-workspace;
+
+            HorizontalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                Text {
+                    text: root.workspace_name;
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: Theme.text-bright;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Bottom border
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.border;
+            }
+        }
+
+        // Scrollable content (channels + online users)
+        Rectangle {
+            vertical-stretch: 1;
+
+            Flickable {
+                viewport-height: channels-layout.preferred-height;
+
+                channels-layout := VerticalLayout {
+                    padding: 8px;
+                    spacing: 2px;
+
+                    // Channels section header
+                    Rectangle {
+                        height: 28px;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+
+                            // Chevron + label (clickable to collapse)
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 28px;
+
+                                HorizontalLayout {
+                                    spacing: 4px;
+
+                                    Text {
+                                        text: root.channels_collapsed ? "▸" : "▾";
+                                        font-size: 10px;
+                                        color: Theme.text-secondary;
+                                        vertical-alignment: center;
+                                        width: 12px;
+                                    }
+
+                                    Text {
+                                        text: "Channels";
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: Theme.text-secondary;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                channels-header-touch := TouchArea {
+                                    clicked => { root.toggle_channels_collapsed(); }
+                                }
+                            }
+
+                            // Add channel button
+                            Rectangle {
+                                width: 20px;
+                                height: 20px;
+                                background: add-ch-touch.has-hover ? Theme.bg-hover : transparent;
+                                border-radius: 4px;
+
+                                Text {
+                                    text: "+";
+                                    font-size: 14px;
+                                    color: Theme.text-secondary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                add-ch-touch := TouchArea {
+                                    clicked => { root.create_channel_clicked(); }
+                                }
+                            }
+                        }
+                    }
+
+                    // Channel list (hidden when collapsed)
+                    if !root.channels_collapsed: VerticalLayout {
+                        spacing: 2px;
+
+                        for ch in root.channels: ChannelItem {
+                            channel: ch;
+                            clicked => { root.channel_clicked(ch.id); }
+                        }
+                    }
+
+                    // Spacer
+                    Rectangle { height: 16px; }
+
+                    // Online users section header
+                    Rectangle {
+                        height: 28px;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 28px;
+
+                                HorizontalLayout {
+                                    spacing: 4px;
+
+                                    Text {
+                                        text: root.online_collapsed ? "▸" : "▾";
+                                        font-size: 10px;
+                                        color: Theme.text-secondary;
+                                        vertical-alignment: center;
+                                        width: 12px;
+                                    }
+
+                                    Text {
+                                        text: "Online";
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: Theme.text-secondary;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                online-header-touch := TouchArea {
+                                    clicked => { root.toggle_online_collapsed(); }
+                                }
+                            }
+                        }
+                    }
+
+                    // User list (hidden when collapsed)
+                    if !root.online_collapsed: VerticalLayout {
+                        spacing: 2px;
+
+                        for user in root.online_users: UserItem {
+                            user: user;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Profile footer — pinned to bottom
+        Rectangle {
+            height: 44px;
+            background: Theme.bg-workspace;
+
+            // Top border
+            Rectangle {
+                height: 1px;
+                background: Theme.border;
+            }
+
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 8px;
+
+                // Online status dot
+                Rectangle {
+                    width: 10px;
+                    height: 10px;
+                    background: root.my_online ? Theme.green-online : Theme.text-secondary;
+                    border-radius: 5px;
+                    border-width: root.my_online ? 0 : 1px;
+                    border-color: Theme.text-secondary;
+                    y: (parent.height - self.height) / 2;
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 1px;
+
+                    Text {
+                        text: root.my_name;
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        text: root.my_online ? "Online" : "Offline";
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                    }
+                }
+            }
+        }
+    }
+}

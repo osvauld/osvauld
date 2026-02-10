@@ -5,7 +5,7 @@
 
 use tracing::{debug, error, info, warn, instrument};
 
-use crate::message::Message;
+use crate::message::*;
 use crate::CourierMode;
 use transport::Connection;
 
@@ -289,7 +289,7 @@ impl<C: Connection> PeerActor<C> {
     /// Handle broadcast received from Scribe - encrypt and send as SyncOffer
     ///
     /// **Context**: Scribe sent us an update to forward to this peer
-    /// **We do**: Look up consent permit, ECDH encrypt with peer's key, send as SyncOffer
+    /// **We do**: ECDH encrypt with peer's key, send as SyncOffer
     /// **3-Step**: This initiates the sync protocol; we wait for SyncAccept
     #[instrument(skip(self, state, payload), fields(page_id = %payload.page_id, layer_name = %payload.layer_name))]
     pub(in crate::peer_actor) async fn handle_broadcast_received(
@@ -303,44 +303,6 @@ impl<C: Connection> PeerActor<C> {
             None => {
                 warn!("Cannot send SyncOffer: peer encryption key not set");
                 return;
-            }
-        };
-
-        // Get permit: prefer payload.permit (Butler resolved), fall back to lookup
-        let permit = if let Some(p) = payload.permit.clone() {
-            // Butler already resolved the permit
-            debug!("Using permit from BroadcastPayload");
-            p
-        } else {
-            // Fall back to permit lookup
-            let peer_did = match require_auth(&state.state) {
-                Ok((did, _)) => did.to_string(),
-                Err(_) => {
-                    warn!("Cannot send SyncOffer: peer not authenticated");
-                    return;
-                }
-            };
-
-            // Look up consent permit: viewer consent first, then owner's own page permit
-            // - For node→viewer sync: use viewer's consent permit (issued by viewer)
-            // - For owner→node sync: use owner's page permit (issued when page was created)
-            let permit = state.butler.contacts().get_viewer_page_consent(&peer_did, &payload.page_id)
-                .ok()
-                .flatten()
-                .or_else(|| {
-                    // For owner→node: use owner's own page permit
-                    state.butler.pages().get(&payload.page_id)
-                        .ok()
-                        .flatten()
-                        .and_then(|pd| pd.permit.clone())
-                });
-
-            match permit {
-                Some(p) => p,
-                None => {
-                    warn!("Cannot send SyncOffer: no permit for peer {} page {}", peer_did, payload.page_id);
-                    return;
-                }
             }
         };
 
@@ -361,14 +323,14 @@ impl<C: Connection> PeerActor<C> {
         // rapid writes cause state vectors to advance before SyncAccept arrives.
 
         // Send SyncOffer with our state vector
-        let msg = Message::SyncOffer {
+        let msg = Message::SyncOffer(SyncOfferMsg {
             page_id: payload.page_id,
-            layer_name: payload.layer_name,
+            layer_name: payload.layer_name.clone(),
+            layer_type: LayerType::from_layer_name(&payload.layer_name),
             data: encrypted_data,
             state_vector: payload.state_vector,
             ephemeral_public,
-            permit,
-        };
+        });
 
         self.send_message(&msg, state).await;
         debug!("Sent SyncOffer to peer {}", self.node_id);

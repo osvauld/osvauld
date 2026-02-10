@@ -82,6 +82,19 @@ impl<'a> PagesApi<'a> {
         self.butler.close_page(id).await
     }
 
+    /// Set the permit for a page (stores as "our" permit on PageData)
+    ///
+    /// **Context**: Viewer receives PermitUpdate from node after SpaceDataAck.
+    /// This stores the permit on PageData.permit so build_scribe_args can
+    /// find it as our_permit for Scribe authorization.
+    pub fn set_permit(&self, page_id: &str, permit: String) -> Result<()> {
+        let mut page = self.butler.store().find_page_by_id(page_id)?
+            .ok_or_else(|| crate::error::ButlerError::page_not_found(page_id))?;
+        page.set_permit(permit);
+        self.butler.store().put_page(&page)?;
+        Ok(())
+    }
+
     /// Get source node for a page (for lazy sync)
     ///
     /// Returns the node_id that gave us this page's space, if any.

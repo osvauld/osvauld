@@ -7,12 +7,10 @@
 //! Scribe messages which always operate on the current LoroDoc.
 
 use mlua::{UserData, UserDataMethods, Value as LuaValue, Error as LuaError};
-use ractor::ActorRef;
-use tokio::sync::oneshot;
+use std::sync::Arc;
 use tracing::trace;
 
-use butler::ScribeMessage;
-use super::block_on_async;
+use crate::scribe_handle::ScribeHandle;
 use super::convert::lua_to_json;
 
 // Layer Wrapper (for get_or_create_layer return type)
@@ -113,42 +111,29 @@ impl UserData for LayerWrapper {
 /// **Design**: Doesn't hold direct LoroList handle - uses Scribe messages for all operations.
 /// This prevents stale handle issues after ReplaceLayer (SyncReset recovery).
 pub struct LuaLoroList {
-    scribe_ref: ActorRef<ScribeMessage>,
+    scribe: Arc<dyn ScribeHandle>,
     layer_name: String,
 }
 
 impl LuaLoroList {
-    pub fn new(scribe_ref: ActorRef<ScribeMessage>, layer_name: String) -> Self {
-        Self { scribe_ref, layer_name }
+    pub fn new(scribe: Arc<dyn ScribeHandle>, layer_name: String) -> Self {
+        Self { scribe, layer_name }
     }
 
-    /// Push value to the list (via Scribe message)
+    /// Push value to the list (via ScribeHandle)
     pub(crate) fn push_value(&self, value: LuaValue) -> Result<(), LuaError> {
         let json_value = lua_to_json(&value)?;
-        trace!(layer = %self.layer_name, "LuaLoroList::push via Scribe message");
+        trace!(layer = %self.layer_name, "LuaLoroList::push via ScribeHandle");
 
-        // Send ListPush with empty path (Scribe will use layer_name as container)
-        self.scribe_ref.cast(ScribeMessage::ListPush {
-            layer_name: self.layer_name.clone(),
-            path: String::new(), // Empty path = use layer_name as container
-            item: json_value,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to push: {}", e)))
+        self.scribe.list_push(&self.layer_name, "", json_value)
+            .map_err(|e| LuaError::RuntimeError(e))?;
+        Ok(())
     }
 
-    /// Get item at index (via Scribe message)
+    /// Get item at index (via ScribeHandle)
     pub(crate) fn get_at(&self, lua: &mlua::Lua, index: usize) -> Result<LuaValue, LuaError> {
-        let (tx, rx) = oneshot::channel();
-        self.scribe_ref.cast(ScribeMessage::ListGet {
-            layer_name: self.layer_name.clone(),
-            index,
-            reply: tx,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to get: {}", e)))?;
-
-        let result = block_on_async(async {
-            rx.await
-                .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))?
-                .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
-        })??;
+        let result = self.scribe.list_get(&self.layer_name, index)
+            .map_err(|e| LuaError::RuntimeError(e))?;
 
         match result {
             Some(json_value) => super::convert::json_to_lua(lua, &json_value),
@@ -156,51 +141,34 @@ impl LuaLoroList {
         }
     }
 
-    /// Set item at index (delete + insert via Scribe messages)
+    /// Set item at index (delete + insert via ScribeHandle)
     pub(crate) fn set_at(&self, index: usize, value: LuaValue) -> Result<(), LuaError> {
         let json_value = lua_to_json(&value)?;
-        trace!(layer = %self.layer_name, index, "LuaLoroList::set_at via Scribe messages");
+        trace!(layer = %self.layer_name, index, "LuaLoroList::set_at via ScribeHandle");
 
         // Delete at index first
-        self.scribe_ref.cast(ScribeMessage::ListDelete {
-            layer_name: self.layer_name.clone(),
-            path: String::new(),
-            index,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to delete for set: {}", e)))?;
+        self.scribe.list_delete(&self.layer_name, "", index)
+            .map_err(|e| LuaError::RuntimeError(e))?;
 
         // Insert at index
-        self.scribe_ref.cast(ScribeMessage::ListInsert {
-            layer_name: self.layer_name.clone(),
-            path: String::new(),
-            index,
-            item: json_value,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to insert for set: {}", e)))
+        self.scribe.list_insert(&self.layer_name, "", index, json_value)
+            .map_err(|e| LuaError::RuntimeError(e))?;
+        Ok(())
     }
 
-    /// Delete item at index (via Scribe message)
+    /// Delete item at index (via ScribeHandle)
     pub(crate) fn delete_at(&self, index: usize) -> Result<(), LuaError> {
-        trace!(layer = %self.layer_name, index, "LuaLoroList::delete_at via Scribe message");
+        trace!(layer = %self.layer_name, index, "LuaLoroList::delete_at via ScribeHandle");
 
-        self.scribe_ref.cast(ScribeMessage::ListDelete {
-            layer_name: self.layer_name.clone(),
-            path: String::new(),
-            index,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to delete: {}", e)))
+        self.scribe.list_delete(&self.layer_name, "", index)
+            .map_err(|e| LuaError::RuntimeError(e))?;
+        Ok(())
     }
 
-    /// Get list length (via Scribe message)
+    /// Get list length (via ScribeHandle)
     pub(crate) fn length(&self) -> Result<usize, LuaError> {
-        let (tx, rx) = oneshot::channel();
-        self.scribe_ref.cast(ScribeMessage::ListLength {
-            layer_name: self.layer_name.clone(),
-            reply: tx,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to get length: {}", e)))?;
-
-        block_on_async(async {
-            rx.await
-                .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))?
-                .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
-        })?
+        self.scribe.list_length(&self.layer_name)
+            .map_err(|e| LuaError::RuntimeError(e))
     }
 }
 
@@ -235,42 +203,29 @@ impl UserData for LuaLoroList {
 /// **Design**: Doesn't hold direct LoroMap handle - uses Scribe messages for all operations.
 /// This prevents stale handle issues after ReplaceLayer (SyncReset recovery).
 pub struct LuaLoroMap {
-    scribe_ref: ActorRef<ScribeMessage>,
+    scribe: Arc<dyn ScribeHandle>,
     layer_name: String,
 }
 
 impl LuaLoroMap {
-    pub fn new(scribe_ref: ActorRef<ScribeMessage>, layer_name: String) -> Self {
-        Self { scribe_ref, layer_name }
+    pub fn new(scribe: Arc<dyn ScribeHandle>, layer_name: String) -> Self {
+        Self { scribe, layer_name }
     }
 
-    /// Set value for key (via Scribe message)
+    /// Set value for key (via ScribeHandle)
     pub(crate) fn set_value(&self, key: &str, value: LuaValue) -> Result<(), LuaError> {
         let json_value = lua_to_json(&value)?;
-        trace!(layer = %self.layer_name, key, "LuaLoroMap::set via Scribe message");
+        trace!(layer = %self.layer_name, key, "LuaLoroMap::set via ScribeHandle");
 
-        self.scribe_ref.cast(ScribeMessage::MapInsert {
-            layer_name: self.layer_name.clone(),
-            path: String::new(), // Empty path = use layer_name as container
-            key: key.to_string(),
-            value: json_value,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to set: {}", e)))
+        self.scribe.map_insert(&self.layer_name, "", key, json_value)
+            .map_err(|e| LuaError::RuntimeError(e))?;
+        Ok(())
     }
 
-    /// Get value for key (via Scribe message)
+    /// Get value for key (via ScribeHandle)
     pub(crate) fn get_value(&self, lua: &mlua::Lua, key: &str) -> Result<LuaValue, LuaError> {
-        let (tx, rx) = oneshot::channel();
-        self.scribe_ref.cast(ScribeMessage::MapGet {
-            layer_name: self.layer_name.clone(),
-            key: key.to_string(),
-            reply: tx,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to get: {}", e)))?;
-
-        let result = block_on_async(async {
-            rx.await
-                .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))?
-                .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
-        })??;
+        let result = self.scribe.map_get(&self.layer_name, key)
+            .map_err(|e| LuaError::RuntimeError(e))?;
 
         match result {
             Some(json_value) => super::convert::json_to_lua(lua, &json_value),
@@ -278,45 +233,25 @@ impl LuaLoroMap {
         }
     }
 
-    /// Delete key (via Scribe message)
+    /// Delete key (via ScribeHandle)
     pub(crate) fn delete_key(&self, key: &str) -> Result<(), LuaError> {
-        trace!(layer = %self.layer_name, key, "LuaLoroMap::delete via Scribe message");
+        trace!(layer = %self.layer_name, key, "LuaLoroMap::delete via ScribeHandle");
 
-        self.scribe_ref.cast(ScribeMessage::MapDelete {
-            layer_name: self.layer_name.clone(),
-            path: String::new(),
-            key: key.to_string(),
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to delete: {}", e)))
+        self.scribe.map_delete(&self.layer_name, "", key)
+            .map_err(|e| LuaError::RuntimeError(e))?;
+        Ok(())
     }
 
-    /// Get map length (via Scribe message)
+    /// Get map length (via ScribeHandle)
     pub(crate) fn length(&self) -> Result<usize, LuaError> {
-        let (tx, rx) = oneshot::channel();
-        self.scribe_ref.cast(ScribeMessage::MapLength {
-            layer_name: self.layer_name.clone(),
-            reply: tx,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to get length: {}", e)))?;
-
-        block_on_async(async {
-            rx.await
-                .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))?
-                .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
-        })?
+        self.scribe.map_length(&self.layer_name)
+            .map_err(|e| LuaError::RuntimeError(e))
     }
 
-    /// Get all keys (via Scribe message)
+    /// Get all keys (via ScribeHandle)
     pub(crate) fn keys(&self, lua: &mlua::Lua) -> Result<mlua::Table, LuaError> {
-        let (tx, rx) = oneshot::channel();
-        self.scribe_ref.cast(ScribeMessage::MapKeys {
-            layer_name: self.layer_name.clone(),
-            reply: tx,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to get keys: {}", e)))?;
-
-        let keys = block_on_async(async {
-            rx.await
-                .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))?
-                .map_err(|e| LuaError::RuntimeError(format!("Scribe error: {}", e)))
-        })??;
+        let keys = self.scribe.map_keys(&self.layer_name)
+            .map_err(|e| LuaError::RuntimeError(e))?;
 
         let table = lua.create_table()?;
         for (i, key) in keys.iter().enumerate() {

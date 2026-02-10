@@ -31,7 +31,7 @@ use crate::handshake::{
     can_publish,
 };
 
-use crate::message::Message;
+use crate::message::*;
 use crate::state::{PeerState, PeerType};
 use butler::OwnerInfo;
 
@@ -122,7 +122,8 @@ impl<C: Connection> PeerActor<C> {
         let encryption_key: [u8; 32] = user_info.encryption_key.clone().try_into()
             .expect("encryption_key should be 32 bytes");
 
-        let hello = Message::Hello {
+        let hello = Message::Hello(HelloMsg {
+            protocol_version: PROTOCOL_VERSION,
             did: user_info.did.clone(),
             username: user_info.username.clone(),
             public_key,
@@ -130,7 +131,7 @@ impl<C: Connection> PeerActor<C> {
             signature,
             timestamp,
             permit: permit.to_string(),
-        };
+        });
 
         info!(can_publish = our_can_publish, "Sending Hello to {} as {}", self.node_id, user_info.username);
         self.send_message(&hello, state).await;
@@ -177,7 +178,7 @@ impl<C: Connection> PeerActor<C> {
 
         info!("Received Hello from {} ({})", username, did);
 
-        // Parse and validate permit
+        // Parse and validate permit, cache for later use
         let parsed_permit = match parse_permit(permit) {
             Ok(p) => p,
             Err(e) => {
@@ -185,6 +186,7 @@ impl<C: Connection> PeerActor<C> {
                 return;
             }
         };
+        state.cached_peer_permit = Some(parsed_permit.clone());
 
         let peer_can_publish = can_publish(&parsed_permit);
         let is_first_connection = parsed_permit.is_first_connection();
@@ -406,14 +408,15 @@ impl<C: Connection> PeerActor<C> {
         let timestamp = chrono::Utc::now().timestamp();
         let signature = vec![]; // TODO: Sign
 
-        let welcome = Message::Welcome {
+        let welcome = Message::Welcome(WelcomeMsg {
+            protocol_version: PROTOCOL_VERSION,
             node_id: self.node_id.to_string(),
             node_public_key,
             node_encryption_key,
             signature,
             timestamp,
             permit_for_peer: permit_for_peer.to_string(),
-        };
+        });
 
         info!("Sending Welcome");
         self.send_message(&welcome, state).await;
@@ -455,7 +458,7 @@ impl<C: Connection> PeerActor<C> {
         // Store peer's encryption key for ECDH
         state.peer_encryption_key = Some(*node_encryption_key);
 
-        // Parse the permit we received
+        // Parse the permit we received, cache for later use
         let parsed_permit = match parse_permit(permit_for_us) {
             Ok(p) => p,
             Err(e) => {
@@ -464,6 +467,7 @@ impl<C: Connection> PeerActor<C> {
                 return;
             }
         };
+        state.cached_peer_permit = Some(parsed_permit.clone());
 
         // Parse our original permit for WelcomeContext
         let our_parsed_permit = match parse_permit(&our_permit) {
@@ -611,9 +615,9 @@ impl<C: Connection> PeerActor<C> {
         };
 
         // Send PermitGrant
-        let permit_grant = Message::PermitGrant {
+        let permit_grant = Message::PermitGrant(PermitGrantMsg {
             permit_for_node: permit_for_node.clone(),
-        };
+        });
 
         info!(can_publish = our_can_publish, "Sending PermitGrant to {}", self.node_id);
         self.send_message(&permit_grant, state).await;
@@ -660,7 +664,7 @@ impl<C: Connection> PeerActor<C> {
 
         info!("Received PermitGrant from {}", their_username);
 
-        // Parse the permit
+        // Parse the permit, cache for later use
         let parsed_permit = match parse_permit(permit_for_node) {
             Ok(p) => p,
             Err(e) => {
@@ -669,6 +673,7 @@ impl<C: Connection> PeerActor<C> {
                 return;
             }
         };
+        state.cached_peer_permit = Some(parsed_permit.clone());
 
         // Get our pubkey for validation (base64-encoded)
         let our_pubkey_b64 = match state.butler.get_identity().await {
@@ -787,5 +792,12 @@ impl<C: Connection> PeerActor<C> {
 
         // NOTE: For first connection, subscription happens after PageData is sent
         // via refresh_subscriptions_after_page_data when viewer's permit is stored.
+
+        // Drain pending space request queued before handshake completed
+        // (viewer sent SpaceRequest before Ack arrived)
+        if let Some((space_id, viewer_permit)) = state.pending_space_request.take() {
+            info!("Draining queued SpaceRequest for {} after handshake", space_id);
+            self.initiate_request_space_as_viewer(&space_id, &viewer_permit, state).await;
+        }
     }
 }

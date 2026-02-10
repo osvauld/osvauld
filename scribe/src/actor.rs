@@ -20,7 +20,7 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use domains::Layer;
 
 use crate::message;
-use crate::state::{ScribeArgs, ScribeState, SyncMode};
+use crate::state::{ScribeArgs, ScribeState, SyncMode, normalize_layer_name};
 use crate::permit::glob_match;
 use crate::ephemeral::{
     route_remote_ephemeral, emit_raw_ephemeral, emit_structured_ephemeral,
@@ -247,6 +247,7 @@ impl Actor for Scribe {
                 from_peer,
                 permit,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 // Loro observer handles broadcast automatically after import()
                 let _ = sync::handle_apply_update(
                     state,
@@ -265,6 +266,7 @@ impl Actor for Scribe {
                 permit,
                 reply,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 // Loro observer handles broadcast automatically after import()
                 let result = sync::handle_apply_update(
                     state,
@@ -282,16 +284,19 @@ impl Actor for Scribe {
                 their_vector,
                 reply,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = sync::handle_sync_request(state, &layer_name, &their_vector);
                 let _ = reply.send(result);
             }
 
             ScribeMessage::ExportSnapshot { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = sync::handle_export_snapshot(state, &layer_name);
                 let _ = reply.send(result);
             }
 
             ScribeMessage::GetStateVector { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = sync::handle_get_state_vector(state, &layer_name);
                 let _ = reply.send(result);
             }
@@ -301,6 +306,7 @@ impl Actor for Scribe {
                 state_vector,
                 reply,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = sync::handle_get_updates_since(state, &layer_name, &state_vector);
                 let _ = reply.send(result);
             }
@@ -310,6 +316,7 @@ impl Actor for Scribe {
                 snapshot,
                 reply,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 // Replace layer entirely with authoritative snapshot (SyncReset recovery)
                 info!(layer = %layer_name, snapshot_len = snapshot.len(), "Replacing layer with authoritative snapshot");
                 let result = match Layer::from_snapshot(&snapshot) {
@@ -332,6 +339,7 @@ impl Actor for Scribe {
             }
 
             ScribeMessage::EnsureLoroList { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 // Get existing layer or create new one (for list access)
                 let is_new_layer = !state.layers.contains_key(&layer_name);
                 if is_new_layer {
@@ -350,6 +358,7 @@ impl Actor for Scribe {
             }
 
             ScribeMessage::EnsureLoroMap { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 // Get existing layer or create new one (for map access)
                 let is_new_layer = !state.layers.contains_key(&layer_name);
                 if is_new_layer {
@@ -366,6 +375,7 @@ impl Actor for Scribe {
             }
 
             ScribeMessage::LayerExists { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let exists = state.layers.contains_key(&layer_name);
                 let _ = reply.send(exists);
             }
@@ -373,6 +383,7 @@ impl Actor for Scribe {
             // Typed read operations (for Lua bindings - avoids stale handles)
 
             ScribeMessage::ListGet { layer_name, index, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = state.layers.get(&layer_name)
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
@@ -386,6 +397,7 @@ impl Actor for Scribe {
             }
 
             ScribeMessage::ListLength { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = state.layers.get(&layer_name)
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
@@ -396,6 +408,7 @@ impl Actor for Scribe {
             }
 
             ScribeMessage::MapGet { layer_name, key, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = state.layers.get(&layer_name)
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
@@ -409,6 +422,7 @@ impl Actor for Scribe {
             }
 
             ScribeMessage::MapLength { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = state.layers.get(&layer_name)
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
@@ -419,6 +433,7 @@ impl Actor for Scribe {
             }
 
             ScribeMessage::MapKeys { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = state.layers.get(&layer_name)
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
@@ -429,6 +444,7 @@ impl Actor for Scribe {
             }
 
             ScribeMessage::ListLayers { pattern, reply } => {
+                let pattern = normalize_layer_name(&pattern, &state.page_id);
                 // Match layer names against glob pattern
                 let matching: Vec<String> = state
                     .layers
@@ -441,6 +457,7 @@ impl Actor for Scribe {
 
 
             ScribeMessage::GetLayerData { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = state.layers.get(&layer_name)
                     .map(|layer| layer.get_content(&layer_name))
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()));
@@ -453,6 +470,7 @@ impl Actor for Scribe {
                 layer_name,
                 state_vector,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 if let Ok(mut subs) = state.subscribers.write() {
                     if let Some(info) = subs.get_mut(&(user_did.clone(), device_id.clone())) {
                         info.vectors.insert(layer_name.clone(), state_vector);
@@ -466,11 +484,13 @@ impl Actor for Scribe {
             }
 
             ScribeMessage::GetSnapshot { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = state.layers.get(&layer_name).map(|layer| layer.export_snapshot());
                 let _ = reply.send(result);
             }
 
             ScribeMessage::GetLayerJson { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = state.layers.get(&layer_name).map(|layer| layer.get_content(&layer_name));
                 let _ = reply.send(result);
             }
@@ -500,6 +520,7 @@ impl Actor for Scribe {
                 value,
                 reply,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = self
                     .handle_update_from_json(state, &layer_name, &path, value)
                     .await;
@@ -515,6 +536,7 @@ impl Actor for Scribe {
                 path,
                 item,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 if let Err(e) = operations::handle_list_push(state, &layer_name, &path, item).await {
                     warn!(error = %e, "ListPush failed");
                 }
@@ -526,6 +548,7 @@ impl Actor for Scribe {
                 index,
                 item,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 if let Err(e) = operations::handle_list_insert(state, &layer_name, &path, index, item).await {
                     warn!(error = %e, "ListInsert failed");
                 }
@@ -536,6 +559,7 @@ impl Actor for Scribe {
                 path,
                 index,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 if let Err(e) = operations::handle_list_delete(state, &layer_name, &path, index).await {
                     warn!(error = %e, "ListDelete failed");
                 }
@@ -547,6 +571,7 @@ impl Actor for Scribe {
                 key,
                 value,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 if let Err(e) = operations::handle_map_insert(state, &layer_name, &path, &key, value).await {
                     warn!(error = %e, "MapInsert failed");
                 }
@@ -557,6 +582,7 @@ impl Actor for Scribe {
                 path,
                 key,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 if let Err(e) = operations::handle_map_delete(state, &layer_name, &path, &key).await {
                     warn!(error = %e, "MapDelete failed");
                 }
@@ -567,6 +593,7 @@ impl Actor for Scribe {
                 path,
                 amount,
             } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 if let Err(e) = operations::handle_counter_inc(state, &layer_name, &path, amount).await {
                     warn!(error = %e, "CounterInc failed");
                 }
@@ -719,6 +746,7 @@ impl Actor for Scribe {
             }
 
             ScribeMessage::CreateDerivedLayer { target_layer } => {
+                let target_layer = normalize_layer_name(&target_layer, &state.page_id);
                 // Create the derived layer (empty) so it exists for subscribers
                 if !state.layers.contains_key(&target_layer) {
                     let layer = Layer::new();
@@ -733,8 +761,8 @@ impl Actor for Scribe {
             }
 
             ScribeMessage::GetAppFiles { app_name, reply } => {
-                // Use full layer name: {page_id}/app:{app_name}
-                let layer_name = format!("{}/app:{}", state.page_id, app_name);
+                // Use bare layer name (Scribe uses bare names, no page_id/ prefix)
+                let layer_name = format!("app:{}", app_name);
                 let result = if let Some(layer) = state.layers.get(&layer_name) {
                     Ok(layer.get_all_files())
                 } else {

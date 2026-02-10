@@ -22,8 +22,8 @@ pub async fn handle_refresh_app(
     app_name: &str,
     app_dir: &Path,
 ) -> std::result::Result<Vec<String>, String> {
-    // Use full layer name: {page_id}/app:{app_name}
-    let layer_name = format!("{}/app:{}", state.page_id, app_name);
+    // Use bare layer name (Scribe uses bare names, no page_id/ prefix)
+    let layer_name = format!("app:{}", app_name);
 
     info!(
         page_id = %state.page_id,

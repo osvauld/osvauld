@@ -79,6 +79,7 @@ Use domain terminology (their/our, peer, permit):
 | Topic | Location |
 |-------|----------|
 | **App development** | `docs/app-dev/` -- Lua apps, renderers, manifests, permits, validation, derivation, testing |
+| **Integration tests** | `docs/INTEGRATION_TESTING.md` -- Rust integration tests, Scenario builder, writing tests |
 | **Architecture** | `docs/ARCHITECTURE.md` -- System crates, boundaries, data flow |
 | **Protocol** | `docs/PROTOCOL.md` -- P2P wire protocol |
 | **Data model** | `docs/DATA_MODEL.md` -- Space/Page/Layer hierarchy |

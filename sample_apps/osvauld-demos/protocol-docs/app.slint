@@ -1,0 +1,101 @@
+// Osvauld Protocol Documentation — Sidebar + Content Layout
+
+import { Theme } from "theme.slint";
+import { Sidebar } from "sidebar.slint";
+import { NavButtons } from "components.slint";
+import { ContentOverview } from "content_overview.slint";
+import { ContentProtocol } from "content_protocol.slint";
+import { ContentData } from "content_data.slint";
+import { ContentApps } from "content_apps.slint";
+import { ContentAI } from "content_ai.slint";
+import { ContentTesting } from "content_testing.slint";
+import { ContentDeploy } from "content_deploy.slint";
+
+export global AppAPI {
+    in-out property<int> active_section: 0;
+    in-out property<int> active_subsection: 0;
+    in-out property<string> prev_label: "";
+    in-out property<string> next_label: "";
+    callback on_click(string);
+}
+
+export component App inherits Rectangle {
+    background: Theme.bg-primary;
+
+    property<length> sidebar-w: 220px;
+    property<length> content-w: root.width - sidebar-w - 1px;
+
+    // Sidebar
+    Sidebar {
+        x: 0;
+        y: 0;
+        width: root.sidebar-w;
+        height: root.height;
+        active_section: AppAPI.active_section;
+        active_subsection: AppAPI.active_subsection;
+        section_clicked(id) => { AppAPI.on_click("section:" + id); }
+        subsection_clicked(id) => { AppAPI.on_click("sub:" + id); }
+    }
+
+    // Divider
+    Rectangle {
+        x: root.sidebar-w;
+        y: 0;
+        width: 1px;
+        height: root.height;
+        background: Theme.border;
+    }
+
+    // Content area
+    Flickable {
+        x: root.sidebar-w + 1px;
+        y: 0;
+        width: root.content-w;
+        height: root.height;
+        viewport-width: self.width;
+        viewport-height: content-col.preferred-height;
+
+        content-col := VerticalLayout {
+            width: parent.viewport-width;
+            padding: 32px;
+            padding-top: 24px;
+            spacing: 20px;
+
+            if AppAPI.active_section == 0: ContentOverview {
+                subsection: AppAPI.active_subsection;
+            }
+
+            if AppAPI.active_section == 1: ContentProtocol {
+                subsection: AppAPI.active_subsection;
+            }
+
+            if AppAPI.active_section == 2: ContentData {
+                subsection: AppAPI.active_subsection;
+            }
+
+            if AppAPI.active_section == 3: ContentApps {
+                subsection: AppAPI.active_subsection;
+            }
+
+            if AppAPI.active_section == 4: ContentAI {
+                subsection: AppAPI.active_subsection;
+            }
+
+            if AppAPI.active_section == 5: ContentTesting {
+                subsection: AppAPI.active_subsection;
+            }
+
+            if AppAPI.active_section == 6: ContentDeploy {
+                subsection: AppAPI.active_subsection;
+            }
+
+            // Prev / Next navigation
+            NavButtons {
+                prev-label: AppAPI.prev_label;
+                next-label: AppAPI.next_label;
+                prev_clicked => { AppAPI.on_click("nav:prev"); }
+                next_clicked => { AppAPI.on_click("nav:next"); }
+            }
+        }
+    }
+}

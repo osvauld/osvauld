@@ -30,13 +30,16 @@ pub fn can_access_layer(permit: &crate::parser::Permit, layer_name: &str, operat
 
     // Check fixed layers with {page_id} expansion
     // Fixed layers in permit have keys like "{page_id}/products" that need expansion
+    // Accepts both bare names ("products") and full names ("{uuid}/products")
+    let page_prefix = format!("{}/", page_id);
     for (layer_key, config) in permit.layers() {
         let expanded_key = expand_pattern_with_iss(layer_key, page_id, &aud_did, iss);
+        let bare_key = expanded_key.strip_prefix(&page_prefix).unwrap_or(&expanded_key);
 
-        if expanded_key == layer_name {
+        if bare_key == layer_name || expanded_key == layer_name {
             let allowed = config.sync || operation == "read" || operation == "write";
             tracing::debug!(
-                "✅ [can_access_layer] Fixed layer '{}' → '{}' matches '{}': {} = {}",
+                "[can_access_layer] Fixed layer '{}' → '{}' matches '{}': {} = {}",
                 layer_key, expanded_key, layer_name, operation, allowed
             );
             return allowed;
@@ -47,8 +50,9 @@ pub fn can_access_layer(permit: &crate::parser::Permit, layer_name: &str, operat
     // Use DID format for {aud} so it matches DID-based layer names
     for (pattern, config) in permit.layer_patterns() {
         let expanded = expand_pattern_with_iss(pattern, page_id, &aud_did, iss);
+        let bare = expanded.strip_prefix(&page_prefix).unwrap_or(&expanded);
 
-        if matches_layer_pattern(layer_name, &expanded) {
+        if matches_layer_pattern(layer_name, bare) || matches_layer_pattern(layer_name, &expanded) {
             let allowed = match operation {
                 "create" => config.create,
                 "sync" => config.sync,
@@ -56,7 +60,7 @@ pub fn can_access_layer(permit: &crate::parser::Permit, layer_name: &str, operat
                 _ => false,
             };
             tracing::debug!(
-                "🔍 [can_access_layer] Pattern '{}' → '{}' matches '{}': {} = {}",
+                "[can_access_layer] Pattern '{}' → '{}' matches '{}': {} = {}",
                 pattern, expanded, layer_name, operation, allowed
             );
             return allowed;

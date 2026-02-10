@@ -110,10 +110,7 @@ impl UserData for LuaSlintModel {
 
         // model:clear() - Remove all items
         methods.add_method("clear", |_, this, ()| {
-            let count = this.model.row_count();
-            for _ in 0..count {
-                this.model.remove(0);
-            }
+            this.model.set_vec(vec![]);
             tracing::debug!(
                 property = %this.property_name,
                 "VecModel::clear triggered"

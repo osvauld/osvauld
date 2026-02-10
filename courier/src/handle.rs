@@ -362,7 +362,7 @@ impl CourierRunner {
                 let (actor_ref, _) = Actor::spawn(
                     Some("coordinator".to_string()),
                     coordinator,
-                    (node_id, mode, butler.clone(), blob_store, Some(connect_tx), Some(event_tx)),
+                    (node_id, mode, butler.clone(), blob_store, Some(connect_tx), Some(event_tx), None),
                 )
                 .await
                 .expect("Failed to spawn Coordinator");

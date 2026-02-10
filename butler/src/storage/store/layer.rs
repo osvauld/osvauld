@@ -4,8 +4,8 @@
 
 use redb::{ReadableTable, ReadableDatabase};
 use crate::error::Result;
-use tracing::instrument;
-use super::{RedbStore, LAYERS};
+use tracing::{info, instrument};
+use super::{RedbStore, LAYERS, APP_HASHES};
 
 impl RedbStore {
     /// Store a layer with hierarchical key: {page_id}/{layer_name}
@@ -27,6 +27,7 @@ impl RedbStore {
             // Layer name without prefix - prepend page_id
             format!("{}/{}", page_id, layer_name)
         };
+        info!(page_id = %page_id, layer_name = %layer_name, key = %key, bytes = encrypted_bytes.len(), "Writing layer to DB");
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(LAYERS)?;
@@ -141,5 +142,62 @@ impl RedbStore {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(LAYERS)?;
         Ok(table.get(key.as_str())?.is_some())
+    }
+
+    // App Layer Content Hash Operations
+
+    /// Store content hash for an app layer
+    ///
+    /// **Context**: After syncing an app layer, store its content hash
+    /// **Key**: `{page_id}/{layer_name}`
+    /// **Value**: SHA-256 hash bytes (32 bytes)
+    #[instrument(skip_all)]
+    pub fn put_app_hash(&self, page_id: &str, layer_name: &str, hash: &[u8; 32]) -> Result<()> {
+        let key = format!("{}/{}", page_id, layer_name);
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(APP_HASHES)?;
+            table.insert(key.as_str(), hash.as_slice())?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Get content hash for an app layer
+    ///
+    /// **Returns**: SHA-256 hash if stored, None if layer hasn't been hashed
+    #[instrument(skip_all)]
+    pub fn get_app_hash(&self, page_id: &str, layer_name: &str) -> Result<Option<[u8; 32]>> {
+        let key = format!("{}/{}", page_id, layer_name);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(APP_HASHES)?;
+        match table.get(key.as_str())? {
+            Some(guard) => {
+                let bytes = guard.value();
+                if bytes.len() == 32 {
+                    let mut hash = [0u8; 32];
+                    hash.copy_from_slice(bytes);
+                    Ok(Some(hash))
+                } else {
+                    Ok(None)
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Delete content hash for an app layer
+    #[instrument(skip_all)]
+    pub fn delete_app_hash(&self, page_id: &str, layer_name: &str) -> Result<bool> {
+        let key = format!("{}/{}", page_id, layer_name);
+        let write_txn = self.db.begin_write()?;
+        let removed;
+        {
+            let mut table = write_txn.open_table(APP_HASHES)?;
+            let result = table.remove(key.as_str())?;
+            removed = result.is_some();
+        }
+        write_txn.commit()?;
+        Ok(removed)
     }
 }

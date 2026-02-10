@@ -37,7 +37,7 @@ from .client import ControlClient
 Client = ControlClient
 
 from .session import Session
-from .scenario import Scenario, NodeSession
+from .scenario import Scenario, NodeSession, AppTestScenario, PeerHandle
 from .tmux import TmuxManager
 from .wait import (
     wait_for_condition,
@@ -56,6 +56,8 @@ __all__ = [
     "Session",
     "NodeSession",
     "Scenario",
+    "AppTestScenario",
+    "PeerHandle",
     # Tmux
     "TmuxManager",
     # Wait helpers

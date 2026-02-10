@@ -9,7 +9,7 @@ This guide covers tools and techniques for profiling and benchmarking osvauld's 
 cargo build --release -p kunki -p sthalam
 
 # Run performance test
-python scripts/test_chat_reactive.py --release --messages 100 --output results/baseline.json
+python e2e_tests/test_chat_perf.py --release --messages 100 --output results/baseline.json
 ```
 
 ## Build Profiles
@@ -54,7 +54,7 @@ Both together without `RUSTFLAGS` means tokio-console won't see any tasks (flame
 Built-in timing and resource monitoring:
 
 ```bash
-python scripts/test_chat_reactive.py --release --messages 100
+python e2e_tests/test_chat_perf.py --release --messages 100
 ```
 
 **Metrics collected:**
@@ -124,11 +124,11 @@ The `--flame-only` flag generates `.folded` files without the overhead of the to
 RUSTFLAGS="--cfg tokio_unstable" cargo build --profile profiling --features profiling -p kunki -p sthalam
 
 # Run test with flame-only (no console ports opened)
-python scripts/test_chat_reactive.py --flame-only --messages 50
+python e2e_tests/test_chat_perf.py --flame-only --messages 50
 
 # .folded files are in each instance's data dir:
-# /tmp/chat_reactive_test/node/node.folded
-# /tmp/chat_reactive_test/alice/alice.folded
+# /tmp/chat_perf/node/node.folded
+# /tmp/chat_perf/alice/alice.folded
 # etc.
 ```
 
@@ -138,7 +138,7 @@ python scripts/test_chat_reactive.py --flame-only --messages 50
 cargo install inferno
 
 # Single instance
-inferno-flamegraph /tmp/chat_reactive_test/node/node.folded > node_flame.svg
+inferno-flamegraph /tmp/chat_perf/node/node.folded > node_flame.svg
 
 # Open in browser
 xdg-open node_flame.svg
@@ -148,10 +148,10 @@ xdg-open node_flame.svg
 
 ```bash
 # Analyze all .folded files from a test run
-python scripts/analyze_flamegraph.py /tmp/chat_reactive_test/
+python scripts/analyze_flamegraph.py /tmp/chat_perf/
 
 # With SVG generation and JSON export
-python scripts/analyze_flamegraph.py /tmp/chat_reactive_test/ --svg -o results/flame_analysis.json
+python scripts/analyze_flamegraph.py /tmp/chat_perf/ --svg -o results/flame_analysis.json
 
 # Compare two flame analyses
 python scripts/analyze_flamegraph.py --compare results/flame_before.json results/flame_after.json
@@ -192,21 +192,21 @@ Tracks every allocation/deallocation to find peak memory consumers and leaks.
 
 ```bash
 # Run test with heaptrack (wraps each binary)
-python scripts/test_chat_reactive.py --release --heaptrack -m 100
+python e2e_tests/test_chat_perf.py --release --heaptrack -m 100
 
 # .zst files are in each instance's data dir:
-# /tmp/chat_reactive_test/alice/alice.zst
-# /tmp/chat_reactive_test/node/node.zst
+# /tmp/chat_perf/alice/alice.zst
+# /tmp/chat_perf/node/node.zst
 ```
 
 #### Automated analysis
 
 ```bash
 # Analyze all instances
-python scripts/analyze_heaptrack.py /tmp/chat_reactive_test/
+python scripts/analyze_heaptrack.py /tmp/chat_perf/
 
 # Save to JSON for comparison
-python scripts/analyze_heaptrack.py /tmp/chat_reactive_test/ -o results/heap_v1.json
+python scripts/analyze_heaptrack.py /tmp/chat_perf/ -o results/heap_v1.json
 
 # Compare two runs
 python scripts/analyze_heaptrack.py --compare results/heap_v1.json results/heap_v2.json
@@ -221,16 +221,16 @@ The script reports:
 
 ```bash
 # GUI viewer (if installed)
-heaptrack_gui /tmp/chat_reactive_test/alice/alice.zst
+heaptrack_gui /tmp/chat_perf/alice/alice.zst
 
 # Text mode — peak consumers
-heaptrack_print -f /tmp/chat_reactive_test/alice/alice.zst -p -n 10
+heaptrack_print -f /tmp/chat_perf/alice/alice.zst -p -n 10
 
 # Filter by subsystem
-heaptrack_print -f /tmp/chat_reactive_test/alice/alice.zst --filter-bt-function argon2 -p
+heaptrack_print -f /tmp/chat_perf/alice/alice.zst --filter-bt-function argon2 -p
 
 # Leak analysis
-heaptrack_print -f /tmp/chat_reactive_test/alice/alice.zst -l -n 10
+heaptrack_print -f /tmp/chat_perf/alice/alice.zst -l -n 10
 ```
 
 #### Interpreting results
@@ -263,10 +263,10 @@ Track performance across commits:
 
 ```bash
 # Save baseline
-python scripts/test_chat_reactive.py --release -m 100 -o results/v1.json
+python e2e_tests/test_chat_perf.py --release -m 100 -o results/v1.json
 
 # After changes
-python scripts/test_chat_reactive.py --release -m 100 -o results/v2.json
+python e2e_tests/test_chat_perf.py --release -m 100 -o results/v2.json
 
 # Compare
 python scripts/compare_perf.py results/v1.json results/v2.json
@@ -328,25 +328,25 @@ python scripts/compare_perf.py results/v1.json results/v2.json
 
 1. **Reproduce with metrics:**
    ```bash
-   python scripts/test_chat_reactive.py --release -m 100 -o results/slow.json
+   python e2e_tests/test_chat_perf.py --release -m 100 -o results/slow.json
    ```
 
 2. **Generate flamegraph (where is CPU time going?):**
    ```bash
-   python scripts/test_chat_reactive.py --flame-only -m 100
-   inferno-flamegraph /tmp/chat_reactive_test/node/node.folded > node.svg
+   python e2e_tests/test_chat_perf.py --flame-only -m 100
+   inferno-flamegraph /tmp/chat_perf/node/node.folded > node.svg
    ```
 
 3. **If you suspect async issues, check with tokio-console:**
    ```bash
-   python scripts/test_chat_reactive.py --profile -m 100
+   python e2e_tests/test_chat_perf.py --profile -m 100
    # In another terminal:
    tokio-console http://localhost:6669
    ```
 
 4. **Fix and compare:**
    ```bash
-   python scripts/test_chat_reactive.py --release -m 100 -o results/fixed.json
+   python e2e_tests/test_chat_perf.py --release -m 100 -o results/fixed.json
    python scripts/compare_perf.py results/slow.json results/fixed.json
    ```
 
@@ -359,7 +359,7 @@ python scripts/compare_perf.py results/v1.json results/v2.json
 
 2. Run stress tests:
    ```bash
-   python scripts/test_chat_reactive.py --release --messages 500 -o results/release.json
+   python e2e_tests/test_chat_perf.py --release --messages 500 -o results/release.json
    ```
 
 3. Compare against previous release:
@@ -488,7 +488,7 @@ The test script automatically runs flamegraph analysis when `--flame-only` or `-
 
 ```bash
 # Single command: test + perf report + flamegraph analysis + JSON export
-python scripts/test_chat_reactive.py --release --flame-only -m 100 -o results/run.json
+python e2e_tests/test_chat_perf.py --release --flame-only -m 100 -o results/run.json
 
 # The JSON output includes:
 # - throughput, memory, CPU, timeline (PerfReport)

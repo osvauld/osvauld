@@ -178,80 +178,75 @@ with Scenario(owner=1, node=1, viewer=2, show_ui=False) as s:
     assert s.viewers[0].eval("return get_products_count()") >= 1
 ```
 
-## Writing a Test Script
+## AppTestScenario (Recommended)
 
-Complete pattern from `scripts/test_ecommerce_sync.py`:
+`AppTestScenario` in `scripts/osvauld/scenario.py` collapses all boilerplate (TmuxManager, signup, create_space, connect, publish, add_viewer, open_app) into a single context manager. Tests focus purely on app-level logic.
 
 ```python
 #!/usr/bin/env python3
-"""E-commerce sync test"""
-
+import sys
 from pathlib import Path
-from osvauld.scenario import Scenario
 
-SHOP_APP = Path("./sample_apps/my-shop")
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+from osvauld.scenario import AppTestScenario
 
-def main():
-    with Scenario(owner=1, node=1, viewer=1, fresh=True) as s:
-        # 1. Owner setup
-        result = s.setup_owner(
-            username="shopowner",
-            app_path=str(SHOP_APP),
-            app_name="Shop Owner"
-        )
-        space_id = result["space_id"]
-        page_id = result["page_id"]
+SHOP_APP = Path(__file__).parent.parent / "sample_apps" / "my-shop"
+args = AppTestScenario.parse_args("E-Commerce Test")
 
-        # 2. Connect to node and publish
-        s.connect_owner_to_node()
-        s.publish_to_node(space_id)
+with AppTestScenario(
+    name="ecomm_test",
+    app_path=str(SHOP_APP),
+    peers={
+        "owner":    {"role": "owner",  "app": "Shop Owner"},
+        "customer": {"role": "viewer", "app": "Shop Customer"},
+    },
+    **args,
+) as s:
+    owner = s.peer("owner")
+    customer = s.peer("customer")
 
-        # 3. Setup customer
-        viewer_link = s.get_viewer_link(space_id)
-        s.setup_viewer(0, viewer_link, "customer1")
-        s.viewer.client.open_app(page_id, "Shop Customer")
-
-        # 4. Owner adds a product
-        s.owner.eval('add_product_via_ui("Widget", 99, "Test product", 50)')
-
-        # 5. Wait for sync and verify
-        s.owner.client.wait_for_sync(
-            s.viewer.client,
-            "return get_products_count() >= 1",
-            timeout=15
-        )
-        print("Product synced to customer!")
-
-        # 6. Customer places order
-        s.viewer.eval('place_order_via_ui("Widget", 2)')
-        s.wait_sync()
-
-        # 7. Verify derived data
-        summary_count = s.owner.eval(
-            "return get_orders_summary_count()"
-        )
-        assert summary_count >= 1, f"Expected orders summary, got {summary_count}"
-        print("Order synced and derivation working!")
-
-if __name__ == "__main__":
-    main()
+    owner.eval('add_product_via_ui("Widget", 99, "Test", 50)')
+    customer.wait_for(
+        lambda: customer.eval("return get_products_count()") >= 1,
+        desc="product sync",
+    )
+    print("Product synced!")
 ```
+
+### `PeerHandle` API
+
+Each peer returned by `s.peer(name)` provides:
+- `peer.eval(lua_code)` — execute Lua and return the result
+- `peer.wait_for(fn, timeout=15, interval=0.5, desc="...")` — poll until truthy
+- `peer.client` — the underlying `ControlClient` for advanced operations
+- `peer.name`, `peer.role`, `peer.space_id`, `peer.page_id`, `peer.app_name`
+
+### CLI Flags
+
+All `AppTestScenario` tests support:
+- `--keep` — keep tmux session alive after test
+- `--debug` — keep session on failure for debugging
+- `--release` — use release builds
+
+For custom flags, use `AppTestScenario.add_args(parser)` with your own parser.
 
 ## Running Tests
 
 ```bash
+# E2E tests (in e2e_tests/)
+python e2e_tests/test_chat.py
+python e2e_tests/test_ecommerce.py
+python e2e_tests/test_chat_perf.py --messages 100
+
+# With flags
+python e2e_tests/test_chat.py --keep
+python e2e_tests/test_ecommerce.py --debug
+python e2e_tests/test_chat_perf.py --release --messages 200 --output results/run.json
+
 # Run demo apps interactively
 python scripts/run_demo.py snake
 python scripts/run_demo.py chat
 python scripts/run_demo.py tank
-
-# Run sync test scripts
-python scripts/test_ecommerce_sync.py
-python scripts/test_canvas_sync.py
-python scripts/test_booking_sync.py
-python scripts/test_demos_sync.py
-python scripts/test_gallery_sync.py
-python scripts/test_tank_sync.py
 ```
 
 ## Debugging

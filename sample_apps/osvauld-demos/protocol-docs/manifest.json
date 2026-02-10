@@ -1,0 +1,8 @@
+{
+    "name": "Protocol Docs",
+    "version": "1.0.0",
+    "description": "Osvauld protocol documentation and reference",
+    "entry_ui": "app.slint",
+    "entry_logic": "app.lua",
+    "renderer": "slint"
+}

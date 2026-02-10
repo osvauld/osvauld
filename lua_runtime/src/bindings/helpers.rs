@@ -8,11 +8,10 @@
 //! These helpers are registered as global functions in the Lua environment.
 
 use mlua::{Lua, Table, Value, Function, Error as LuaError, Result as LuaResult};
-use ractor::ActorRef;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
 
-use butler::ScribeMessage;
+use crate::scribe_handle::ScribeHandle;
 use super::scribe::ScribeBindings;
 use super::convert::matches_layer_pattern;
 
@@ -88,12 +87,12 @@ impl HelpersContext {
 pub fn register_helpers(
     lua: &Lua,
     ctx: Arc<HelpersContext>,
-    scribe_ref: ActorRef<ScribeMessage>,
+    scribe: Arc<dyn ScribeHandle>,
 ) -> LuaResult<()> {
     let globals = lua.globals();
 
     // Register use_layers
-    register_use_layers(lua, &globals, ctx.clone(), scribe_ref.clone())?;
+    register_use_layers(lua, &globals, ctx.clone(), scribe.clone())?;
 
     // Register on_change
     register_on_change(lua, &globals, ctx.clone())?;
@@ -126,7 +125,7 @@ fn register_use_layers(
     lua: &Lua,
     globals: &Table,
     ctx: Arc<HelpersContext>,
-    scribe_ref: ActorRef<ScribeMessage>,
+    scribe: Arc<dyn ScribeHandle>,
 ) -> LuaResult<()> {
     let page_id = ctx.page_id.clone();
 
@@ -137,7 +136,7 @@ fn register_use_layers(
         let layers_table = lua.create_table()?;
 
         // Get scribe bindings for creating layers
-        let scribe = ScribeBindings::new(scribe_ref.clone(), page_id.clone(), String::new(), None);
+        let scribe = ScribeBindings::new(scribe.clone(), page_id.clone(), String::new(), None);
 
         // Iterate config and create layers
         for pair in config.pairs::<String, Value>() {
@@ -152,8 +151,8 @@ fn register_use_layers(
                 _ => "list".to_string(),
             };
 
-            // Build full layer name
-            let full_name = format!("{}/{}", page_id, name);
+            // Use bare layer name (Scribe uses bare names, no page_id/ prefix)
+            let full_name = name.clone();
             debug!("Creating layer: {} (type: {})", full_name, layer_type);
 
             // Register layer name in layers table
@@ -319,14 +318,14 @@ pub fn notify_change(
 pub struct DraftsHelper {
     drafts_layer_name: Option<String>,
     #[allow(dead_code)]
-    scribe_ref: ActorRef<ScribeMessage>,
+    scribe: Arc<dyn ScribeHandle>,
 }
 
 impl DraftsHelper {
-    pub fn new(scribe_ref: ActorRef<ScribeMessage>) -> Self {
+    pub fn new(scribe: Arc<dyn ScribeHandle>) -> Self {
         Self {
             drafts_layer_name: None,
-            scribe_ref,
+            scribe,
         }
     }
 }
@@ -378,8 +377,8 @@ impl mlua::UserData for DraftsHelper {
 }
 
 /// Register drafts helper in Lua globals
-pub fn register_drafts(lua: &Lua, scribe_ref: ActorRef<ScribeMessage>) -> LuaResult<()> {
-    let drafts = DraftsHelper::new(scribe_ref);
+pub fn register_drafts(lua: &Lua, scribe: Arc<dyn ScribeHandle>) -> LuaResult<()> {
+    let drafts = DraftsHelper::new(scribe);
     lua.globals().set("drafts", drafts)?;
     Ok(())
 }

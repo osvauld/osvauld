@@ -52,6 +52,10 @@ pub(crate) const CONNECTION_PERMITS: TableDefinition<&str, &str> = TableDefiniti
 
 pub(crate) const DEVICES: TableDefinition<&str, &[u8]> = TableDefinition::new("devices");
 
+// App layer content hashes: "{page_id}/{layer_name}" -> [u8; 32] SHA-256 hash
+// Used for app layer change detection (skip sync if hash matches)
+pub(crate) const APP_HASHES: TableDefinition<&str, &[u8]> = TableDefinition::new("app_hashes");
+
 /// RedbStore - Main persistent storage using redb
 pub struct RedbStore {
     pub(crate) db: Arc<Database>,
@@ -97,6 +101,9 @@ impl RedbStore {
 
             // Connection permits table
             let _ = write_txn.open_table(CONNECTION_PERMITS)?;
+
+            // App hash tracking
+            let _ = write_txn.open_table(APP_HASHES)?;
 
             // Legacy tables
             let _ = write_txn.open_table(DEVICES)?;

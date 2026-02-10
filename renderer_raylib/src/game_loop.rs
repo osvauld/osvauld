@@ -4,7 +4,7 @@
 //! Provides: Canvas bindings for immediate-mode drawing
 
 use butler::{Butler, ScribeMessage};
-use lua_runtime::{ScribeBindings, json_to_lua};
+use lua_runtime::{ScribeBindings, ActorScribeHandle, json_to_lua};
 use mlua::{Function, Lua, Table};
 use ractor::ActorRef;
 use raylib::prelude::*;
@@ -74,7 +74,7 @@ impl GameLoop {
 
         // Register scribe bindings for multiplayer
         let scribe_bindings = ScribeBindings::new(
-            self.scribe_ref.clone(),
+            ActorScribeHandle::new(self.scribe_ref.clone()),
             self.page_id.clone(),
             self.our_did.clone(),
             None,

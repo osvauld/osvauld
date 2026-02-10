@@ -1,19 +1,20 @@
-//! Space/Page Request Flow
+//! Space Request Flow
 //!
 //! Handles viewer requesting space content from node:
-//! - SpaceRequest → SpaceData → SpaceDataAck → PageData (x N)
+//! - SpaceRequest → SpaceData → SpaceDataAck → Scribe subscription (layers via SyncOffer)
 
 use tracing::{debug, error, info, warn, instrument};
 
-use crate::message::Message;
+use crate::message::*;
 use transport::Connection;
 
 use super::super::guards::{
     require_user_mode, require_node_mode, require_auth,
-    to_published_space, from_published_space, from_published_page_meta,
+    to_published_space, from_published_space, page_to_published_meta,
+    from_published_page_meta,
 };
 use super::super::{PeerActor, PeerActorState, PendingViewerSync};
-use super::super::consent::{DEFAULT_SPACE_CONSENT_TEMPLATE, DEFAULT_PAGE_CONSENT_TEMPLATE};
+use super::super::consent::DEFAULT_SPACE_CONSENT_TEMPLATE;
 
 impl<C: Connection> PeerActor<C> {
 
@@ -51,14 +52,14 @@ impl<C: Connection> PeerActor<C> {
         let viewer_encryption_key: [u8; 32] = identity.public_encryption_key().try_into()
             .expect("public_encryption_key should be 32 bytes");
 
-        let msg = Message::SpaceRequest {
+        let msg = Message::SpaceRequest(SpaceRequestMsg {
             request_id,
             space_id: space_id.to_string(),
             viewer_did: identity.did().to_string(),
             viewer_public_key,
             viewer_encryption_key,
             viewer_permit: viewer_permit.to_string(),
-        };
+        });
 
         self.send_message(&msg, state).await;
     }
@@ -91,7 +92,7 @@ impl<C: Connection> PeerActor<C> {
         // Validate viewer_permit
         let Some(permit) = self.parse_permit_or_respond(
             viewer_permit,
-            Message::SpaceRequestError { request_id: request_id.to_string(), error: "Invalid permit".to_string() },
+            Message::SpaceRequestError(SpaceRequestErrorMsg { request_id: request_id.to_string(), error: "Invalid permit".to_string() }),
             state,
         ).await else { return };
 
@@ -154,7 +155,8 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        let page_ids: Vec<String> = pages.iter().map(|p| p.id.clone()).collect();
+        let published_pages: Vec<PublishedPageMeta> = pages.iter().map(|p| page_to_published_meta(p)).collect();
+        let page_ids: Vec<String> = published_pages.iter().map(|p| p.id.clone()).collect();
         info!("Space {} has {} pages for viewer {}", space_id, page_ids.len(), viewer_did);
 
         // Store viewer context for streaming pages after ack
@@ -164,18 +166,18 @@ impl<C: Connection> PeerActor<C> {
                 viewer_did: viewer_did.to_string(),
                 viewer_pubkey_b64: viewer_pubkey_b64.clone(),
                 viewer_encryption_key: *viewer_encryption_key,
-                page_ids: page_ids.clone(),
+                page_ids,
             },
         );
 
-        // Send SpaceData
-        let msg = Message::SpaceData {
+        // Send SpaceData with full page metadata
+        let msg = Message::SpaceData(SpaceDataMsg {
             request_id: request_id.to_string(),
             space_id: space_id.to_string(),
             delegated_permit: delegated_space_permit,
             space: to_published_space(&space),
-            page_ids,
-        };
+            pages: published_pages,
+        });
 
         self.send_message(&msg, state).await;
         info!("Sent SpaceData for space {} to viewer {} (waiting for ack)", space_id, viewer_did);
@@ -183,12 +185,11 @@ impl<C: Connection> PeerActor<C> {
 
     /// Handle SpaceDataAck from viewer (Node mode)
     ///
-    /// **Context**: Viewer acknowledged SpaceData, now stream pages
+    /// **Context**: Viewer acknowledged SpaceData, now prepare viewer permits and subscribe via Scribe
     /// **Viewer sent**: SpaceDataAck with delegated permit
     /// **We verify**: Permit matches what we delegated
-    /// **We stream**: PageData messages one by one
-    /// **After streaming**: Refresh subscriptions so Node's PeerActor is subscribed
-    ///   to Node's Scribes for this new viewer
+    /// **We prepare**: Viewer permits for each page (delegate + store)
+    /// **We subscribe**: Viewer to Scribe for each page (layers delivered via SyncOffer)
     #[instrument(skip(self, myself, state, _delegated_permit), fields(request_id = %request_id, space_id = %space_id))]
     pub(in crate::peer_actor) async fn on_space_data_ack(
         &self,
@@ -213,12 +214,11 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        // Stream pages one by one
+        // Prepare viewer permits for each page (no PageData messages sent)
+        // Scribe's broadcast mechanism will deliver layers via SyncOffer
         let total_pages = pending.page_ids.len();
         for (idx, page_id) in pending.page_ids.iter().enumerate() {
-            let is_last = idx == total_pages - 1;
-
-            // Prepare page for viewer
+            // Prepare page for viewer (delegates permit, encrypts key)
             let prepared = match state.butler.publish().prepare_page_for_viewer(
                 page_id,
                 &pending.viewer_pubkey_b64,
@@ -232,7 +232,6 @@ impl<C: Connection> PeerActor<C> {
             };
 
             // Store permit CID for revocation tracking
-            // Note: Using permit string as CID for now - proper CID computation can be added later
             if let Err(e) = state.butler.permits().put_cid(page_id, &pending.viewer_did, &prepared.permit) {
                 warn!("Failed to store permit CID for page {}: {}", page_id, e);
             }
@@ -245,71 +244,50 @@ impl<C: Connection> PeerActor<C> {
                 debug!("Stored viewer's permit for page {} (sync authorization)", page_id);
             }
 
-            // Send PageData message
-            let msg = Message::PageData {
-                request_id: request_id.to_string(),
-                space_id: space_id.to_string(),
-                meta: crate::message::PublishedPageMeta {
-                    id: prepared.meta.id,
-                    space_id: prepared.meta.space_id,
-                    name: prepared.meta.name,
-                    owner_did: prepared.meta.owner_did,
-                    is_private: prepared.meta.is_private,
-                    created_at: prepared.meta.created_at,
-                    updated_at: prepared.meta.updated_at,
-                },
-                permit: prepared.permit,
-                ephemeral_public: prepared.ephemeral_public,
-                layers: prepared.layers,
-                is_last,
-            };
+            // Send the viewer's page permit TO the viewer via PermitUpdate
+            // Without this, the viewer's Scribe has no permit and rejects all incoming
+            // SyncOffers from the node (can_write fails on all 3 paths).
+            let permit_msg = Message::PermitUpdate(PermitUpdateMsg {
+                permit: prepared.permit.clone(),
+                scope: PermitScope::Page { page_id: page_id.clone() },
+            });
+            self.send_message(&permit_msg, state).await;
+            debug!("Sent PermitUpdate for page {} to viewer {}", page_id, pending.viewer_did);
 
-            self.send_message(&msg, state).await;
-            debug!("Sent PageData {}/{} ({}) to viewer {}", idx + 1, total_pages, page_id, pending.viewer_did);
-
-            // Store viewer's state vectors so we can send incremental updates later
-            // The viewer now has what we just sent, so store the current layer state as their vector
-            let viewer_device_id = self.node_id.to_string();
-            if let Err(e) = state.butler.store_peer_vectors_from_page(
-                page_id,
-                &pending.viewer_did,
-                &viewer_device_id,
-            ).await {
-                warn!("Failed to store viewer's state vectors for page {}: {}", page_id, e);
-            }
+            debug!("Prepared viewer permit {}/{} ({}) for viewer {}", idx + 1, total_pages, page_id, pending.viewer_did);
         }
 
-        info!("Streamed {} pages to viewer {} for space {}", total_pages, pending.viewer_did, space_id);
+        info!("Prepared {} page permits for viewer {} in space {} (layers via Scribe SyncOffer)", total_pages, pending.viewer_did, space_id);
 
         // CRITICAL: Refresh subscriptions now that viewer permits are stored
-        // This allows Node's PeerActor to receive broadcasts from Node's Scribes
-        // for this viewer. Without this, on first connection, Node's Scribe broadcasts
-        // (like online_peers) won't reach the new viewer because PeerActor wasn't
-        // subscribed during handshake (viewer had no permits yet).
+        // This subscribes the viewer to Scribe for each page, which will deliver
+        // layers via SyncOffer. Without this, Scribe broadcasts won't reach the
+        // new viewer because PeerActor wasn't subscribed during handshake
+        // (viewer had no permits yet).
         self.refresh_subscriptions_after_page_data(myself, state).await;
     }
 
     /// Handle SpaceData from node (Viewer mode)
     ///
-    /// **Context**: Node responded to our SpaceRequest with space metadata
-    /// **Node sent**: SpaceData with delegated permit and page_ids (no layers)
-    /// **We store**: Space with delegated permit
-    /// **We send**: SpaceDataAck to trigger page streaming
-    #[instrument(skip(self, state, space, delegated_permit), fields(request_id = %request_id, space_id = %space_id))]
+    /// **Context**: Node responded to our SpaceRequest with space metadata + page metas
+    /// **Node sent**: SpaceData with delegated permit, space, and page metadata
+    /// **We store**: Space with delegated permit + page shells with generated AES keys
+    /// **We send**: SpaceDataAck to trigger viewer permit preparation and Scribe subscription
+    #[instrument(skip(self, state, space, delegated_permit, pages), fields(request_id = %request_id, space_id = %space_id))]
     pub(in crate::peer_actor) async fn on_space_data(
         &self,
         request_id: &str,
         space_id: &str,
         delegated_permit: &str,
         space: &crate::message::PublishedSpace,
-        page_ids: &[String],
+        pages: &[PublishedPageMeta],
         state: &mut PeerActorState<C>,
     ) {
         if require_user_mode(state.mode, "on_space_data").is_some() {
             return;
         }
 
-        info!("SpaceData: space={} pages={}", space_id, page_ids.len());
+        info!("SpaceData: space={} pages={}", space_id, pages.len());
 
         // Get node's DID for sync target (EnsureSync uses DID, not transport node_id)
         let source_did = match require_auth(&state.state) {
@@ -332,120 +310,64 @@ impl<C: Connection> PeerActor<C> {
             return;
         }
 
-        info!("Stored space {} with delegated permit and source_did={}, expecting {} pages", space_id, source_did, page_ids.len());
+        info!("Stored space {} with delegated permit and source_did={}, expecting {} pages", space_id, source_did, pages.len());
+
+        // Create page shells for each page (viewer generates own AES key per page)
+        let identity = match state.butler.get_identity().await {
+            Ok(id) => id,
+            Err(e) => {
+                error!("Failed to get identity for page creation: {}", e);
+                return;
+            }
+        };
+        let viewer_public_enc_key: [u8; 32] = identity.public_encryption_key().try_into()
+            .expect("public_encryption_key should be 32 bytes");
+
+        for page in pages {
+            // Generate viewer's own AES key for this page
+            let aes_key = herald::generate_aes_key();
+            let encrypted_key = match herald::encrypt(&viewer_public_enc_key, &aes_key) {
+                Ok(ek) => ek,
+                Err(e) => {
+                    error!("Failed to encrypt AES key for page {}: {}", page.id, e);
+                    continue;
+                }
+            };
+
+            let mut page_meta = from_published_page_meta(page);
+            page_meta.encrypted_key = encrypted_key;
+            let page_data = butler::PageData::new(page_meta);
+
+            if let Err(e) = state.butler.store().put_page(&page_data) {
+                error!("Failed to store page shell {}: {}", page.id, e);
+            } else {
+                debug!("Created page shell {} ({}) with viewer AES key", page.id, page.name);
+            }
+        }
 
         // Issue space consent permit immediately after receiving space
         self.issue_space_consent(space_id, delegated_permit, DEFAULT_SPACE_CONSENT_TEMPLATE, state).await;
 
-        // Send SpaceDataAck to trigger page streaming
-        let msg = Message::SpaceDataAck {
+        // Send SpaceDataAck to trigger viewer permit preparation and Scribe subscription
+        let msg = Message::SpaceDataAck(SpaceDataAckMsg {
             request_id: request_id.to_string(),
             space_id: space_id.to_string(),
             delegated_permit: delegated_permit.to_string(),
-        };
+        });
 
         self.send_message(&msg, state).await;
-        info!("Sent SpaceDataAck for space {}, waiting for {} pages", space_id, page_ids.len());
+        info!("Sent SpaceDataAck for space {}, waiting for {} pages", space_id, pages.len());
     }
 
-    /// Handle PageData from node (Viewer mode)
+    /// Trigger subscription refresh after viewer permits are prepared
     ///
-    /// **Context**: Node is streaming pages after we acknowledged SpaceData
-    /// **Node sent**: PageData with page metadata, permit, and encrypted layers
-    /// **We store**: Page with source_node_did for future sync (viewer→node reconnection)
-    /// **If is_last**: Notify coordinator of successful viewer sync
-    #[instrument(skip(self, state, meta, permit, ephemeral_public, layers), fields(request_id = %request_id, space_id = %space_id, page_id = %meta.id))]
-    pub(in crate::peer_actor) async fn on_viewer_page(
-        &self,
-        myself: ractor::ActorRef<super::super::PeerMessage>,
-        request_id: &str,
-        space_id: &str,
-        meta: &crate::message::PublishedPageMeta,
-        permit: &str,
-        ephemeral_public: &[u8; 32],
-        layers: &[(String, Vec<u8>)],
-        is_last: bool,
-        state: &mut PeerActorState<C>,
-    ) {
-        if require_user_mode(state.mode, "on_viewer_page").is_some() {
-            return;
-        }
-
-        // Get node DID from authenticated state (viewer authenticated with node during handshake)
-        let node_did = match require_auth(&state.state) {
-            Ok((did, _)) => Some(did.to_string()),
-            Err(_) => {
-                warn!("PageData received without authentication - cannot track source node");
-                None
-            }
-        };
-
-        info!("PageData: page={} space={} is_last={} from_node={:?}", meta.id, space_id, is_last, node_did);
-
-        // Convert and store with source node DID for viewer→node reconnection
-        // Also store node's state vectors for incremental sync later
-        let page_meta = from_published_page_meta(meta);
-        let _butler_page: butler::Page = page_meta.clone().into();
-        let transit_layers: Vec<(String, Vec<u8>)> = layers.to_vec();
-        let sender_device_id = self.node_id.to_string();
-
-        // sender_did is the node's DID, sender_device_id is node's Iroh NodeId
-        let (sender_did, sender_device_id) = match &node_did {
-            Some(did) => (did.as_str(), sender_device_id.as_str()),
-            None => {
-                error!("Cannot store page without node DID - skipping state vector storage");
-                ("unknown", "unknown")
-            }
-        };
-
-        match state.butler.publish().store_page(
-            page_meta,
-            permit,
-            ephemeral_public,
-            transit_layers,
-            node_did.as_deref(),
-            sender_did,
-            sender_device_id,
-        ).await {
-            Ok(_) => {
-                info!("Stored page {} from space {} (source_node={:?})", meta.id, space_id, node_did);
-            }
-            Err(e) => {
-                error!("Failed to store page {}: {}", meta.id, e);
-            }
-        }
-
-        // Extract consent_template from permit_template.json layer (app-defined)
-        // Falls back to default if not found
-        let consent_template = layers.iter()
-            .find(|(name, _)| name == "file:permit_template.json")
-            .and_then(|(_, data)| serde_json::from_slice::<serde_json::Value>(data).ok())
-            .and_then(|template_json| template_json.get("consent_template").cloned())
-            .map(|consent| serde_json::to_string(&serde_json::json!({"consent_template": consent})).unwrap_or_else(|_| DEFAULT_PAGE_CONSENT_TEMPLATE.to_string()))
-            .unwrap_or_else(|| DEFAULT_PAGE_CONSENT_TEMPLATE.to_string());
-
-        debug!(
-            consent_has_layers = consent_template.contains("layers"),
-            "Using consent template from app"
-        );
-
-        // Issue page consent permit for this page
-        self.issue_page_consent(&meta.id, permit, &consent_template, state).await;
-
-        if is_last {
-            info!("PageData stream complete for space {}", space_id);
-        }
-    }
-
-    /// Trigger subscription refresh after PageData stream completes
-    ///
-    /// **Context**: After Node sends all PageData to viewer, Node must re-subscribe
+    /// **Context**: After Node prepares viewer permits, Node must re-subscribe
     /// to its own Scribes so that Node's PeerActor is subscribed for this viewer.
-    /// This allows Node to send ephemeral broadcasts (like online_peers) to the viewer.
+    /// Scribe will then deliver layers to the viewer via SyncOffer broadcasts.
     ///
     /// **Why needed**: On first connection:
-    /// 1. Viewer connects → handshake → subscribe_to_active_scribes (viewer has no permit yet)
-    /// 2. Viewer sends RequestSpace → Node sends PageData → consent permit issued
+    /// 1. Viewer connects -> handshake -> subscribe_to_active_scribes (viewer has no permit yet)
+    /// 2. Viewer sends SpaceRequest -> Node prepares permits -> stores them
     /// 3. But Node's PeerActor still isn't subscribed to Node's Scribe for this viewer
     ///
     /// On reconnection, viewer's permit is already on Node, so subscribe_to_active_scribes works.
@@ -455,7 +377,7 @@ impl<C: Connection> PeerActor<C> {
         myself: ractor::ActorRef<super::super::PeerMessage>,
         state: &mut PeerActorState<C>,
     ) {
-        info!(node_id = %self.node_id, "Triggering RefreshSubscriptions after PageData stream complete");
+        info!(node_id = %self.node_id, "Triggering RefreshSubscriptions after viewer permit preparation");
         self.subscribe_to_active_scribes(myself, state).await;
     }
 
@@ -463,10 +385,10 @@ impl<C: Connection> PeerActor<C> {
     #[instrument(skip_all, fields(request_id = %request_id))]
     async fn send_space_request_error(&self, request_id: &str, error: &str, state: &PeerActorState<C>) {
         error!("SpaceRequest error: {}", error);
-        let msg = Message::SpaceRequestError {
+        let msg = Message::SpaceRequestError(SpaceRequestErrorMsg {
             request_id: request_id.to_string(),
             error: error.to_string(),
-        };
+        });
         self.send_message(&msg, state).await;
     }
 }

@@ -290,46 +290,47 @@ pub fn init_rich_tracing(
 ) -> Result<Option<WorkerGuard>, Box<dyn std::error::Error>> {
     let mut guard = None;
 
-    // Create filter with suppressed third-party noise
-    let filter = EnvFilter::try_from_default_env().or_else(|_| {
-        EnvFilter::try_new(&format!(
-            "{},\
-             hyper=warn,\
-             hyper_util=warn,\
-             rustls=error,\
-             iroh=warn,\
-             iroh::net_report=off,\
-             iroh::net_report::report=off,\
-             quinn=warn,\
-             netlink_proto=error,\
-             netlink_sys=error,\
-             netlink_packet_route=error,\
-             hickory_proto=error,\
-             hickory_resolver=error,\
-             hickory_client=error,\
-             portmapper=warn,\
-             tokio_tungstenite=warn,\
-             tungstenite=warn,\
-             netwatch=warn,\
-             iroh_quinn_proto::connection=warn,\
-             iroh_relay=warn,\
-             igd_next::aio::tokio=warn,\
-             tantivy=warn,\
-             reqwest=warn,\
-             asset_protocol=warn,\
-             loro_internal=off,\
-             loro_internal::oplog=off,\
-             loro_internal::oplog::change_store=off,\
-             loro_internal::oplog::change_store::block_encode=off,\
-             loro_kv_store=off,\
-             wgpu_core=warn,\
-             wgpu_hal=off,\
-             wgpu_hal::gles=off,\
-             winit=warn,\
-             naga=warn",
-            config.level
-        ))
-    })?;
+    // Create filter: use RUST_LOG level if set, otherwise config.level,
+    // but ALWAYS apply our third-party noise suppressions
+    let base_level = std::env::var("RUST_LOG").unwrap_or_else(|_| config.level.clone());
+    let filter = EnvFilter::try_new(format!(
+        "{},\
+         hyper=warn,\
+         hyper_util=warn,\
+         rustls=error,\
+         iroh=warn,\
+         iroh::socket=off,\
+         iroh::net_report=off,\
+         iroh::net_report::report=off,\
+         quinn=warn,\
+         netlink_proto=error,\
+         netlink_sys=error,\
+         netlink_packet_route=off,\
+         hickory_proto=error,\
+         hickory_resolver=error,\
+         hickory_client=error,\
+         portmapper=off,\
+         tokio_tungstenite=warn,\
+         tungstenite=warn,\
+         netwatch=warn,\
+         iroh_quinn_proto::connection=warn,\
+         iroh_relay=warn,\
+         igd_next::aio::tokio=warn,\
+         tantivy=warn,\
+         reqwest=warn,\
+         asset_protocol=warn,\
+         loro_internal=off,\
+         loro_internal::oplog=off,\
+         loro_internal::oplog::change_store=off,\
+         loro_internal::oplog::change_store::block_encode=off,\
+         loro_kv_store=off,\
+         wgpu_core=warn,\
+         wgpu_hal=off,\
+         wgpu_hal::gles=off,\
+         winit=warn,\
+         naga=warn",
+        base_level
+    ))?;
 
     // Create optional debug capture layer (sends logs to broadcast channel)
     let debug_layer = config.debug_tx.map(|tx| {

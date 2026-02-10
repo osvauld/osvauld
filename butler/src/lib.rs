@@ -393,12 +393,13 @@ impl Butler {
         let (decrypted, aes_key) = self.pages().get_decrypted(page_id).await?;
 
         log::info!(
-            "open_page: page_id={} loaded {} docs from DB (will use full layer names)",
+            "open_page: page_id={} loaded {} docs from DB (bare layer names)",
             page_id, decrypted.docs.len()
         );
 
         // Convert DecryptedPage docs to Layer type
-        // Use full layer names ({page_id}/{layer_name}) for consistency with permit patterns
+        // Use bare layer names (no page_id/ prefix) — storage returns bare names,
+        // Scribe owns a single page so page_id context is implicit.
         let mut layers = HashMap::new();
         for (name, doc_bytes) in decrypted.docs {
             let layer = if doc_bytes.is_empty() {
@@ -406,13 +407,7 @@ impl Butler {
             } else {
                 Layer::from_snapshot(&doc_bytes).unwrap_or_else(|_| Layer::new())
             };
-            // Ensure layer name is fully qualified (page_id/layer_name)
-            let full_name = if name.starts_with(&format!("{}/", page_id)) {
-                name
-            } else {
-                format!("{}/{}", page_id, name)
-            };
-            layers.insert(full_name, layer);
+            layers.insert(name, layer);
         }
 
         // Create storage trait implementations

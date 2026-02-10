@@ -29,6 +29,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::handle::CourierEvent;
 use crate::peer_actor::{PeerActor, PeerActorArgs, PeerMessage};
 use crate::state::PeerType;
+use crate::trace::MessageTrace;
 use butler::Butler;
 
 pub use state::{CoordinatorState, PeerEntry, PeerInfo};
@@ -179,6 +180,7 @@ impl<C: Connection> Actor for Coordinator<C> {
         crate::peer_actor::BlobStore,
         Option<mpsc::Sender<ConnectRequest>>,
         Option<mpsc::Sender<CourierEvent>>,
+        Option<mpsc::UnboundedSender<MessageTrace>>,
     );
 
     #[instrument(skip_all)]
@@ -187,7 +189,7 @@ impl<C: Connection> Actor for Coordinator<C> {
         _myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        let (our_node_id, mode, butler, blob_store, connect_tx, event_tx) = args;
+        let (our_node_id, mode, butler, blob_store, connect_tx, event_tx, message_tx) = args;
 
         info!("Coordinator started in {:?} mode (node_id={})", mode, our_node_id);
 
@@ -198,10 +200,10 @@ impl<C: Connection> Actor for Coordinator<C> {
             blob_store,
             connect_tx,
             event_tx,
+            message_tx,
         ))
     }
 
-    #[instrument(skip_all)]
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -312,7 +314,6 @@ impl<C: Connection> Actor for Coordinator<C> {
         Ok(())
     }
 
-    #[instrument(skip_all)]
     async fn handle_supervisor_evt(
         &self,
         _myself: ActorRef<Self::Msg>,
@@ -391,6 +392,8 @@ impl<C: Connection> Coordinator<C> {
             butler: state.butler.clone(),
             blob_store: state.blob_store.clone(),
             permit,
+            message_tx: state.message_tx.clone(),
+            our_node_id: state.our_node_id,
         };
 
         match Actor::spawn_linked(None, peer_actor, args, myself.get_cell()).await {

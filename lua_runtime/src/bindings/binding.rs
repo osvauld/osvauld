@@ -27,7 +27,7 @@
 //! ```
 
 use mlua::{Function, Lua, RegistryKey, Result as LuaResult, Value};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use tracing::debug;
 
@@ -73,6 +73,12 @@ pub struct LayerBinding {
     pub options: BindingOptions,
     /// Tracked model length for max_items enforcement on delta path
     pub model_len: Cell<usize>,
+    /// Map key → array index cache for keyed Map bindings
+    ///
+    /// **Context**: Map layers are converted to arrays for UI. This cache tracks
+    /// which map key is at which array index, enabling surgical Set/Insert/Remove
+    /// ops from Map deltas without full Replace.
+    pub key_index: RefCell<HashMap<String, usize>>,
 }
 
 /// Manages all bindings for a page/app
@@ -127,6 +133,7 @@ impl BindingManager {
             is_wildcard,
             options,
             model_len: Cell::new(0),
+            key_index: RefCell::new(HashMap::new()),
         };
 
         // Track layer → properties mapping
@@ -176,6 +183,74 @@ impl BindingManager {
         self.bindings.get(ui_property)
     }
 
+    /// Rebind an existing binding to a different layer
+    ///
+    /// **Context**: Used when an app dynamically switches which layer backs a UI property
+    /// (e.g., channel switching in chat). The transform/key/max_items options are preserved;
+    /// only the backing layer changes. Caches are cleared and the caller is responsible
+    /// for fetching and syncing the new layer's data.
+    ///
+    /// Returns true if the binding was found and rebound, false if ui_property doesn't exist.
+    pub fn rebind(
+        &mut self,
+        ui_property: &str,
+        new_expanded_pattern: String,
+        new_raw_pattern: String,
+        new_is_wildcard: bool,
+    ) -> bool {
+        let binding = match self.bindings.get_mut(ui_property) {
+            Some(b) => b,
+            None => return false,
+        };
+
+        let old_expanded = binding.expanded_pattern.clone();
+        let old_is_wildcard = binding.is_wildcard;
+
+        // Remove old layer mapping
+        if old_is_wildcard {
+            let old_prefix = old_expanded.trim_end_matches('*').to_string();
+            self.wildcard_patterns.retain(|(prefix, prop)| {
+                !(prefix == &old_prefix && prop == ui_property)
+            });
+        } else {
+            if let Some(props) = self.layer_to_properties.get_mut(&old_expanded) {
+                props.retain(|p| p != ui_property);
+                if props.is_empty() {
+                    self.layer_to_properties.remove(&old_expanded);
+                }
+            }
+        }
+
+        // Update binding fields
+        binding.expanded_pattern = new_expanded_pattern.clone();
+        binding.raw_pattern = new_raw_pattern;
+        binding.is_wildcard = new_is_wildcard;
+
+        // Clear caches — new layer has different data
+        binding.key_index.borrow_mut().clear();
+        binding.model_len.set(0);
+
+        // Add new layer mapping
+        if new_is_wildcard {
+            let prefix = new_expanded_pattern.trim_end_matches('*').to_string();
+            self.wildcard_patterns.push((prefix, ui_property.to_string()));
+        } else {
+            self.layer_to_properties
+                .entry(new_expanded_pattern)
+                .or_default()
+                .push(ui_property.to_string());
+        }
+
+        debug!(
+            ui_property = %ui_property,
+            old_layer = %old_expanded,
+            new_layer = %binding.expanded_pattern,
+            "Rebound binding to new layer"
+        );
+
+        true
+    }
+
     /// Check if any bindings are registered
     pub fn has_bindings(&self) -> bool {
         !self.bindings.is_empty()
@@ -193,20 +268,19 @@ impl Default for BindingManager {
     }
 }
 
-/// Expand a layer pattern by prepending page_id and substituting placeholders
+/// Expand a layer pattern by substituting placeholders
 ///
 /// # Placeholders
 /// - `{me}` - Expands to the user's DID
 ///
+/// Scribe uses bare layer names (no page_id/ prefix).
+///
 /// # Examples
-/// - `"products"` with page_id "abc123" → `"abc123/products"`
-/// - `"orders/{me}"` with page_id "abc123", my_did "did:key:xyz" → `"abc123/orders/did:key:xyz"`
-pub fn expand_pattern(pattern: &str, page_id: &str, my_did: &str) -> String {
+/// - `"products"` → `"products"`
+/// - `"orders/{me}"` with my_did "did:key:xyz" → `"orders/did:key:xyz"`
+pub fn expand_pattern(pattern: &str, _page_id: &str, my_did: &str) -> String {
     // Substitute {me} placeholder
-    let expanded = pattern.replace("{me}", my_did);
-
-    // Prepend page_id
-    format!("{}/{}", page_id, expanded)
+    pattern.replace("{me}", my_did)
 }
 
 /// Check if a pattern is a wildcard pattern
@@ -307,6 +381,21 @@ pub fn process_binding_data(
                 converted_items = values.len(),
                 "Converted map to array for binding"
             );
+
+            // Build key_index cache for keyed Map bindings (enables surgical delta updates)
+            if binding.options.key.is_some() {
+                let mut cache = binding.key_index.borrow_mut();
+                cache.clear();
+                for (idx, key) in map.keys().enumerate() {
+                    cache.insert(key.clone(), idx);
+                }
+                debug!(
+                    ui_property = %binding.ui_property,
+                    cache_size = cache.len(),
+                    "Built key_index cache for Map binding"
+                );
+            }
+
             serde_json::Value::Array(values)
         }
         _ => data.clone(),
@@ -434,8 +523,76 @@ pub fn convert_delta_for_binding(
             binding.model_len.set(model_len);
             result
         }
-        // Map and Text deltas can't be converted to VecModelOps — fall back to Replace
-        LoroDelta::Map { .. } | LoroDelta::Text { .. } => Vec::new(),
+        LoroDelta::Map { updated } => {
+            // Keyed Map bindings get surgical updates via key_index cache
+            if binding.options.key.is_none() {
+                return Vec::new(); // No key option — fall back to Replace
+            }
+
+            let mut result = Vec::new();
+            let mut cache = binding.key_index.borrow_mut();
+            let mut model_len = binding.model_len.get();
+
+            for (map_key, value) in updated {
+                match value {
+                    Some(val) => {
+                        // Apply transform if binding has one
+                        let item = if let Some(ref transform_key) = binding.options.transform {
+                            match apply_transform_single(lua, transform_key, val, layer_name) {
+                                Ok(Some(transformed)) => transformed,
+                                Ok(None) => continue, // nil = filtered out
+                                Err(e) => {
+                                    debug!(error = %e, "Transform failed in Map delta, falling back");
+                                    return Vec::new();
+                                }
+                            }
+                        } else {
+                            val.clone()
+                        };
+
+                        if let Some(&existing_idx) = cache.get(map_key) {
+                            // Key exists — update in place
+                            result.push(VecModelOp::Set {
+                                model_name: binding.ui_property.clone(),
+                                index: existing_idx,
+                                item,
+                            });
+                        } else {
+                            // New key — append
+                            let insert_idx = model_len;
+                            result.push(VecModelOp::Insert {
+                                model_name: binding.ui_property.clone(),
+                                index: insert_idx,
+                                item,
+                            });
+                            cache.insert(map_key.clone(), insert_idx);
+                            model_len += 1;
+                        }
+                    }
+                    None => {
+                        // Key deleted
+                        if let Some(removed_idx) = cache.remove(map_key) {
+                            result.push(VecModelOp::Remove {
+                                model_name: binding.ui_property.clone(),
+                                index: removed_idx,
+                            });
+                            // Shift down indices above the removed item
+                            for idx in cache.values_mut() {
+                                if *idx > removed_idx {
+                                    *idx -= 1;
+                                }
+                            }
+                            model_len = model_len.saturating_sub(1);
+                        }
+                    }
+                }
+            }
+
+            binding.model_len.set(model_len);
+            result
+        }
+        // Text deltas can't be converted to VecModelOps — fall back to Replace
+        LoroDelta::Text { .. } => Vec::new(),
     }
 }
 
@@ -603,5 +760,105 @@ mod tests {
 
         let bindings = manager.get_bindings_for_layer("page123/products");
         assert_eq!(bindings.len(), 0);
+    }
+
+    #[test]
+    fn test_rebind_exact_to_exact() {
+        let mut manager = BindingManager::new();
+        manager.register(
+            "messages".to_string(),
+            "channels/general/messages".to_string(),
+            "channels/general/messages".to_string(),
+            false,
+            BindingOptions::default(),
+        );
+
+        // Old layer matches
+        assert_eq!(manager.get_bindings_for_layer("channels/general/messages").len(), 1);
+        // New layer doesn't match yet
+        assert_eq!(manager.get_bindings_for_layer("channels/random/messages").len(), 0);
+
+        let result = manager.rebind(
+            "messages",
+            "channels/random/messages".to_string(),
+            "channels/random/messages".to_string(),
+            false,
+        );
+        assert!(result);
+
+        // Old layer no longer matches
+        assert_eq!(manager.get_bindings_for_layer("channels/general/messages").len(), 0);
+        // New layer matches
+        assert_eq!(manager.get_bindings_for_layer("channels/random/messages").len(), 1);
+        assert_eq!(
+            manager.get_binding("messages").unwrap().expanded_pattern,
+            "channels/random/messages"
+        );
+    }
+
+    #[test]
+    fn test_rebind_nonexistent() {
+        let mut manager = BindingManager::new();
+        let result = manager.rebind(
+            "nonexistent",
+            "some/layer".to_string(),
+            "some/layer".to_string(),
+            false,
+        );
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_rebind_same_layer() {
+        let mut manager = BindingManager::new();
+        manager.register(
+            "messages".to_string(),
+            "channels/general/messages".to_string(),
+            "channels/general/messages".to_string(),
+            false,
+            BindingOptions::default(),
+        );
+
+        // Rebinding to the same layer should still work (clears caches)
+        let result = manager.rebind(
+            "messages",
+            "channels/general/messages".to_string(),
+            "channels/general/messages".to_string(),
+            false,
+        );
+        assert!(result);
+        assert_eq!(manager.get_bindings_for_layer("channels/general/messages").len(), 1);
+    }
+
+    #[test]
+    fn test_rebind_clears_cache() {
+        let mut manager = BindingManager::new();
+        manager.register(
+            "messages".to_string(),
+            "channels/general/messages".to_string(),
+            "channels/general/messages".to_string(),
+            false,
+            BindingOptions { key: Some("id".to_string()), ..Default::default() },
+        );
+
+        // Simulate populated cache
+        let binding = manager.get_binding("messages").unwrap();
+        binding.key_index.borrow_mut().insert("msg1".to_string(), 0);
+        binding.key_index.borrow_mut().insert("msg2".to_string(), 1);
+        binding.model_len.set(2);
+
+        assert_eq!(binding.key_index.borrow().len(), 2);
+        assert_eq!(binding.model_len.get(), 2);
+
+        manager.rebind(
+            "messages",
+            "channels/random/messages".to_string(),
+            "channels/random/messages".to_string(),
+            false,
+        );
+
+        let binding = manager.get_binding("messages").unwrap();
+        assert_eq!(binding.key_index.borrow().len(), 0);
+        assert_eq!(binding.model_len.get(), 0);
     }
 }

@@ -15,6 +15,7 @@ use transport::{Connection, NodeId};
 use crate::handle::CourierEvent;
 use crate::peer_actor::{BlobStore, PeerMessage};
 use crate::state::PeerType;
+use crate::trace::MessageTrace;
 use crate::ConnectRequest;
 use butler::Butler;
 
@@ -71,6 +72,9 @@ pub struct CoordinatorState<C: Connection> {
 
     /// Channel to request connections (handled by CourierRunner)
     pub connect_tx: Option<mpsc::Sender<ConnectRequest>>,
+
+    /// Optional trace channel for protocol message capture (tests only)
+    pub message_tx: Option<mpsc::UnboundedSender<MessageTrace>>,
 }
 
 impl<C: Connection> CoordinatorState<C> {
@@ -82,6 +86,7 @@ impl<C: Connection> CoordinatorState<C> {
         blob_store: BlobStore,
         connect_tx: Option<mpsc::Sender<ConnectRequest>>,
         event_tx: Option<mpsc::Sender<CourierEvent>>,
+        message_tx: Option<mpsc::UnboundedSender<MessageTrace>>,
     ) -> Self {
         Self {
             our_node_id,
@@ -93,6 +98,7 @@ impl<C: Connection> CoordinatorState<C> {
             pending_permits: HashMap::new(),
             event_tx,
             connect_tx,
+            message_tx,
         }
     }
 

@@ -3,7 +3,7 @@
 //! **Context**: Runs node.lua scripts for pages that define `entry_node` in manifest
 //! **Uses**: LuaRuntime from lua_runtime with PageUpdate bridge for CRDT events
 
-use lua_runtime::{LuaCommand, LuaRuntime, LuaRuntimeConfig};
+use lua_runtime::{LuaCommand, LuaRuntime, LuaRuntimeConfig, ActorScribeHandle};
 use butler::{PageUpdate, ScribeMessage};
 use butler::Butler;
 use std::collections::HashMap;
@@ -121,7 +121,7 @@ impl NodeRuntimeManager {
             let (thread, cmd_tx) = LuaRuntime::spawn(LuaRuntimeConfig {
                 page_id: page_id.to_string(),
                 app_name: app_name.clone(),
-                scribe_ref: scribe_ref.clone(),
+                scribe: ActorScribeHandle::new(scribe_ref.clone()),
                 user_did: identity.did().to_string(),
                 user_name: identity_data.username.clone(),
                 user_role: "node".to_string(),
@@ -129,6 +129,7 @@ impl NodeRuntimeManager {
                 ui_enabled: false,
                 ui_tx: None,
                 query_tx: None,
+                navigate_tx: None,
             })?;
 
             // Trigger derivation rebuild if init.lua was loaded

@@ -21,6 +21,7 @@ use crate::loro_observer::{set_pending_update_source, clear_pending_update_sourc
 use crate::permit::{Permissions, PermitContext};
 use crate::state::ScribeState;
 use crate::JsonOp;
+use crate::state::normalize_layer_name;
 
 // Update Context - Centralized Decision Logic
 
@@ -130,6 +131,10 @@ pub async fn handle_apply_update(
     permit: Option<&str>,
 ) -> std::result::Result<(), String> {
     let _ = permit; // Permit is used for subscription in Courier, not here
+
+    // Defense-in-depth: normalize layer name (strip page_id/ prefix)
+    let layer_name = normalize_layer_name(layer_name, &state.page_id);
+    let layer_name = layer_name.as_str();
 
     // Build context - computes all decisions upfront
     let ctx = UpdateContext::new(state, layer_name, from_peer.clone());
@@ -315,6 +320,9 @@ async fn validate_update_with_context(
 /// **We do**: Create layer, set up observer, notify UI
 #[instrument(skip(state), fields(page_id = %state.page_id))]
 fn create_layer_from_peer(state: &mut ScribeState, layer_name: &str) {
+    // Defense-in-depth: normalize layer name (strip page_id/ prefix)
+    let layer_name = normalize_layer_name(layer_name, &state.page_id);
+    let layer_name = layer_name.as_str();
     state.layers.insert(layer_name.to_string(), Layer::new());
     state.dirty_layers.insert(layer_name.to_string());
     info!(layer = %layer_name, "Created new layer from peer sync");

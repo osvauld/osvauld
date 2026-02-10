@@ -138,11 +138,50 @@ fn register_add_website(
                 return;
             }
 
-            // 6. Request space as viewer
-            // Note: This may fail if auth isn't complete yet. The proper solution
-            // is to request the space after PeerAuthenticated event, but for now
-            // we add a delay to give handshake time to complete.
-            tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+            // 6. Wait for handshake to complete, then request space
+            let auth_timeout = std::time::Duration::from_secs(15);
+            let poll_interval = std::time::Duration::from_millis(200);
+            let start = std::time::Instant::now();
+            loop {
+                match courier_handle.is_node_authenticated(&node_id).await {
+                    Ok(true) => break,
+                    Ok(false) if start.elapsed() < auth_timeout => {
+                        tokio::time::sleep(poll_interval).await;
+                    }
+                    Ok(false) => {
+                        println!("Timeout waiting for node authentication");
+                        let err_msg = "Connection timed out".to_string();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(shell) = shell_weak.upgrade() {
+                                shell.set_connecting_website(false);
+                                shell.set_toast_message(err_msg.into());
+                                shell.set_toast_is_error(true);
+                                shell.set_toast_visible(true);
+                            }
+                        })
+                        .ok();
+                        return;
+                    }
+                    Err(_) if start.elapsed() < auth_timeout => {
+                        // PeerActor not spawned yet, keep waiting
+                        tokio::time::sleep(poll_interval).await;
+                    }
+                    Err(e) => {
+                        println!("Failed to check auth: {}", e);
+                        let err_msg = format!("Connection failed: {}", e);
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(shell) = shell_weak.upgrade() {
+                                shell.set_connecting_website(false);
+                                shell.set_toast_message(err_msg.into());
+                                shell.set_toast_is_error(true);
+                                shell.set_toast_visible(true);
+                            }
+                        })
+                        .ok();
+                        return;
+                    }
+                }
+            }
 
             match courier_handle
                 .request_space_as_viewer(&space_id, &node_id, &permit)

@@ -428,6 +428,9 @@ class TmuxManager:
             if val:
                 env_vars.append(f"{var}={val}")
 
+        # Always set RUST_LOG for debugging sync flow
+        env_vars.append("RUST_LOG=info")
+
         # Add profiling env vars based on mode
         if self.flame_only:
             # Flame only: FLAME_OUTPUT without TOKIO_CONSOLE_PORT (no console overhead)
@@ -447,13 +450,15 @@ class TmuxManager:
             heaptrack_output = inst.data_dir / f"{inst.name}"
             heaptrack_prefix = f"heaptrack -o {heaptrack_output} "
 
+        log_file = inst.data_dir / f"{inst.name}.log"
         if inst.instance_type == "shell":
             cmd = (
                 f"cd {PROJECT_ROOT} && "
                 f"{env_prefix}"
                 f"STHALAM_DATA_DIR={inst.data_dir} "
                 f"{heaptrack_prefix}"
-                f"{inst.binary} -d {inst.name} --debug-socket {inst.socket_path}"
+                f"{inst.binary} -d {inst.name} --debug-socket {inst.socket_path} "
+                f"2>&1 | tee {log_file}"
             )
         else:  # node
             cmd = (
@@ -461,7 +466,8 @@ class TmuxManager:
                 f"{env_prefix}"
                 f"{heaptrack_prefix}"
                 f"{inst.binary} --db-path {inst.data_dir}/{inst.name} start "
-                f"--passphrase {self.passphrase} --debug-socket {inst.socket_path}"
+                f"--passphrase {self.passphrase} --debug-socket {inst.socket_path} "
+                f"2>&1 | tee {log_file}"
             )
 
         subprocess.run([

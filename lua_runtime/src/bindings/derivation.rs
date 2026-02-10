@@ -7,12 +7,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use mlua::{UserData, UserDataMethods, Value as LuaValue, Error as LuaError, Function as LuaFunction};
-use ractor::ActorRef;
-use tokio::sync::oneshot;
 use tracing::info;
 
-use butler::ScribeMessage;
-use super::{block_on_async, json_to_lua, lua_to_json};
+use crate::scribe_handle::ScribeHandle;
+use super::{json_to_lua, lua_to_json};
 
 // Local Derivation Rule
 
@@ -41,7 +39,7 @@ struct LocalDerivationRule {
 ///
 /// **Note**: Rules are stored locally (same Lua instance) to avoid cross-instance issues.
 pub struct DerivationBindings {
-    scribe_ref: ActorRef<ScribeMessage>,
+    scribe: Arc<dyn ScribeHandle>,
     /// Locally stored rules (bound to this Lua instance)
     rules: Arc<RwLock<Vec<LocalDerivationRule>>>,
     /// Whether this is enabled (only on node)
@@ -50,9 +48,9 @@ pub struct DerivationBindings {
 }
 
 impl DerivationBindings {
-    pub fn new(scribe_ref: ActorRef<ScribeMessage>) -> Self {
+    pub fn new(scribe: Arc<dyn ScribeHandle>) -> Self {
         Self {
-            scribe_ref,
+            scribe,
             rules: Arc::new(RwLock::new(Vec::new())),
             enabled: Arc::new(RwLock::new(false)),
         }
@@ -96,9 +94,8 @@ impl UserData for DerivationBindings {
             }
 
             // Notify Scribe to create the derived layer (empty)
-            this.scribe_ref.cast(ScribeMessage::CreateDerivedLayer {
-                target_layer,
-            }).map_err(|e| LuaError::RuntimeError(format!("Failed to create derived layer: {}", e)))?;
+            this.scribe.create_derived_layer(&target_layer)
+                .map_err(|e| LuaError::RuntimeError(format!("Failed to create derived layer: {}", e)))?;
 
             Ok(())
         });
@@ -160,32 +157,16 @@ impl DerivationBindings {
         info!(target = %target, source = %rule.source_pattern, "Rebuilding derived layer locally");
 
         // Get source layers matching pattern
-        let (tx, rx) = oneshot::channel();
-        self.scribe_ref.cast(ScribeMessage::ListLayers {
-            pattern: rule.source_pattern.clone(),
-            reply: tx,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to list layers: {}", e)))?;
-
-        let source_layers = block_on_async(async {
-            rx.await.map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))
-        })??;
+        let source_layers = self.scribe.list_layers(&rule.source_pattern)
+            .map_err(|e| LuaError::RuntimeError(format!("Failed to list layers: {}", e)))?;
 
         // Collect all derived entries
         let mut derived_entries: HashMap<String, LuaValue> = HashMap::new();
 
         for source_layer in source_layers {
             // Get source layer data
-            let (tx, rx) = oneshot::channel();
-            self.scribe_ref.cast(ScribeMessage::GetLayerData {
-                layer_name: source_layer.clone(),
-                reply: tx,
-            }).map_err(|e| LuaError::RuntimeError(format!("Failed to get layer data: {}", e)))?;
-
-            let layer_data = block_on_async(async {
-                rx.await
-                    .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))?
-                    .map_err(|e| LuaError::RuntimeError(format!("Get data error: {}", e)))
-            })??;
+            let layer_data = self.scribe.get_layer_data(&source_layer)
+                .map_err(|e| LuaError::RuntimeError(format!("Failed to get layer data: {}", e)))?;
 
             // Convert to Lua table
             // Layer data structure: { "container_name": [entries...] } for lists
@@ -220,49 +201,24 @@ impl DerivationBindings {
         let count = derived_entries.len() as i64;
 
         // Ensure derived layer exists
-        let (tx, rx) = oneshot::channel();
-        self.scribe_ref.cast(ScribeMessage::EnsureLoroMap {
-            layer_name: target.to_string(),
-            reply: tx,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to ensure derived layer: {}", e)))?;
-
-        block_on_async(async {
-            rx.await
-                .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))?
-                .map_err(|e| LuaError::RuntimeError(format!("Ensure map error: {}", e)))
-        })??;
+        self.scribe.ensure_map(target)
+            .map_err(|e| LuaError::RuntimeError(format!("Failed to ensure derived layer: {}", e)))?;
 
         // Get existing keys to clear (if any)
-        let (tx, rx) = oneshot::channel();
-        self.scribe_ref.cast(ScribeMessage::MapKeys {
-            layer_name: target.to_string(),
-            reply: tx,
-        }).map_err(|e| LuaError::RuntimeError(format!("Failed to get keys: {}", e)))?;
-
-        let existing_keys = block_on_async(async {
-            rx.await
-                .map_err(|e| LuaError::RuntimeError(format!("Channel error: {}", e)))?
-                .map_err(|e| LuaError::RuntimeError(format!("Get keys error: {}", e)))
-        })??;
+        let existing_keys = self.scribe.map_keys(target)
+            .map_err(|e| LuaError::RuntimeError(format!("Failed to get keys: {}", e)))?;
 
         // Delete existing keys
         for key in existing_keys {
-            self.scribe_ref.cast(ScribeMessage::MapDelete {
-                layer_name: target.to_string(),
-                path: String::new(),
-                key,
-            }).map_err(|e| LuaError::RuntimeError(format!("Failed to delete key: {}", e)))?;
+            self.scribe.map_delete(target, "", &key)
+                .map_err(|e| LuaError::RuntimeError(format!("Failed to delete key: {}", e)))?;
         }
 
-        // Insert new derived entries via MapInsert messages
+        // Insert new derived entries via ScribeHandle
         for (key, value) in derived_entries {
             let json_value = lua_to_json(&value)?;
-            self.scribe_ref.cast(ScribeMessage::MapInsert {
-                layer_name: target.to_string(),
-                path: String::new(),
-                key,
-                value: json_value,
-            }).map_err(|e| LuaError::RuntimeError(format!("Failed to insert: {}", e)))?;
+            self.scribe.map_insert(target, "", &key, json_value)
+                .map_err(|e| LuaError::RuntimeError(format!("Failed to insert: {}", e)))?;
         }
 
         info!(target = %target, count = %count, "Derived layer rebuilt");

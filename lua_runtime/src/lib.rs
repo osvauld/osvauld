@@ -35,7 +35,7 @@
 //! ```ignore
 //! let config = LuaRuntimeConfig {
 //!     page_id: "page123".into(),
-//!     scribe_ref,
+//!     scribe,
 //!     user_did: "did:key:...".into(),
 //!     user_name: "Alice".into(),
 //!     user_role: "viewer".into(),
@@ -64,10 +64,18 @@ pub mod scheduler;
 // UI types (VecModelOp, UiMutation, PropertyUpdate, UiQuery)
 pub mod ui_types;
 
+// ScribeHandle trait + ActorScribeHandle (production impl)
+pub mod scribe_handle;
+
+// MockScribeHandle (in-memory impl for testing)
+pub mod mock_scribe;
+
 mod runtime;
 mod commands;
 
-pub use runtime::{LuaRuntime, LuaRuntimeConfig};
+pub use runtime::{LuaRuntime, LuaRuntimeConfig, StepResult, BufferedUiBindings, BufferedUiState};
+pub use scribe_handle::{ScribeHandle, ActorScribeHandle};
+pub use mock_scribe::{MockScribeHandle, MockScribeState};
 pub use commands::{
     LuaCommand, UiEventType, DebugState,
     ValidationContext, ValidationResult,

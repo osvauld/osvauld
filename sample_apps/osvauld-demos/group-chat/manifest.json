@@ -1,8 +1,14 @@
 {
     "name": "Group Chat",
-    "version": "1.0.0",
-    "description": "Real-time group chat with emoji and typing indicators",
+    "version": "2.0.0",
+    "description": "Slack-like group chat with channels, threads, and reactions",
     "entry_ui": "app.slint",
     "entry_logic": "app.lua",
-    "renderer": "slint"
+    "renderer": "slint",
+    "models": [
+        "messages",
+        "channels",
+        "online_users",
+        "thread_messages"
+    ]
 }

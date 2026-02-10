@@ -14,6 +14,22 @@ use crate::{
     LayerStorageRef, PeerVectorStorageRef, PeerResolverRef,
 };
 
+// Layer Name Normalization
+
+/// Normalize a layer name by stripping `{page_id}/` prefix if present
+///
+/// **Context**: Lua apps and wire protocol use prefixed names (`{page_id}/messages`)
+/// but Scribe stores layers with bare names (`messages`). This strips the prefix
+/// at the Scribe boundary so all internal lookups use consistent bare names.
+pub fn normalize_layer_name(name: &str, page_id: &str) -> String {
+    let prefix = format!("{}/", page_id);
+    if let Some(bare) = name.strip_prefix(&prefix) {
+        bare.to_string()
+    } else {
+        name.to_string()
+    }
+}
+
 // Sync Configuration
 
 /// Sync mode derived from permit capabilities
@@ -87,7 +103,7 @@ impl SubscriberInfo {
     ///              fixed layers and pattern-based permissions
     pub fn can_receive_layer(&self, layer_name: &str, page_id: &str) -> bool {
         // Block presence layer for peers who can't see others
-        if layer_name.ends_with("/presence") && !self.can_see_others {
+        if (layer_name == "presence" || layer_name.ends_with("/presence")) && !self.can_see_others {
             return false;
         }
         // Check if layer is in no_incoming_updates (sync facts)

@@ -11,13 +11,14 @@ members = [
   "transport",
   "courier",
   "control_server",
-  "integration_tests",
   "lua_runtime",
   # New crates for multi-renderer architecture
   "renderer_slint",
   "renderer_raylib",
   "sthalam_shell",
   "sthalam",
+  "app_test",
+  "integration_tests",
 ]
 
 # Speed up dev builds

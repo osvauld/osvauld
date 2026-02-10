@@ -8,7 +8,7 @@
 
 use tracing::{debug, info, warn, instrument};
 
-use crate::message::Message;
+use crate::message::*;
 use transport::Connection;
 
 use super::{PeerActor, PeerActorState, MAX_ASSET_TRANSFER_ATTEMPTS};
@@ -17,12 +17,12 @@ impl<C: Connection> PeerActor<C> {
     /// Send AssetAck with error
     #[instrument(skip_all, fields(page_id = %page_id, hash = %hash))]
     async fn send_asset_error(&self, page_id: &str, hash: &str, error: &str, state: &PeerActorState<C>) {
-        self.send_message(&Message::AssetAck {
+        self.send_message(&Message::AssetAck(AssetAckMsg {
             page_id: page_id.to_string(),
             hash: hash.to_string(),
             success: false,
             error: Some(error.to_string()),
-        }, state).await;
+        }), state).await;
     }
     /// Handle AssetPrepare request from peer
     ///
@@ -85,11 +85,11 @@ impl<C: Connection> PeerActor<C> {
         );
 
         // 4. Send AssetReady with iroh_hash
-        self.send_message(&Message::AssetReady {
+        self.send_message(&Message::AssetReady(AssetReadyMsg {
             page_id: page_id.to_string(),
             hash: hash.to_string(),
             iroh_hash: iroh_hash_bytes,
-        }, state).await;
+        }), state).await;
     }
 
     /// Handle AssetReady notification from peer
@@ -132,7 +132,7 @@ impl<C: Connection> PeerActor<C> {
         };
 
         // 3. Get metadata from Loro-synced assets layer (for signature verification)
-        let assets_layer_name = format!("{}/assets", page_id);
+        let assets_layer_name = "assets".to_string();
         let metadata = match self.get_asset_metadata_from_layer(page_id, &assets_layer_name, hash, state).await {
             Ok(Some(m)) => m,
             Ok(None) => {
@@ -167,12 +167,12 @@ impl<C: Connection> PeerActor<C> {
         );
 
         // 5. Send AssetAck
-        self.send_message(&Message::AssetAck {
+        self.send_message(&Message::AssetAck(AssetAckMsg {
             page_id: page_id.to_string(),
             hash: hash.to_string(),
             success: true,
             error: None,
-        }, state).await;
+        }), state).await;
     }
 
     /// Handle AssetAck from peer
@@ -240,10 +240,10 @@ impl<C: Connection> PeerActor<C> {
 
             if should_retry {
                 // Re-send AssetPrepare for retry
-                self.send_message(&Message::AssetPrepare {
+                self.send_message(&Message::AssetPrepare(AssetPrepareMsg {
                     page_id: page_id.to_string(),
                     hash: hash.to_string(),
-                }, state).await;
+                }), state).await;
             } else {
                 // Clean up
                 state.pending_asset_transfers.remove(hash);

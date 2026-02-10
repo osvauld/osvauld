@@ -1,0 +1,240 @@
+// Content: Overview — Architecture + Crate Map
+
+import { Theme } from "theme.slint";
+import { SectionCard, CodeBlock, InfoCard, DiagramBox, TableRow } from "components.slint";
+
+export component ContentOverview inherits VerticalLayout {
+    in property<int> subsection: 0;
+    spacing: 20px;
+
+    // ── Architecture (subsection 0) ──
+    if subsection == 0: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Architecture";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Osvauld is a layered system where each crate has a clear responsibility and strict boundaries. Context never leaks between layers.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        // Architecture layers
+        InfoCard {
+            title: "Layered Architecture";
+            content: "App (Slint/Raylib UI) → Lua Runtime (VM + bindings) → Scribe (CRDT actors) → Butler (storage + services) → Courier (P2P orchestration) → Transport (QUIC/iroh) → Herald (identity + crypto)";
+            accent-color: Theme.accent;
+        }
+
+        Text {
+            text: "Core Design Principles";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        InfoCard {
+            title: "Actor Model";
+            content: "Coordinator spawns PeerActors for each connected peer. Scribe spawns per-document actors for CRDT state. All communication is message-based via ractor.";
+            accent-color: Theme.accent-purple;
+        }
+
+        InfoCard {
+            title: "Services-Only API";
+            content: "Butler exposes stateless service functions — no direct store access. Services take &RedbStore as first parameter. Facade methods: butler.spaces(), butler.pages(), butler.apps().";
+            accent-color: Theme.accent-green;
+        }
+
+        InfoCard {
+            title: "Dumb Transport";
+            content: "Transport is a \"dumb byte pipe\" — it knows nothing about the protocol. It provides lifecycle events only (connected, disconnected). Consumer owns read loops.";
+            accent-color: Theme.accent-orange;
+        }
+
+        Text {
+            text: "Data Flow";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        SectionCard {
+            title: "Outbound (App → Peer)";
+            content: "App writes to layer → Scribe actor processes mutation → Butler persists → Courier broadcasts SyncOffer to connected peers via Transport.";
+        }
+
+        SectionCard {
+            title: "Inbound (Peer → App)";
+            content: "Transport receives bytes → Courier routes to PeerActor → Scribe applies remote update → Butler stores → App receives on_loro_change callback.";
+        }
+
+        SectionCard {
+            title: "Ephemeral (No Persistence)";
+            content: "App calls scribe:send() → Butler forwards → Transport sends QUIC datagram → Peer receives on_ephemeral callback. ~1200 byte MTU, unreliable delivery.";
+        }
+
+        Text {
+            text: "Threading Model";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Thread Architecture";
+            code: "Main Thread  → Slint UI event loop\nTokio Runtime → All I/O, networking, actors\n  ├── Coordinator actor\n  ├── PeerActor per connection\n  ├── Scribe actors per document\n  └── Transport read loops";
+        }
+
+        SectionCard {
+            title: "Error Boundaries";
+            content: "Each crate wraps dependency errors into its own error type. CourierError contains Transport(TransportError), Butler(ButlerError), etc. Errors never cross crate boundaries unwrapped.";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Crate Map (subsection 1) ──
+    if subsection == 1: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Crate Map";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "15 crates organized in a layered dependency graph. Lower crates know nothing about higher ones.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        // Identity & Crypto
+        Text {
+            text: "Identity & Crypto";
+            font-size: 18px;
+            font-weight: 600;
+            color: Theme.accent-sthalam;
+        }
+
+        InfoCard {
+            title: "herald";
+            content: "Identity, Ed25519/X25519 crypto, BIP39 seed phrase, Argon2 keystore. Three keys derived via HKDF: signing, encryption, device. Zero external crate dependencies.";
+            accent-color: Theme.accent-sthalam;
+        }
+
+        InfoCard {
+            title: "gurkha";
+            content: "UCAN permit parsing, capability extraction, authorization decisions, delegation chains. Facts-only v3 architecture — capabilities always empty, facts carry auth data. Depends on herald for crypto.";
+            accent-color: Theme.accent-sthalam;
+        }
+
+        // Networking
+        Text {
+            text: "Networking";
+            font-size: 18px;
+            font-weight: 600;
+            color: Theme.accent;
+        }
+
+        InfoCard {
+            title: "transport";
+            content: "QUIC connections via iroh, connection pool, traits + mock for testing. Provides lifecycle events only — connected, disconnected. Consumer owns read loops.";
+            accent-color: Theme.accent;
+        }
+
+        InfoCard {
+            title: "courier";
+            content: "P2P orchestration, Coordinator + PeerActor actors, handshake flows, sync protocol. Channel-based communication with apps. Manages all peer state.";
+            accent-color: Theme.accent;
+        }
+
+        // Storage & Data
+        Text {
+            text: "Storage & Data";
+            font-size: 18px;
+            font-weight: 600;
+            color: Theme.accent-green;
+        }
+
+        InfoCard {
+            title: "domains";
+            content: "Shared domain types: Layer (with Loro), Page, Space. Used across multiple crates to avoid circular dependencies.";
+            accent-color: Theme.accent-green;
+        }
+
+        InfoCard {
+            title: "butler";
+            content: "Storage via redb, services-only API, encryption at rest. Facade pattern: butler.spaces(), butler.pages(), butler.apps(). Stateless service functions.";
+            accent-color: Theme.accent-green;
+        }
+
+        InfoCard {
+            title: "scribe";
+            content: "CRDT document actor via ractor. Per-document Loro state management, sync broadcast, subscription handling. Extracted from butler for cleaner boundaries.";
+            accent-color: Theme.accent-green;
+        }
+
+        // App Layer
+        Text {
+            text: "App Layer";
+            font-size: 18px;
+            font-weight: 600;
+            color: Theme.accent-purple;
+        }
+
+        InfoCard {
+            title: "lua_runtime";
+            content: "Lua VM via mlua. App bindings for scribe, UI, permits, derivations. Bridge to Slint/Raylib renderers. ScribeHandle trait for testing.";
+            accent-color: Theme.accent-purple;
+        }
+
+        InfoCard {
+            title: "renderer_slint";
+            content: "Slint UI renderer for Lua apps. Converts Lua table data to Slint VecModels. Handles app.slint compilation and property binding.";
+            accent-color: Theme.accent-purple;
+        }
+
+        InfoCard {
+            title: "renderer_raylib";
+            content: "Raylib game/graphics renderer for Lua apps. Used for games (tank-game) and visualizations (math-sim) that need direct draw calls.";
+            accent-color: Theme.accent-purple;
+        }
+
+        // Desktop & Server
+        Text {
+            text: "Desktop & Server";
+            font-size: 18px;
+            font-weight: 600;
+            color: Theme.accent-orange;
+        }
+
+        InfoCard {
+            title: "sthalam / sthalam_shell";
+            content: "Desktop app browser library + shell entry point. Manages app loading, page navigation, and Slint window. The 'browser' for the extended internet.";
+            accent-color: Theme.accent-orange;
+        }
+
+        InfoCard {
+            title: "kunki";
+            content: "Always-on node CLI. Headless runtime for relay, storage, validation. Runs on servers or Raspberry Pi. No UI dependencies.";
+            accent-color: Theme.accent-orange;
+        }
+
+        InfoCard {
+            title: "control_server";
+            content: "Unix socket JSON-RPC API. Exposes 30+ methods for automation: space management, P2P control, Lua eval, UI inspection. Used by Python test scripts.";
+            accent-color: Theme.accent-orange;
+        }
+
+        Rectangle { height: 32px; }
+    }
+}

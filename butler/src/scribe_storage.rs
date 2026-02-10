@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use scribe::{LayerStorage, PeerVectorStorage, PeerResolver, Result, ScribeError};
 
-use tracing::instrument;
+use tracing::{info, instrument};
 use crate::storage::RedbStore;
 
 // Layer Storage Implementation
@@ -31,6 +31,8 @@ impl ButlerLayerStorage {
 impl LayerStorage for ButlerLayerStorage {
     #[instrument(skip_all)]
     fn save_layer(&self, layer_name: &str, data: &[u8]) -> Result<()> {
+        info!(page_id = %self.page_id, layer_name = %layer_name, data_len = data.len(), "ButlerLayerStorage::save_layer");
+
         // Encrypt layer data
         let encrypted = herald::encrypt_symmetric(&self.aes_key, data)
             .map_err(|e| ScribeError::Other(format!("Encryption failed: {}", e)))?;

@@ -31,6 +31,7 @@ function on_init()
     scribe:bind("products", "products", {
         key = "id",  -- Stable identity for surgical updates
         transform = function(p)
+            if not p then return nil end
             return {
                 id = p.id or "",
                 name = p.name or "",
@@ -46,6 +47,7 @@ function on_init()
     scribe:bind("orders", "derived/orders_summary", {
         key = "id",
         transform = function(o)
+            if not o then return nil end
             return {
                 id = o.id or "",
                 customer_did = o.customer or "",

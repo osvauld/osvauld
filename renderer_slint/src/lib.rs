@@ -21,11 +21,11 @@ pub use page_runtime::{generate_page_shell, write_shell_slint, AppTab, parse_exp
 
 use butler::{Butler, PageUpdate, ScribeMessage};
 use slint::ComponentHandle;
-use lua_runtime::{LuaCommand, LuaRuntime, LuaRuntimeConfig, UiMutation, UiQuery};
+use lua_runtime::{LuaCommand, LuaRuntime, LuaRuntimeConfig, ActorScribeHandle, ScribeHandle, UiMutation, UiQuery};
 use ractor::ActorRef;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -382,7 +382,7 @@ pub fn create_slint_app(
     let user_name = app_ctx.user_name;
     let user_role = app_ctx.user_role;
 
-    let lua_code = match std::fs::read_to_string(&prepared.lua_path) {
+    let raw_lua_code = match std::fs::read_to_string(&prepared.lua_path) {
         Ok(code) => code,
         Err(e) => {
             let error_msg = format!("Failed to read Lua code: {}", e);
@@ -391,6 +391,13 @@ pub fn create_slint_app(
             return None;
         }
     };
+
+    // Set package.path so require("module") finds .lua files in the app's temp directory
+    let lua_code = format!(
+        "package.path = '{}/?.lua;' .. package.path\n{}",
+        prepared.temp_dir.display(),
+        raw_lua_code
+    );
 
     let slint_path = prepared.shell_path.clone();
 
@@ -405,10 +412,12 @@ pub fn create_slint_app(
     let app_name = prepared.app_name.clone();
 
     // Spawn Lua runtime
+    let navigate_tx = tab_switch_tx.clone();
+
     let config = LuaRuntimeConfig {
         page_id: page_id.clone(),
         app_name: app_name.clone(),
-        scribe_ref: scribe_ref.clone(),
+        scribe: ActorScribeHandle::new(scribe_ref.clone()),
         user_did: user_did.clone(),
         user_name: user_name.clone(),
         user_role: user_role.clone(),
@@ -416,6 +425,7 @@ pub fn create_slint_app(
         ui_enabled: true,
         ui_tx: Some(ui_tx),
         query_tx: Some(query_tx),
+        navigate_tx: Some(navigate_tx),
     };
 
     let (lua_thread, lua_tx) = match LuaRuntime::spawn(config) {
@@ -574,10 +584,10 @@ pub fn launch_slint_app(
             match update {
                 PageUpdate::LayerChanged { layer, ops, delta, full_data, created, .. } => {
                     // Check if this is an app layer update (triggers restart)
-                    // Use full layer name: {page_id}/app:{app_name}
+                    // Use bare layer name (Scribe uses bare names, no page_id/ prefix)
                     // Only restart if there are actual operations (changes) - empty ops means
                     // sync protocol sent update but content is identical
-                    let expected_app_layer = format!("{}/app:{}", running_app.page_id, running_app.app_name);
+                    let expected_app_layer = format!("app:{}", running_app.app_name);
                     let has_ops = ops.as_ref().map(|o| !o.is_empty()).unwrap_or(false);
                     if layer == expected_app_layer && !created && has_ops {
                         tracing::info!(layer = %layer, "App layer updated - restarting");
@@ -811,6 +821,218 @@ pub fn handle_asset_pick(
     });
 }
 
+// Test App Creation
+
+/// Create a Slint app for testing — no Butler, no Scribe actor
+///
+/// **Context**: Reads app files from disk, uses any ScribeHandle impl (mock or real)
+/// **app_dir**: Directory containing manifest.json, app.slint, app.lua
+pub fn create_test_slint_app(
+    app_dir: &Path,
+    page_id: &str,
+    user_did: &str,
+    user_name: &str,
+    user_role: &str,
+    scribe: Arc<dyn ScribeHandle>,
+) -> Option<RunningSlintApp> {
+    use std::fs;
+
+    // Read manifest
+    let manifest_path = app_dir.join("manifest.json");
+    let manifest_content = match fs::read_to_string(&manifest_path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(path = %manifest_path.display(), error = %e, "Failed to read manifest.json");
+            return None;
+        }
+    };
+    let manifest: Manifest = match serde_json::from_str(&manifest_content) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to parse manifest.json");
+            return None;
+        }
+    };
+
+    let app_name = manifest.name.clone();
+
+    // Read Lua code
+    let lua_path = app_dir.join(&manifest.entry_logic);
+    let raw_lua_code = match fs::read_to_string(&lua_path) {
+        Ok(code) => code,
+        Err(e) => {
+            tracing::error!(path = %lua_path.display(), error = %e, "Failed to read Lua code");
+            return None;
+        }
+    };
+
+    // Copy app files to temp dir
+    let temp_dir = match tempfile::tempdir() {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to create temp dir");
+            return None;
+        }
+    };
+    let temp_path = temp_dir.path().to_path_buf();
+
+    for entry in walkdir::WalkDir::new(app_dir).into_iter().filter_map(|e| e.ok()) {
+        if entry.file_type().is_file() {
+            let rel = entry.path().strip_prefix(app_dir).unwrap_or(entry.path());
+            let dest = temp_path.join(rel);
+            if let Some(parent) = dest.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::copy(entry.path(), &dest);
+        }
+    }
+
+    // Generate shell .slint (single tab, no page switching)
+    let app_slint_path = temp_path.join(manifest.entry_ui.as_deref().unwrap_or("app.slint"));
+    let tab = AppTab { name: app_name.clone(), display_name: app_name.clone() };
+    let shell_source = generate_page_shell(&app_slint_path, &[tab.clone()], &app_name, &app_name, None);
+    let shell_path = match write_shell_slint(&temp_path, &shell_source) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to write shell slint");
+            return None;
+        }
+    };
+
+    // Create channels
+    let (ui_tx, ui_rx) = tokio::sync::mpsc::channel::<UiMutation>(256);
+    let (query_tx, query_rx) = tokio::sync::mpsc::channel::<UiQuery>(32);
+    let (_page_update_tx, page_update_rx) = tokio::sync::mpsc::channel::<PageUpdate>(256);
+    let (tab_switch_tx, tab_switch_rx) = std::sync::mpsc::channel::<String>();
+    let (asset_pick_tx, asset_pick_rx) = std::sync::mpsc::channel::<AssetPickRequest>();
+
+    // Set package.path so require("module") finds .lua files in the app's temp directory
+    let lua_code = format!(
+        "package.path = '{}/?.lua;' .. package.path\n{}",
+        temp_path.display(),
+        raw_lua_code
+    );
+
+    // Spawn Lua runtime
+    let config = LuaRuntimeConfig {
+        page_id: page_id.to_string(),
+        app_name: app_name.clone(),
+        scribe,
+        user_did: user_did.to_string(),
+        user_name: user_name.to_string(),
+        user_role: user_role.to_string(),
+        lua_code,
+        ui_enabled: true,
+        ui_tx: Some(ui_tx),
+        query_tx: Some(query_tx),
+        navigate_tx: None,
+    };
+
+    let (lua_thread, lua_tx) = match LuaRuntime::spawn(config) {
+        Ok((thread, tx)) => (thread, tx),
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to spawn Lua worker");
+            return None;
+        }
+    };
+
+    // Create Slint runtime
+    let mut slint_runtime = match SlintRuntime::load(
+        shell_path,
+        app_name.clone(),
+        ui_rx,
+        query_rx,
+        lua_tx.clone(),
+    ) {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to create SlintRuntime");
+            return None;
+        }
+    };
+
+    slint_runtime.set_tab_switch_channel(tab_switch_tx);
+    slint_runtime.set_asset_pick_channel(asset_pick_tx);
+
+    if let Err(e) = slint_runtime.slint_instance().show() {
+        tracing::error!(error = ?e, "Failed to show app window");
+        return None;
+    }
+
+    if let Err(e) = slint_runtime.setup_callbacks() {
+        tracing::error!(error = %e, "Failed to setup shell callbacks");
+        return None;
+    }
+
+    if let Err(e) = slint_runtime.init_models(&manifest.models) {
+        tracing::warn!(error = %e, "Failed to init models from manifest");
+    }
+
+    if let Err(e) = slint_runtime.setup_global_callbacks() {
+        tracing::error!(error = %e, "Failed to setup global callbacks");
+        return None;
+    }
+
+    // Keep temp dir alive
+    let _ = temp_dir.keep();
+
+    let files: HashMap<String, String> = HashMap::new();
+    let version = AppVersion::new(&manifest.version, &files);
+
+    Some(RunningSlintApp {
+        app_name,
+        page_id: page_id.to_string(),
+        page_name: page_id.to_string(),
+        all_apps: vec![tab],
+        slint_runtime,
+        lua_thread,
+        lua_tx,
+        page_update_rx,
+        tab_switch_rx,
+        asset_pick_rx,
+        version,
+    })
+}
+
+/// Launch a self-managing test Slint app window
+///
+/// **Context**: Wraps create_test_slint_app() with a 100ms timer to pump UI mutations.
+/// No page-update/restart logic since test apps don't hot-reload.
+///
+/// **Returns**: LaunchedApp with timer (must keep alive) and lua_tx for commands.
+pub fn launch_test_slint_app(
+    app_dir: &Path,
+    page_id: &str,
+    user_did: &str,
+    user_name: &str,
+    user_role: &str,
+    scribe: Arc<dyn ScribeHandle>,
+) -> Option<LaunchedApp> {
+    let running = create_test_slint_app(app_dir, page_id, user_did, user_name, user_role, scribe)?;
+    let lua_tx_out = running.lua_tx.clone();
+
+    let running = Rc::new(RefCell::new(Some(running)));
+
+    let timer = slint::Timer::default();
+    timer.start(slint::TimerMode::Repeated, Duration::from_millis(100), move || {
+        let mut running_ref = running.borrow_mut();
+        let Some(running_app) = running_ref.as_mut() else { return };
+
+        // Process UI mutations (Lua -> Slint)
+        if let Err(e) = running_app.slint_runtime.process_ui_mutations() {
+            tracing::warn!(error = %e, "Failed to process UI mutations");
+        }
+
+        // Process UI queries (Slint -> Lua)
+        running_app.slint_runtime.process_ui_queries();
+    });
+
+    Some(LaunchedApp {
+        timer,
+        lua_tx: lua_tx_out,
+    })
+}
+
 // Slint Validation
 
 /// Validate all Slint files in a directory using the Slint compiler
@@ -820,10 +1042,12 @@ pub async fn validate_slint_files(page_dir: &std::path::Path) -> Result<(), Stri
     use slint_interpreter::Compiler;
     use walkdir::WalkDir;
 
+    // Only validate app.slint entry points, not helper files like theme.slint
+    // which may only contain globals and can't be compiled standalone.
     let slint_files: Vec<PathBuf> = WalkDir::new(page_dir)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "slint"))
+        .filter(|e| e.path().file_name().map_or(false, |name| name == "app.slint"))
         .map(|e| e.path().to_path_buf())
         .collect();
 

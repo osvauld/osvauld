@@ -64,6 +64,19 @@ pub fn to_published_page_meta(meta: &butler::PageMeta) -> crate::message::Publis
     }
 }
 
+/// Convert butler::Page → message::PublishedPageMeta
+pub fn page_to_published_meta(page: &butler::Page) -> crate::message::PublishedPageMeta {
+    crate::message::PublishedPageMeta {
+        id: page.id.clone(),
+        space_id: page.space_id.clone(),
+        name: page.name.clone(),
+        owner_did: page.owner_did.clone(),
+        is_private: page.is_private,
+        created_at: page.created_at,
+        updated_at: page.updated_at,
+    }
+}
+
 /// Convert message::PublishedSpace → butler::Space
 pub fn from_published_space(
     space: &crate::message::PublishedSpace,

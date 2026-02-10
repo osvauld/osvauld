@@ -9,6 +9,52 @@
 //! Each Page can have multiple Layers (e.g., content_layer, comments_layer).
 
 use loro::{ExportMode, LoroDoc};
+use sha2::{Sha256, Digest};
+
+/// Protocol-level layer classification
+///
+/// Determines sync behavior and memory management:
+/// - App: Code/UI layers, snapshot-only sync, evicted from memory after hash
+/// - Data: CRDT data layers, incremental sync, kept in memory
+/// - Static: Binary asset layers, routed to blob transfer
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum LayerType {
+    App,
+    Data,
+    Static,
+}
+
+impl LayerType {
+    /// Determine layer type from layer name convention
+    ///
+    /// - `app:*` -> App (code/UI)
+    /// - `static:*` -> Static (binary assets)
+    /// - Everything else -> Data (CRDT)
+    ///
+    /// Handles fully qualified names like `{page_id}/{layer_name}` by
+    /// extracting the layer part after the last "/".
+    pub fn from_layer_name(name: &str) -> Self {
+        let layer_part = name.rsplit('/').next().unwrap_or(name);
+        if layer_part.starts_with("app:") {
+            LayerType::App
+        } else if layer_part.starts_with("static:") {
+            LayerType::Static
+        } else {
+            LayerType::Data
+        }
+    }
+}
+
+/// Compute deterministic content hash for a layer
+///
+/// Uses `get_deep_value()` -> JSON -> SHA-256 for cross-peer determinism.
+/// Used for app layer change detection (skip sync if hash matches).
+pub fn compute_content_hash(layer: &Layer) -> [u8; 32] {
+    let json_bytes = serde_json::to_vec(&layer.to_json_value()).unwrap_or_default();
+    let mut hasher = Sha256::new();
+    hasher.update(&json_bytes);
+    hasher.finalize().into()
+}
 
 /// Layer - Wrapper around LoroDoc for collaborative data
 ///

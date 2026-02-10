@@ -55,10 +55,10 @@ pub fn broadcast_payload_strategy() -> impl Strategy<Value = crate::BroadcastPay
     )
         .prop_map(|(page_id, layer_name, update, state_vector)| crate::BroadcastPayload {
             page_id,
-            layer_name,
+            layer_name: layer_name.clone(),
+            layer_type: domains::LayerType::from_layer_name(&layer_name),
             update,
             state_vector,
-            permit: None,
         })
 }
 

@@ -1,19 +1,19 @@
-//! Publishing handlers for owner → node communication
+//! Publishing handlers for owner <-> node communication
 //!
 //! Flow:
-//! 1. Owner calls initiate_publish_space → sends PublishSpace
+//! 1. Owner calls initiate_publish_space -> sends PublishSpace
 //! 2. Node receives, stores space, sends PublishSpaceAck
-//! 3. Owner calls initiate_publish_page (per page) → sends PublishPage
-//! 4. Node receives, stores page, sends PublishPageAck
+//! 3. Owner calls initiate_page_announce (per page) -> sends PageAnnounce (meta + permits only)
+//! 4. Node receives, stores page shell, sends PageAnnounceAck
+//! 5. Layers arrive later via Scribe subscription / SyncOffer
 //!
 //! Shareable links:
-//! 1. Owner calls initiate_get_shareable_link → sends GetShareableLinkRequest
-//! 2. Node generates aud:* viewer permit → sends GetShareableLinkResponse
+//! 1. Owner calls initiate_get_shareable_link -> sends GetShareableLinkRequest
+//! 2. Node generates aud:* viewer permit -> sends GetShareableLinkResponse
 
-use base64::{engine::general_purpose::STANDARD, Engine};
 use tracing::{debug, error, info, warn, instrument};
 
-use crate::message::Message;
+use crate::message::*;
 
 use transport::Connection;
 
@@ -70,87 +70,88 @@ impl<C: Connection> PeerActor<C> {
             .unwrap_or_default();
 
         let request_id = uuid::Uuid::new_v4().to_string();
-        let msg = Message::PublishSpace {
+        let msg = Message::PublishSpace(PublishSpaceMsg {
             request_id: request_id.clone(),
             space: to_published_space(&space),
             space_permit: delegated_permit,
-        };
+        });
 
         info!("Sending PublishSpace for {} (request: {}, {} pages)", space_id, request_id, pages.len());
         self.send_message(&msg, state).await;
     }
 
-    /// Initiate publishing a page to node (User mode)
+    /// Initiate announcing a page to node (User mode)
     ///
-    /// **Context**: Owner wants to publish a page to their node
-    /// **We prepare**: Decrypt layers, re-encrypt with ephemeral ECDH for transit
-    /// **We send**: PublishPage message with encrypted layers
+    /// **Context**: Owner wants to announce a page to their node
+    /// **We send**: PageAnnounce with meta + delegated permit + owner permit (NO layers)
+    /// **Next**: After PageAnnounceAck, owner subscribes to Scribe and layers arrive via SyncOffer
     #[instrument(skip(self, state), fields(page_id = %page_id))]
-    pub(super) async fn initiate_publish_page(&self, page_id: &str, state: &mut PeerActorState<C>) {
-        if require_user_mode(state.mode, "initiate_publish_page").is_some() {
+    pub(super) async fn initiate_page_announce(&self, page_id: &str, state: &mut PeerActorState<C>) {
+        if require_user_mode(state.mode, "initiate_page_announce").is_some() {
             return;
         }
 
         if require_auth(&state.state).is_err() {
-            warn!("Cannot publish page: not authenticated");
+            warn!("Cannot announce page: not authenticated");
             return;
         }
 
-        info!("Publishing page {} to node {}", page_id, self.node_id);
+        info!("Announcing page {} to node {}", page_id, self.node_id);
 
-        // Get node info to obtain encryption key
-        let node_id_str = self.node_id.to_string();
-        let sovereign_node = match state.butler.nodes().get(&node_id_str) {
-            Ok(Some(n)) => n,
+        // Get page metadata from Butler
+        let page_data = match state.butler.pages().get(page_id) {
+            Ok(Some(p)) => p,
             Ok(None) => {
-                error!("No sovereign node found for {}", node_id_str);
+                error!("Page {} not found", page_id);
                 return;
             }
             Err(e) => {
-                error!("Failed to get sovereign node: {}", e);
+                error!("Failed to get page {}: {}", page_id, e);
                 return;
             }
         };
 
-        // Decode the encryption key (X25519) from base64
-        let encryption_key_bytes = match STANDARD.decode(&sovereign_node.encryption_key) {
-            Ok(b) if b.len() == 32 => {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&b);
-                arr
-            }
-            Ok(b) => {
-                error!("Invalid encryption key length: {} (expected 32)", b.len());
-                return;
-            }
-            Err(e) => {
-                error!("Failed to decode encryption key: {}", e);
+        // Get owner's permit from page data
+        let owner_permit = match page_data.get_permit() {
+            Some(p) => p.clone(),
+            None => {
+                error!("No permit found for page {}", page_id);
                 return;
             }
         };
 
-        // Prepare page for publishing via Butler (node's DID is used for permit audience)
-        let node_did = sovereign_node.did.clone();
-        let prepared = match state.butler.publish().prepare_page(page_id, &node_did, &encryption_key_bytes).await {
-            Ok(p) => p,
+        // Delegate permit to node
+        let node_pubkey = self.node_id.to_string();
+        let signing_key = match state.butler.signing_key().await {
+            Ok(k) => k,
             Err(e) => {
-                error!("Failed to prepare page for publish: {}", e);
+                error!("Failed to get signing key: {}", e);
+                return;
+            }
+        };
+
+        let (delegated_permit, _cid) = match gurkha::delegate_page(
+            &signing_key,
+            &owner_permit,
+            "node",
+            &node_pubkey,
+        ).await {
+            Ok(result) => result,
+            Err(e) => {
+                error!("Failed to delegate page permit: {}", e);
                 return;
             }
         };
 
         let request_id = uuid::Uuid::new_v4().to_string();
-        let layer_count = prepared.layers.len();
-        let msg = Message::PublishPage {
+        let msg = Message::PageAnnounce(PageAnnounceMsg {
             request_id: request_id.clone(),
-            page: to_published_page_meta(&prepared.meta),
-            page_permit: prepared.permit,
-            owner_permit: prepared.owner_permit,
-            ephemeral_public: prepared.ephemeral_public,
-            layers: prepared.layers,
-        };
+            page: to_published_page_meta(&page_data.meta),
+            page_permit: delegated_permit,
+            owner_permit,
+        });
 
-        info!("Sending PublishPage for {} (request: {}, {} layers)", page_id, request_id, layer_count);
+        info!("Sending PageAnnounce for {} (request: {})", page_id, request_id);
         self.send_message(&msg, state).await;
     }
 
@@ -165,7 +166,7 @@ impl<C: Connection> PeerActor<C> {
     pub(super) async fn on_publish_space(
         &self,
         request_id: &str,
-        space: &crate::message::PublishedSpace,
+        space: &PublishedSpace,
         space_permit: &str,
         state: &mut PeerActorState<C>,
     ) {
@@ -186,7 +187,7 @@ impl<C: Connection> PeerActor<C> {
         // Validate permit
         let Some(permit) = self.parse_permit_or_respond(
             space_permit,
-            Message::PublishError { request_id: request_id.to_string(), error: "Invalid permit".to_string() },
+            Message::PublishError(PublishErrorMsg { request_id: request_id.to_string(), error: "Invalid permit".to_string() }),
             state,
         ).await else { return };
 
@@ -217,7 +218,7 @@ impl<C: Connection> PeerActor<C> {
 
         info!("Stored published space: {} ({})", space.id, space.name);
 
-        // Issue permit back to owner (node→owner permit proves space is published)
+        // Issue permit back to owner (node->owner permit proves space is published)
         let owner_pubkey = permit.user_id()
             .unwrap_or_else(|| peer_did.clone());
 
@@ -233,49 +234,46 @@ impl<C: Connection> PeerActor<C> {
         let pages = state.butler.spaces().list_page_ids(&space.id)
             .unwrap_or_default();
 
-        let ack = Message::PublishSpaceAck {
+        let ack = Message::PublishSpaceAck(PublishSpaceAckMsg {
             request_id: request_id.to_string(),
             permit: node_permit,
             pages,
-        };
+        });
         self.send_message(&ack, state).await;
     }
 
-    /// Handle PublishPage (Node receives from owner)
+    /// Handle PageAnnounce (Node receives from owner)
     ///
-    /// **Context**: Owner sends page with transit-encrypted layers
-    /// **Peer sends**: Page metadata, node permit, owner permit, ephemeral public, encrypted layers
+    /// **Context**: Owner announces a page (meta + permits only, no layers)
+    /// **Peer sends**: Page metadata, delegated page permit, owner permit
     /// **We verify**: Permit validity (accept_publish capability, issuer=authenticated peer)
-    /// **We decrypt**: Layers using ECDH transit key
-    /// **We re-encrypt**: Layers with our own AES key
-    /// **We store**: Page + node permit + owner permit via Butler
-    /// **We send**: PublishPageAck
-    #[instrument(skip(self, state, page, page_permit, owner_permit, ephemeral_public, layers), fields(request_id = %request_id, page_id = %page.id))]
-    pub(super) async fn on_publish_page(
+    /// **We store**: Page metadata + permits via Butler (page shell, no layers)
+    /// **We send**: PageAnnounceAck
+    /// **Next**: Layers arrive via Scribe subscription / SyncOffer
+    #[instrument(skip(self, state, page, page_permit, owner_permit), fields(request_id = %request_id, page_id = %page.id))]
+    pub(super) async fn on_page_announce(
         &self,
         request_id: &str,
-        page: &crate::message::PublishedPageMeta,
+        page: &PublishedPageMeta,
         page_permit: &str,
         owner_permit: &str,
-        ephemeral_public: &[u8; 32],
-        layers: &[(String, Vec<u8>)],
         state: &mut PeerActorState<C>,
     ) {
-        if require_node_mode(state.mode, "on_publish_page").is_some() {
+        if require_node_mode(state.mode, "on_page_announce").is_some() {
             return;
         }
 
         if require_auth(&state.state).is_err() {
-            warn!("PublishPage from unauthenticated peer: {}", self.node_id);
+            warn!("PageAnnounce from unauthenticated peer: {}", self.node_id);
             return;
         }
 
-        info!("PublishPage: {} ({}) from {} - {} layers", page.id, page.name, page.owner_did, layers.len());
+        info!("PageAnnounce: {} ({}) from {}", page.id, page.name, page.owner_did);
 
         // Validate permit
         let Some(permit) = self.parse_permit_or_respond(
             page_permit,
-            Message::PublishError { request_id: request_id.to_string(), error: "Invalid permit".to_string() },
+            Message::PublishError(PublishErrorMsg { request_id: request_id.to_string(), error: "Invalid permit".to_string() }),
             state,
         ).await else { return };
 
@@ -295,73 +293,94 @@ impl<C: Connection> PeerActor<C> {
             return;
         }
 
-        // Convert and store (source_node_did is None - owner publishing to node)
-        // Store sender's (owner's) state vectors for incremental sync later
-        let page_meta = from_published_page_meta(page);
-        let transit_layers: Vec<(String, Vec<u8>)> = layers.to_vec();
-        let sender_device_id = self.node_id.to_string();
-        if let Err(e) = state.butler.publish().store_page(
-            page_meta,
-            page_permit,
-            ephemeral_public,
-            transit_layers,
-            None,
-            &page.owner_did,
-            &sender_device_id,
-        ).await {
-            error!("Failed to store published page: {}", e);
+        // Generate AES key for this page on the node
+        // (Node always generates its own key — owner's encrypted_key is for the owner)
+        let identity = match state.butler.get_identity().await {
+            Ok(id) => id,
+            Err(e) => {
+                error!("Failed to get identity for AES key generation: {}", e);
+                self.send_publish_error(request_id, "Internal error", state).await;
+                return;
+            }
+        };
+        let node_public_enc_key: [u8; 32] = identity.public_encryption_key().try_into()
+            .expect("public_encryption_key should be 32 bytes");
+
+        let aes_key = herald::generate_aes_key();
+        let encrypted_key = match herald::encrypt(&node_public_enc_key, &aes_key) {
+            Ok(ek) => ek,
+            Err(e) => {
+                error!("Failed to encrypt AES key for page: {}", e);
+                self.send_publish_error(request_id, "Encryption error", state).await;
+                return;
+            }
+        };
+
+        // Store page shell (metadata + permits + encrypted AES key, no layers)
+        let mut page_meta = from_published_page_meta(page);
+        page_meta.encrypted_key = encrypted_key;
+        let mut page_data = butler::PageData::new(page_meta);
+        page_data.set_permit(page_permit.to_string());
+
+        if let Err(e) = state.butler.store().put_page(&page_data) {
+            error!("Failed to store announced page: {}", e);
             self.send_publish_error(request_id, &format!("Storage failed: {}", e), state).await;
             return;
         }
 
-        info!("Stored published page: {} ({})", page.id, page.name);
+        info!("Stored announced page shell: {} ({})", page.id, page.name);
 
         // Store owner's permit for sync authorization (permit-based auth, no DID whitelist)
         if let Err(e) = state.butler.permits().store_page_permit(&page.id, &page.owner_did, owner_permit) {
             warn!("Failed to store owner's permit for sync auth: {} - sync may fail", e);
-            // Continue - page was stored successfully, sync can still work via subscription
         } else {
             debug!("Stored owner's permit for page {} (sync authorization)", page.id);
         }
 
-        // Trigger asset sync: check for assets layer and request missing assets
-        self.trigger_asset_sync_after_publish(&page.id, layers, state).await;
+        // Register owner as authorized user for this page
+        let permit_cid = gurkha::crypto::get_permit_cid(page_permit)
+            .unwrap_or_else(|_| "unknown".to_string());
+        let sender_did = page.owner_did.clone();
+        if let Err(e) = state.butler.store().put_permit_cid(&page.id, &sender_did, &permit_cid) {
+            warn!("Failed to store permit CID for page {}: {}", page.id, e);
+        }
 
-        let ack = Message::PublishPageAck {
+        let ack = Message::PageAnnounceAck(PageAnnounceAckMsg {
             request_id: request_id.to_string(),
             page_id: page.id.clone(),
             permit: page_permit.to_string(),
-        };
+        });
         self.send_message(&ack, state).await;
     }
 
-    /// Handle PublishPageAck (Owner receives from node)
+    /// Handle PageAnnounceAck (Owner receives from node)
     ///
-    /// **Context**: Node acknowledged our PublishPage
+    /// **Context**: Node acknowledged our PageAnnounce
     /// **Peer sends**: Ack with page_id and echoed permit
     /// **We verify**: Permit matches what we sent
-    /// **We update**: Mark page as published
-    #[instrument(skip(self, state, permit), fields(page_id = %page_id))]
-    pub(super) async fn on_publish_page_ack(
+    /// **We update**: Mark page as published, subscribe to Scribe for layer delivery
+    #[instrument(skip(self, myself, state, permit), fields(page_id = %page_id))]
+    pub(super) async fn on_page_announce_ack(
         &self,
+        myself: ractor::ActorRef<super::PeerMessage>,
         request_id: &str,
         page_id: &str,
         permit: &str,
         state: &mut PeerActorState<C>,
     ) {
-        if require_user_mode(state.mode, "on_publish_page_ack").is_some() {
+        if require_user_mode(state.mode, "on_page_announce_ack").is_some() {
             return;
         }
 
         if require_auth(&state.state).is_err() {
-            warn!("PublishPageAck from unauthenticated peer: {}", self.node_id);
+            warn!("PageAnnounceAck from unauthenticated peer: {}", self.node_id);
             return;
         }
 
-        info!("PublishPageAck: page={}, request={}", page_id, request_id);
+        info!("PageAnnounceAck: page={}, request={}", page_id, request_id);
 
         if let Err(e) = parse_permit(permit) {
-            warn!("Invalid permit in PublishPageAck: {}", e);
+            warn!("Invalid permit in PageAnnounceAck: {}", e);
             return;
         }
 
@@ -380,18 +399,18 @@ impl<C: Connection> PeerActor<C> {
                 debug!("Stored node's permit for page {} (sync authorization)", page_id);
             }
 
-            // Store node's state vectors so we can send incremental updates later
-            // The node now has what we just sent, so store our current layer state as their vector
-            if let Err(e) = state.butler.store_peer_vectors_from_page(
-                page_id,
-                node_did,
-                &node_id_str,
-            ).await {
-                warn!("Failed to store node's state vectors: {}", e);
-            }
+            // Note: Do NOT store peer vectors here. PageAnnounce sends only metadata,
+            // not layers. Storing vectors would tell Scribe the node already has the data,
+            // causing it to skip sending layers entirely. Scribe subscription handles
+            // layer delivery and will set peer vectors after successful sync.
         }
 
-        info!("Page {} published successfully to node {}", page_id, self.node_id);
+        // Subscribe to the page's Scribe so layers are broadcast to the node
+        // This opens the Scribe (loading layers from storage) and starts broadcasting
+        info!("Subscribing to Scribe for page {} to deliver layers to node", page_id);
+        self.subscribe_to_page(myself, page_id, permit, state).await;
+
+        info!("Page {} announced successfully to node {}", page_id, self.node_id);
     }
 
     /// Handle PublishSpaceAck (Owner receives from node)
@@ -400,7 +419,7 @@ impl<C: Connection> PeerActor<C> {
     /// **Peer sends**: Ack with node-issued permit (space_id derived from permit)
     /// **We verify**: Permit is valid, extract space_id
     /// **We store**: Node's permit (proves space is published to this node)
-    /// **We notify**: Coordinator to trigger page sync
+    /// **We notify**: Coordinator to trigger page announce
     #[instrument(skip(self, state, permit, pages))]
     pub(super) async fn on_publish_space_ack(
         &self,
@@ -441,7 +460,7 @@ impl<C: Connection> PeerActor<C> {
 
         info!("Space {} published successfully to node {}", space_id, self.node_id);
 
-        // Trigger page publishing for pages not already on node
+        // Trigger page announcing for pages not already on node
         let existing_pages_set: std::collections::HashSet<&str> = pages.iter().map(|s| s.as_str()).collect();
         let all_pages = match state.butler.spaces().list_page_ids(&space_id) {
             Ok(p) => p,
@@ -451,15 +470,15 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        let pages_to_publish: Vec<String> = all_pages
+        let pages_to_announce: Vec<String> = all_pages
             .into_iter()
             .filter(|p| !existing_pages_set.contains(p.as_str()))
             .collect();
 
-        if !pages_to_publish.is_empty() {
-            info!("Publishing {} pages for space {} to node {}", pages_to_publish.len(), space_id, self.node_id);
-            for page_id in pages_to_publish {
-                self.initiate_publish_page(&page_id, state).await;
+        if !pages_to_announce.is_empty() {
+            info!("Announcing {} pages for space {} to node {}", pages_to_announce.len(), space_id, self.node_id);
+            for page_id in pages_to_announce {
+                self.initiate_page_announce(&page_id, state).await;
             }
         }
     }
@@ -479,13 +498,70 @@ impl<C: Connection> PeerActor<C> {
         error!("Publish failed (request {}): {}", request_id, error);
     }
 
+    /// Handle PermitUpdate from peer
+    ///
+    /// **Context**: Peer sends updated permit (e.g., after app update or re-derivation)
+    /// **Peer sends**: PermitUpdate with new permit and scope (Space or Page)
+    /// **We do**: Validate new permit, update stored permit, notify Scribe
+    #[instrument(skip(self, state, permit), fields(scope = ?scope))]
+    pub(super) async fn on_permit_update(
+        &self,
+        permit: &str,
+        scope: &PermitScope,
+        state: &mut PeerActorState<C>,
+    ) {
+        if require_auth(&state.state).is_err() {
+            warn!("PermitUpdate from unauthenticated peer: {}", self.node_id);
+            return;
+        }
+
+        let parsed = match parse_permit(permit) {
+            Ok(p) => p,
+            Err(e) => {
+                warn!("Invalid permit in PermitUpdate: {}", e);
+                return;
+            }
+        };
+
+        match scope {
+            PermitScope::Space { space_id } => {
+                info!("PermitUpdate for space {} from {}", space_id, self.node_id);
+                if let Err(e) = state.butler.spaces().store_permit(
+                    space_id,
+                    &parsed.parsed().issuer().to_string(),
+                    permit,
+                ) {
+                    error!("Failed to store updated space permit: {}", e);
+                }
+            }
+            PermitScope::Page { page_id } => {
+                info!("PermitUpdate for page {} from {}", page_id, self.node_id);
+                // Store in USER_PAGE_PERMITS table (for peer_resolver lookups on node)
+                if let Err(e) = state.butler.permits().store_page_permit(
+                    page_id,
+                    &parsed.parsed().issuer().to_string(),
+                    permit,
+                ) {
+                    error!("Failed to store updated page permit: {}", e);
+                }
+                // Also store as PageData.permit ("our" permit) so build_scribe_args
+                // can find it as our_permit for Scribe authorization.
+                // Without this, viewers receiving PermitUpdate have no our_permit
+                // and Scribe rejects all incoming SyncOffers.
+                if let Err(e) = state.butler.pages().set_permit(page_id, permit.to_string()) {
+                    error!("Failed to set page permit on PageData: {}", e);
+                }
+            }
+        }
+    }
+
     /// Send a PublishError message
     #[instrument(skip_all, fields(request_id = %request_id, error = %error))]
     pub(super) async fn send_publish_error(&self, request_id: &str, error: &str, state: &PeerActorState<C>) {
-        let msg = Message::PublishError {
+        let msg = Message::PublishError(PublishErrorMsg {
             request_id: request_id.to_string(),
             error: error.to_string(),
-        };
+        });
         self.send_message(&msg, state).await;
     }
 
@@ -519,10 +595,10 @@ impl<C: Connection> PeerActor<C> {
 
         info!("Requesting shareable link for space {} from node {}", space_id, self.node_id);
 
-        let msg = Message::GetShareableLinkRequest {
+        let msg = Message::GetShareableLinkRequest(GetShareableLinkRequestMsg {
             request_id,
             space_id: space_id.to_string(),
-        };
+        });
 
         self.send_message(&msg, state).await;
     }
@@ -588,107 +664,13 @@ impl<C: Connection> PeerActor<C> {
 
         info!("Generated shareable connection string for space {} (len: {})", space_id, connection_string.len());
 
-        let msg = Message::GetShareableLinkResponse {
+        let msg = Message::GetShareableLinkResponse(GetShareableLinkResponseMsg {
             request_id: request_id.to_string(),
             space_id: space_id.to_string(),
             permit: connection_string, // Full connection string, not just permit
-        };
+        });
 
         self.send_message(&msg, state).await;
-    }
-
-    /// Trigger asset sync after receiving a published page
-    ///
-    /// **Context**: Node received page from owner, check for assets layer
-    /// **Flow**:
-    ///   1. Look for `{page_id}/assets` layer in received layers
-    ///   2. Parse asset metadata from the layer
-    ///   3. Find assets missing from local AssetStore
-    ///   4. Send AssetPrepare for each missing asset
-    #[instrument(skip(self, layers, state), fields(page_id = %page_id))]
-    async fn trigger_asset_sync_after_publish(
-        &self,
-        page_id: &str,
-        layers: &[(String, Vec<u8>)],
-        state: &mut PeerActorState<C>,
-    ) {
-        let assets_layer_name = format!("{}/assets", page_id);
-
-        // Find the assets layer in the received layers
-        let Some((_, assets_data)) = layers.iter().find(|(name, _)| name == &assets_layer_name) else {
-            debug!("No assets layer found in published page {}", page_id);
-            return;
-        };
-
-        // Skip if empty
-        if assets_data.is_empty() {
-            debug!("Assets layer is empty for page {}", page_id);
-            return;
-        }
-
-        // Load the layer to parse metadata
-        // Note: The layer data is already decrypted by store_published_page
-        // We need to get the assets layer from Butler after it's been stored
-        let scribe = match state.butler.open_page(page_id).await {
-            Ok(s) => s,
-            Err(e) => {
-                warn!("Failed to open page {} for asset sync: {}", page_id, e);
-                return;
-            }
-        };
-
-        // Get the assets layer snapshot
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        if let Err(e) = scribe.cast(butler::ScribeMessage::GetSnapshot {
-            layer_name: assets_layer_name.clone(),
-            reply: tx,
-        }) {
-            warn!("Failed to request assets layer snapshot: {}", e);
-            return;
-        }
-
-        let layer_bytes = match rx.await {
-            Ok(Some(bytes)) => bytes,
-            Ok(None) => {
-                debug!("Assets layer not found in Scribe for page {}", page_id);
-                return;
-            }
-            Err(_) => {
-                warn!("Scribe dropped assets layer reply channel");
-                return;
-            }
-        };
-
-        // Parse the layer
-        let layer = match butler::models::Layer::from_snapshot(&layer_bytes) {
-            Ok(l) => l,
-            Err(e) => {
-                warn!("Failed to parse assets layer: {}", e);
-                return;
-            }
-        };
-
-        // Find missing assets
-        let missing = butler::services::asset_service::find_missing_assets_from_layer(
-            state.butler.asset_store(),
-            &layer,
-        );
-
-        if missing.is_empty() {
-            debug!("No missing assets for page {}", page_id);
-            return;
-        }
-
-        info!(
-            page_id = %page_id,
-            missing_count = missing.len(),
-            "Found missing assets after publish, sending AssetPrepare"
-        );
-
-        // Send AssetPrepare for each missing asset (tracked for retry)
-        for metadata in missing {
-            self.send_asset_prepare(page_id, &metadata.hash, state).await;
-        }
     }
 
     /// Handle GetShareableLinkResponse (Owner receives from node)

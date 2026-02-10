@@ -750,7 +750,8 @@ impl Permit {
         // 1. Check named layers section
         for (pattern, config) in &self.layers {
             let expanded = expand_pattern(pattern, page_id, our_did);
-            if expanded == layer_name {
+            let bare = strip_page_prefix(&expanded, page_id);
+            if bare == layer_name || expanded == layer_name {
                 return config.sync;
             }
         }
@@ -758,7 +759,8 @@ impl Permit {
         // 2. Check layer_patterns section
         for (pattern, config) in &self.layer_patterns {
             let expanded = expand_pattern(pattern, page_id, our_did);
-            if matches_wildcard(layer_name, &expanded) {
+            let bare = strip_page_prefix(&expanded, page_id);
+            if matches_wildcard(layer_name, &bare) || matches_wildcard(layer_name, &expanded) {
                 return config.sync;
             }
         }
@@ -772,11 +774,15 @@ impl Permit {
     /// **Checks**:
     /// 1. Fixed layer permission (write=true)
     /// 2. Pattern match with write or create permission
+    ///
+    /// **Note**: Accepts both bare layer names (e.g. "products") and
+    /// full names (e.g. "{page_id}/products") for backward compatibility.
     pub fn can_write_layer(&self, layer_name: &str, page_id: &str, our_did: &str) -> bool {
         // 1. Check fixed layers
         for (pattern, config) in &self.layers {
             let expanded = expand_pattern(pattern, page_id, our_did);
-            if expanded == layer_name && config.write {
+            let bare = strip_page_prefix(&expanded, page_id);
+            if (bare == layer_name || expanded == layer_name) && config.write {
                 return true;
             }
         }
@@ -784,7 +790,10 @@ impl Permit {
         // 2. Check layer_patterns
         for (pattern, config) in &self.layer_patterns {
             let expanded = expand_pattern(pattern, page_id, our_did);
-            if matches_wildcard(layer_name, &expanded) && (config.write || config.create) {
+            let bare = strip_page_prefix(&expanded, page_id);
+            if (matches_wildcard(layer_name, &bare) || matches_wildcard(layer_name, &expanded))
+                && (config.write || config.create)
+            {
                 return true;
             }
         }
@@ -797,11 +806,14 @@ impl Permit {
     /// **Checks**:
     /// 1. Fixed layer exists with sync=true
     /// 2. Pattern match with sync permission
+    ///
+    /// **Note**: Accepts both bare layer names and full names.
     pub fn can_read_layer(&self, layer_name: &str, page_id: &str, our_did: &str) -> bool {
         // 1. Check fixed layers
         for (pattern, config) in &self.layers {
             let expanded = expand_pattern(pattern, page_id, our_did);
-            if expanded == layer_name && config.sync {
+            let bare = strip_page_prefix(&expanded, page_id);
+            if (bare == layer_name || expanded == layer_name) && config.sync {
                 return true;
             }
         }
@@ -809,7 +821,10 @@ impl Permit {
         // 2. Check layer_patterns
         for (pattern, config) in &self.layer_patterns {
             let expanded = expand_pattern(pattern, page_id, our_did);
-            if matches_wildcard(layer_name, &expanded) && config.sync {
+            let bare = strip_page_prefix(&expanded, page_id);
+            if (matches_wildcard(layer_name, &bare) || matches_wildcard(layer_name, &expanded))
+                && config.sync
+            {
                 return true;
             }
         }
@@ -820,16 +835,16 @@ impl Permit {
     /// Get all static layers (fully expanded, no wildcards) for pre-creation
     ///
     /// **Context**: Scribe pre-creates layers that are fully known from permit
-    /// **Returns**: Layer names after expanding {page_id} and {aud}
+    /// **Returns**: Bare layer names (without {page_id}/ prefix) for Scribe's in-memory map
     pub fn static_layers(&self, page_id: &str, our_did: &str) -> Vec<String> {
         let mut layers = Vec::new();
 
-        // Fixed layers with placeholders expanded
+        // Fixed layers with placeholders expanded, then stripped to bare names
         for pattern in self.layers.keys() {
             let expanded = expand_pattern(pattern, page_id, our_did);
             // Only include if no wildcards remain
             if !expanded.contains('*') {
-                layers.push(expanded);
+                layers.push(strip_page_prefix(&expanded, page_id));
             }
         }
 
@@ -837,7 +852,7 @@ impl Permit {
         for pattern in self.layer_patterns.keys() {
             let expanded = expand_pattern(pattern, page_id, our_did);
             if !expanded.contains('*') {
-                layers.push(expanded);
+                layers.push(strip_page_prefix(&expanded, page_id));
             }
         }
 
@@ -846,6 +861,21 @@ impl Permit {
 }
 
 // Pattern Expansion Helpers
+
+/// Strip `{page_id}/` prefix from an expanded layer name to get the bare name
+///
+/// **Context**: Scribe uses bare layer names (no page_id prefix).
+/// Permit patterns like `{page_id}/products` expand to `{uuid}/products`.
+/// This strips the prefix to get `products` for Scribe's layer map.
+///
+/// **Example**: `"abc123/products"` with page_id `"abc123"` → `"products"`
+/// **Pass-through**: `"app:Shop"` (no prefix) → `"app:Shop"`
+fn strip_page_prefix(expanded: &str, page_id: &str) -> String {
+    let prefix = format!("{}/", page_id);
+    expanded.strip_prefix(&prefix)
+        .unwrap_or(expanded)
+        .to_string()
+}
 
 /// Expand placeholders in a pattern
 ///

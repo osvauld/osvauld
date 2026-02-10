@@ -336,8 +336,10 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
             // Prepare ops for reactive bindings (Some if non-empty, None otherwise)
             let ops = if signal.ops.is_empty() { None } else { Some(signal.ops) };
 
-            // Skip expensive get_content() when delta is available — consumers use surgical path
-            let full_data = if signal.delta.is_some() {
+            // Skip expensive get_content() only for List deltas (surgical conversion always works).
+            // For Map/Text deltas, always provide full_data so non-keyed Map bindings can
+            // fall back to Replace when delta conversion returns empty.
+            let full_data = if matches!(&signal.delta, Some(LoroDelta::List { .. })) {
                 None
             } else {
                 Some(layer_for_task.get_content(&layer_name_for_task))
@@ -417,9 +419,9 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
                     let payload = BroadcastPayload {
                         page_id: page_id_for_task.clone(),
                         layer_name: layer_name_for_task.clone(),
+                        layer_type: domains::LayerType::from_layer_name(&layer_name_for_task),
                         update,
                         state_vector: current_vector.clone(),
-                        permit: None,
                     };
 
                     match info.broadcast_tx.try_send(payload) {

@@ -17,7 +17,7 @@ use crate::Result;
 ///
 /// **Context**: Scribe sends this to PeerActor, who then sends SyncOffer to peer
 /// **state_vector**: Our state vector after this update (for 3-step protocol)
-/// **permit**: Optional consent permit for the receiver (Butler resolves, Courier forwards)
+/// **layer_type**: Protocol routing hint (App=snapshot, Data=incremental, Static=blob)
 #[derive(Debug, Clone)]
 pub struct BroadcastPayload {
     pub page_id: String,
@@ -25,9 +25,8 @@ pub struct BroadcastPayload {
     pub update: Vec<u8>,
     /// Our state vector for this layer (for SyncOffer message)
     pub state_vector: Vec<u8>,
-    /// Optional permit for the receiver (consent permit for viewer sync)
-    /// Butler resolves this based on subscriber identity; Courier just forwards
-    pub permit: Option<String>,
+    /// Layer type for protocol routing
+    pub layer_type: domains::LayerType,
 }
 
 /// Ephemeral broadcast payload (generic)

@@ -13,6 +13,7 @@ The `scribe:` module provides unified access to identity, layers, bindings, and 
 | `scribe:map(name)` | Get or create a map layer |
 | `scribe:list_layers(pattern)` | List layers matching pattern |
 | `scribe:bind(ui_prop, layer, opts)` | Declarative layer → UI sync |
+| `scribe:rebind(ui_prop, layer)` | Switch binding to different layer |
 | `scribe:send(func, args)` | Send ephemeral message |
 
 ---
@@ -118,10 +119,34 @@ end
 
 ### Surgical Updates with `key`
 
-The `key` option enables fine-grained UI updates. When ops are available, only changed items are updated instead of replacing the entire model:
+The `key` option enables fine-grained UI updates. Instead of replacing the entire model on every change, only affected items are updated via Set/Insert/Remove ops:
+
+**For Map layers** (e.g., `derived/orders_summary`): The `key` option is **required** for reactive UI updates. Map deltas translate directly to surgical VecModel ops using an internal key→index cache — no full Replace ever needed.
+
+**For List layers** (e.g., `messages`): List deltas (Retain/Insert/Delete) are converted to surgical ops automatically without needing a `key` option.
 
 ```lua
--- Enable surgical updates by specifying the key field
+-- Map layer: key is REQUIRED for reactive updates
+scribe:bind("orders", "derived/orders_summary", {
+    key = "id",  -- Map key → array index tracking
+    transform = function(item)
+        return {
+            id = item.id,
+            customer = item.customer_name,
+            total = string.format("$%.2f", item.total),
+            status = item.status
+        }
+    end
+})
+
+-- List layer: surgical updates work without key
+scribe:bind("messages", "messages", {
+    transform = function(msg)
+        return { id = msg.id, text = msg.text, sender = msg.sender_name }
+    end
+})
+
+-- Map layer with key: presence tracking
 scribe:bind("online_users", "presence", {
     key = "did",  -- Use "did" field as stable identity
     transform = function(entry)
@@ -145,6 +170,7 @@ scribe:bind("leaderboard", "scores", {
 - Animations work smoothly (individual row changes)
 - Better performance for large lists
 - Indices remain stable (Slint handles sort as view concern)
+- Map layers with `key` get Set/Insert/Remove ops directly from Map deltas
 
 ### Capping Model Size with `max_items`
 
@@ -162,6 +188,38 @@ scribe:bind("messages", "messages", {
 ```
 
 This works with both the delta path (generates Remove ops for overflow) and the Replace fallback (trims the array before sending to UI).
+
+### Dynamic Rebinding with `rebind()`
+
+Use `scribe:rebind()` to switch which layer backs an existing binding at runtime. The transform, key, and max_items options are preserved — only the backing layer changes. Caches are cleared and a full initial sync is performed from the new layer.
+
+```lua
+-- Initial bind to "general" channel messages
+scribe:bind("messages", "channels/general/messages", {
+    key = "id",
+    transform = function(msg)
+        if msg.thread_parent_id and msg.thread_parent_id ~= "" then
+            return nil  -- filter thread replies
+        end
+        return format_message(msg)
+    end
+})
+
+-- Later, when user switches channels:
+function on_channel_switch(channel_id)
+    scribe:rebind("messages", "channels/" .. channel_id .. "/messages")
+    -- UI gets a Replace with new channel's data
+    -- Future deltas from the new channel are surgical (Insert/Set/Remove)
+end
+```
+
+**Behavior:**
+- Transform/key/max_items from the original `bind()` are preserved
+- Internal key→index cache is cleared (new layer has different keys)
+- A full Replace is sent to UI with the new layer's current data
+- Subsequent changes to the new layer produce surgical delta updates
+- Errors if `ui_property` was never bound (call `bind()` first)
+- No-op in headless mode (`ui_enabled: false`)
 
 ### {me} Placeholder
 

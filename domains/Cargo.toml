@@ -21,3 +21,6 @@ uuid = { version = "1", features = ["v4"] }
 
 # Base64 encoding
 base64 = "0.22"
+
+# Hashing
+sha2 = "0.10"

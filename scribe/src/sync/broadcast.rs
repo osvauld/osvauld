@@ -54,9 +54,9 @@ pub async fn broadcast_update(
             let payload = BroadcastPayload {
                 page_id: state.page_id.clone(),
                 layer_name: layer_name.to_string(),
+                layer_type: domains::LayerType::from_layer_name(layer_name),
                 update,
                 state_vector: current_vector.clone(),
-                permit: None,
             };
 
             match info.broadcast_tx.try_send(payload) {

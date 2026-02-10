@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, info};
 
 use butler::{Butler, JsonOp, ScribeMessage, ValidationHandle, ValidationRequest};
-use lua_runtime::{LuaCommand, LuaRuntimeConfig, LuaRuntime, ValidationContext};
+use lua_runtime::{LuaCommand, LuaRuntimeConfig, LuaRuntime, ActorScribeHandle, ValidationContext};
 
 /// Validation service - spawns LuaRuntime per validation request
 ///
@@ -122,7 +122,7 @@ impl ValidationService {
         let (thread, cmd_tx) = LuaRuntime::spawn(LuaRuntimeConfig {
             page_id: page_id.to_string(),
             app_name: "validation".to_string(),
-            scribe_ref,
+            scribe: ActorScribeHandle::new(scribe_ref),
             user_did: identity.did().to_string(),
             user_name: identity_data.username.clone(),
             user_role: "node".to_string(),
@@ -130,6 +130,7 @@ impl ValidationService {
             ui_enabled: false,
             ui_tx: None,
             query_tx: None,
+            navigate_tx: None,
         })?;
 
         // Build ValidationContext from JsonOps

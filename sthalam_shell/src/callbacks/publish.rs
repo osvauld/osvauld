@@ -121,50 +121,32 @@ fn register_publish_space(
     });
 }
 
-/// Copy text to clipboard with fallback for Linux
+/// Copy text to clipboard.
+///
+/// On Linux, prefers wl-copy over arboard because arboard's X11/XWayland backend
+/// drops the clipboard owner too quickly, causing clipboard manager handoff timeouts.
 fn copy_to_clipboard(text: &str) -> Result<(), String> {
-    // Try arboard first
-    if let Ok(mut clipboard) = arboard::Clipboard::new() {
-        if clipboard.set_text(text).is_ok() {
-            return Ok(());
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        if let Ok(mut child) = Command::new("wl-copy").stdin(Stdio::piped()).spawn() {
+            if let Some(mut stdin) = child.stdin.take() {
+                if stdin.write_all(text.as_bytes()).is_ok() {
+                    drop(stdin);
+                    if child.wait().is_ok() {
+                        return Ok(());
+                    }
+                }
+            }
         }
     }
 
-    // Fallback: try wl-copy (Wayland) or xclip (X11)
-    #[cfg(target_os = "linux")]
-    {
-        use std::process::{Command, Stdio};
-        use std::io::Write;
-
-        // Try wl-copy first (Wayland)
-        if let Ok(mut child) = Command::new("wl-copy")
-            .stdin(Stdio::piped())
-            .spawn()
-        {
-            if let Some(mut stdin) = child.stdin.take() {
-                if stdin.write_all(text.as_bytes()).is_ok() {
-                    drop(stdin);
-                    if child.wait().is_ok() {
-                        return Ok(());
-                    }
-                }
-            }
-        }
-
-        // Try xclip (X11)
-        if let Ok(mut child) = Command::new("xclip")
-            .args(["-selection", "clipboard"])
-            .stdin(Stdio::piped())
-            .spawn()
-        {
-            if let Some(mut stdin) = child.stdin.take() {
-                if stdin.write_all(text.as_bytes()).is_ok() {
-                    drop(stdin);
-                    if child.wait().is_ok() {
-                        return Ok(());
-                    }
-                }
-            }
+    // Fallback to arboard (works well on macOS/Windows)
+    if let Ok(mut clipboard) = arboard::Clipboard::new() {
+        if clipboard.set_text(text).is_ok() {
+            return Ok(());
         }
     }
 

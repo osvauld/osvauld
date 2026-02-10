@@ -162,32 +162,32 @@ fn test_permit_edge_cases() {
 
 #[test]
 fn test_static_layers() {
-    // Shop owner
+    // Shop owner — static_layers returns bare names (no page_id/ prefix)
     let owner = shop_owner("shop123", "did:key:owner");
     let owner_layers = owner.static_layers("shop123", "did:key:owner");
-    assert!(owner_layers.contains(&"shop123/products".to_string()));
-    assert!(owner_layers.contains(&"shop123/drafts".to_string()));
+    assert!(owner_layers.contains(&"products".to_string()));
+    assert!(owner_layers.contains(&"drafts".to_string()));
     assert!(owner_layers.contains(&"app:Shop".to_string()));
     assert!(!owner_layers.iter().any(|l| l.contains("orders")));
 
     // Booking customer
     let customer = booking_customer("biz123", "did:key:customer");
     let customer_layers = customer.static_layers("biz123", "did:key:customer");
-    assert!(customer_layers.contains(&"biz123/schedule".to_string()));
-    assert!(customer_layers.contains(&"biz123/blocked".to_string()));
-    assert!(customer_layers.contains(&"biz123/drafts".to_string()));
-    assert!(customer_layers.contains(&"biz123/derived/calendar".to_string()));
+    assert!(customer_layers.contains(&"schedule".to_string()));
+    assert!(customer_layers.contains(&"blocked".to_string()));
+    assert!(customer_layers.contains(&"drafts".to_string()));
+    assert!(customer_layers.contains(&"derived/calendar".to_string()));
 
-    // Shop customer: {aud} expands to static
+    // Shop customer: {aud} expands to static (bare name)
     let shop_cust = shop_customer("shop123", "did:key:customer1");
     let shop_cust_layers = shop_cust.static_layers("shop123", "did:key:customer1");
-    assert!(shop_cust_layers.contains(&"shop123/orders/did:key:customer1".to_string()));
+    assert!(shop_cust_layers.contains(&"orders/did:key:customer1".to_string()));
 
     // Collaborative
     let collab = collab_collaborator("doc1", "did:key:collab");
     let collab_layers = collab.static_layers("doc1", "did:key:collab");
-    assert!(collab_layers.contains(&"doc1/canvas".to_string()));
-    assert!(collab_layers.contains(&"doc1/shapes".to_string()));
+    assert!(collab_layers.contains(&"canvas".to_string()));
+    assert!(collab_layers.contains(&"shapes".to_string()));
     assert!(collab_layers.contains(&"app:Canvas".to_string()));
 }
 

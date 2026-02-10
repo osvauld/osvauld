@@ -228,14 +228,34 @@ async fn handle_start(
     let node_runtime = Arc::new(NodeRuntimeManager::new(butler.clone()));
 
     // Spawn task to auto-start node runtime when pages are opened
+    //
+    // **Context**: App layers (containing init.lua, node.lua) arrive via SyncOffer
+    // AFTER the page is opened. First attempt may fail because apps().list() is empty.
+    // We retry a few times with delay to wait for app layers to sync.
     let node_runtime_for_task = node_runtime.clone();
     tokio::spawn(async move {
         while let Some(page_id) = page_opened_rx.recv().await {
             info!(page_id = %page_id, "Page opened, starting node runtime");
-            if let Err(e) = node_runtime_for_task.start_node_for_page(&page_id).await {
-                // Not all pages have node scripts, so this is expected to fail sometimes
-                debug!(page_id = %page_id, error = %e, "Failed to start node runtime (may be expected)");
-            }
+            let runtime = node_runtime_for_task.clone();
+            let pid = page_id.clone();
+            tokio::spawn(async move {
+                for attempt in 0..10u32 {
+                    match runtime.start_node_for_page(&pid).await {
+                        Ok(()) => {
+                            info!(page_id = %pid, attempt, "Node runtime started");
+                            return;
+                        }
+                        Err(e) => {
+                            if attempt < 9 {
+                                debug!(page_id = %pid, attempt, error = %e, "Node runtime not ready, retrying");
+                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            } else {
+                                warn!(page_id = %pid, error = %e, "Failed to start node runtime after retries");
+                            }
+                        }
+                    }
+                }
+            });
         }
     });
 

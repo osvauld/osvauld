@@ -308,15 +308,13 @@ pub async fn prepare_page_for_viewer(
             continue;
         }
 
-        // NEW: Filter by viewer's permit patterns
+        // Filter by viewer's permit patterns
         // Only send layers the viewer has access to sync
-        // Note: get_all_layers returns layer names WITHOUT page_id prefix,
-        // but permit patterns use {page_id}/layer_name format
-        let full_layer_name = format!("{}/{}", page_id, layer_name);
-        if !gurkha::can_access_layer(&viewer_permit_parsed, &full_layer_name, "sync") {
+        // can_access_layer accepts bare names (strips page_id/ prefix internally)
+        if !gurkha::can_access_layer(&viewer_permit_parsed, &layer_name, "sync") {
             tracing::debug!(
-                "Filtering out layer '{}' (full: '{}') - viewer {} doesn't have sync access",
-                layer_name, full_layer_name, viewer_did
+                "Filtering out layer '{}' - viewer {} doesn't have sync access",
+                layer_name, viewer_did
             );
             continue;
         }

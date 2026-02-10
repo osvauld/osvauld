@@ -17,7 +17,7 @@
 
 use tracing::{debug, error, info, trace, warn, instrument};
 
-use crate::message::Message;
+use crate::message::*;
 use transport::Connection;
 
 use super::super::guards::require_auth;
@@ -28,12 +28,11 @@ impl<C: Connection> PeerActor<C> {
     /// Handle incoming SyncOffer from peer (Step 1)
     ///
     /// **Context**: Peer has a layer update with their state vector
-    /// **Peer sends**: SyncOffer with page_id, layer_name, encrypted data, state_vector, permit
-    /// **We verify**: Permit is valid
+    /// **Peer sends**: SyncOffer with page_id, layer_name, encrypted data, state_vector
     /// **We decrypt**: ECDH with ephemeral_public + our encryption key
     /// **We apply**: Via Scribe.ApplyUpdateWithResult (handles merge)
     /// **We respond**: SyncAccept with our state vector after applying (only if successful)
-    #[instrument(skip(self, myself, state, data, their_state_vector, ephemeral_public, permit), fields(page_id = %page_id, layer_name = %layer_name))]
+    #[instrument(skip(self, myself, state, data, their_state_vector, ephemeral_public), fields(page_id = %page_id, layer_name = %layer_name))]
     pub(in crate::peer_actor) async fn on_sync_offer(
         &self,
         myself: ractor::ActorRef<super::super::PeerMessage>,
@@ -42,7 +41,6 @@ impl<C: Connection> PeerActor<C> {
         data: &[u8],
         their_state_vector: &[u8],
         ephemeral_public: &[u8; 32],
-        permit: &str,
         state: &mut PeerActorState<C>,
     ) {
         let (peer_did, _) = match require_auth(&state.state) {
@@ -80,8 +78,8 @@ impl<C: Connection> PeerActor<C> {
         // For Node mode: Ensures can_write() can check viewer's write permissions
         // For User mode: Ensures node gets subscribed to viewer's scribe for bidirectional sync
         if !state.page_subscriptions.contains_key(page_id) {
-            info!("Auto-subscribing peer {} to page {} with permit from SyncOffer", peer_did, page_id);
-            self.subscribe_to_page(myself.clone(), page_id, permit, state).await;
+            info!("Auto-subscribing peer {} to page {} from SyncOffer", peer_did, page_id);
+            self.subscribe_to_page(myself.clone(), page_id, "", state).await;
         }
 
         // Get Scribe via Butler and apply update
@@ -99,7 +97,7 @@ impl<C: Connection> PeerActor<C> {
             layer_name: layer_name.to_string(),
             update: decrypted_data,
             from_peer: Some((peer_did.clone(), peer_device_id.clone())),
-            permit: Some(permit.to_string()),
+            permit: None,
             reply: reply_tx,
         }) {
             error!("Failed to send ApplyUpdateWithResult to Scribe: {}", e);
@@ -145,11 +143,11 @@ impl<C: Connection> PeerActor<C> {
         };
 
         // Send SyncAccept with our state vector
-        let msg = Message::SyncAccept {
+        let msg = Message::SyncAccept(SyncAcceptMsg {
             page_id: page_id.to_string(),
             layer_name: layer_name.to_string(),
             state_vector: our_state_vector.clone(),
-        };
+        });
 
         self.send_message(&msg, state).await;
         debug!(
@@ -230,11 +228,11 @@ impl<C: Connection> PeerActor<C> {
                     page_id, layer_name
                 );
 
-                let msg = Message::SyncAck {
+                let msg = Message::SyncAck(SyncAckMsg {
                     page_id: page_id.to_string(),
                     layer_name: layer_name.to_string(),
                     state_vector: our_current_vector,
-                };
+                });
                 self.send_message(&msg, state).await;
 
                 // Update Scribe's in-memory vector cache (persistence via periodic flush)
@@ -264,11 +262,11 @@ impl<C: Connection> PeerActor<C> {
                         page_id, layer_name
                     );
 
-                    let msg = Message::SyncAck {
+                    let msg = Message::SyncAck(SyncAckMsg {
                         page_id: page_id.to_string(),
                         layer_name: layer_name.to_string(),
                         state_vector: our_current_vector,
-                    };
+                    });
                     self.send_message(&msg, state).await;
 
                     // Update Scribe's in-memory vector cache (persistence via periodic flush)
@@ -292,10 +290,10 @@ impl<C: Connection> PeerActor<C> {
                             MAX_RESYNC_ATTEMPTS, page_id, layer_name
                         );
 
-                        let msg = Message::SyncReset {
+                        let msg = Message::SyncReset(SyncResetMsg {
                             page_id: page_id.to_string(),
                             layer_name: layer_name.to_string(),
-                        };
+                        });
                         self.send_message(&msg, state).await;
                         return;
                     }
@@ -354,19 +352,20 @@ impl<C: Connection> PeerActor<C> {
                         key,
                         super::super::PendingSyncOffer {
                             our_state_vector: our_current_vector.clone(),
-                            permit: offer.permit.clone(),
+                            permit: String::new(),
                             resync_attempts: new_attempts,
                         },
                     );
 
-                    let msg = Message::SyncOffer {
+                    let layer_name_owned = layer_name.to_string();
+                    let msg = Message::SyncOffer(SyncOfferMsg {
                         page_id: page_id.to_string(),
-                        layer_name: layer_name.to_string(),
+                        layer_type: LayerType::from_layer_name(&layer_name_owned),
+                        layer_name: layer_name_owned,
                         data: encrypted_data,
                         state_vector: our_current_vector,
                         ephemeral_public,
-                        permit: offer.permit,
-                    };
+                    });
                     self.send_message(&msg, state).await;
                 }
             }
@@ -415,7 +414,7 @@ impl<C: Connection> PeerActor<C> {
         state.pending_sync_offers.remove(&key);
 
         // Check if this is an assets layer sync - trigger asset fetch for missing blobs
-        if layer_name.ends_with("/assets") {
+        if layer_name == "assets" || layer_name.ends_with("/assets") {
             self.trigger_asset_sync_after_layer_sync(page_id, layer_name, state).await;
         }
     }
@@ -525,13 +524,15 @@ impl<C: Connection> PeerActor<C> {
         };
 
         // Send SyncSnapshot
-        let msg = Message::SyncSnapshot {
+        let layer_name_owned = layer_name.to_string();
+        let msg = Message::SyncSnapshot(SyncSnapshotMsg {
             page_id: page_id.to_string(),
-            layer_name: layer_name.to_string(),
+            layer_type: LayerType::from_layer_name(&layer_name_owned),
+            layer_name: layer_name_owned,
             snapshot: encrypted_snapshot,
             state_vector,
             ephemeral_public,
-        };
+        });
         self.send_message(&msg, state).await;
 
         info!(

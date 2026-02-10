@@ -152,9 +152,9 @@ pub fn test_broadcast_payload(page_id: &str, layer_name: &str) -> BroadcastPaylo
     BroadcastPayload {
         page_id: page_id.to_string(),
         layer_name: layer_name.to_string(),
+        layer_type: domains::LayerType::from_layer_name(layer_name),
         update: vec![1, 2, 3, 4], // Dummy update bytes
         state_vector: vec![0, 0, 0, 1], // Dummy state vector
-        permit: None,
     }
 }
 
@@ -168,9 +168,9 @@ pub fn broadcast_payload_with_data(
     BroadcastPayload {
         page_id: page_id.to_string(),
         layer_name: layer_name.to_string(),
+        layer_type: domains::LayerType::from_layer_name(layer_name),
         update,
         state_vector,
-        permit: None,
     }
 }
 

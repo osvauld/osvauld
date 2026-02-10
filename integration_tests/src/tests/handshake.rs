@@ -1,89 +1,92 @@
-//! Protocol handshake tests (Real Network - IrohConnection)
+//! Handshake protocol tests
 //!
-//! Tests the handshake flows using real Iroh transport.
-//! For fast protocol tests, see protocol_handshake.rs (MockConnection).
-
-use std::time::Duration;
+//! - INV-H1: Owner first connection succeeds with valid permit
+//! - INV-H2: Owner reconnection uses upgraded permit (not first_connection)
+//! - INV-H3: Invalid permit is rejected
 
 use anyhow::Result;
 
-use crate::peer::IrohPeer;
-use crate::scenario::{init_tracing, HANDSHAKE_TIMEOUT};
-use courier::coordinator::CourierMode;
-use transport::MockBlobStore;
+use crate::fixtures::init_tracing;
+use crate::scenario::Scenario;
 
-/// Test owner first connection handshake (real network)
-///
-/// **Flow**:
-/// 1. Owner and node connect via Iroh transport
-/// 2. Handshake with first_connection permit
-/// 3. Both sides authenticate
+/// Owner first connection — handshake completes, OwnerInfo stored on node
 #[tokio::test]
 async fn test_owner_first_connection() -> Result<()> {
     init_tracing();
-    let blobs = MockBlobStore::new();
 
-    let mut owner = IrohPeer::new("owner", CourierMode::User, blobs.clone()).await?;
-    let mut node = IrohPeer::new("node", CourierMode::Node, blobs.clone()).await?;
+    let mut s = Scenario::builder()
+        .owner()
+        .node()
+        .connected()
+        .with_tracer()
+        .build()
+        .await?;
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    let conn_string = node.butler.nodes().generate_connection_string(None).await?;
-    let sovereign = owner.butler.nodes().add(&conn_string)
-        .map_err(|e| anyhow::anyhow!("add_sovereign_node failed: {}", e))?;
-    let permit = sovereign.permit.expect("Connection string should have permit");
-
-    owner.connect_to(&node).await?;
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    owner.handshake(node.node_id, permit)?;
-
-    let (_, peer_username_seen_by_owner) = owner.wait_authenticated(HANDSHAKE_TIMEOUT).await?;
-    let (_, peer_username_seen_by_node) = node.wait_authenticated(HANDSHAKE_TIMEOUT).await?;
-
-    assert_eq!(peer_username_seen_by_owner, "node");
-    assert_eq!(peer_username_seen_by_node, "owner");
-
-    let owner_info = node.butler.nodes().get_owner()?
-        .expect("Node should have owner info");
+    // Verify OwnerInfo stored on node
+    let owner_info = s.node().butler.nodes().get_owner()?.expect("Node should have owner info");
     assert_eq!(owner_info.username, "owner");
-    assert!(owner_info.permit.is_some());
 
-    owner.shutdown().await;
-    node.shutdown().await;
+    // Verify protocol message sequence
+    s.tracer().assert_contains_sequence(&["Hello", "Welcome", "PermitGrant", "Ack"]);
 
+    s.shutdown().await;
     Ok(())
 }
 
-/// Test owner reconnection permit upgrade (real network)
+/// Owner reconnection — permit is upgraded (not first_connection)
 #[tokio::test]
-async fn test_owner_reconnection() -> Result<()> {
+async fn test_owner_reconnection_permit() -> Result<()> {
     init_tracing();
-    let blobs = MockBlobStore::new();
 
-    let mut owner = IrohPeer::new("owner", CourierMode::User, blobs.clone()).await?;
-    let mut node = IrohPeer::new("node", CourierMode::Node, blobs.clone()).await?;
+    let mut s = Scenario::builder()
+        .owner()
+        .node()
+        .connected()
+        .build()
+        .await?;
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    let conn_string = node.butler.nodes().generate_connection_string(None).await?;
-    let sovereign = owner.butler.nodes().add(&conn_string)
-        .map_err(|e| anyhow::anyhow!("add_sovereign_node: {}", e))?;
-    let first_permit = sovereign.permit.clone().expect("Should have permit");
-
-    owner.connect_to(&node).await?;
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    owner.handshake(node.node_id, first_permit)?;
-
-    owner.wait_authenticated(HANDSHAKE_TIMEOUT).await?;
-    node.wait_authenticated(HANDSHAKE_TIMEOUT).await?;
-
-    let updated_sovereign = owner.butler.nodes().get(&node.node_id.to_string())
+    // Get permit from DB (simulates app restart)
+    let node_id_str = s.node().node_id.to_string();
+    let updated = s
+        .owner()
+        .butler
+        .nodes()
+        .get(&node_id_str)
         .map_err(|e| anyhow::anyhow!("get_sovereign_node: {}", e))?
         .expect("Should have sovereign node");
-    let reconnect_permit = updated_sovereign.permit.expect("Should have permit for reconnect");
+    let reconnect_permit = updated.permit.expect("Should have permit for reconnect");
 
+    // Verify permit is upgraded
     let parsed = gurkha::Permit::from_token(&reconnect_permit)?;
-    assert!(!parsed.is_first_connection(), "Reconnection permit should not be first_connection");
+    assert!(
+        !parsed.is_first_connection(),
+        "Reconnection permit should not be first_connection"
+    );
+
+    s.shutdown().await;
+    Ok(())
+}
+
+/// Invalid permit is rejected — connection fails
+#[tokio::test]
+async fn test_invalid_permit_rejected() -> Result<()> {
+    init_tracing();
+
+    let blobs = transport::MockBlobStore::new();
+    let mut owner =
+        crate::peer::Peer::new("owner", courier::coordinator::CourierMode::User, blobs.clone(), None).await?;
+    let node =
+        crate::peer::Peer::new("node", courier::coordinator::CourierMode::Node, blobs, None).await?;
+
+    owner.connect_to(&node)?;
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+    owner.handshake(node.node_id, "invalid_garbage_permit".to_string())?;
+
+    let result = owner
+        .wait_authenticated(crate::fixtures::MOCK_TIMEOUT)
+        .await;
+    assert!(result.is_err(), "Invalid permit should fail authentication");
 
     owner.shutdown().await;
     node.shutdown().await;
