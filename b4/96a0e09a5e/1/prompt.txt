@@ -1,0 +1,1067 @@
+check the diff on whats happening we were in the middle of implmenting custom channels and layer discovery using sync meta. check the integraiton test in layer_sync we have tests that confirm upto the fanout of sync meta, now we need to make sure that other peers are also getting it. also deeply analyze the changes we have done untill now and report what can be removed and whats dead code or can be improved or is just plain terrible code.
+
+---
+
+<task-notification>
+<task-id>a6b128f</task-id>
+<status>completed</status>
+<summary>Agent "Analyze full git diff" completed</summary>
+<result>Now I have all the information needed. Here is the comprehensive analysis.
+
+---
+
+# Comprehensive Diff Analysis: `feature/coordinator-refactor` Branch
+
+## 1. GURKHA (Permit Parse + Validate)
+
+### What Changed
+
+**Major conceptual shift**: `layer_patterns` (regex-like glob patterns for matching dynamic layers at check time) have been replaced with `dynamic_layer_schemas` (structured schema definitions with grant type and role-based permissions). This is a cleaner model -- patterns were brittle and required per-check expansion, whereas schemas carry all the information needed for permit issuance.
+
+Key additions in `/home/abe/osvauld/gurkha/src/parser/mod.rs`:
+- `DynamicLayerSchema` struct with `layer_type`, `grant: GrantType`, `permissions: Option<LayerConfig>`, `role_permissions: HashMap<String, LayerConfig>`
+- `GrantType` enum: `Role` (shared channels, role-gated) vs `Explicit` (private/DMs, authority-driven)
+- `resolve_page_id_in_facts()` -- resolves `{page_id}` placeholders in layer keys at permit signing time rather than check time
+- `matches_schema_pattern()` for validating layer paths against schemas
+- `PeerCapabilities` gains `manage_layer_access: bool`
+- `Permit` gains `dynamic_layer_schemas()` accessor
+
+Key additions in `/home/abe/osvauld/gurkha/src/decision/layer.rs`:
+- Complete rewrite. Old `expand_pattern_with_iss()` and `matches_layer_pattern()` removed.
+- New `can_access_with_layer_permits()` -- two-tier check (page permit then layer permits)
+- `matches_dynamic_schema_for_role()`, `matches_creator_schema()`, `matches_dynamic_path()`, `matches_dynamic_path_any_did()`
+- `check_operation()` helper for permission checks
+
+Key additions in `/home/abe/osvauld/gurkha/src/service.rs`:
+- `issue_layer_permit()` -- node issues layer-scoped permit to viewer
+- `issue_layer_authority_permit()` -- creator issues authority to node for a specific layer
+- `reissue_permit_with_layers()` -- merges new dynamic layers into an existing page permit
+- `issue_sync_layer_consent()` -- viewer issues consent to node for layer sync
+
+Key additions in `/home/abe/osvauld/gurkha/src/decision/consent.rs`:
+- `decide_sync_layer_consent()` for layer-level consent verification
+
+### Issues Found
+
+1. **`_our_did` parameter now unused**: In `should_sync_layer()` (line 1041) and `static_layers()` (line 1109) of `/home/abe/osvauld/gurkha/src/parser/mod.rs`, the `_our_did` parameter is prefixed with underscore, meaning it is no longer used. The old pattern-matching code needed it for DID expansion. The callers still pass it. This parameter should be removed from the API rather than silently suppressed.
+
+2. **All proptest tests removed**: `/home/abe/osvauld/gurkha/src/decision/sync.rs` and `/home/abe/osvauld/gurkha/src/decision/layer.rs` have lost all property-based tests. They are replaced with fixture-based tests, which is fine for correctness but loses the fuzzing coverage that proptest provided. This is a tradeoff worth noting.
+
+3. **`decide_sync_layer_consent()` TODO**: In `/home/abe/osvauld/gurkha/src/decision/sync.rs` line 89: `// TODO: Implement simple permit-based logic in Phase 4`. This function currently always returns `Ok(())` -- it is a no-op stub that passes everything through.
+
+4. **`resolve_page_id_in_facts()` duplicated across crate boundary**: This function exists in gurkha's parser but is also called from `gurkha/src/test_fixtures.rs` with a new `resolve_aud_in_layers()` helper. The test fixture layer resolution logic feels like it could drift from the real code.
+
+---
+
+## 2. BUTLER (Storage + Services)
+
+### What Changed
+
+**New storage tables**: Four new tables in `/home/abe/osvauld/butler/src/storage/store/mod.rs`:
+- `LAYER_PERMITS` -- per-page, per-audience, per-layer permit tokens
+- `DYNAMIC_LAYER_META` -- metadata about dynamic layers (creator, schema, timestamp)
+- `VIEWER_LAYER_CONSENTS` -- viewer-issued consent for layer sync
+- `LAYER_AUTHORITY_PERMITS` -- creator-to-node authority permits for explicit grant layers
+
+**New file**: `/home/abe/osvauld/butler/src/storage/store/dynamic_layer.rs` -- CRUD for all four tables.
+
+**`ButlerPermitIssuer`** in `/home/abe/osvauld/butler/src/scribe_storage.rs` (lines 19-123):
+- Implements `scribe::PermitIssuer` trait
+- Holds signing key, node permit token, page ID, store reference
+- Uses `futures::executor::block_on()` in two methods (lines 52, 104)
+
+**`capture_tx` plumbing** in `/home/abe/osvauld/butler/src/lib.rs`:
+- `RwLock<Option<broadcast::Sender<String>>>` on Butler
+- `set_capture_tx()` method
+- `build_scribe_args()` creates `ButlerPermitIssuer` and passes `capture_tx`
+
+**Page service changes** in `/home/abe/osvauld/butler/src/services/page_service.rs`:
+- `create_page()` now creates `__sync_meta/{owner_did}` layer with bootstrap entries
+- Owner permit issuance moved earlier in the flow
+
+**Publish filter** in `/home/abe/osvauld/butler/src/services/publish_service.rs`:
+- Filters `__sync_meta/` layers during publish (they are pairwise, not for viewers)
+
+### Issues Found
+
+1. **`futures::executor::block_on()` in async context** (KNOWN, from MEMORY.md): `/home/abe/osvauld/butler/src/scribe_storage.rs` lines 52 and 104. This is called from within `PermitIssuer` trait methods which are sync (`fn` not `async fn`), but the callers run inside tokio tasks. `block_on` inside a tokio runtime will panic if called on a tokio thread that hasn't entered the runtime. This works in practice because the PermitIssuer is called from ractor actor `handle` methods which run on the tokio runtime's blocking pool, but it's fragile. The same pattern appears at lines 260, 264 of the same file.
+
+2. **`_layer_cache` parameter is dead code**: In `/home/abe/osvauld/butler/src/lib.rs` lines 103 and 122, the `_layer_cache: Arc<RwLock<LayerCache>>` parameter is stored but never used. The underscore prefix hides the warning. This parameter should either be removed or put to use.
+
+3. **New `PermitsApi` methods lack `#[instrument]`**: The new methods in `/home/abe/osvauld/butler/src/api/permits.rs` (`list_page_permits`, `reissue_all_page_permits`, `store_layer_permit`, `get_layer_permits`, etc.) do not have `#[instrument]` annotations, violating the CLAUDE.md policy. This is consistent with the pre-existing issue noted in MEMORY.md -- Butler has zero `#[instrument]` annotations broadly.
+
+4. **`store_layer_authority_permit()` compound key construction**: The storage code creates compound keys by concatenating `{page_id}:{layer_name}:{audience}`. If any of these values contain `:`, the key becomes ambiguous and could collide. Layer names with DIDs (like `channels/did:key:alice/general/messages`) contain colons. This is a real bug -- keys like `page1:channels/did:key:alice/general:did:key:bob` are ambiguous.
+
+---
+
+## 3. COURIER (P2P Orchestration)
+
+### What Changed
+
+**New wire protocol messages** in `/home/abe/osvauld/courier/src/message.rs`:
+- `LayerPermitMsg` (tag `0x0205`) -- node sends layer permit to viewer
+- `LayerConsentGrantMsg` (tag `0x0502`) -- viewer sends consent back to node
+- `LayerConsentAckMsg` (tag `0x0503`) -- node acks consent
+- `SyncOfferMsg` gains `authority_permit: Option<String>` field for piggybacking
+
+**Coordinator** in `/home/abe/osvauld/courier/src/coordinator/mod.rs`:
+- New `CoordinatorMessage` variants: `DistributeLayerPermits`, `DistributePagePermitUpdates`
+- `capture_tx` threaded through for observability
+
+**PeerActor consent flow** in `/home/abe/osvauld/courier/src/peer_actor/consent.rs`:
+- `send_layer_permit()` -- node sends LayerPermitMsg to viewer
+- `on_layer_permit()` -- viewer receives, stores, authorizes on Scribe, auto-issues consent
+- `issue_layer_consent()` -- viewer creates consent permit and sends
+- `on_layer_consent_grant()` -- node receives consent, stores, acks
+- `on_layer_consent_ack()` -- viewer receives ack (currently just logs)
+
+**Sync meta bootstrap** in `/home/abe/osvauld/courier/src/peer_actor/publish.rs`:
+- `bootstrap_and_send_sync_meta_for_page()` (~160 lines) -- viewer creates sync-meta layer with entries for all sync-enabled layers, sends as SyncOffer
+
+**Protocol extensions** in `/home/abe/osvauld/courier/src/peer_actor/sync/protocol.rs`:
+- `fanout_sync_meta_from_authority()` -- node writes sync-meta entries for recipients
+- `request_missing_layers_from_sync_meta()` -- peer reads sync-meta, sends SyncReset for missing layers
+- `authority_schema_for_layer()` -- looks up schema from bundled authority permit
+- SyncReset/SyncSnapshot now bidirectional (not just Node->User)
+- `on_sync_offer()` processes bundled `authority_permit`
+
+**Capture/observability** in `/home/abe/osvauld/courier/src/peer_actor/mod.rs`:
+- `send_message()` and `handle_message()` emit to capture channel
+- `notify_authenticated()` emits `peer_identity` capture event
+
+### Issues Found
+
+1. **`bootstrap_and_send_sync_meta_for_page()` is ~160 lines**: `/home/abe/osvauld/courier/src/peer_actor/publish.rs` lines 35-170+. This function has deeply nested error handling with many early returns. The pattern is: cast a Scribe message, await the oneshot, check for errors, repeat for the next step. This should be decomposed into smaller functions, but more critically, every step uses `warn!` + `return` on failure, meaning partial state is left behind with no cleanup.
+
+2. **`#![recursion_limit = "256"]`**: `/home/abe/osvauld/courier/src/lib.rs` line 1. This was added to work around macro expansion depth (likely from ractor or serde). It masks complexity -- the deeply nested generic types in PeerActor are pushing the compiler's limits.
+
+3. **`DEFAULT_LAYER_CONSENT_TEMPLATE` is a hardcoded string literal**: In `/home/abe/osvauld/courier/src/peer_actor/consent.rs`, the consent template is an inline JSON string. This should be a const or loaded from the permit template system for consistency.
+
+4. **Tag numbering gap**: Layer consent tags use `0x0502` and `0x0503` while layer permit uses `0x0205`. The numbering is not systematic -- `0x0205` is in the `02xx` range (existing), while `0x0502`/`0x0503` jump to the `05xx` range. Not a bug, but makes the protocol harder to reason about.
+
+5. **`MessageTrace` gains fields but no migration path**: `ts`, `page_id`, `layer_name` are added to `MessageTrace` in `/home/abe/osvauld/courier/src/trace.rs`. All existing trace sites now need to populate these. If any are missed, they will be `None`/empty, which is fine for optional fields but means the trace data is inconsistent.
+
+6. **`authority_permit` on SyncOffer is stringly-typed**: The entire permit token (a JWT-like string) is piggybacked on the SyncOffer wire message. This means every sync offer carries potentially kilobytes of redundant data for layers that don't need authority permits. There is no compression or deduplication.
+
+---
+
+## 4. SCRIBE (CRDT Document Actor)
+
+### What Changed
+
+**`LayerUnit` abstraction**: New file `/home/abe/osvauld/scribe/src/layer_unit/mod.rs` (282 lines). Consolidates per-layer state: `Layer` (LoroDoc), `dirty: bool`, `is_local_only: bool`, `is_dynamic: bool`, `loro_sub: Option<Subscription>`, `authorized_dids: Arc<RwLock<HashSet<String>>>`. This is a clean refactor that eliminates the scattered `dirty_layers`, `local_only_layers`, and `loro_subscriptions` HashMaps from `ScribeState`.
+
+**Dynamic layer management**: New file `/home/abe/osvauld/scribe/src/layer_unit/dynamic.rs` (803 lines). Contains:
+- `handle_create_dynamic_layer()` -- Lua-facing layer creation
+- `handle_add_layer_access()` -- grant access to a DID for an explicit layer
+- `handle_remove_layer_access()` -- **stub that returns error** ("deprecated; rotate/revoke authority permits instead")
+- `find_matching_dynamic_schema()` -- schema pattern matching for incoming layers
+- `prepare_layer_permits()` -- determines recipients and issues permits
+- `validate_creator_namespace()` -- security check that creator DID is in layer path
+- `generate_dynamic_path()` -- schema to path expansion
+- `issue_creator_layer_authority_permits()` -- creator issues authority permits at creation time
+- Good test coverage (8 tests)
+
+**`PermitIssuer` trait**: New in `/home/abe/osvauld/scribe/src/storage.rs`. Five methods: `issue_layer_permit()`, `list_layer_authority_permits_for_audience()`, `get_layer_authority_permit()`, `has_layer_access_permit()`, `issue_layer_authority_permit()`. Also `NullPermitIssuer` for testing.
+
+**`ScribeState` changes** in `/home/abe/osvauld/scribe/src/state.rs`:
+- `layers` renamed to `units` (HashMap<String, LayerUnit>)
+- Removed: `dirty_layers`, `local_only_layers`, `loro_subscriptions`
+- Added: `permit_issuer`, `capture_tx`, `capture_seq`, `pending_layer_authorizations`
+- Seven `emit_*_capture()` methods (lines 397-620+) for observability
+- `track_new_sync_layer_in_meta()` -- writes to `__sync_meta/` when a new sync layer appears
+- `is_protocol_sync_meta_layer()` -- checks if a layer name is protocol-reserved
+
+**`Permissions::can_write`** in `/home/abe/osvauld/scribe/src/permit.rs`:
+- New path 4: dynamic_layer_schemas role check
+- `__sync_meta/` special-cased for write permission
+- `can_receive` removed (replaced by `LayerUnit.authorized_dids`)
+
+**Subscription changes** in `/home/abe/osvauld/scribe/src/sync/subscription.rs`:
+- `authorize_subscriber_for_layers()` -- populates LayerUnit.authorized_dids at subscribe time
+- `issue_pending_layer_permits()` -- node issues layer permits to newly subscribed peers
+- `send_initial_state_to_subscriber()` uses `unit.is_authorized()` instead of old permit checks
+
+**Broadcast/reconcile** in `/home/abe/osvauld/scribe/src/sync/broadcast.rs` and `reconcile.rs`:
+- Uses `unit.authorized_dids()` for filtering instead of `info.can_receive_layer()`
+
+### Issues Found
+
+1. **Seven `emit_*_capture()` methods are copy-paste duplicates**: In `/home/abe/osvauld/scribe/src/state.rs` lines 397-620+, every method follows the identical pattern:
+   ```rust
+   if let Some(ref tx) = self.capture_tx {
+       let ts = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+       if let Ok(json) = serde_json::to_string(&serde_json::json!({...})) {
+           let _ = tx.send(json);
+       }
+   }
+   ```
+   This is ~30 lines of boilerplate per method. A single `emit_capture(&self, type_name: &str, extra: serde_json::Value)` helper would eliminate all duplication.
+
+2. **`can_receive_layer` is NOT dead code**: Despite the session summary saying "`Permissions::can_receive` was removed (marked `#[allow(dead_code)]`)," it actually still exists on `SubscriberInfo` at `/home/abe/osvauld/scribe/src/state.rs` line 168 and is called from `scribe/src/sync/apply.rs` line 350. It was renamed/moved but is still in use. However, `Permissions::can_receive` on the old `Permissions` struct in `permit.rs` was removed. This is a source of confusion -- two different `can_receive` methods existed.
+
+3. **`handle_remove_layer_access()` is a stub**: In `/home/abe/osvauld/scribe/src/layer_unit/dynamic.rs` lines 483-496, this function accepts `layer_name` and `did` parameters, immediately discards them with `let _ = layer_name; let _ = did;`, and returns `Err("RemoveLayerAccess is deprecated...")`. The `ScribeMessage::RemoveLayerAccess` variant still exists and routes to this function. This is dead infrastructure -- the message variant should be removed or the function should be implemented.
+
+4. **`pending_layer_authorizations` unbounded HashMap**: In `/home/abe/osvauld/scribe/src/state.rs`, `pending_layer_authorizations: HashMap<String, Vec<String>>` accumulates DID strings for layers that haven't been created yet. There is no eviction or size limit. If a peer repeatedly requests access to non-existent layers, this grows unboundedly.
+
+5. **`is_dynamic` is `pub` directly**: In `/home/abe/osvauld/scribe/src/layer_unit/mod.rs` line 30, `pub is_dynamic: bool` breaks the encapsulation that the rest of the struct maintains (all other fields are private with accessor methods). Line 237 in the test uses `unit.is_dynamic = true` directly.
+
+6. **TODO comments in loro_observer.rs**:
+   - Line 97: `// TODO: Could track old values if needed`
+   - Line 168: `// TODO: Implement text delta conversion when needed`
+   - Line 247: `// TODO: In future, Lua bindings should check permission before allowing write`
+
+7. **TODO in query.rs**:
+   - Line 146: `// TODO: Compute incremental diffs for Insert/Update/Remove`
+   - Line 250: `// TODO: Replace with Rune-based filter evaluation`
+
+---
+
+## 5. OTHER CRATES
+
+### logging_utils
+- Cargo.toml and lib.rs changes (not fully read but appear to be dependency/feature updates for the capture system)
+
+### kunki (Always-on Node)
+- `capture_tx` integration in `/home/abe/osvauld/kunki/src/main.rs` and `/home/abe/osvauld/kunki/src/control_server.rs`
+- Node now passes capture channel through to Courier
+
+### sthalam (Desktop App)
+- `capture_tx` integration in `/home/abe/osvauld/sthalam/src/main.rs`, `control_server.rs`, `setup.rs`
+- Desktop app also passes capture channel
+
+### integration_tests
+- `/home/abe/osvauld/integration_tests/src/tests/layer_sync.rs` -- expanded test suite (8 tests for static channels, dynamic layers, custom channels)
+- `/home/abe/osvauld/integration_tests/src/peer.rs` -- updated for new APIs
+
+### app_test
+- `/home/abe/osvauld/app_test/src/multi_peer.rs` -- multi-peer test runner changes
+- `/home/abe/osvauld/app_test/src/runner.rs` -- test runner updates
+- `/home/abe/osvauld/app_test/tests/test_group_chat.rs` -- group chat test changes
+
+### sample_apps
+- `/home/abe/osvauld/sample_apps/osvauld-demos/permit_template.json` and `sample_apps/my-shop/permit_template.json` -- `layer_patterns` replaced with `dynamic_layer_schemas`
+- Group chat app (`sample_apps/osvauld-demos/group-chat/`) -- Lua and Slint changes for channels, sidebar, DMs
+
+### scripts
+- `/home/abe/osvauld/scripts/osvauld/scenario.py` and `client.py` -- major test orchestration additions
+
+### e2e_tests
+- `/home/abe/osvauld/e2e_tests/test_chat.py` -- updated
+- New: `/home/abe/osvauld/e2e_tests/test_custom_channel.py` (untracked)
+
+---
+
+## 6. STALE ARTIFACTS AND DEAD CODE
+
+1. **`.entire/` directory** at repo root: `/home/abe/osvauld/.entire/` contains settings, tmp files, and logs. This appears to be an IDE/tool artifact (possibly "Entire" AI tool). Contains 11 files. Should be gitignored.
+
+2. **`test_presence.py`** at repo root: `/home/abe/osvauld/test_presence.py` -- standalone test script, not in any test directory.
+
+3. **`query_presence.py`** at repo root: `/home/abe/osvauld/query_presence.py` -- standalone query script, not in any test directory.
+
+4. **`scripts/test_remote_connect.py`**: `/home/abe/osvauld/scripts/test_remote_connect.py` (untracked) -- appears to be a one-off test.
+
+5. **`docs/QUALITY_ANALYSIS.md`** and **`docs/OBSERVABILITY.md`**: Untracked documentation files, likely generated during this refactor.
+
+6. **`_layer_cache` dead parameter** in Butler (mentioned above).
+
+7. **`_our_did` dead parameter** in gurkha `should_sync_layer()` and `static_layers()` (mentioned above).
+
+8. **`handle_remove_layer_access()`** is a deliberate stub/tombstone (mentioned above).
+
+9. **No `.bak` files found** -- the previously noted `dst_sync.rs.bak` from MEMORY.md appears to have been cleaned up already.
+
+---
+
+## 7. OVERALL FEATURE FLOW: Sync Meta / Custom Channels / Layer Discovery
+
+The feature implements a three-tier dynamic layer system on top of the existing static layer model. Here is the end-to-end flow:
+
+### Layer Creation (Viewer Side)
+1. Lua app calls `scribe:create_layer("channels/{id}/messages", "general")` 
+2. Scribe's `handle_create_dynamic_layer()` validates the schema key exists in the permit's `dynamic_layer_schemas`
+3. Generates full path: `channels/{creator_did}/{layer_id}/messages`
+4. Creates `LayerUnit` with `is_dynamic = true`
+5. Writes entry to `__sync_meta/{our_did}` layer (tracking what we sync)
+6. Issues creator layer authority permits to all current subscribers (step 5 in dynamic.rs line 71)
+7. Layer syncs to node via normal SyncOffer/SyncAccept/SyncAck
+
+### Layer Detection (Node Side)
+1. Node receives layer data via sync protocol
+2. `create_layer_from_peer()` in `sync/apply.rs` calls `find_matching_dynamic_schema()` to check if the new layer matches a dynamic schema
+3. If matched, `emit_dynamic_layer_permits()` calls `prepare_layer_permits()` to determine recipients
+4. For `GrantType::Role`: all peers with matching roles get layer permits
+5. For `GrantType::Explicit`: only peers with authority permits get layer permits
+6. Permits emitted as `SyncEvent::NewDynamicLayer` to Coordinator
+
+### Permit Distribution (Coordinator)
+1. Coordinator receives `DistributeLayerPermits` message
+2. Stores permits in Butler (`store_layer_permit`)
+3. Sends `SendLayerPermit` to each target PeerActor
+4. PeerActor sends `LayerPermitMsg` over the wire
+
+### Permit Receipt (Viewer Side)
+1. Viewer receives `LayerPermitMsg`
+2. `on_layer_permit()` stores permit in Butler, authorizes DID on local Scribe
+3. Auto-issues layer consent back to node (`issue_layer_consent()`)
+4. Node receives consent, stores, sends ack
+
+### Sync Meta Protocol
+1. Owner creates page -> `page_service.rs` creates `__sync_meta/{owner_did}` with bootstrap entries for all sync-enabled layers
+2. Viewer joins -> `bootstrap_and_send_sync_meta_for_page()` creates `__sync_meta/{viewer_did}` and sends as SyncOffer
+3. Node processes sync-meta -> `fanout_sync_meta_from_authority()` writes sync-meta entries for other recipients
+4. Viewer reads sync-meta -> `request_missing_layers_from_sync_meta()` sends SyncReset for layers it doesn't have
+
+### Authority Permit Piggybacking
+1. When building SyncOffer for explicit layers, `subscription.rs` looks up `get_layer_authority_permit()`
+2. Authority permit token is added to `SyncOfferMsg.authority_permit`
+3. Node processes bundled authority via `on_sync_offer()` -> `authority_schema_for_layer()`
+
+---
+
+## 8. STRUCTURAL CONCERNS (Cross-Cutting)
+
+1. **Capture system adds ~300 lines of observability boilerplate to Scribe alone**, plus plumbing in Butler, Courier, and both entry points (kunki, sthalam). The capture system is pre-serialized JSON lines sent over a broadcast channel. It is useful for debugging but significantly increases code surface area. A macro or trait-based approach would reduce this.
+
+2. **Two different "can receive" checks coexist**: `SubscriberInfo::can_receive_layer()` (page-permit-based, used at subscribe time for initial authorization) and `LayerUnit.authorized_dids` (runtime-maintained, used for broadcast filtering). The migration is incomplete -- `can_receive_layer` populates `authorized_dids`, which then becomes the source of truth. This two-source-of-truth approach could lead to inconsistencies if one path is updated without the other.
+
+3. **Compound key collision risk**: Butler's storage uses `:` as a separator in compound keys, but layer names contain `did:key:` prefixes with colons. A composite key like `page1:channels/did:key:alice/gen:did:key:bob` is ambiguous -- is the audience `did:key:bob` or `key:bob`?
+
+4. **Error handling in courier publish.rs swallows partial state**: `bootstrap_and_send_sync_meta_for_page()` does many sequential steps (EnsureLoroMap, MapInsert, GetSnapshot, GetStateVector, encrypt, send). Each step returns early on error with `warn!` + `return`, but earlier writes (like MapInsert) are not rolled back. This leaves sync-meta in a partially written state.
+
+5. **`futures::executor::block_on` appears 8 times** across the codebase. This is concentrated in `butler/src/scribe_storage.rs` (4x) and `lua_runtime/src/scribe_handle.rs` (3x) plus `butler/src/services/app_service.rs` (1x). Each call site risks a panic if the tokio runtime context changes. The `PermitIssuer` trait should have async methods, with synchronous wrappers only at the boundary.
+
+6. **Unbounded pending state**: Both `pending_layer_authorizations` (Scribe) and the existing `pending_*` HashMaps in PeerActor have no eviction policy. These grow indefinitely if expected events never arrive.</result>
+<usage>total_tokens: 56199
+tool_uses: 46
+duration_ms: 414210</usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-abe-osvauld/tasks/a6b128f.output
+
+---
+
+can you make sure the dynamic role granted one works, we changed the flow, previously we had the data in in a meta layer and we used that to sync with each other, we have moved away from that and currently uses protocol exclusive sync_meta layer.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. User's first message: Asked to check the diff on what's happening, they were in the middle of implementing custom channels and layer discovery using sync meta. They mentioned integration tests in layer_sync confirm up to fanout of sync meta, and now need to make sure other peers are getting it. Also asked for deep analysis of changes - dead code, improvements, terrible code.
+
+2. My approach: I launched a background agent to analyze the full git diff, while simultaneously reading the integration test file and key implementation files.
+
+3. Files read:
+- integration_tests/src/tests/layer_sync.rs (full file, 2226 lines, 23 tests)
+- scribe/src/sync/subscription.rs (400 lines)
+- scribe/src/state.rs (625 lines)
+- scribe/src/message.rs (677 lines)
+- scribe/src/permit.rs (453 lines)
+- scribe/src/sync/broadcast.rs (130 lines)
+- scribe/src/layer_unit/mod.rs (282 lines)
+- scribe/src/layer_unit/dynamic.rs (803 lines)
+- scribe/src/operations.rs (263 lines)
+- scribe/src/sync/apply.rs (600 lines)
+- scribe/src/sync/mod.rs (121 lines)
+- courier/src/peer_actor/sync/protocol.rs (offset 1-400)
+- courier/src/peer_actor/sync/subscription.rs (full file)
+- Grep for sync_meta in courier and scribe/src/actor.rs
+
+4. I provided a comprehensive analysis covering:
+- The sync-meta flow
+- Integration test status (what's confirmed vs what's next)
+- 10 critical code quality issues
+- Stale artifacts
+- Architectural observations
+- Summary of what's needed
+
+5. Background agent completed with additional findings:
+- Compound key collision bug in Butler storage
+- 8 instances of futures::executor::block_on
+- Proptest coverage removed
+- decide_sync_layer_consent() is a no-op stub
+- Partial state on error in bootstrap_and_send_sync_meta_for_page
+
+6. User's second message: "can you make sure the dynamic role granted one works, we changed the flow, previously we had the data in a meta layer and we used that to sync with each other, we have moved away from that and currently uses protocol exclusive sync_meta layer."
+
+This is asking me to verify the dynamic role-granted channel flow works with the new sync_meta protocol. They note the flow changed from using a meta layer to using the protocol-exclusive __sync_meta layer.
+
+7. My response to second message: I launched integration tests in background while reading more courier code:
+- courier/src/peer_actor/sync/protocol.rs (on_sync_offer, lines 260-410)
+- courier/src/peer_actor/sync/subscription.rs (full file, subscribe_to_page, handle_broadcast_received)
+
+The tests are still running in background (agent a0a1e72).
+
+Current state: Waiting for integration tests to complete to verify the dynamic role-granted flow works.
+
+Key flow for role-granted dynamic channels:
+1. Owner creates dynamic layer via CreateDynamicLayer
+2. track_new_sync_layer_in_meta() writes __sync_meta/{our_did}[layer] = {synced: false, version: 1}
+3. issue_creator_layer_authority_permits() issues authority permits to subscribers
+4. Layer data syncs to node via SyncOffer (with authority_permit piggybacked)
+5. Node's on_sync_offer() stores authority permit, calls fanout_sync_meta_from_authority()
+6. Node's emit_dynamic_layer_permits() via create_layer_from_peer detects schema match, issues permits
+7. Node broadcasts layer data + permit to viewer
+8. Viewer receives layer permit, authorizes on local Scribe
+9. Viewer's sync-meta gets updated, request_missing_layers_from_sync_meta() fires
+
+The tests that verify this: test_dynamic_layer_syncs_to_viewer (test 9), test_required_viewer_receives_new_dynamic_layer_after_subscribe (test 13), test_custom_channel_data_syncs_to_viewer (test 14)
+
+Summary:
+1. Primary Request and Intent:
+   - **First request**: Check the diff on what's happening with custom channels and layer discovery using sync meta. The integration tests in layer_sync confirm up to fanout of sync meta, need to make sure other peers are also getting it. Also deeply analyze all changes for dead code, removable code, improvements needed, and terrible code.
+   - **Second request**: "can you make sure the dynamic role granted one works, we changed the flow, previously we had the data in a meta layer and we used that to sync with each other, we have moved away from that and currently uses protocol exclusive sync_meta layer." — Verify the dynamic role-granted channel flow works end-to-end with the new `__sync_meta/` protocol layer approach.
+
+2. Key Technical Concepts:
+   - **Sync Meta Protocol**: Each peer has a `__sync_meta/{did}` Loro map layer that tracks which sync-enabled layers exist and their sync state (`{synced: bool, version: u64}`). This replaced an older "meta layer" approach.
+   - **Dynamic Layer Schemas**: `dynamic_layer_schemas` in permit templates define patterns like `channels/{id}/messages` with `grant: Role|Explicit` and `role_permissions`.
+   - **Two grant types**: `Role` (shared channels — auto-issued to all peers with matching roles) vs `Explicit` (DMs — requires `add_layer_access()` per participant with authority permits).
+   - **LayerUnit abstraction**: New per-layer compute unit consolidating LoroDoc, dirty flag, local_only, is_dynamic, observer, and `authorized_dids: Arc<RwLock<HashSet<String>>>`.
+   - **Authority permit piggybacking**: Creator issues authority permits at `CreateDynamicLayer` time, these get bundled on `SyncOfferMsg.authority_permit` field when syncing to node.
+   - **Fanout flow**: Node receives authority permit → `fanout_sync_meta_from_authority()` writes `__sync_meta/{recipient}[layer] = {synced:false}` → this syncs to viewer → viewer's `request_missing_layers_from_sync_meta()` sends SyncReset for missing layers.
+   - **Capture/observability system**: ~300 lines of `emit_*_capture()` methods for pre-serialized JSON line observability.
+
+3. Files and Code Sections:
+   - **`integration_tests/src/tests/layer_sync.rs`** (2226 lines, 23 tests)
+     - Full test suite for layer sync. Tests 1-13 cover static channels, dynamic layers, sync-meta bootstrap/fanout. Tests 14-23 cover custom channels, DM flows, explicit grant paths.
+     - Key helper: `expected_sync_layers_from_permit()` derives expected sync layers from a permit, filtering out `__sync_meta/` layers.
+     - Key helper: `assert_sync_meta_entries()` validates sync-meta JSON has expected layer entries with `synced=true, version=1`.
+     - Tests critical for verifying the role-granted flow: `test_dynamic_layer_syncs_to_viewer` (line 544), `test_required_viewer_receives_new_dynamic_layer_after_subscribe` (line 813), `test_custom_channel_data_syncs_to_viewer` (line 934).
+
+   - **`scribe/src/sync/subscription.rs`** (400 lines)
+     - `handle_subscribe()`: Parses permit, extracts DID, stores subscriber, calls `authorize_subscriber_for_layers()`, sends initial state, calls `issue_pending_layer_permits()`.
+     - `authorize_subscriber_for_layers()` (line 159): Iterates all LayerUnits, authorizes subscriber based on `__sync_meta/` namespace match, presence rules, `no_incoming_updates`, and `can_read_layer()`.
+     - `issue_pending_layer_permits()` (line 318): Node mode only — lists authority permits for subscriber, issues missing layer permits, emits `SyncEvent::LayerAccessChanged`.
+     - `authority_layer_config()` (line 382): Extracts LayerConfig from authority token.
+
+   - **`scribe/src/state.rs`** (625 lines)
+     - `ScribeState` with `units: HashMap<String, LayerUnit>`, `permit_issuer`, `capture_tx`, `pending_layer_authorizations`.
+     - `track_new_sync_layer_in_meta()` (line 352): Creates/updates `__sync_meta/{our_did}` with new layer entry `{synced: false, version: 1}`.
+     - 8 `emit_*_capture()` methods (lines 397-624) — copy-paste pattern for observability.
+     - `SubscriberInfo::can_receive_layer()` (line 168) — appears to be dead code now.
+
+   - **`scribe/src/layer_unit/mod.rs`** (282 lines)
+     - `LayerUnit`: `layer: Layer`, `dirty: bool`, `is_local_only: bool`, `pub is_dynamic: bool`, `loro_sub: Option<Subscription>`, `authorized_dids: Arc<RwLock<HashSet<String>>>`.
+     - Methods: `authorize_did()`, `revoke_did()`, `is_authorized()`, dirty tracking, observer lifecycle.
+
+   - **`scribe/src/layer_unit/dynamic.rs`** (803 lines)
+     - `handle_create_dynamic_layer()` (line 19): Validates schema, generates DID-namespaced path, creates LayerUnit, authorizes all current subscribers, sets up observer, issues creator authority permits.
+     - `generate_dynamic_path()` (line 163): `channels/{id}/messages` → `channels/{did}/{layer_id}/messages`.
+     - `find_matching_dynamic_schema()` (line 282): Segment-by-segment matching of layer paths against schemas.
+     - `prepare_layer_permits()` (line 194): Role-granted → issue to peers with matching roles; Explicit → issue only from authority permits.
+     - `issue_creator_layer_authority_permits()` (line 76): At creation time, issues authority permits to all current subscribers based on schema role_permissions.
+     - `handle_add_layer_access()` (line 363): For explicit grant — validates capability, finds authority permit, issues layer permit, emits LayerAccessChanged.
+     - `handle_remove_layer_access()` (line 483): **Stub** that returns error "deprecated".
+
+   - **`scribe/src/sync/apply.rs`** (600 lines)
+     - `handle_apply_update()`: Normalizes layer name, builds UpdateContext, applies core, handles post-apply.
+     - `emit_dynamic_layer_permits()` (line 462): Node-side — detects dynamic schema match, validates creator namespace, collects peers with roles, calls `prepare_layer_permits()`, authorizes recipients on LayerUnit, emits `SyncEvent::NewDynamicLayer`.
+     - `create_layer_from_peer()` (line 337): Creates LayerUnit, authorizes existing subscribers, applies pending authorizations, sets up observer.
+     - Dead code block at lines 488-492: `if let Some(unit) = state.units.get(layer_name) { let _ = unit; }`.
+
+   - **`scribe/src/sync/broadcast.rs`** (130 lines)
+     - `broadcast_update()`: Uses `unit.authorized_dids()` read once before subscriber loop (replaces old `can_receive_layer()` check).
+
+   - **`scribe/src/permit.rs`** (453 lines)
+     - `Permissions::can_write()`: 4 paths — subscriber permit, sync_target, stored permit, dynamic_layer_schemas role check.
+     - `__sync_meta/` special-cased: peer can write to `__sync_meta/{their_did}`.
+     - `Permissions::is_local_only()` (line 166): Hardcoded to `layer_name == "user_content_doc"` — misleading.
+
+   - **`courier/src/peer_actor/sync/protocol.rs`** (read lines 1-410)
+     - `is_sync_meta_layer()` (line 29): Checks `__sync_meta/` prefix.
+     - `authority_schema_for_layer()` (line 34): Duplicate of `find_matching_dynamic_schema` in scribe.
+     - `fanout_sync_meta_from_authority()` (line 77): Determines recipients (explicit peers or role-based), writes `__sync_meta/{recipient}[layer] = {synced:false, version:1}`.
+     - `request_missing_layers_from_sync_meta()` (line 167): Reads sync-meta JSON, finds layers with `synced=false` that don't exist locally, sends SyncReset.
+     - `on_sync_offer()` (line 262): Processes bundled authority permit, calls fanout, applies update, triggers sync-meta processing.
+
+   - **`courier/src/peer_actor/sync/subscription.rs`** (373 lines)
+     - `subscribe_to_page()`: Node mode uses stored page permit; User mode uses local permit.
+     - `handle_broadcast_received()` (line 295): Encrypts broadcast, looks up `get_layer_authority_permit()` for piggybacking on SyncOffer.
+
+   - **`scribe/src/message.rs`** (677 lines)
+     - `SyncEvent::NewDynamicLayer` and `SyncEvent::LayerAccessChanged` — both carry `permits: Vec<(String, String)>` for ready-to-send permits.
+     - `ScribeMessage::CreateDynamicLayer`, `AddLayerAccess`, `RemoveLayerAccess`, `AuthorizeLayerSubscriber`.
+
+4. Errors and fixes:
+   - No code errors encountered during this session. Analysis was read-only.
+   - Identified issues:
+     - Compound key collision bug in Butler storage (`:` separator conflicts with DIDs)
+     - `futures::executor::block_on()` in 8 places (sync-in-async)
+     - 8 copy-paste `emit_*_capture()` methods
+     - `SubscriberInfo::can_receive_layer()` dead code
+     - `handle_remove_layer_access()` stub
+     - `Permissions::is_local_only()` hardcoded
+     - Dead code block in apply.rs:488-492
+     - Duplicate `find_matching_dynamic_schema` logic between scribe and courier
+
+5. Problem Solving:
+   - Provided comprehensive analysis of the sync-meta flow, identifying what's confirmed by tests vs what needs work.
+   - Identified that role-granted channels should work (tests 9, 12, 13 confirm), while explicit/DM channels need `add_layer_access()` per participant.
+   - Currently running integration tests to verify the dynamic role-granted flow works after the protocol change.
+
+6. All user messages:
+   - "check the diff on whats happening we were in the middle of implmenting custom channels and layer discovery using sync meta. check the integraiton test in layer_sync we have tests that confirm upto the fanout of sync meta, now we need to make sure that other peers are also getting it. also deeply analyze the changes we have done untill now and report what can be removed and whats dead code or can be improved or is just plain terrible code."
+   - "can you make sure the dynamic role granted one works, we changed the flow, previously we had the data in in a meta layer and we used that to sync with each other, we have moved away from that and currently uses protocol exclusive sync_meta layer."
+
+7. Pending Tasks:
+   - **Verify dynamic role-granted channel flow works**: Integration tests launched in background (agent a0a1e72), waiting for results.
+   - **Ensure "other peers are also getting it"**: The viewer receiving dynamic layer data via the sync_meta protocol path needs end-to-end verification.
+
+8. Current Work:
+   The user asked to "make sure the dynamic role granted one works" with the new `__sync_meta/` protocol. I launched integration tests (`cargo test --package integration_tests -- layer_sync --nocapture`) in background agent a0a1e72. I also read `courier/src/peer_actor/sync/protocol.rs` (on_sync_offer handling, authority permit processing, fanout_sync_meta_from_authority) and `courier/src/peer_actor/sync/subscription.rs` (subscribe_to_page, handle_broadcast_received with authority permit piggybacking) to trace the full flow.
+
+   The critical path for role-granted dynamic channels is:
+   1. Owner `CreateDynamicLayer` → `issue_creator_layer_authority_permits()` → authority permits stored
+   2. Layer data SyncOffer to node with `authority_permit` piggybacked
+   3. Node `on_sync_offer()` stores authority, calls `fanout_sync_meta_from_authority()` (writes `__sync_meta/{viewer}`)
+   4. Node `create_layer_from_peer()` → `emit_dynamic_layer_permits()` → `prepare_layer_permits()` with Role grant
+   5. Permits distributed via `SyncEvent::NewDynamicLayer` → Coordinator → PeerActor → viewer
+   6. Viewer's `__sync_meta` gets updated → `request_missing_layers_from_sync_meta()` → SyncReset
+
+9. Optional Next Step:
+   Wait for integration test results from background agent a0a1e72. Based on results:
+   - If tests pass: confirm the role-granted flow works and report to user.
+   - If tests fail: analyze failure output, trace the broken step in the flow, and fix the issue.
+   
+   User's exact request: "can you make sure the dynamic role granted one works, we changed the flow, previously we had the data in in a meta layer and we used that to sync with each other, we have moved away from that and currently uses protocol exclusive sync_meta layer."
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically trace through this conversation carefully.
+
+**Initial Context (from previous session summary):**
+The user had two requests:
+1. Check the diff, analyze changes for dead code/improvements, report on custom channels and layer discovery using sync meta
+2. "can you make sure the dynamic role granted one works, we changed the flow, previously we had the data in a meta layer and we used that to sync with each other, we have moved away from that and currently uses protocol exclusive sync_meta layer."
+
+Previous session found 6 failing integration tests (19 passed, 6 failed):
+- test_custom_channel_data_syncs_to_viewer
+- test_dm_offline_participant_receives_layer_on_subscribe
+- test_dm_owner_created_layer_visible_to_online_participant
+- test_dynamic_layer_syncs_to_viewer
+- test_offline_viewer_gets_layer_on_subscribe_via_authority_permit
+- test_required_viewer_receives_new_dynamic_layer_after_subscribe
+
+**This session's actions:**
+
+1. Retrieved test results from background agent (a0a1e72) - confirmed 19 passed, 6 failed
+
+2. Launched an Explore agent to trace the dynamic layer sync failure. The agent returned a comprehensive analysis identifying:
+   - Gap #1: Authority permit not piggybacked (owner has no permit_issuer)
+   - Gap #2: Fanout only on Node mode
+   - Gap #3: Role determination in fanout
+   - Gap #4: Missing sync-meta entry on viewer
+   - Gap #5: Timeout waiting for layer data
+   - Most likely root cause identified as authority permit not being stored/piggybacked
+
+3. User responded: "yes that is to be expected, we have changed it we need to make the test pass by making the relevant changes, we confirmed that the fanout is working right."
+
+   This is critical user feedback:
+   - The 6 failures are EXPECTED with the current code
+   - CODE CHANGES are needed (not test changes) 
+   - The fanout IS confirmed working
+   - They need to make relevant changes to make tests pass
+
+4. I then read extensively through the codebase to trace the full flow:
+
+**Files read in detail:**
+- `integration_tests/src/tests/layer_sync.rs` (lines 540-1226) - failing test details
+- `courier/src/peer_actor/sync/protocol.rs` (lines 1-460) - on_sync_offer, fanout_sync_meta_from_authority, request_missing_layers_from_sync_meta
+- `scribe/src/operations.rs` (full file, 263 lines) - ensure_layer_exists, handle_map_insert
+- `scribe/src/sync/broadcast.rs` (full file, 130 lines) - broadcast_update
+- `scribe/src/sync/subscription.rs` (full file, 400 lines) - handle_subscribe, authorize_subscriber_for_layers, send_initial_state_to_subscriber, issue_pending_layer_permits
+- `scribe/src/state.rs` (lines 1-400) - ScribeState, SubscriberInfo, track_new_sync_layer_in_meta, should_sync_layer
+- `scribe/src/sync/apply.rs` (lines 1-600) - handle_apply_update, apply_update_core, create_layer_from_peer, emit_dynamic_layer_permits, collect_connected_peers_with_roles
+- `scribe/src/layer_unit/dynamic.rs` (lines 19-357) - handle_create_dynamic_layer, issue_creator_layer_authority_permits, prepare_layer_permits, find_matching_dynamic_schema
+- `scribe/src/permit.rs` (full file, 453 lines) - Permissions::can_write
+- `courier/src/coordinator/mod.rs` (lines 580-700) - on_distribute_layer_permits
+- `courier/src/peer_actor/consent.rs` (lines 470-600) - on_layer_permit, issue_layer_consent
+- `scribe/src/loro_observer.rs` (full file, 559 lines) - setup_layer_observer, observer broadcast logic
+- `integration_tests/src/fixtures.rs` (lines 57-97) - wait_for_layer_data, wait_until
+- `sample_apps/osvauld-demos/permit_template.json` (full file, 855 lines) - role_permissions config
+
+**Key findings from tracing:**
+
+The flow for dynamic layer sync (owner → node → viewer):
+
+1. Owner creates dynamic layer via `CreateDynamicLayer` → `handle_create_dynamic_layer()` in `dynamic.rs`
+   - Creates LayerUnit, authorizes all subscribers (node), sets up observer
+   - `issue_creator_layer_authority_permits()` returns early because owner has NO `permit_issuer` (User mode)
+   - `track_new_sync_layer_in_meta()` creates/updates `__sync_meta/{owner_did}` 
+
+2. Owner's observer fires → broadcasts dynamic layer to node (node IS authorized)
+
+3. Node receives SyncOffer → `on_sync_offer()`:
+   - `authority_permit` is None (owner didn't piggyback it — no permit_issuer)
+   - Therefore `fanout_sync_meta_from_authority()` is NEVER called
+   - Applies update via `handle_apply_update()`
+   - `create_layer_from_peer()` creates layer, authorizes subscribers via `can_receive_layer()`
+   - `emit_dynamic_layer_permits()`:
+     - Finds matching dynamic schema
+     - Authorizes viewer on LayerUnit (line 517-526)
+     - Emits SyncEvent::NewDynamicLayer with permits
+   - `broadcast_update()` runs (remote updates) → viewer IS authorized → sends broadcast
+
+4. Viewer should receive via broadcast → PeerActor → SyncOffer → viewer's Scribe
+
+5. Viewer's Scribe applies → `can_write()` allows (node is sync_target, path 2)
+
+The observer in `loro_observer.rs` SKIPS peer broadcasts for remote updates (line 421: `if signal.from_peer.is_some() { continue; }`), deferring to `broadcast_update()` in apply.rs.
+
+The `broadcast_update()` at line 178 of handle_apply_update runs AFTER `emit_dynamic_layer_permits()`, so viewer should be authorized.
+
+Permit template shows `role_permissions` includes "collaborator" (which is the viewer's relationship per line 572 of permit_template.json). So `prepare_layer_permits()` should issue permits.
+
+**The flow theoretically should work.** But 6 tests fail with timeout. I was in the process of investigating WHY, after tracing through every code path and finding no obvious gap.
+
+Possible remaining issues I was considering:
+1. `ensure_layer_exists()` in `operations.rs` doesn't authorize subscribers when creating `__sync_meta/` layers (but this might not be the bottleneck since fanout isn't even called)
+2. Since `issue_creator_layer_authority_permits()` returns early on owner (no permit_issuer), no authority permits are created, no piggybacking happens, no `fanout_sync_meta_from_authority()` is called
+3. The `emit_dynamic_layer_permits()` + `broadcast_update()` path should deliver data directly, bypassing sync_meta entirely
+4. But something in this path is apparently not working
+
+I was about to consider running a single test with debug logging to find the actual failure point, as my code tracing suggests it SHOULD work but doesn't.
+
+Summary:
+1. Primary Request and Intent:
+   - **First request** (from prior session): Check the diff, analyze changes for dead code/improvements, report on custom channels and layer discovery using sync meta. Integration tests in layer_sync confirm up to fanout of sync meta, need to make sure other peers get it.
+   - **Second request** (from prior session): "can you make sure the dynamic role granted one works, we changed the flow, previously we had the data in a meta layer and we used that to sync with each other, we have moved away from that and currently uses protocol exclusive sync_meta layer."
+   - **User clarification** (this session): "yes that is to be expected, we have changed it we need to make the test pass by making the relevant changes, we confirmed that the fanout is working right."
+     - The 6 test failures are EXPECTED — code changes are needed to make them pass
+     - The fanout IS confirmed working
+     - The user wants CODE CHANGES, not test changes
+
+2. Key Technical Concepts:
+   - **Protocol-exclusive `__sync_meta/` layer**: Replaced old "meta layer" approach. Per-peer sync metadata layers (`__sync_meta/{did}`) managed at protocol level, not by Lua apps
+   - **Dynamic layer schemas**: `dynamic_layer_schemas` in permit templates define patterns like `channels/{id}/messages` with `grant: Role|Explicit` and `role_permissions`
+   - **Authority permit piggybacking**: Owner issues authority permits that get bundled on SyncOffer messages — BUT owner has no `permit_issuer` (User mode), so `issue_creator_layer_authority_permits()` returns early and NO authority permits are created
+   - **`fanout_sync_meta_from_authority()`**: Only triggered when authority_permit is present on SyncOffer AND mode is Node. Since no authority permit is piggybacked from owner, this is NEVER called
+   - **`emit_dynamic_layer_permits()`**: Node-side function that detects dynamic schema match, issues layer permits, authorizes viewer on LayerUnit, emits SyncEvent::NewDynamicLayer
+   - **Broadcast path**: Observer skips remote updates (`from_peer.is_some()` → skip), explicit `broadcast_update()` in `handle_apply_update()` handles remote broadcast with sender exclusion
+   - **`ensure_layer_exists()`**: Creates layers from local operations (MapInsert, etc.) but does NOT authorize existing subscribers
+   - **`create_layer_from_peer()`**: Creates layers from remote sync, DOES authorize existing subscribers via `can_receive_layer()`
+   - **`authorized_dids` on LayerUnit**: Controls broadcast filtering — subscribers must be in this set to receive broadcasts
+   - **`can_write()` 4-path check**: (1) subscriber permit, (2) sync_target, (3) stored permit, (4) dynamic_layer_schema role check
+   - **Viewer role**: Viewer's permit relationship is "collaborator" (line 572 of permit_template.json), which matches `role_permissions.collaborator` in schema
+
+3. Files and Code Sections:
+
+   - **`integration_tests/src/tests/layer_sync.rs`** (lines 540-1226)
+     - Contains the 6 failing tests. All involve dynamic layer sync to viewer.
+     - `test_dynamic_layer_syncs_to_viewer` (line 544): Owner creates dynamic layer, writes data, waits for node, then waits for viewer — viewer times out
+     - `test_required_viewer_receives_new_dynamic_layer_after_subscribe` (line 813): Error: `Timeout waiting for layer data: page=..., layer=channels/did:key:.../required-viewer/messages`
+     - `test_custom_channel_data_syncs_to_viewer` (line 934): Same pattern
+     - `test_offline_viewer_gets_layer_on_subscribe_via_authority_permit` (line 1034): Error: `Owner did not receive viewer reply on channels/did:key:.../late-subscriber/messages` — manually stores authority permit on node, viewer connects, tests round-trip
+     - Tests use `wait_for_layer_data()` which polls `butler.store().get_layer()` (redb storage) with timeout
+
+   - **`integration_tests/src/fixtures.rs`** (lines 77-97)
+     - `wait_for_layer_data()`: Polls butler store for layer data with 50ms interval, returns error on timeout
+
+   - **`scribe/src/operations.rs`** (full file, 263 lines)
+     - `ensure_layer_exists()` (line 22-32): Creates new LayerUnit, sets local_only, calls `track_new_sync_layer_in_meta()`, but does NOT authorize any subscribers. This is a key gap — when `fanout_sync_meta_from_authority()` writes `__sync_meta/{viewer_did}` via MapInsert, the viewer isn't authorized for broadcasts.
+     ```rust
+     fn ensure_layer_exists(state: &mut ScribeState, layer_name: &str) -> bool {
+         let is_new = !state.units.contains_key(layer_name);
+         if is_new {
+             let mut unit = LayerUnit::new_empty();
+             unit.set_local_only(!state.should_sync_layer(layer_name));
+             state.units.insert(layer_name.to_string(), unit);
+             state.track_new_sync_layer_in_meta(layer_name);
+             debug!(layer = %layer_name, "Created new layer");
+         }
+         is_new
+     }
+     ```
+     - `handle_map_insert()` (line 161-195): Uses `ensure_layer_exists()`, sets up observer for new layers
+
+   - **`scribe/src/sync/broadcast.rs`** (full file, 130 lines)
+     - `broadcast_update()`: Checks `unit.authorized_dids()` once before subscriber loop. Subscribers not in authorized set are skipped.
+
+   - **`scribe/src/sync/subscription.rs`** (full file, 400 lines)
+     - `authorize_subscriber_for_layers()` (line 159-199): Runs at subscribe time only. For `__sync_meta/` layers, authorizes the namespace-matching DID:
+     ```rust
+     if layer_name.starts_with("__sync_meta/") {
+         let did_in_layer = layer_name.trim_start_matches("__sync_meta/");
+         if user_did == did_in_layer || sync_target == Some(user_did) {
+             unit.authorize_did(user_did);
+         }
+         continue;
+     }
+     ```
+     - `send_initial_state_to_subscriber()` (line 239-311): Sends initial state including `__sync_meta/` layers (special-cased at line 291-292)
+     - `issue_pending_layer_permits()` (line 318-379): Node mode only — issues missing layer permits from authority permits
+
+   - **`scribe/src/state.rs`** (lines 100-400)
+     - `SubscriberInfo::can_receive_layer()` (line 168-185): Checks page permit only (not layer permits). Comment: "layer permits are now handled via LayerUnit.authorized_dids"
+     - `track_new_sync_layer_in_meta()` (line 352-384): Creates `__sync_meta/{our_did}` layer if new, writes `{synced: false, version: 1}` entry. Does NOT authorize subscribers.
+     - `should_sync_layer()` (line 336-345): Returns true for `__sync_meta/` layers
+
+   - **`scribe/src/sync/apply.rs`** (lines 1-600)
+     - `handle_apply_update()` (line 129-191): Main apply flow — order is: apply_update_core → handle_post_apply → emit_dynamic_layer_permits → update_sender_vector → broadcast_update
+     - `apply_update_core()` (line 199-267): Permission check, create_layer_from_peer if new, apply CRDT
+     - `create_layer_from_peer()` (line 337-375): Creates layer, authorizes subscribers via `can_receive_layer()`, applies pending authorizations, sets up observer
+     - `emit_dynamic_layer_permits()` (line 462-547): Finds matching schema, validates creator namespace, collects connected peers, calls `prepare_layer_permits()`, authorizes recipients on LayerUnit, emits SyncEvent::NewDynamicLayer
+
+   - **`scribe/src/layer_unit/dynamic.rs`** (lines 19-357)
+     - `handle_create_dynamic_layer()` (line 19-74): Owner-side creation. Authorizes all subscribers (line 59-66), sets up observer, calls `issue_creator_layer_authority_permits()` which returns early on User mode (no permit_issuer)
+     - `issue_creator_layer_authority_permits()` (line 76-139): Returns early if no `permit_issuer` (User mode)
+     - `prepare_layer_permits()` (line 194-276): For Role grants, issues permits to peers whose role matches `schema.role_permissions`
+     - `find_matching_dynamic_schema()` (line 282-338): Pattern matches layer path against schemas
+
+   - **`scribe/src/permit.rs`** (full file, 453 lines)
+     - `Permissions::can_write()` (line 185-291): 4-path check. Path 2 (sync_target) allows node to write to viewer's Scribe.
+
+   - **`courier/src/peer_actor/sync/protocol.rs`** (lines 1-460)
+     - `on_sync_offer()` (line 262-439): Processes authority_permit if present (stores, calls fanout), applies update
+     - `fanout_sync_meta_from_authority()` (line 77-164): Determines recipients by role or explicit peers, writes `__sync_meta/{recipient}[layer] = {synced: false}`
+     - `request_missing_layers_from_sync_meta()` (line 167-252): Reads sync-meta, finds synced=false entries, checks LayerExists, sends SyncReset for missing
+
+   - **`courier/src/peer_actor/sync/subscription.rs`** (lines 295-371)
+     - `handle_broadcast_received()`: Looks up authority_permit for piggybacking on SyncOffer via `get_layer_authority_permit()`
+
+   - **`courier/src/coordinator/mod.rs`** (lines 606-658)
+     - `on_distribute_layer_permits()`: Stores permits in butler, sends LayerPermitMsg to PeerActors
+
+   - **`courier/src/peer_actor/consent.rs`** (lines 476-600)
+     - `on_layer_permit()`: Stores permit, sends AuthorizeLayerSubscriber to local Scribe, issues consent back
+
+   - **`scribe/src/loro_observer.rs`** (full file, 559 lines)
+     - Observer skips peer broadcast for remote updates (line 421): `if signal.from_peer.is_some() { continue; }` — defers to explicit `broadcast_update()` in apply.rs
+     - `authorized_dids_for_task` captured as Arc (line 332) — live shared reference, updates visible
+
+   - **`sample_apps/osvauld-demos/permit_template.json`** (full file)
+     - `dynamic_layer_schemas.channels/{id}/messages`: grant=role, role_permissions includes owner, collaborator, viewer, node
+     - Viewer permit relationship: "collaborator" (line 572)
+
+4. Errors and Fixes:
+   - No code changes have been made yet — this has been a deep investigation phase
+   - 6 integration tests fail with timeout errors (expected per user)
+   - The Explore agent initially identified "authority permit not piggybacked" as root cause — this was confirmed as expected behavior by the user ("we confirmed that the fanout is working right" implies authority-permit-based fanout is NOT the path being used)
+
+5. Problem Solving:
+   - Traced the full dynamic layer sync flow through 12+ files
+   - Identified that `issue_creator_layer_authority_permits()` returns early on owner (no permit_issuer in User mode)
+   - Identified that `fanout_sync_meta_from_authority()` is never called because no authority permit is piggybacked
+   - Identified that `ensure_layer_exists()` doesn't authorize subscribers (gap for `__sync_meta/` layers)
+   - Traced the alternative path: `emit_dynamic_layer_permits()` → authorize viewer → `broadcast_update()` — this SHOULD work theoretically
+   - Still investigating why tests fail despite this path appearing correct
+   - The `broadcast_update()` runs AFTER `emit_dynamic_layer_permits()` authorizes the viewer, so viewer should be in authorized set
+
+6. All User Messages:
+   - (From prior session) "check the diff on whats happening we were in the middle of implementing custom channels and layer discovery using sync meta. check the integration test in layer_sync we have tests that confirm upto the fanout of sync meta, now we need to make sure that other peers are also getting it. also deeply analyze the changes we have done untill now and report what can be removed and whats dead code or can be improved or is just plain terrible code."
+   - (From prior session) "can you make sure the dynamic role granted one works, we changed the flow, previously we had the data in in a meta layer and we used that to sync with each other, we have moved away from that and currently uses protocol exclusive sync_meta layer."
+   - (This session) "yes that is to be expected, we have changed it we need to make the test pass by making the relevant changes, we confirmed that the fanout is working right."
+
+7. Pending Tasks:
+   - Make the 6 failing integration tests pass by implementing code changes
+   - The user confirmed fanout works and wants the downstream flow fixed so dynamic layer data reaches viewers
+   - Need to identify the exact code change needed and implement it
+
+8. Current Work:
+   Deep investigation of WHY dynamic layer data doesn't reach the viewer despite the `emit_dynamic_layer_permits()` → `broadcast_update()` path appearing correct. Was reading `find_matching_dynamic_schema()` in `scribe/src/layer_unit/dynamic.rs` (line 282-338) as the last file read.
+
+   The investigation traced the full flow and found that theoretically:
+   1. Node receives owner's dynamic layer → `create_layer_from_peer()` → `emit_dynamic_layer_permits()` authorizes viewer → `broadcast_update()` sends to viewer
+   2. This should deliver data without needing sync_meta/authority permits at all
+   
+   But tests still fail with timeout. Possible unexplored issues:
+   - `find_matching_dynamic_schema()` might not match (need to verify with actual layer names)
+   - `collect_connected_peers_with_roles()` might not include the viewer
+   - Some timing issue between emit/broadcast
+   - The viewer's PeerActor subscription might not be set up yet when the broadcast happens
+   
+   The user's statement "we confirmed that the fanout is working right" and "we need to make the test pass by making the relevant changes" suggests there ARE specific code changes needed. Given the user said they "changed the flow" to "protocol exclusive sync_meta", the changes likely involve:
+   - Ensuring `__sync_meta/` layers are properly broadcast (authorization in `ensure_layer_exists()`)
+   - OR adding a new protocol-level path for delivering sync_meta data to viewers
+   - OR triggering `request_missing_layers_from_sync_meta()` after viewer receives layer permit
+
+9. Optional Next Step:
+   Run a single failing test with debug/trace logging to identify the EXACT point of failure, since code tracing suggests the `emit_dynamic_layer_permits()` → `broadcast_update()` path should work. The next step is to determine whether:
+   1. `emit_dynamic_layer_permits()` is actually being called and producing permits
+   2. `broadcast_update()` is actually sending to the viewer
+   3. The viewer's PeerActor is receiving and forwarding the broadcast
+   
+   Alternatively, implement the `ensure_layer_exists()` fix for `__sync_meta/` authorization and any other needed changes, then run tests to see if they pass.
+
+   User's exact words: "yes that is to be expected, we have changed it we need to make the test pass by making the relevant changes, we confirmed that the fanout is working right."
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+<task-notification>
+<task-id>a0a1e72</task-id>
+<status>completed</status>
+<summary>Agent "Run layer_sync integration tests" completed</summary>
+<result>Here is the full summary of the integration test run.
+
+**Test Results: 19 passed, 6 failed** (out of 25 total, finished in 56.78s)
+
+### Passing Tests (19)
+- `test_static_channel_layer_syncs_to_viewer` -- ok
+- Plus 18 other tests that passed (their names were not individually printed due to `--nocapture` interleaving log output with results).
+
+### Failed Tests (6)
+
+1. **`test_custom_channel_data_syncs_to_viewer`**
+2. **`test_dm_offline_participant_receives_layer_on_subscribe`**
+3. **`test_dm_owner_created_layer_visible_to_online_participant`**
+4. **`test_dynamic_layer_syncs_to_viewer`**
+5. **`test_offline_viewer_gets_layer_on_subscribe_via_authority_permit`**
+   - Error: `Owner did not receive viewer reply on channels/did:key:REDACTED`
+6. **`test_required_viewer_receives_new_dynamic_layer_after_subscribe`**
+   - Error: `Timeout waiting for layer data: page=5513bda0-..., layer=channels/did:key:REDACTED`
+
+### Failure Pattern
+
+All 6 failures involve **dynamic layer sync** -- specifically channels with DID-namespaced layer paths (e.g., `channels/did:key:.../messages`). The errors are timeouts waiting for layer data to sync between peers or for peers to receive replies on dynamic channel layers. The one passing test (`test_static_channel_layer_syncs_to_viewer`) uses a static channel, confirming the issue is isolated to the dynamic layer / DID-namespaced channel flow.</result>
+<usage>total_tokens: 14191
+tool_uses: 6
+duration_ms: 95192</usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-abe-osvauld/tasks/a0a1e72.output
+
+---
+
+[Request interrupted by user]
+
+---
+
+lets do this lets run the e2e test for channel capture the events and analyze that. refer the channel test please.
+
+---
+
+[Request interrupted by user]
+
+---
+
+no integration tests test the new path, the old path needs to be removed, it used custom layers for synchronization , it should use the new paths for synchronisation. lets make the script test fail first, and lets also think about things that we can remove since we are removing this path.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me trace through this conversation chronologically:
+
+1. **Initial context from previous session**: The user had two requests:
+   - Check the diff, analyze changes for dead code/improvements, report on custom channels and layer discovery using sync meta
+   - Make sure dynamic role-granted layers work, noting the flow changed from meta layer to protocol-exclusive sync_meta layer
+   - Previous session found 6 failing integration tests (19 passed, 6 failed)
+
+2. **This session starts** with a continuation summary. The user's clarification was: "yes that is to be expected, we have changed it we need to make the test pass by making the relevant changes, we confirmed that the fanout is working right."
+
+3. **Deep investigation phase**: I read extensively through the codebase tracing the dynamic layer sync flow:
+   - `scribe/src/sync/apply.rs` - handle_apply_update, emit_dynamic_layer_permits, create_layer_from_peer, apply_update_core, UpdateContext
+   - `courier/src/peer_actor/sync/protocol.rs` - on_sync_offer, fanout_sync_meta_from_authority, request_missing_layers_from_sync_meta
+   - `scribe/src/state.rs` - SubscriberInfo::can_receive_layer, track_new_sync_layer_in_meta
+   - `scribe/src/sync/broadcast.rs` - broadcast_update
+   - `scribe/src/layer_unit/dynamic.rs` - handle_create_dynamic_layer, prepare_layer_permits, find_matching_dynamic_schema, generate_dynamic_path, authority_layer_config_and_intent
+   - `scribe/src/operations.rs` - ensure_layer_exists, handle_map_insert
+   - `scribe/src/loro_observer.rs` - observer broadcast logic
+   - `courier/src/peer_actor/sync/subscription.rs` - subscribe_to_page, handle_broadcast_received
+   - `integration_tests/src/tests/layer_sync.rs` - all 6 failing tests
+   - `integration_tests/src/peer.rs` - Peer struct, SyncEvent forwarding
+   - `integration_tests/src/fixtures.rs` - wait_for_layer_data
+
+4. **Built integration tests**: `cargo build --package integration_tests` succeeded.
+
+5. **Ran failing test**: `test_dynamic_layer_syncs_to_viewer` with debug logging. Found the timeout was on the NODE, not the viewer - the node was timing out waiting for the dynamic layer data.
+
+6. **User interrupt**: "so lets inspect what all is working. first then take a step by step approach"
+
+7. **User interrupt**: "we can also use the event capture with e2e test to get the correct events happening in all peers during when we add a dynamic/dm layer."
+
+8. **User interrupt**: "so why is this token so big?" (referring to the authority_permit in SyncOffer being very large)
+
+9. I found and read the e2e test: `e2e_tests/test_custom_channel.py`
+
+10. **Ran e2e test**: `python e2e_tests/test_custom_channel.py`
+    Results:
+    - **Custom channel (role-based): WORKS** - All 3 peers see 3 messages
+    - **DM (explicit grant): BROKEN** - Bob can't find Alice's DM, only Alice sees 1 message
+
+11. **Analyzed capture events**:
+    - Channel flow: `emit_dynamic_layer_permits()` works on node, issues `authorized_dynamic_permit` for bob/carol/alice, emits `SyncEvent::NewDynamicLayer`
+    - DM flow: All broadcast_decision are "skip" for DM layer on node - no viewer authorized
+
+12. **User asks**: "okay how does the dynamic channel work now, it shouldnt work right, is it using the older writing to a custom layer for this to work?"
+
+13. I analyzed the channel capture showing it works through `emit_dynamic_layer_permits()` (the new path)
+
+14. **User clarifies the key insight**: "no integration tests test the new path, the old path needs to be removed, it used custom layers for synchronization, it should use the new paths for synchronisation. lets make the script test fail first, and lets also think about things that we can remove since we are removing this path."
+
+15. I read `channels.lua` and `dms.lua` to understand the old path:
+    - channels.lua uses `channels_meta` static layer to store channel metadata including `layer_path` (the DID-namespaced dynamic path)
+    - Viewers discover channels by reading `channels_meta` to get the layer_path
+    - dms.lua uses `find_existing_dm_layer_path()` and `grant_participants()` for DM discovery
+
+16. I was about to make changes to `channels.lua` to remove the `channels_meta` dependency when the summary was requested.
+
+Key technical findings:
+- The e2e custom channel test works because of TWO things working together:
+  1. `channels_meta` static layer syncs channel metadata to viewers (OLD path - discovery)
+  2. `emit_dynamic_layer_permits()` on node detects dynamic schema match, issues permits, authorizes viewers, broadcasts data (NEW path - data delivery)
+- The integration tests fail at the NODE level (not viewer level) - the node times out waiting for the dynamic layer data
+- DMs fail because `grant: explicit` in the schema means `prepare_layer_permits()` only issues permits when authority permits exist, which they don't for the automatic path
+
+Files that are part of the "old path" to remove:
+- `channels_meta` layer: used in `channels.lua` for channel discovery
+- `dms_meta` layer: static layer for DM metadata
+- The `channels_meta_layer:set()` call in `create_channel()` that writes layer_path to channels_meta
+- `get_channel_layer_path()` function that reads from channels_meta
+
+Summary:
+1. Primary Request and Intent:
+   - **Original request**: Check the diff, analyze changes, make sure dynamic role-granted layers work. The flow changed from using a meta layer for sync to protocol-exclusive `__sync_meta/` layers.
+   - **User clarification**: The 6 failing integration tests are expected - code changes are needed. The fanout IS confirmed working. They need to make tests pass with relevant changes.
+   - **Current primary request**: "no integration tests test the new path, the old path needs to be removed, it used custom layers for synchronization, it should use the new paths for synchronisation. lets make the script test fail first, and lets also think about things that we can remove since we are removing this path."
+   - The user wants to: (1) Remove the old discovery/sync path that uses `channels_meta`/`dms_meta` static layers, (2) Make the e2e test (`test_custom_channel.py`) fail to expose the dependency, (3) Identify all removable code, (4) Eventually fix everything to use the new `__sync_meta/` protocol path.
+
+2. Key Technical Concepts:
+   - **Old sync path**: Uses `channels_meta` (static layer in permit template) to store channel metadata including `layer_path`. Viewers discover channels by reading this static layer. This syncs automatically because it's listed in the permit template's layers section.
+   - **New sync path**: Uses `__sync_meta/{did}` protocol layers for discovery. `emit_dynamic_layer_permits()` on the node detects dynamic schema matches, issues permits, authorizes recipients. The Coordinator distributes permits via `SyncEvent::NewDynamicLayer`.
+   - **Dynamic layer schemas**: `channels/{id}/messages` (grant: "role") and `dms/{id}/messages` (grant: "explicit") in permit_template.json
+   - **Role-based grants**: `prepare_layer_permits()` issues permits to all peers with matching roles from `role_permissions`
+   - **Explicit grants**: `prepare_layer_permits()` only issues permits when stored authority permits exist (for DMs)
+   - **`emit_dynamic_layer_permits()`**: Node-side function in `scribe/src/sync/apply.rs` that detects dynamic schema match when a layer is created from peer sync, issues layer permits, authorizes DIDs on LayerUnit
+   - **`track_new_sync_layer_in_meta()`**: Writes `__sync_meta/{our_did}[layer_name] = {synced: false}` when a new sync-enabled layer is created locally. Observer is set up AFTER the first commit (potential timing issue).
+   - **`fanout_sync_meta_from_authority()`**: Only called when authority_permit is present on SyncOffer AND mode is Node. Writes `__sync_meta/{viewer_did}` entries.
+   - **`request_missing_layers_from_sync_meta()`**: Called when node receives a `__sync_meta/` SyncOffer. Reads entries, finds synced=false, sends SyncReset for missing layers.
+
+3. Files and Code Sections:
+
+   - **`sample_apps/osvauld-demos/group-chat/channels.lua`** (full file read)
+     - THE KEY FILE for the old path. Contains `create_channel()` which writes to `channels_meta` static layer for discovery.
+     - `get_channel_layer_path()` (lines 44-55): Reads `channels_meta` to find DID-namespaced path for custom channels. Falls back to simple path if not found.
+     - `create_channel()` (lines 158-197): Creates dynamic layer via `scribe:create_layer()`, then writes metadata to `channels_meta_layer:set()` including `layer_path`. THIS IS THE OLD PATH TO REMOVE.
+     - `switch_channel()` (lines 130-156): Uses `get_channel_layer_path()` to determine layer path for a channel.
+
+   - **`sample_apps/osvauld-demos/group-chat/dms.lua`** (full file read)
+     - DM handling with explicit grants. Uses `find_existing_dm_layer_path()` via `scribe:list_layers()` for discovery.
+     - `create_dm()` (lines 98-139): Creates DM layer, calls `grant_participants()` for explicit access.
+     - `grant_participants()` (lines 85-96): Calls `scribe:add_layer_access()` for each participant.
+     - `open_dm()` (lines 142-170): Uses `find_existing_dm_layer_path()` to discover DM layers.
+
+   - **`e2e_tests/test_custom_channel.py`** (full file read)
+     - E2E test with event capture for custom channels and DMs. Uses `AppTestScenario` framework.
+     - CASE 1 (channels): Alice creates channel, sends message, Bob/Carol switch and send → ALL SEE 3 MESSAGES (WORKS)
+     - CASE 2 (DMs): Alice creates DM with Bob → Bob can't find DM, only Alice sees 1 message (BROKEN)
+
+   - **`scribe/src/sync/apply.rs`** (lines 1-600 read)
+     - `UpdateContext` (lines 36-93): Computed context for updates. `should_broadcast = is_remote`.
+     - `handle_apply_update()` (lines 128-192): Main flow: apply_update_core → handle_post_apply → emit_dynamic_layer_permits (if created_layer) → update_sender_vector → broadcast_update
+     - `apply_update_core()` (lines 198-267): Permission check, create_layer_from_peer if new, apply CRDT
+     - `create_layer_from_peer()` (lines 337-375): Creates layer, authorizes subscribers via `can_receive_layer()`, applies pending authorizations, sets up observer
+     - `emit_dynamic_layer_permits()` (lines 462-547): Finds matching schema, validates creator namespace, collects connected peers, calls `prepare_layer_permits()`, authorizes recipients on LayerUnit, emits `SyncEvent::NewDynamicLayer`
+     - `collect_connected_peers_with_roles()` (lines 552-566): Gets (did, role) pairs from subscribers
+
+   - **`scribe/src/layer_unit/dynamic.rs`** (lines 19-520 read)
+     - `handle_create_dynamic_layer()` (lines 19-74): Creates layer, authorizes ALL subscribers, sets up observer, calls `issue_creator_layer_authority_permits()`
+     - `generate_dynamic_path()` (lines 163-187): Schema "channels/{id}/messages" + did + id → "channels/{did}/{id}/messages"
+     - `prepare_layer_permits()` (lines 194-276): Role grants → all peers with matching roles. Explicit grants → only when authority permits exist via `authority_layer_config_and_intent()`.
+     - `find_matching_dynamic_schema()` (lines 282-338): Pattern matches layer path against schemas
+     - `authority_layer_config_and_intent()` (lines 498-519): Looks up stored authority permit for audience/layer
+
+   - **`scribe/src/sync/broadcast.rs`** (full file, 130 lines)
+     - `broadcast_update()` (lines 19-96): Reads authorized_dids once, iterates subscribers, skips sender and unauthorized, sends incremental or full snapshot
+     - `notify_layer_discovered()` (lines 105-129): Emits `PageUpdate::LayerChanged` with `created: true`
+
+   - **`scribe/src/state.rs`** (lines 155-395 read)
+     - `SubscriberInfo::can_receive_layer()` (lines 168-185): Checks page permit for static layers. Dynamic layers handled via LayerUnit.authorized_dids.
+     - `track_new_sync_layer_in_meta()` (lines 352-384): Creates `__sync_meta/{our_did}` layer, writes entry, sets up observer AFTER first commit (timing issue - first change missed by observer).
+     - `should_sync_layer()` (lines 336-345): Returns true for `__sync_meta/` layers
+
+   - **`courier/src/peer_actor/sync/protocol.rs`** (lines 60-460 read)
+     - `fanout_sync_meta_from_authority()` (lines 77-164): Determines recipients by role/explicit, writes `__sync_meta/{recipient}[layer] = {synced: false}`
+     - `request_missing_layers_from_sync_meta()` (lines 167-252): Reads sync-meta entries, finds synced=false, sends SyncReset
+     - `on_sync_offer()` (lines 262-439): Processes authority_permit if present, applies update, checks `is_sync_meta_layer()` → calls `request_missing_layers_from_sync_meta()`
+
+   - **`courier/src/peer_actor/sync/subscription.rs`** (full file, 373 lines)
+     - `subscribe_to_page()` (lines 23-202): Node mode uses stored peer permit; User mode uses local permit
+     - `handle_broadcast_received()` (lines 295-371): Encrypts and sends as SyncOffer, looks up authority_permit for piggybacking (optional)
+     - `authorize_subscriber_for_layers()`: For `__sync_meta/` layers, authorizes DID matching namespace or sync_target
+
+   - **`scribe/src/operations.rs`** (lines 1-50 read)
+     - `ensure_layer_exists()` (lines 22-32): Creates new LayerUnit, calls `track_new_sync_layer_in_meta()`, does NOT authorize subscribers
+
+   - **`integration_tests/src/tests/layer_sync.rs`** (lines 540-1226+ read)
+     - 6 failing tests all involve dynamic layer sync
+     - `test_dynamic_layer_syncs_to_viewer` (line 544): Owner creates dynamic layer, writes data, waits for node (TIMES OUT), then viewer
+     - `test_required_viewer_receives_new_dynamic_layer_after_subscribe` (line 813): Viewer must materialize layer and mark sync-meta synced=true
+     - `test_custom_channel_data_syncs_to_viewer` (line 934): channels_meta + dynamic channel data
+     - `test_offline_viewer_gets_layer_on_subscribe_via_authority_permit` (line 1034): Manual authority permit, viewer connects later
+     - `test_dm_owner_created_layer_visible_to_online_participant` (line 1671): DM layer sync
+     - `test_dm_offline_participant_receives_layer_on_subscribe` (line 1756): Offline DM participant
+
+   - **`integration_tests/src/peer.rs`** (full file, 181 lines)
+     - `Peer::new()`: Creates mock peer with Butler, Coordinator, SyncEvent forwarding including `NewDynamicLayer` → `DistributeLayerPermits`
+
+   - **`sample_apps/osvauld-demos/permit_template.json`** (referenced)
+     - `dynamic_layer_schemas.channels/{id}/messages`: grant=role, role_permissions includes owner/collaborator/viewer/node
+     - `dynamic_layer_schemas.dms/{id}/messages`: grant=explicit, permissions: sync+write
+     - Viewer relationship: "collaborator" (matches role_permissions)
+     - Static layers include `channels_meta`, `dms_meta`, `channels/general/messages`, etc.
+
+   - **`scribe/src/loro_observer.rs`** (lines 400-480 read)
+     - Observer skips remote updates at line 421: `if signal.from_peer.is_some() { continue; }` — defers to `broadcast_update()` in apply.rs
+     - Checks `authorized_dids` before broadcasting to each subscriber
+
+4. Errors and Fixes:
+   - **Integration test failures (6 tests)**: Timeout errors waiting for layer data. Not yet fixed — these are expected with the current code per user.
+   - **E2E test `--capture-logs` arg error**: `unrecognized arguments: --capture-logs`. Fixed by running without the flag.
+   - **DM e2e failure**: Bob can't find Alice's DM (`open_dm: NOT FOUND`). Root cause: explicit grant path requires authority permits which aren't automatically issued. Not yet fixed.
+   - No code changes have been made yet in this session — this has been investigation and analysis.
+
+5. Problem Solving:
+   - Traced the full dynamic layer sync flow through 12+ files to understand old vs new paths
+   - Ran e2e test and discovered custom channels WORK (via `emit_dynamic_layer_permits()`) but DMs DON'T (explicit grants need authority permits)
+   - Analyzed event captures showing the node correctly issues `authorized_dynamic_permit` for role-based channels
+   - Identified that `channels_meta` static layer is the OLD discovery path and should be replaced with `__sync_meta/` protocol layers
+   - Integration tests fail at the NODE level (not viewer) — the node times out, which differs from the e2e test where the node works fine. This discrepancy hasn't been fully resolved yet but is secondary to the user's current request.
+
+6. All User Messages:
+   - "yes that is to be expected, we have changed it we need to make the test pass by making the relevant changes, we confirmed that the fanout is working right." (from previous session, carried into this one)
+   - "so lets inspect what all is working. first then take a step by step approach"
+   - "we can also use the event capture with e2e test to get the correct events happening in all peers during when we add a dynamic/dm layer."
+   - "so why is this token so big?" (referring to authority_permit in SyncOffer being very large)
+   - "okay how does the dynamic channel work now, it shouldnt work right, is it using the older writing to a custom layer for this to work?"
+   - "no integration tests test the new path, the old path needs to be removed, it used custom layers for synchronization, it should use the new paths for synchronisation. lets make the script test fail first, and lets also think about things that we can remove since we are removing this path."
+
+7. Pending Tasks:
+   - **Make the e2e test (`test_custom_channel.py`) fail** by removing the old `channels_meta`-based discovery path
+   - **Identify all removable code** since the old path (custom layers for synchronization) is being removed
+   - Eventually: fix everything to use the new `__sync_meta/` protocol path
+   - Eventually: make the 6 failing integration tests pass
+   - Eventually: fix DM explicit grant flow
+
+8. Current Work:
+   I had just read `channels.lua` (lines 158-197) to understand the `create_channel()` function and was about to make changes to remove the `channels_meta` write (the old path) to make the e2e test fail. Specifically, I identified that removing the `channels_meta_layer:set()` call in `create_channel()` (lines 186-193) would break the old discovery path, since `switch_channel()` on viewers reads `channels_meta` to find the DID-namespaced layer path.
+
+   The user's exact words: "no integration tests test the new path, the old path needs to be removed, it used custom layers for synchronization, it should use the new paths for synchronisation. lets make the script test fail first, and lets also think about things that we can remove since we are removing this path."
+
+9. Optional Next Step:
+   Remove the `channels_meta` write from `create_channel()` in `channels.lua` to make the e2e test fail, exposing the old path dependency. Then compile a list of all code that can be removed as part of this path removal:
+   - `channels_meta_layer:set()` in `create_channel()` (channels.lua:186-193)
+   - `channels_meta` reads in `get_channel_layer_path()` (channels.lua:48-54)
+   - Possibly `channels_meta` and `dms_meta` from the permit template's static layers
+   - Any code in the runtime/scribe that specifically handles these app-level meta layers for sync purposes
+   
+   After making the test fail, the plan would be to implement the new path where viewers discover dynamic layers through `__sync_meta/{viewer_did}` entries and `on_layer_discovered` callbacks.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.

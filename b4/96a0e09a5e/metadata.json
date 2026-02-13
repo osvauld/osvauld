@@ -3,12 +3,18 @@
   "checkpoint_id": "b496a0e09a5e",
   "strategy": "manual-commit",
   "branch": "feature/coordinator-refactor",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "courier/src/peer_actor/consent.rs",
+    "e2e_tests/test_custom_channel.py",
     "gurkha/src/decision/layer.rs",
     "gurkha/src/decision/mod.rs",
     "gurkha/src/lib.rs",
+    "sample_apps/osvauld-demos/group-chat/app.lua",
+    "sample_apps/osvauld-demos/group-chat/channels.lua",
+    "sample_apps/osvauld-demos/group-chat/dms.lua",
+    "sample_apps/osvauld-demos/page.lua",
+    "sample_apps/osvauld-demos/permit_template.json",
     "scribe/src/actor.rs",
     "scribe/src/layer_unit/dynamic.rs",
     "scribe/src/layer_unit/mod.rs",
@@ -29,13 +35,20 @@
       "context": "/b4/96a0e09a5e/0/context.md",
       "content_hash": "/b4/96a0e09a5e/0/content_hash.txt",
       "prompt": "/b4/96a0e09a5e/0/prompt.txt"
+    },
+    {
+      "metadata": "/b4/96a0e09a5e/1/metadata.json",
+      "transcript": "/b4/96a0e09a5e/1/full.jsonl",
+      "context": "/b4/96a0e09a5e/1/context.md",
+      "content_hash": "/b4/96a0e09a5e/1/content_hash.txt",
+      "prompt": "/b4/96a0e09a5e/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 7454,
-    "cache_creation_tokens": 443551,
-    "cache_read_tokens": 16312699,
-    "output_tokens": 38584,
-    "api_call_count": 134
+    "input_tokens": 11210,
+    "cache_creation_tokens": 946069,
+    "cache_read_tokens": 26692797,
+    "output_tokens": 82949,
+    "api_call_count": 243
   }
 }
