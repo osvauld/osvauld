@@ -19,7 +19,7 @@ use crate::state::{ScribeState, QuerySubscriberInfo};
 #[instrument(skip(state), fields(page_id = %state.page_id, layer = %spec.layer_name))]
 pub fn handle_query(state: &ScribeState, spec: &QuerySpec) -> Result<QueryResult> {
     // Layer may not exist yet for new pages - return empty result
-    let Some(layer) = state.layers.get(&spec.layer_name) else {
+    let Some(unit) = state.units.get(&spec.layer_name) else {
         debug!(layer = %spec.layer_name, "Layer not found, returning empty result");
         return Ok(QueryResult {
             query_id: spec.query_id.clone(),
@@ -31,7 +31,7 @@ pub fn handle_query(state: &ScribeState, spec: &QuerySpec) -> Result<QueryResult
     };
 
     // Get the data at the specified path
-    let layer_json = layer.to_json();
+    let layer_json = unit.layer().to_json();
     let data = get_path_value(&layer_json, &spec.path);
 
     // Extract array items
@@ -180,8 +180,8 @@ pub async fn notify_query_subscribers(state: &mut ScribeState, layer_name: &str)
 pub fn build_context_json(state: &ScribeState) -> serde_json::Value {
     let mut context = serde_json::Map::new();
 
-    for (layer_name, layer) in &state.layers {
-        let layer_json = layer.to_json();
+    for (layer_name, unit) in &state.units {
+        let layer_json = unit.layer().to_json();
 
         // If layer JSON is an object, flatten its fields into context
         // Otherwise, store under layer name

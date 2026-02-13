@@ -8,8 +8,8 @@ use std::path::Path;
 use tracing::{info, instrument};
 use walkdir::WalkDir;
 
-use domains::Layer;
 use scribe::ScribeState;
+use scribe::LayerUnit;
 
 /// Refresh app from filesystem (owner only)
 ///
@@ -36,13 +36,13 @@ pub async fn handle_refresh_app(
     let new_files = collect_app_files(app_dir)
         .map_err(|e| format!("Failed to read app files: {}", e))?;
 
-    // 2. Get or create the app layer
-    let layer = state.layers
+    // 2. Get or create the app layer unit
+    let unit = state.units
         .entry(layer_name.clone())
-        .or_insert_with(Layer::new);
+        .or_insert_with(LayerUnit::new_empty);
 
     // 3. Get current files to compare
-    let old_files = layer.get_all_files();
+    let old_files = unit.layer().get_all_files();
 
     // 4. Find changed files
     let mut changed_files = Vec::new();
@@ -53,7 +53,7 @@ pub async fn handle_refresh_app(
     }
     // Track deleted files
     for path in old_files.keys() {
-        if !new_files.contains_key(path) {
+        if !new_files.contains_key(path.as_str()) {
             changed_files.push(path.clone());
         }
     }
@@ -68,14 +68,14 @@ pub async fn handle_refresh_app(
     }
 
     // 5. Update layer with new files
-    layer.set_all_files(&new_files)
+    unit.layer().set_all_files(&new_files)
         .map_err(|e| format!("Failed to update app layer: {}", e))?;
 
     // 6. Commit to trigger Loro observer (broadcasts to peers + emits PageUpdate)
-    layer.commit();
+    unit.layer().commit();
 
     // 7. Mark as dirty for persistence
-    state.dirty_layers.insert(layer_name.clone());
+    unit.mark_dirty();
 
     info!(
         page_id = %state.page_id,

@@ -54,6 +54,7 @@ pub use scribe::{
     BroadcastPayload, SyncConfig,
     LayerStorage, LayerStorageRef, PeerVectorStorage, PeerVectorStorageRef,
     PeerResolver, PeerResolverRef,
+    PermitIssuer, PermitIssuerRef, NullPermitIssuer,
     EphemeralBroadcast, EphemeralOutbound,
     PermitContext, Permissions, glob_match,
     SubscriberInfo, QuerySubscriberInfo, SyncMode,
@@ -87,6 +88,9 @@ pub struct Butler {
     page_opened_tx: RwLock<Option<tokio::sync::mpsc::Sender<String>>>,
     /// Validation handle (for kunki node mode validation)
     validation_handle: RwLock<Option<ValidationHandle>>,
+    /// Broadcast channel for capture system (pre-serialized JSON lines)
+    /// Set via set_capture_tx(), threaded into ScribeArgs for event capture
+    capture_tx: RwLock<Option<tokio::sync::broadcast::Sender<String>>>,
 }
 
 impl Butler {
@@ -108,6 +112,7 @@ impl Butler {
             sync_event_tx,
             page_opened_tx: RwLock::new(None),
             validation_handle: RwLock::new(None),
+            capture_tx: RwLock::new(None),
         }
     }
 
@@ -127,6 +132,7 @@ impl Butler {
             sync_event_tx,
             page_opened_tx: RwLock::new(None),
             validation_handle: RwLock::new(None),
+            capture_tx: RwLock::new(None),
         }
     }
 
@@ -134,6 +140,14 @@ impl Butler {
     #[instrument(skip_all)]
     pub async fn set_page_opened_tx(&self, tx: tokio::sync::mpsc::Sender<String>) {
         *self.page_opened_tx.write().await = Some(tx);
+    }
+
+    /// Set capture broadcast channel (for event capture system)
+    ///
+    /// **Context**: Called by kunki/sthalam after creating the capture broadcast channel.
+    /// Threaded into ScribeArgs so Scribe actors emit to the capture system.
+    pub async fn set_capture_tx(&self, tx: tokio::sync::broadcast::Sender<String>) {
+        *self.capture_tx.write().await = Some(tx);
     }
 
     /// Set validation handle (for kunki node mode)
@@ -385,7 +399,7 @@ impl Butler {
     /// Build ScribeArgs for a page
     #[instrument(skip(self), fields(page_id = %page_id))]
     async fn build_scribe_args(&self, page_id: &str) -> Result<ScribeArgs> {
-        use scribe_storage::{ButlerLayerStorage, ButlerPeerVectorStorage, ButlerPeerResolver};
+        use scribe_storage::{ButlerLayerStorage, ButlerPeerVectorStorage, ButlerPeerResolver, ButlerPermitIssuer};
 
         let page_id_str = page_id.to_string();
 
@@ -461,14 +475,29 @@ impl Butler {
         // Get validation handle if set (node mode)
         let validation_handle = self.validation_handle.read().await.clone();
 
+        // Create permit issuer whenever we have signing key + our permit.
+        // Node mode uses this to issue recipient layer permits.
+        // User mode uses this for creator-side AddLayerAccess issuance.
+        let permit_issuer: Option<PermitIssuerRef> = match (self.signing_key().await, &our_permit) {
+            (Ok(signing_key), Some(permit_token)) => Some(Arc::new(ButlerPermitIssuer::new(
+                signing_key,
+                permit_token.clone(),
+                page_id.to_string(),
+                self.store.clone(),
+            ))),
+            _ => None,
+        };
+
         Ok(ScribeArgs {
             page_id: page_id_str,
             layers,
             layer_storage,
             vector_storage,
             peer_resolver,
+            permit_issuer,
             sync_config,
             sync_event_tx,
+            capture_tx: self.capture_tx.read().await.clone(),
             validation_handle,
             our_permit,
             our_did,

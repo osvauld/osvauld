@@ -5,10 +5,123 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use scribe::{LayerStorage, PeerVectorStorage, PeerResolver, Result, ScribeError};
+use scribe::{LayerStorage, PeerResolver, PeerVectorStorage, PermitIssuer, Result, ScribeError};
 
-use tracing::{info, instrument};
 use crate::storage::RedbStore;
+use tracing::{info, instrument, warn};
+
+// Permit Issuer Implementation
+
+/// Butler's implementation of PermitIssuer (node mode only)
+///
+/// Holds signing key + node's page permit. Scoped to a single page.
+/// Scribe never sees the signing key — uses this trait to request permits.
+pub struct ButlerPermitIssuer {
+    signing_key: [u8; 32],
+    node_permit_token: String,
+    page_id: String,
+    store: Arc<RedbStore>,
+}
+
+impl ButlerPermitIssuer {
+    pub fn new(
+        signing_key: [u8; 32],
+        node_permit_token: String,
+        page_id: String,
+        store: Arc<RedbStore>,
+    ) -> Self {
+        Self {
+            signing_key,
+            node_permit_token,
+            page_id,
+            store,
+        }
+    }
+}
+
+impl PermitIssuer for ButlerPermitIssuer {
+    #[instrument(skip_all, fields(audience = %audience, layer_name = %layer_name))]
+    fn issue_layer_permit(
+        &self,
+        audience: &str,
+        layer_name: &str,
+        config: gurkha::LayerConfig,
+        intent_cid: Option<&str>,
+    ) -> Result<(String, String)> {
+        info!(page_id = %self.page_id, "ButlerPermitIssuer::issue_layer_permit");
+        futures::executor::block_on(gurkha::issue_layer_permit(
+            &self.signing_key,
+            &self.node_permit_token,
+            audience,
+            &self.page_id,
+            layer_name,
+            config,
+            intent_cid,
+        ))
+        .map_err(|e| {
+            warn!(error = %e, "Permit issuance failed");
+            ScribeError::Other(format!("Permit issuance failed: {}", e))
+        })
+    }
+
+    #[instrument(skip_all, fields(audience = %audience))]
+    fn list_layer_authority_permits_for_audience(
+        &self,
+        audience: &str,
+    ) -> Result<Vec<(String, u64, String)>> {
+        self.store
+            .list_layer_authority_permits_for_audience(&self.page_id, audience)
+            .map_err(|e| ScribeError::Other(format!("Store error: {}", e)))
+    }
+
+    #[instrument(skip_all, fields(audience = %audience, layer_name = %layer_name))]
+    fn get_layer_authority_permit(
+        &self,
+        audience: &str,
+        layer_name: &str,
+    ) -> Result<Option<(u64, String)>> {
+        self.store
+            .get_layer_authority_permit(&self.page_id, layer_name, audience)
+            .map_err(|e| ScribeError::Other(format!("Store error: {}", e)))
+    }
+
+    #[instrument(skip_all, fields(audience = %audience, layer_name = %layer_name))]
+    fn has_layer_access_permit(&self, audience: &str, layer_name: &str) -> Result<bool> {
+        self.store
+            .has_layer_permit(&self.page_id, audience, layer_name)
+            .map_err(|e| ScribeError::Other(format!("Store error: {}", e)))
+    }
+
+    #[instrument(skip_all, fields(audience = %audience, layer_name = %layer_name, version = version))]
+    fn issue_layer_authority_permit(
+        &self,
+        audience: &str,
+        layer_name: &str,
+        config: gurkha::LayerConfig,
+        authorized_peers: Option<Vec<String>>,
+        version: u64,
+    ) -> Result<(String, String)> {
+        let (token, cid) = futures::executor::block_on(gurkha::issue_layer_authority_permit(
+            &self.signing_key,
+            &self.node_permit_token,
+            audience,
+            layer_name,
+            config,
+            authorized_peers,
+            version,
+        ))
+        .map_err(|e| {
+            warn!(error = %e, "Layer authority permit issuance failed");
+            ScribeError::Other(format!("Layer authority permit issuance failed: {}", e))
+        })?;
+
+        self.store
+            .store_layer_authority_permit(&self.page_id, layer_name, audience, version, &token)
+            .map_err(|e| ScribeError::Other(format!("Store error: {}", e)))?;
+
+        Ok((token, cid))
+    }
+}
 
 // Layer Storage Implementation
 
@@ -24,7 +137,11 @@ pub struct ButlerLayerStorage {
 
 impl ButlerLayerStorage {
     pub fn new(store: Arc<RedbStore>, page_id: String, aes_key: [u8; 32]) -> Self {
-        Self { store, page_id, aes_key }
+        Self {
+            store,
+            page_id,
+            aes_key,
+        }
     }
 }
 
@@ -117,5 +234,72 @@ impl PeerResolver for ButlerPeerResolver {
             .get_user_page_permit(&self.page_id, user_did)
             .ok()
             .flatten()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_KEY: [u8; 32] = [1u8; 32];
+
+    fn load_shop_template() -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("sample_apps/my-shop/permit_template.json");
+        std::fs::read_to_string(path).unwrap()
+    }
+
+    /// C5: ButlerPermitIssuer issues valid layer permits via gurkha
+    #[test]
+    fn test_butler_permit_issuer() {
+        let template = load_shop_template();
+
+        // Create owner → node delegation chain
+        let (owner_token, _) = futures::executor::block_on(gurkha::issue_page_owner_token(
+            &TEST_KEY, "page1", &template,
+        ))
+        .unwrap();
+        let (node_token, _) = futures::executor::block_on(gurkha::delegate_page(
+            &TEST_KEY,
+            &owner_token,
+            "node",
+            "did:key:node",
+        ))
+        .unwrap();
+
+        // Create ButlerPermitIssuer
+        let temp_path = std::env::temp_dir().join(format!(
+            "butler_permit_issuer_test_{}.redb",
+            uuid::Uuid::new_v4()
+        ));
+        let store = Arc::new(crate::storage::RedbStore::open(&temp_path).unwrap());
+        let issuer = ButlerPermitIssuer::new(TEST_KEY, node_token, "page1".to_string(), store);
+
+        // Issue a layer permit
+        let config = gurkha::LayerConfig {
+            sync: true,
+            write: true,
+            layer_type: None,
+        };
+        let (token, cid) = issuer
+            .issue_layer_permit(
+                "did:key:viewer",
+                "page1/channels/did:key:alice/general/messages",
+                config,
+                None,
+            )
+            .unwrap();
+
+        assert!(!token.is_empty());
+        assert!(!cid.is_empty());
+
+        // Verify the token is a valid UCAN with the expected layer
+        let permit = gurkha::Permit::from_token(&token).unwrap();
+        assert_eq!(permit.layers().len(), 1);
+        assert!(permit
+            .layers()
+            .contains_key("page1/channels/did:key:alice/general/messages"));
     }
 }

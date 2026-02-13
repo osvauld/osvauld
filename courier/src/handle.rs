@@ -7,7 +7,8 @@
 use std::sync::Arc;
 
 use ractor::{Actor, ActorRef};
-use tokio::sync::{mpsc, oneshot};
+use serde::Serialize;
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::{error, info, warn};
 use transport::{IrohConnection, NodeId, Transport, TransportEvent};
 
@@ -22,7 +23,7 @@ pub type IrohCoordinatorMessage = CoordinatorMessage<IrohConnection>;
 pub type IrohCoordinator = Coordinator<IrohConnection>;
 
 /// Event emitted by Courier to the application
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum CourierEvent {
     /// Peer authenticated successfully
     PeerAuthenticated {
@@ -237,6 +238,42 @@ impl CourierHandle {
             .map_err(|e| format!("Failed to notify page opened: {:?}", e))
     }
 
+    /// Distribute layer permits for a new dynamic layer (forward to Coordinator)
+    ///
+    /// **Context**: Scribe emitted NewDynamicLayer — forward to Coordinator for distribution
+    /// **Coordinator will**: Store permits in butler, send LayerPermitMsg to connected peers
+    pub fn distribute_layer_permits(
+        &self,
+        page_id: &str,
+        layer_name: &str,
+        permits: Vec<(String, String)>,
+    ) -> Result<(), String> {
+        self.coordinator
+            .cast(IrohCoordinatorMessage::DistributeLayerPermits {
+                page_id: page_id.to_string(),
+                layer_name: layer_name.to_string(),
+                permits,
+            })
+            .map_err(|e| format!("Failed to send DistributeLayerPermits: {:?}", e))
+    }
+
+    /// Distribute updated page permits to peers (forward to Coordinator)
+    ///
+    /// **Context**: Page permits reissued with new app layers — forward to Coordinator
+    /// **Coordinator will**: Store permits in butler, send PermitUpdate to connected peers
+    pub fn distribute_page_permit_updates(
+        &self,
+        page_id: &str,
+        permits: Vec<(String, String)>,
+    ) -> Result<(), String> {
+        self.coordinator
+            .cast(IrohCoordinatorMessage::DistributePagePermitUpdates {
+                page_id: page_id.to_string(),
+                permits,
+            })
+            .map_err(|e| format!("Failed to send DistributePagePermitUpdates: {:?}", e))
+    }
+
     /// Check if a node is authenticated (handshake complete)
     ///
     /// **Context**: Script/app wants to wait for auth before publishing
@@ -286,6 +323,18 @@ impl Courier {
         transport: Arc<Transport>,
         services: Option<Arc<HandshakeServices>>,
     ) -> (CourierHandle, mpsc::Receiver<CourierEvent>, CourierRunner) {
+        Self::init_with_services_and_capture(mode, transport, services, None)
+    }
+
+    /// Initialize Courier with services and optional capture broadcast
+    ///
+    /// Returns a handle, event receiver, and the runner that must be spawned.
+    pub fn init_with_services_and_capture(
+        mode: CourierMode,
+        transport: Arc<Transport>,
+        services: Option<Arc<HandshakeServices>>,
+        capture_tx: Option<broadcast::Sender<String>>,
+    ) -> (CourierHandle, mpsc::Receiver<CourierEvent>, CourierRunner) {
         let butler = services
             .map(|s| s.butler.clone())
             .expect("HandshakeServices required");
@@ -300,6 +349,7 @@ impl Courier {
             event_tx,
             connect_rx,
             coordinator: None,
+            capture_tx,
         };
 
         // Spawn coordinator and store in runner so run() uses the same actor
@@ -320,6 +370,8 @@ pub struct CourierRunner {
     event_tx: mpsc::Sender<CourierEvent>,
     connect_rx: mpsc::Receiver<crate::coordinator::ConnectRequest>,
     coordinator: Option<ActorRef<IrohCoordinatorMessage>>,
+    /// Capture broadcast sender — passed through to coordinator for event capture
+    capture_tx: Option<broadcast::Sender<String>>,
 }
 
 impl CourierRunner {
@@ -354,6 +406,7 @@ impl CourierRunner {
         let transport = self.transport.clone();
         let mode = self.mode;
         let event_tx = self.event_tx.clone();
+        let capture_tx = self.capture_tx.clone();
 
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
@@ -362,7 +415,7 @@ impl CourierRunner {
                 let (actor_ref, _) = Actor::spawn(
                     Some("coordinator".to_string()),
                     coordinator,
-                    (node_id, mode, butler.clone(), blob_store, Some(connect_tx), Some(event_tx), None),
+                    (node_id, mode, butler.clone(), blob_store, Some(connect_tx), Some(event_tx), None, capture_tx),
                 )
                 .await
                 .expect("Failed to spawn Coordinator");

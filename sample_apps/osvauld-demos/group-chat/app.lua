@@ -2,6 +2,7 @@
 -- Entry point: on_init, on_click routing, presence, typing
 
 local channels = require("channels")
+local dms = require("dms")
 local messages = require("messages")
 local threads = require("threads")
 local helpers = require("ui_helpers")
@@ -13,10 +14,14 @@ local presence = presence_lib
 local page_id = nil
 local my_did = nil
 local my_name = nil
+local view_mode = "channels"  -- "channels" or "dms"
 
 -- Typing indicator state
 local typing_users = {}
 local last_typing_sent = 0
+
+-- Member picker state (Lua-side, not UI property)
+local selected_member_dids = {}  -- { [did] = name }
 
 -- Emoji shortcodes (for reaction via context menu)
 local EMOJI_SHORTCODES = {
@@ -54,39 +59,58 @@ function on_init()
             if not entry or not entry.did then return nil end
             return {
                 did = entry.did:sub(-8),
+                full_did = entry.did,
                 name = entry.name or entry.did:sub(-8),
                 is_online = entry.status == "online",
             }
         end
     })
 
-    -- Bind messages for default channel BEFORE channels.init(),
-    -- because init() calls switch_channel("general") which fires the callback.
-    scribe:bind("messages", "channels/general/messages", {
-        key = "id",
-        transform = function(msg)
-            if msg.thread_parent_id and msg.thread_parent_id ~= "" then
-                return nil  -- filter thread replies from main view
-            end
-            return messages.to_ui_message(msg)
+    -- Init channels — callback fires on every channel switch (including initial "general")
+    local messages_bound = false
+    channels.init(page_id, my_did, my_name, function(channel_id, layer_path)
+        -- First call: create binding. Subsequent calls: rebind to new layer.
+        if not messages_bound then
+            scribe:bind("messages", layer_path, {
+                key = "id",
+                transform = function(msg)
+                    if not msg then
+                        return nil
+                    end
+                    if msg.thread_parent_id and msg.thread_parent_id ~= "" then
+                        return nil  -- filter thread replies from main view
+                    end
+                    return messages.to_ui_message(msg)
+                end
+            })
+            messages_bound = true
+        else
+            scribe:rebind("messages", layer_path)
         end
-    })
 
-    -- Init channels — on switch, rebind messages to new channel layer
-    channels.init(page_id, my_did, my_name, function(channel_id, messages_layer)
-        scribe:rebind("messages", "channels/" .. channel_id .. "/messages")
-
-        -- Also refresh thread if open (may be in same channel)
+        -- Refresh thread if open (may be in same channel)
         if threads.is_open() then
-            threads.refresh_replies(messages_layer)
+            threads.refresh_replies(channels.get_messages_layer())
         end
 
         -- Mark as read and update sidebar badges
-        read_tracker.mark_read(channel_id, messages_layer)
+        read_tracker.mark_read(channel_id, channels.get_messages_layer())
         channels.refresh_channel_list()
     end, read_tracker)
 
+    -- Init DMs — callback rebinds "messages" to the DM layer
+    dms.init(page_id, my_did, my_name, function(dm_id, layer_path)
+        view_mode = "dms"
+        ui:set("view_mode", "dms")
+
+        -- Rebind main messages to DM layer (initial bind was done by channels.init)
+        if messages_bound then
+            scribe:rebind("messages", layer_path)
+        end
+    end)
+
     -- Init UI state
+    ui:set("view_mode", "channels")
     ui:set("auto_scroll", true)
     ui:set("show_emoji_picker", false)
     ui:set("replying_to_id", "")
@@ -99,9 +123,40 @@ function on_init()
     refresh_messages()
 end
 
+-- Get the active messages layer based on current view mode
+local function get_active_messages_layer()
+    if view_mode == "dms" then
+        return dms.get_messages_layer()
+    else
+        return channels.get_messages_layer()
+    end
+end
+
+-- Build member picker model from all users in presence layer + selection state
+local function refresh_member_picker()
+    local presence = scribe:map(page_id .. "/presence")
+    local keys = presence:keys()
+    local picker = {}
+    for _, did in ipairs(keys) do
+        if did ~= my_did then
+            local entry = presence:get(did)
+            if entry then
+                table.insert(picker, {
+                    did = did,
+                    name = entry.name or did:sub(-8),
+                    is_selected = selected_member_dids[did] ~= nil,
+                })
+            end
+        end
+    end
+    table.sort(picker, function(a, b) return a.name < b.name end)
+    ui:set("member_picker", picker)
+end
+
 -- Refresh messages side effects (read tracking + badges)
 -- The binding system handles UI sync; this only does read-tracking
 function refresh_messages()
+    if view_mode == "dms" then return end
     local layer = channels.get_messages_layer()
     read_tracker.mark_read(channels.get_active_channel(), layer)
     channels.refresh_channel_list()
@@ -121,11 +176,88 @@ function on_click(target)
     -- Channel switching
     if target:match("^switch_channel:") then
         local id = target:sub(16)
+        view_mode = "channels"
+        ui:set("view_mode", "channels")
         channels.switch_channel(id)
-        -- Close thread when switching channels
         threads.close()
         ui:set("selected_message_id", "")
         ui:set("show_emoji_picker", false)
+        return
+    end
+
+    -- DM switching
+    if target:match("^switch_dm:") then
+        local id = target:sub(11)
+        dms.switch_dm(id)
+        threads.close()
+        ui:set("selected_message_id", "")
+        ui:set("show_emoji_picker", false)
+        return
+    end
+
+    -- Start 1:1 DM from online users list
+    if target:match("^start_dm:") then
+        local rest = target:sub(10)
+        local did, name = rest:match("^([^:]+):(.+)$")
+        if did and name then
+            dms.create_dm(did, name)
+        end
+        return
+    end
+
+    -- DM sidebar collapse toggle
+    if target == "toggle_dms" then
+        ui:set("dms_collapsed", not ui:get("dms_collapsed"))
+        return
+    end
+
+    -- Create private channel modal
+    if target == "create_private_channel" then
+        ui:set("new_private_channel_name", "")
+        selected_member_dids = {}
+        refresh_member_picker()
+        ui:set("show_create_private_channel", true)
+        return
+    end
+
+    if target == "cancel_create_private_channel" then
+        ui:set("show_create_private_channel", false)
+        selected_member_dids = {}
+        return
+    end
+
+    if target == "confirm_create_private_channel" then
+        local name = ui:get("new_private_channel_name") or ""
+        -- Build members list from selection
+        local members = {}
+        for did, mname in pairs(selected_member_dids) do
+            table.insert(members, { did = did, name = mname })
+        end
+        if name ~= "" and #members > 0 then
+            dms.create_private_channel(name, members)
+        end
+        ui:set("show_create_private_channel", false)
+        selected_member_dids = {}
+        return
+    end
+
+    if target:match("^toggle_member:") then
+        local rest = target:sub(15)
+        -- Parse "DID:NAME" where DID can contain colons (did:key:...)
+        -- Find the last colon to separate DID from name
+        local last_colon = rest:match(".*():")
+        if last_colon then
+            local did = rest:sub(1, last_colon - 1)
+            local mname = rest:sub(last_colon + 1)
+            if did and mname then
+                if selected_member_dids[did] then
+                    selected_member_dids[did] = nil
+                else
+                    selected_member_dids[did] = mname
+                end
+                refresh_member_picker()
+            end
+        end
         return
     end
 
@@ -304,12 +436,15 @@ function on_submit()
     local text = ui:get("draft_text")
     if not text or text == "" then return end
 
+    local layer = get_active_messages_layer()
+    if not layer then return end
+
     local replying_to = ui:get("replying_to_id") or ""
 
     -- Check if editing
     if replying_to:match("^edit:") then
         local msg_id = replying_to:sub(6)
-        messages.edit(channels.get_messages_layer(), msg_id, text)
+        messages.edit(layer, msg_id, text)
         ui:set("draft_text", "")
         ui:set("replying_to_id", "")
         ui:set("replying_to_text", "")
@@ -319,7 +454,7 @@ function on_submit()
 
     -- Normal send
     local reply_preview = ui:get("replying_to_text") or ""
-    messages.send(channels.get_messages_layer(), text, replying_to, reply_preview)
+    messages.send(layer, text, replying_to, reply_preview)
 
     ui:set("draft_text", "")
     ui:set("show_emoji_picker", false)
@@ -388,22 +523,32 @@ function on_asset_uploaded(asset)
     end
 end
 
--- Layer change callback for non-bound layers (channels_meta, read_positions, etc.)
+-- New layer discovered via protocol sync (dynamic layers arriving from peers)
+function on_layer_discovered(layer_name)
+    -- Try channels first, then DMs
+    if channels.on_layer_discovered(layer_name) then return end
+    if dms.on_layer_discovered(layer_name) then return end
+end
+
+-- Layer change callback for non-bound layers (read_positions, etc.)
 -- Bound layers (messages, presence) are handled by the binding system automatically.
 function on_loro_change(layer_name)
-    if layer_name:match("channels_meta") then
-        channels.refresh_channel_list()
-        return
-    end
-
     if layer_name:match("read_positions") then
         channels.refresh_channel_list()
         return
     end
 
+    -- Active DM messages changed
+    if view_mode == "dms" then
+        local dm_path = dms.get_active_layer_path()
+        if dm_path and layer_name:sub(-#dm_path) == dm_path then
+            return
+        end
+    end
+
     -- Active channel messages changed (handles read tracking + thread refresh)
-    local active = channels.get_active_channel()
-    if active and layer_name:match("channels/" .. active .. "/messages") then
+    local active_path = channels.get_active_layer_path()
+    if active_path and layer_name:sub(-#active_path) == active_path then
         refresh_messages()
         if threads.is_open() then
             threads.refresh_replies(channels.get_messages_layer())
@@ -421,6 +566,7 @@ api.export("send_message", function(text)
     messages.send(channels.get_messages_layer(), text)
     refresh_messages()
 end)
+api.export("create_channel", function(name) channels.create_channel(name) end)
 api.export("switch_channel", function(id) channels.switch_channel(id) end)
 api.export("get_active_channel", function() return channels.get_active_channel() end)
 api.export("get_message_count", function()
@@ -428,3 +574,22 @@ api.export("get_message_count", function()
     if not layer then return 0 end
     return layer:length()
 end)
+
+-- DM API exports
+api.export("create_dm", function(did, name) dms.create_dm(did, name) end)
+api.export("open_dm", function(did, name) return dms.open_dm(did, name) end)
+api.export("create_private_channel", function(name, members)
+    dms.create_private_channel(name, members)
+end)
+api.export("send_dm_message", function(text)
+    local layer = dms.get_messages_layer()
+    if layer then
+        messages.send(layer, text)
+    end
+end)
+api.export("get_dm_message_count", function()
+    local layer = dms.get_messages_layer()
+    if not layer then return 0 end
+    return layer:length()
+end)
+api.export("get_active_dm", function() return dms.get_active_dm() end)

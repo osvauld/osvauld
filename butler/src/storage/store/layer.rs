@@ -2,10 +2,10 @@
 //!
 //! Key: {page_id}/{layer_name} (hierarchical)
 
-use redb::{ReadableTable, ReadableDatabase};
+use super::{RedbStore, APP_HASHES, LAYERS};
 use crate::error::Result;
+use redb::{ReadableDatabase, ReadableTable};
 use tracing::{info, instrument};
-use super::{RedbStore, LAYERS, APP_HASHES};
 
 impl RedbStore {
     /// Store a layer with hierarchical key: {page_id}/{layer_name}
@@ -13,12 +13,7 @@ impl RedbStore {
     /// Note: If layer_name already starts with page_id prefix, it's used as-is
     /// to avoid double-prefixing (Scribe stores layers with full names).
     #[instrument(skip_all)]
-    pub fn put_layer(
-        &self,
-        page_id: &str,
-        layer_name: &str,
-        encrypted_bytes: &[u8],
-    ) -> Result<()> {
+    pub fn put_layer(&self, page_id: &str, layer_name: &str, encrypted_bytes: &[u8]) -> Result<()> {
         let prefix = format!("{}/", page_id);
         let key = if layer_name.starts_with(&prefix) {
             // Layer name already includes page_id prefix - use as-is
@@ -41,11 +36,7 @@ impl RedbStore {
     ///
     /// Note: If layer_name already starts with page_id prefix, it's used as-is.
     #[instrument(skip_all)]
-    pub fn get_layer(
-        &self,
-        page_id: &str,
-        layer_name: &str,
-    ) -> Result<Option<Vec<u8>>> {
+    pub fn get_layer(&self, page_id: &str, layer_name: &str) -> Result<Option<Vec<u8>>> {
         let prefix = format!("{}/", page_id);
         let key = if layer_name.starts_with(&prefix) {
             layer_name.to_string()

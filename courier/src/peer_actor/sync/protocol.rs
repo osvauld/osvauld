@@ -16,6 +16,7 @@
 //! **Invariant**: Node is source of truth for divergence resolution.
 
 use tracing::{debug, error, info, trace, warn, instrument};
+use std::collections::BTreeSet;
 
 use crate::message::*;
 use transport::Connection;
@@ -24,6 +25,231 @@ use super::super::guards::require_auth;
 use super::super::{PeerActor, PeerActorState, MAX_RESYNC_ATTEMPTS};
 
 impl<C: Connection> PeerActor<C> {
+
+    fn is_sync_meta_layer(page_id: &str, layer_name: &str) -> bool {
+        layer_name.starts_with("__sync_meta/")
+            || layer_name.starts_with(&format!("{}/__sync_meta/", page_id))
+    }
+
+    fn authority_schema_for_layer<'a>(
+        permit: &'a gurkha::Permit,
+        page_id: &str,
+        layer_name: &str,
+    ) -> Option<&'a gurkha::DynamicLayerSchema> {
+        let schemas = permit.dynamic_layer_schemas();
+        if schemas.is_empty() {
+            return None;
+        }
+
+        let bare_path = layer_name
+            .strip_prefix(&format!("{}/", page_id))
+            .unwrap_or(layer_name);
+        let path_parts: Vec<&str> = bare_path.split('/').collect();
+        if path_parts.len() < 3 || !path_parts[1].starts_with("did:") {
+            return None;
+        }
+
+        for (schema_key, schema) in schemas {
+            let pattern_parts: Vec<&str> = schema_key.split('/').collect();
+            if path_parts.len() != pattern_parts.len() + 1 {
+                continue;
+            }
+            if path_parts[0] != pattern_parts[0] {
+                continue;
+            }
+
+            let mut matched = true;
+            for (path_seg, pat_seg) in path_parts[2..].iter().zip(pattern_parts[1..].iter()) {
+                if *pat_seg != "{id}" && path_seg != pat_seg {
+                    matched = false;
+                    break;
+                }
+            }
+
+            if matched {
+                return Some(schema);
+            }
+        }
+
+        None
+    }
+
+    async fn fanout_sync_meta_from_authority(
+        &self,
+        page_id: &str,
+        layer_name: &str,
+        authority_permit: &gurkha::Permit,
+        scribe: &ractor::ActorRef<butler::ScribeMessage>,
+        state: &PeerActorState<C>,
+    ) {
+        let our_did = match state.butler.user_info().await {
+            Ok(info) => info.did,
+            Err(e) => {
+                warn!(error = %e, "Unable to resolve node DID for sync-meta fanout");
+                return;
+            }
+        };
+
+        let mut recipients = BTreeSet::new();
+        match authority_permit.authorized_peers() {
+            Ok(Some(explicit)) => {
+                for did in explicit {
+                    if did != our_did {
+                        recipients.insert(did);
+                    }
+                }
+            }
+            Ok(None) => {
+                let Some(schema) = Self::authority_schema_for_layer(authority_permit, page_id, layer_name) else {
+                    warn!(page_id = %page_id, layer = %layer_name, "No matching dynamic schema in authority permit for role fanout");
+                    return;
+                };
+
+                let all_users = match state.butler.store().list_authorized_users_for_page(page_id) {
+                    Ok(users) => users,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to list authorized users for role fanout");
+                        return;
+                    }
+                };
+
+                for user_did in all_users {
+                    if user_did == our_did {
+                        continue;
+                    }
+
+                    let permit_token = match state.butler.store().get_user_page_permit(page_id, &user_did) {
+                        Ok(Some(p)) => p,
+                        _ => continue,
+                    };
+
+                    let parsed = match gurkha::Permit::from_token(&permit_token) {
+                        Ok(p) => p,
+                        Err(_) => continue,
+                    };
+
+                    let role = parsed
+                        .get_fact("role")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| parsed.get_fact("relationship").and_then(|v| v.as_str()));
+
+                    if let Some(role) = role {
+                        if schema.role_permissions.contains_key(role) {
+                            recipients.insert(user_did);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "Invalid authorized_peers in layer authority permit");
+                return;
+            }
+        }
+
+        for did in recipients {
+            let sync_meta_layer = format!("__sync_meta/{}", did);
+            let sync_meta_key = layer_name
+                .strip_prefix(&format!("{}/", page_id))
+                .unwrap_or(layer_name)
+                .to_string();
+            if let Err(e) = scribe.cast(butler::ScribeMessage::MapInsert {
+                layer_name: sync_meta_layer,
+                path: String::new(),
+                key: sync_meta_key,
+                value: serde_json::json!({"synced": false, "version": 1}),
+            }) {
+                warn!(page_id = %page_id, layer = %layer_name, target = %did, error = %e, "Failed to write recipient sync-meta entry");
+            }
+        }
+    }
+
+    #[instrument(skip(self, state, scribe), fields(page_id = %page_id, sync_meta_layer = %sync_meta_layer))]
+    async fn request_missing_layers_from_sync_meta(
+        &self,
+        page_id: &str,
+        sync_meta_layer: &str,
+        scribe: &ractor::ActorRef<butler::ScribeMessage>,
+        state: &mut PeerActorState<C>,
+    ) {
+        let normalized_sync_meta_layer = sync_meta_layer
+            .strip_prefix(&format!("{}/", page_id))
+            .unwrap_or(sync_meta_layer)
+            .to_string();
+
+        let (data_tx, data_rx) = tokio::sync::oneshot::channel();
+        if let Err(e) = scribe.cast(butler::ScribeMessage::GetLayerData {
+            layer_name: normalized_sync_meta_layer,
+            reply: data_tx,
+        }) {
+            warn!(error = %e, "Failed to read sync-meta layer for request planning");
+            return;
+        }
+
+        let sync_meta_json = match data_rx.await {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                warn!(error = %e, "GetLayerData failed for sync-meta layer");
+                return;
+            }
+            Err(_) => {
+                warn!("GetLayerData reply channel closed for sync-meta layer");
+                return;
+            }
+        };
+
+        let Some(entries) = sync_meta_json.as_object() else {
+            warn!("sync-meta layer content is not a map object");
+            return;
+        };
+
+        for (layer_name, entry) in entries {
+            let normalized_layer_name = layer_name
+                .strip_prefix(&format!("{}/", page_id))
+                .unwrap_or(layer_name)
+                .to_string();
+
+            if normalized_layer_name.starts_with("__sync_meta/") {
+                continue;
+            }
+
+            let should_request = entry
+                .get("synced")
+                .and_then(serde_json::Value::as_bool)
+                .map(|s| !s)
+                .unwrap_or(true);
+            if !should_request {
+                continue;
+            }
+
+            let (exists_tx, exists_rx) = tokio::sync::oneshot::channel();
+            if let Err(e) = scribe.cast(butler::ScribeMessage::LayerExists {
+                layer_name: normalized_layer_name.clone(),
+                reply: exists_tx,
+            }) {
+                warn!(layer = %normalized_layer_name, error = %e, "Failed to check layer existence");
+                continue;
+            }
+
+            let exists = match exists_rx.await {
+                Ok(v) => v,
+                Err(_) => {
+                    warn!(layer = %normalized_layer_name, "LayerExists reply channel closed");
+                    continue;
+                }
+            };
+
+            if exists {
+                continue;
+            }
+
+            info!(page_id = %page_id, layer = %normalized_layer_name, "Requesting missing layer via SyncReset after sync-meta discovery");
+            let msg = Message::SyncReset(SyncResetMsg {
+                page_id: page_id.to_string(),
+                layer_name: normalized_layer_name,
+            });
+            self.send_message(&msg, state).await;
+        }
+    }
 
     /// Handle incoming SyncOffer from peer (Step 1)
     ///
@@ -41,6 +267,7 @@ impl<C: Connection> PeerActor<C> {
         data: &[u8],
         their_state_vector: &[u8],
         ephemeral_public: &[u8; 32],
+        authority_permit: Option<&str>,
         state: &mut PeerActorState<C>,
     ) {
         let (peer_did, _) = match require_auth(&state.state) {
@@ -57,6 +284,64 @@ impl<C: Connection> PeerActor<C> {
             "SyncOffer: page={} layer={} ({} bytes, vector {} bytes) from {}",
             page_id, layer_name, data.len(), their_state_vector.len(), peer_did
         );
+
+        // Open page early so bundled authority fanout and apply share one Scribe handle.
+        let scribe = match state.butler.open_page(page_id).await {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to open page {}: {}", page_id, e);
+                return;
+            }
+        };
+
+        if let Some(permit) = authority_permit {
+            match gurkha::Permit::from_token(permit) {
+                Ok(parsed) => {
+                    if parsed.token_type() == Some("layer_authority") {
+                        let audience = parsed.parsed().audience().to_string();
+                        let version = parsed
+                            .get_fact("version")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        let full_layer_name = if layer_name.starts_with(&format!("{}/", page_id)) {
+                            layer_name.to_string()
+                        } else {
+                            format!("{}/{}", page_id, layer_name)
+                        };
+                        if let Err(e) = state.butler.permits().store_layer_authority_permit(
+                            page_id,
+                            &full_layer_name,
+                            &audience,
+                            version,
+                            permit,
+                        ) {
+                            warn!(
+                                page_id = %page_id,
+                                layer = %full_layer_name,
+                                audience = %audience,
+                                error = %e,
+                                "Failed to store bundled layer authority permit"
+                            );
+                        }
+
+                        if state.mode == crate::CourierMode::Node {
+                            self
+                                .fanout_sync_meta_from_authority(
+                                    page_id,
+                                    &full_layer_name,
+                                    &parsed,
+                                    &scribe,
+                                    state,
+                                )
+                                .await;
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(page_id = %page_id, layer = %layer_name, error = %e, "Invalid bundled authority permit in SyncOffer");
+                }
+            }
+        }
 
         // Decrypt transit-encrypted update using ECDH
         let our_secret = match state.butler.encryption_key().await {
@@ -82,15 +367,6 @@ impl<C: Connection> PeerActor<C> {
             self.subscribe_to_page(myself.clone(), page_id, "", state).await;
         }
 
-        // Get Scribe via Butler and apply update
-        let scribe = match state.butler.open_page(page_id).await {
-            Ok(s) => s,
-            Err(e) => {
-                error!("Failed to open page {}: {}", page_id, e);
-                return;
-            }
-        };
-
         // Apply the update with result feedback
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         if let Err(e) = scribe.cast(butler::ScribeMessage::ApplyUpdateWithResult {
@@ -108,6 +384,12 @@ impl<C: Connection> PeerActor<C> {
         match reply_rx.await {
             Ok(Ok(())) => {
                 debug!("ApplyUpdate succeeded for page={} layer={}", page_id, layer_name);
+
+                if Self::is_sync_meta_layer(page_id, layer_name) {
+                    self
+                        .request_missing_layers_from_sync_meta(page_id, layer_name, &scribe, state)
+                        .await;
+                }
             }
             Ok(Err(e)) => {
                 warn!("ApplyUpdate rejected for page={} layer={}: {}", page_id, layer_name, e);
@@ -365,6 +647,7 @@ impl<C: Connection> PeerActor<C> {
                         data: encrypted_data,
                         state_vector: our_current_vector,
                         ephemeral_public,
+                        authority_permit: None,
                     });
                     self.send_message(&msg, state).await;
                 }
@@ -407,6 +690,22 @@ impl<C: Connection> PeerActor<C> {
                 layer_name: layer_name.to_string(),
                 state_vector: their_state_vector.to_vec(),
             });
+
+            if !Self::is_sync_meta_layer(page_id, layer_name) {
+                if let Ok(user_info) = state.butler.user_info().await {
+                    let sync_meta_layer = format!("__sync_meta/{}", user_info.did);
+                    let sync_meta_key = layer_name
+                        .strip_prefix(&format!("{}/", page_id))
+                        .unwrap_or(layer_name)
+                        .to_string();
+                    let _ = subscription.scribe.cast(butler::ScribeMessage::MapInsert {
+                        layer_name: sync_meta_layer,
+                        path: String::new(),
+                        key: sync_meta_key,
+                        value: serde_json::json!({"synced": true, "version": 1}),
+                    });
+                }
+            }
         }
 
         // Clean up any pending sync for this page/layer (shouldn't exist but be safe)
@@ -421,9 +720,8 @@ impl<C: Connection> PeerActor<C> {
 
     /// Handle incoming SyncReset from peer (fallback after max resyncs)
     ///
-    /// **Context**: User mode peer exceeded MAX_RESYNC_ATTEMPTS and requests full snapshot
-    /// **Node mode only**: Responds with authoritative SyncSnapshot
-    /// **User mode**: Should not receive this - log warning
+    /// **Context**: Peer exceeded MAX_RESYNC_ATTEMPTS OR explicitly needs layer snapshot.
+    /// **Both modes**: Respond with SyncSnapshot when layer exists locally.
     #[instrument(skip(self, state), fields(page_id = %page_id, layer_name = %layer_name))]
     pub(in crate::peer_actor) async fn on_sync_reset(
         &self,
@@ -438,12 +736,6 @@ impl<C: Connection> PeerActor<C> {
                 return;
             }
         };
-
-        // Only Node mode should handle SyncReset
-        if state.mode != crate::CourierMode::Node {
-            warn!("SyncReset received in User mode - ignoring (only Node should respond)");
-            return;
-        }
 
         info!(
             "SyncReset: page={} layer={} from {} - sending full snapshot",
@@ -543,9 +835,8 @@ impl<C: Connection> PeerActor<C> {
 
     /// Handle incoming SyncSnapshot from peer (response to SyncReset)
     ///
-    /// **Context**: Node responded to our SyncReset with authoritative snapshot
-    /// **User mode only**: Replace local layer entirely with node's state
-    /// **Node mode**: Should not receive this - log warning
+    /// **Context**: Peer responded to our SyncReset with a full snapshot.
+    /// **Both modes**: Replace local layer with received state.
     #[instrument(skip(self, state, snapshot, their_state_vector, ephemeral_public), fields(page_id = %page_id, layer_name = %layer_name))]
     pub(in crate::peer_actor) async fn on_sync_snapshot(
         &self,
@@ -563,12 +854,6 @@ impl<C: Connection> PeerActor<C> {
                 return;
             }
         };
-
-        // Only User mode should receive SyncSnapshot
-        if state.mode != crate::CourierMode::User {
-            warn!("SyncSnapshot received in Node mode - ignoring (only User should apply)");
-            return;
-        }
 
         info!(
             "SyncSnapshot: page={} layer={} from {} ({} bytes) - replacing local state",
@@ -618,6 +903,12 @@ impl<C: Connection> PeerActor<C> {
                     "SyncSnapshot applied: page={} layer={} - sync recovery complete",
                     page_id, layer_name
                 );
+
+                if Self::is_sync_meta_layer(page_id, layer_name) {
+                    self
+                        .request_missing_layers_from_sync_meta(page_id, layer_name, &scribe, state)
+                        .await;
+                }
             }
             Ok(Err(e)) => {
                 error!("ReplaceLayer failed for page={} layer={}: {}", page_id, layer_name, e);
@@ -638,6 +929,22 @@ impl<C: Connection> PeerActor<C> {
                 layer_name: layer_name.to_string(),
                 state_vector: their_state_vector.to_vec(),
             });
+
+            if !Self::is_sync_meta_layer(page_id, layer_name) {
+                if let Ok(user_info) = state.butler.user_info().await {
+                    let sync_meta_layer = format!("__sync_meta/{}", user_info.did);
+                    let sync_meta_key = layer_name
+                        .strip_prefix(&format!("{}/", page_id))
+                        .unwrap_or(layer_name)
+                        .to_string();
+                    let _ = subscription.scribe.cast(butler::ScribeMessage::MapInsert {
+                        layer_name: sync_meta_layer,
+                        path: String::new(),
+                        key: sync_meta_key,
+                        value: serde_json::json!({"synced": true, "version": 1}),
+                    });
+                }
+            }
         }
 
         // Clean up any pending sync

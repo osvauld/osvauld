@@ -140,6 +140,60 @@ impl UserData for ScribeBindings {
             Ok(())
         });
 
+        // Create a dynamic layer from a schema pattern
+        //
+        // Creates a dynamic layer matching a schema defined in the permit's dynamic_layer_schemas.
+        // The schema_key identifies the pattern (e.g., "channels/{id}/messages"),
+        // and layer_id fills the {id} placeholder (e.g., "general").
+        //
+        // Returns a table with:
+        //   - layer_name: The full layer name (e.g., "{page_id}/channels/{did}/general/messages")
+        //
+        // # Examples
+        // ```lua
+        // local result = scribe:create_layer("channels/{id}/messages", "general")
+        // print(result.layer_name) -- "page1/channels/did:key:alice/general/messages"
+        // local messages = scribe:list(result.layer_name)
+        // messages:push({text = "Hello!"})
+        // ```
+        // Add a DID as participant to an explicit dynamic layer
+        //
+        // Grants access to a specific peer for a dynamic layer with explicit grant type.
+        // The peer will receive a layer permit on their next subscription (or immediately if connected).
+        //
+        // # Examples
+        // ```lua
+        // scribe:add_layer_access("page1/dms/did:key:alice/dm1/messages", "did:key:bob")
+        // ```
+        methods.add_method("add_layer_access", |_, this, (layer_name, did): (String, String)| {
+            this.scribe.add_layer_access(&layer_name, &did)
+                .map_err(|e| LuaError::RuntimeError(format!("Failed to add layer access: {}", e)))?;
+            Ok(())
+        });
+
+        // Remove a DID from an explicit dynamic layer
+        //
+        // Revokes access for a specific peer from a dynamic layer with explicit grant type.
+        //
+        // # Examples
+        // ```lua
+        // scribe:remove_layer_access("page1/dms/did:key:alice/dm1/messages", "did:key:bob")
+        // ```
+        methods.add_method("remove_layer_access", |_, this, (layer_name, did): (String, String)| {
+            this.scribe.remove_layer_access(&layer_name, &did)
+                .map_err(|e| LuaError::RuntimeError(format!("Failed to remove layer access: {}", e)))?;
+            Ok(())
+        });
+
+        methods.add_method("create_layer", |lua, this, (schema_key, layer_id): (String, String)| {
+            let layer_name = this.scribe.create_layer(&schema_key, &layer_id)
+                .map_err(|e| LuaError::RuntimeError(format!("Failed to create dynamic layer: {}", e)))?;
+
+            let result = lua.create_table()?;
+            result.set("layer_name", layer_name)?;
+            Ok(result)
+        });
+
         // Get or create a list layer
         //
         // Returns a handle to the specified list layer, creating it if it doesn't exist.

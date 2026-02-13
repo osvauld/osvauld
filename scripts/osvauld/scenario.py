@@ -17,11 +17,14 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import shutil
 import signal
 import subprocess
 import time
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import traceback
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -33,8 +36,70 @@ from .wait import wait_for_condition, wait_for_eval, TimeoutError
 
 
 # Default paths
-DEFAULT_KUNKI_BINARY = Path(__file__).parent.parent.parent / "target" / "debug" / "kunki"
+DEFAULT_KUNKI_BINARY = (
+    Path(__file__).parent.parent.parent / "target" / "debug" / "kunki"
+)
 DEFAULT_BASE_DIR = Path("/tmp/osvauld_test")
+
+
+def _capture_ts_key(value: Any) -> Optional[float]:
+    """Convert capture timestamp to a sortable float seconds value."""
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            pass
+
+        iso_value = value
+        if iso_value.endswith("Z"):
+            iso_value = iso_value[:-1] + "+00:00"
+        try:
+            return datetime.fromisoformat(iso_value).timestamp()
+        except ValueError:
+            return None
+
+    return None
+
+
+def _merge_capture_files(capture_paths: Dict[str, Path], output_path: Path) -> Path:
+    """Merge per-instance capture JSONL files sorted by timestamp."""
+    merged_entries = []
+    seq = 0
+
+    for instance, file_path in capture_paths.items():
+        if not file_path.exists():
+            continue
+
+        with file_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                raw = line.strip()
+                if not raw:
+                    continue
+
+                ts_key = None
+                out_line = raw
+                try:
+                    event = json.loads(raw)
+                    if isinstance(event, dict):
+                        event.setdefault("instance", instance)
+                        ts_key = _capture_ts_key(event.get("ts"))
+                        out_line = json.dumps(event, ensure_ascii=True)
+                except json.JSONDecodeError:
+                    pass
+
+                merged_entries.append((ts_key is None, ts_key or 0.0, seq, out_line))
+                seq += 1
+
+    merged_entries.sort(key=lambda entry: (entry[0], entry[1], entry[2]))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as f:
+        for _, _, _, line in merged_entries:
+            f.write(line + "\n")
+
+    return output_path
 
 
 class NodeSession:
@@ -79,10 +144,13 @@ class NodeSession:
         result = subprocess.run(
             [
                 str(self.kunki_binary),
-                "--db-path", f"{self.data_dir}/{self.name}",
+                "--db-path",
+                f"{self.data_dir}/{self.name}",
                 "init",
-                "--username", username,
-                "--passphrase", passphrase,
+                "--username",
+                username,
+                "--passphrase",
+                passphrase,
             ],
             capture_output=True,
             text=True,
@@ -122,10 +190,13 @@ class NodeSession:
         self.process = subprocess.Popen(
             [
                 str(self.kunki_binary),
-                "--db-path", f"{self.data_dir}/{self.name}",
+                "--db-path",
+                f"{self.data_dir}/{self.name}",
                 "start",
-                "--passphrase", passphrase,
-                "--debug-socket", self.socket_path,
+                "--passphrase",
+                passphrase,
+                "--debug-socket",
+                self.socket_path,
             ],
             env=env,
             stdout=subprocess.PIPE,
@@ -215,6 +286,9 @@ class Scenario:
         self.viewers: List[Session] = []
 
         self._started = False
+        self._capture_label: Optional[str] = None
+        self._capture_paths: Dict[str, Path] = {}
+        self._capture_clients: Dict[str, ControlClient] = {}
 
     @property
     def owner(self) -> Session:
@@ -427,6 +501,78 @@ class Scenario:
             viewer.client.add_website(connection_string)
 
     # ============================================================
+    # Capture helpers
+    # ============================================================
+
+    def capture_start(self, label: str, include_logs: bool = False) -> Path:
+        """Start capture on all instances (nodes + owners + viewers)."""
+        if not self._started:
+            raise RuntimeError("Scenario not started")
+        if self._capture_label is not None:
+            raise RuntimeError(
+                f"Capture already active with label '{self._capture_label}'"
+            )
+
+        captures_dir = self.base_dir / "captures"
+        captures_dir.mkdir(parents=True, exist_ok=True)
+
+        capture_paths: Dict[str, Path] = {}
+        capture_clients: Dict[str, ControlClient] = {}
+
+        for node in self.nodes:
+            capture_clients[node.name] = node.client
+
+        for owner in self.owners:
+            capture_clients[owner.name] = owner.client
+
+        for viewer in self.viewers:
+            capture_clients[viewer.name] = viewer.client
+
+        for instance, client in capture_clients.items():
+            capture_path = captures_dir / f"{label}_{instance}.jsonl"
+            client.capture_start(str(capture_path), include_logs=include_logs)
+            capture_paths[instance] = capture_path
+
+        self._capture_label = label
+        self._capture_paths = capture_paths
+        self._capture_clients = capture_clients
+        return captures_dir
+
+    def capture_end(
+        self, label: Optional[str] = None, merge: bool = True
+    ) -> Optional[Path]:
+        """Stop capture on all instances and optionally merge JSONL files."""
+        if self._capture_label is None:
+            raise RuntimeError("No active capture")
+        if label is not None and label != self._capture_label:
+            raise RuntimeError(
+                f"Capture label mismatch: active '{self._capture_label}', requested '{label}'"
+            )
+
+        active_label = self._capture_label
+        errors = []
+
+        for instance, client in self._capture_clients.items():
+            try:
+                client.capture_end()
+            except Exception as e:
+                errors.append(f"{instance}: {e}")
+
+        capture_paths = self._capture_paths
+        self._capture_label = None
+        self._capture_paths = {}
+        self._capture_clients = {}
+
+        if errors:
+            raise RuntimeError("Capture end failed: " + "; ".join(errors))
+
+        if not merge:
+            return None
+
+        merged_path = self.base_dir / "captures" / f"{active_label}_merged.jsonl"
+        return _merge_capture_files(capture_paths, merged_path)
+
+    # ============================================================
     # Sync helpers
     # ============================================================
 
@@ -508,7 +654,9 @@ class PeerHandle:
             except Exception:
                 pass
             time.sleep(interval)
-        raise TimeoutError(f"Timeout waiting for {desc} on '{self.name}' (after {timeout}s)")
+        raise TimeoutError(
+            f"Timeout waiting for {desc} on '{self.name}' (after {timeout}s)"
+        )
 
 
 class AppTestScenario:
@@ -579,11 +727,15 @@ class AppTestScenario:
         self._handles: Dict[str, PeerHandle] = {}
         self._space_id: Optional[str] = None
         self._page_id: Optional[str] = None
+        self._capture_label: Optional[str] = None
+        self._capture_paths: Dict[str, Path] = {}
 
     def peer(self, name: str) -> PeerHandle:
         """Get a PeerHandle by name."""
         if name not in self._handles:
-            raise KeyError(f"Peer '{name}' not found. Available: {list(self._handles.keys())}")
+            raise KeyError(
+                f"Peer '{name}' not found. Available: {list(self._handles.keys())}"
+            )
         return self._handles[name]
 
     @property
@@ -625,12 +777,13 @@ class AppTestScenario:
     @staticmethod
     def add_args(parser: argparse.ArgumentParser) -> None:
         """Add standard flags to an argparse parser."""
-        parser.add_argument("--keep", action="store_true",
-                            help="Keep tmux session alive after test")
-        parser.add_argument("--debug", action="store_true",
-                            help="Keep session on failure for debugging")
-        parser.add_argument("--release", action="store_true",
-                            help="Use release builds")
+        parser.add_argument(
+            "--keep", action="store_true", help="Keep tmux session alive after test"
+        )
+        parser.add_argument(
+            "--debug", action="store_true", help="Keep session on failure for debugging"
+        )
+        parser.add_argument("--release", action="store_true", help="Use release builds")
 
     def __enter__(self) -> "AppTestScenario":
         self._setup()
@@ -650,13 +803,26 @@ class AppTestScenario:
             self._print_session_info()
             self._block_until_ctrl_c()
 
+        if self._capture_label is not None:
+            try:
+                self.capture_end(merge=False)
+            except Exception:
+                pass
+
         if self._tm:
             self._tm.stop()
 
         return exc_type is not None  # Suppress exception if we handled it
 
     def _setup(self) -> None:
-        """Run the full boilerplate setup."""
+        """Run full boilerplate setup (optimized for debug builds).
+
+        Optimizations:
+        - Conditional waits instead of fixed time.sleep()
+        - Parallel viewer connection + space sync
+        - Parallel app opening
+        - Tighter polling (0.1s vs 0.5s)
+        """
         # Determine owner and viewer peers
         owner_name = None
         owner_app = None
@@ -706,73 +872,103 @@ class AppTestScenario:
         self._page_id = pages[0]["id"]
         print(f"  Space: {self._space_id[:8]}..., Page: {self._page_id[:8]}...")
 
-        # 3. Connect to node, publish
-        print(f"  {owner_name}: connect to node, publish...")
+        # 3. Connect to node (conditional wait, not fixed sleep)
+        print(f"  {owner_name}: connect to node...")
         owner_client.connect_to_node(node)
-        time.sleep(2)
+
+        print("    Waiting for node authentication...")
+        if not self._wait_for_node_auth(owner_client, node, timeout=10.0):
+            raise RuntimeError(
+                f"{owner_name} failed to authenticate with node within 10s"
+            )
+        print("    Node authenticated")
+
+        # 4. Publish space (conditional wait, not fixed sleep)
+        print(f"  {owner_name}: publish space to node...")
         owner_client.publish_to_node(self._space_id)
-        time.sleep(2)
-        print("  Published")
 
-        # 4. Setup each viewer
-        for pname, pconfig in viewer_peers:
-            viewer_client = self._tm.get_client(pname)
-            print(f"  {pname}: signup, subscribe...")
-            viewer_client.signup_or_login(pname)
-            owner_client.add_viewer(viewer_client, self._space_id)
+        if not self._wait_for_node_publish(node, self._space_id, timeout=10.0):
+            raise RuntimeError(f"Node did not receive published space within 10s")
+        print("  Published and synced to node")
 
-            # Wait for viewer to sync space
-            viewer_page_id = None
-            for i in range(30):
-                time.sleep(0.5)
-                spaces = viewer_client.list_spaces()
-                if spaces:
-                    viewer_pages = viewer_client.list_pages(spaces[0]["id"])
-                    if viewer_pages:
-                        viewer_page_id = viewer_pages[0]["id"]
-                        print(f"  {pname} synced in {(i+1)*0.5:.1f}s")
-                        break
-            if not viewer_page_id:
-                raise RuntimeError(f"{pname} failed to sync space")
+        # 5. PARALLEL: Connect all viewers and wait for space sync
+        print(f"\n  Connecting viewers (parallel)...")
+        viewer_link = owner_client.get_viewer_link(self._space_id)
 
-        # 5. Open apps on all peers
-        print("  Opening apps...")
-        owner_client.open_app(self._page_id, owner_app)
-        time.sleep(2)
+        viewer_page_ids = {}
 
-        for pname, pconfig in viewer_peers:
-            viewer_client = self._tm.get_client(pname)
-            # Viewer's page_id may differ from owner's
-            spaces = viewer_client.list_spaces()
-            viewer_pages = viewer_client.list_pages(spaces[0]["id"])
-            viewer_page_id = viewer_pages[0]["id"]
-            viewer_client.open_app(viewer_page_id, pconfig["app"])
-            time.sleep(1)
-        print("  All apps opened")
+        with ThreadPoolExecutor(max_workers=len(viewer_peers)) as executor:
 
-        # 6. Wait for eval readiness on all peers
-        print("  Waiting for eval readiness...")
-        for pname in self.peers_config:
-            client = self._tm.get_client(pname)
-            for i in range(30):
+            def connect_viewer(pname):
+                viewer_client = self._tm.get_client(pname)
+                viewer_client.signup_or_login(pname)
+                # Connect exactly once per viewer. add_viewer(wait_for_auth=False)
+                # already calls viewer.add_website(link), so calling
+                # add_website_with_wait afterward duplicates the connect flow and
+                # can race/timestamp out during auth.
+                viewer_client.add_website_with_wait(viewer_link, timeout=10.0)
+                page_id = self._wait_for_space_sync(viewer_client, pname, timeout=10.0)
+                if page_id is None:
+                    raise RuntimeError(f"{pname} failed to sync space within 10s")
+                return pname, page_id
+
+            future_to_peer = {
+                executor.submit(connect_viewer, pname): pname
+                for pname, _ in viewer_peers
+            }
+
+            for future in as_completed(future_to_peer.keys()):
+                pname = future_to_peer[future]
                 try:
-                    client.eval("return 1")
-                    break
-                except Exception:
-                    time.sleep(0.5)
-            else:
-                raise RuntimeError(f"{pname} eval not ready after 15s")
+                    peer_name, page_id = future.result()
+                    viewer_page_ids[peer_name] = page_id
+                except Exception as e:
+                    raise RuntimeError(f"{pname} connection failed: {e}")
+
+        print("  All viewers connected and synced")
+
+        # 6. PARALLEL: Open apps on all peers
+        print(f"\n  Opening apps (parallel)...")
+
+        with ThreadPoolExecutor(max_workers=len(self.peers_config)) as executor:
+
+            def open_app(peer_name):
+                client = self._tm.get_client(peer_name)
+                pconfig = self.peers_config[peer_name]
+                if pconfig["role"] == "owner":
+                    page_id = self._page_id
+                    app_name = owner_app
+                else:
+                    page_id = viewer_page_ids[peer_name]
+                    app_name = pconfig["app"]
+
+                self._open_app_ready(client, page_id, app_name, timeout=5.0)
+                return peer_name
+
+            future_to_peer = {
+                executor.submit(open_app, peer_name): peer_name
+                for peer_name in self.peers_config.keys()
+            }
+
+            for future in as_completed(future_to_peer.keys()):
+                peer_name = future_to_peer[future]
+                try:
+                    future.result()
+                    print(f"    {peer_name} app ready")
+                except Exception as e:
+                    raise RuntimeError(f"{peer_name} app failed: {e}")
+
+        print("  All apps opened and ready")
 
         # 7. Build PeerHandles
+        print(f"\n  Building peer handles...")
         for pname, pconfig in self.peers_config.items():
             client = self._tm.get_client(pname)
             # Resolve viewer page_id
             if pconfig["role"] == "owner":
                 peer_page_id = self._page_id
             else:
-                spaces = client.list_spaces()
-                peer_pages = client.list_pages(spaces[0]["id"])
-                peer_page_id = peer_pages[0]["id"]
+                peer_page_id = viewer_page_ids[pname]
 
             self._handles[pname] = PeerHandle(
                 name=pname,
@@ -785,6 +981,193 @@ class AppTestScenario:
 
         print(f"\n  Ready! Peers: {list(self._handles.keys())}")
         print(f"{'=' * 60}\n")
+
+    def capture_start(self, label: str, include_logs: bool = False) -> Path:
+        """Start capture on node + all configured peers.
+
+        Returns:
+            Path to the captures directory.
+        """
+        if self._tm is None:
+            raise RuntimeError("Scenario not set up yet")
+        if self._capture_label is not None:
+            raise RuntimeError(
+                f"Capture already active with label '{self._capture_label}'"
+            )
+
+        captures_dir = self.base_dir / "captures"
+        captures_dir.mkdir(parents=True, exist_ok=True)
+
+        capture_paths: Dict[str, Path] = {}
+
+        instance_names = ["node", *self.peers_config.keys()]
+        for instance in instance_names:
+            client = self._tm.get_client(instance)
+            capture_path = captures_dir / f"{label}_{instance}.jsonl"
+            client.capture_start(str(capture_path), include_logs=include_logs)
+            capture_paths[instance] = capture_path
+
+        self._capture_label = label
+        self._capture_paths = capture_paths
+        return captures_dir
+
+    def capture_end(
+        self, label: Optional[str] = None, merge: bool = True
+    ) -> Optional[Path]:
+        """Stop capture on node + peers and optionally return merged file path."""
+        if self._tm is None:
+            raise RuntimeError("Scenario not set up yet")
+        if self._capture_label is None:
+            raise RuntimeError("No active capture")
+        if label is not None and label != self._capture_label:
+            raise RuntimeError(
+                f"Capture label mismatch: active '{self._capture_label}', requested '{label}'"
+            )
+
+        active_label = self._capture_label
+        errors = []
+        for instance in ["node", *self.peers_config.keys()]:
+            try:
+                client = self._tm.get_client(instance)
+                client.capture_end()
+            except Exception as e:
+                errors.append(f"{instance}: {e}")
+
+        capture_paths = self._capture_paths
+        self._capture_label = None
+        self._capture_paths = {}
+
+        if errors:
+            raise RuntimeError("Capture end failed: " + "; ".join(errors))
+
+        if not merge:
+            return None
+
+        merged_path = self.base_dir / "captures" / f"{active_label}_merged.jsonl"
+        return _merge_capture_files(capture_paths, merged_path)
+
+    def _wait_for_space_sync(self, client, peer_name, timeout=10.0):
+        """Wait for peer to sync space and page from node.
+
+        Polls every 0.1s instead of 0.5s (5x faster detection).
+
+        Args:
+            client: ControlClient for the peer
+            peer_name: Peer name for logging
+            timeout: Max seconds to wait (default: 10.0)
+
+        Returns:
+            page_id if synced, None if timeout
+        """
+        start = time.time()
+        last_print = start
+
+        while time.time() - start < timeout:
+            try:
+                spaces = client.list_spaces()
+                if spaces:
+                    pages = client.list_pages(spaces[0]["id"])
+                    if pages:
+                        elapsed = time.time() - start
+                        print(f"  {peer_name} synced in {elapsed:.1f}s")
+                        return pages[0]["id"]
+            except Exception:
+                pass
+
+            # Progress logging every 2s
+            if time.time() - start - last_print >= 2.0:
+                print(f"  {peer_name}: still waiting... ({time.time() - start:.1f}s)")
+                last_print = time.time() - start
+
+            time.sleep(0.1)
+
+        return None
+
+    def _wait_for_node_auth(self, owner_client, node_client, timeout=10.0):
+        """Wait for owner to authenticate with node after connect_to_node.
+
+        Replaces blind time.sleep(2) - polls at 0.1s intervals.
+
+        Args:
+            owner_client: ControlClient for owner
+            node_client: ControlClient for node
+            timeout: Max seconds to wait (default: 10.0)
+
+        Returns:
+            True if authenticated, False if timeout
+        """
+        start = time.time()
+
+        while time.time() - start < timeout:
+            try:
+                nodes = owner_client.list_nodes()
+                if nodes:
+                    node_id = nodes[0].get("node_id")
+                    if owner_client.is_node_authenticated(node_id):
+                        return True
+            except Exception:
+                pass
+            time.sleep(0.1)
+
+        return False
+
+    def _wait_for_node_publish(self, node_client, space_id, timeout=10.0):
+        """Wait for node to have published space with page.
+
+        Replaces blind time.sleep(2) - polls at 0.1s intervals.
+
+        Args:
+            node_client: ControlClient for node
+            space_id: Space ID to check
+            timeout: Max seconds to wait (default: 10.0)
+
+        Returns:
+            True if space/page synced, False if timeout
+        """
+        start = time.time()
+
+        while time.time() - start < timeout:
+            try:
+                spaces = node_client.list_spaces()
+                for space in spaces:
+                    if space.get("id") == space_id:
+                        pages = node_client.list_pages(space_id)
+                        if pages:
+                            return True
+            except Exception:
+                pass
+            time.sleep(0.1)
+
+        return False
+
+    def _open_app_ready(self, client, page_id, app_name, timeout=5.0):
+        """Open app and wait for Lua runtime to be ready.
+
+        Combines open_app + wait_for_eval with 0.1s polling.
+
+        Args:
+            client: ControlClient for peer
+            page_id: Page ID to open
+            app_name: App name to open
+            timeout: Max seconds to wait for eval (default: 5.0)
+
+        Raises:
+            RuntimeError: If app doesn't become ready
+        """
+        client.open_app(page_id, app_name)
+
+        # Wait for eval readiness with tight polling
+        start = time.time()
+        while time.time() - start < timeout:
+            try:
+                result = client.eval("return 1")
+                if result == 1:
+                    return
+            except Exception:
+                pass
+            time.sleep(0.1)
+
+        raise RuntimeError(f"App '{app_name}' not ready after {timeout}s")
 
     def _print_session_info(self) -> None:
         """Print tmux session and socket info."""

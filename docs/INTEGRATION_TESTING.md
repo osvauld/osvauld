@@ -34,7 +34,7 @@ integration_tests/
         ├── mod.rs
         ├── handshake.rs         # 3 tests — connection, reconnect, invalid permit
         ├── publish.rs           # 4 tests — page/space/app sync after publish
-        ├── layer_sync.rs        # 4 tests — map/list layer sync, viewer, e2e flow
+        ├── layer_sync.rs        # 8 tests — static/dynamic layer sync, viewer relay, custom channels
         ├── app_sync.rs          # 3 tests — app file sync owner→node→viewer
         ├── permission.rs        # 3 tests — permit enforcement, scoped access
         ├── presence.rs          # 2 tests — presence heartbeat, stale detection
@@ -181,6 +181,67 @@ async fn test_viewer_gets_data() -> Result<()> {
 }
 ```
 
+### Dynamic layer test (create_layer + permit issuance + sync)
+
+```rust
+#[tokio::test]
+async fn test_dynamic_layer_syncs() -> Result<()> {
+    init_tracing();
+
+    let mut s = Scenario::builder()
+        .app("osvauld-demos")
+        .published()
+        .viewers(1)
+        .build()
+        .await?;
+
+    let page_id = s.space().page_id.clone();
+    let space_id = s.space().space_id.clone();
+    sleep(Duration::from_millis(500)).await;
+
+    // Connect viewer
+    let viewer_link = s.get_viewer_link(&space_id).await?;
+    s.add_viewer(0, &viewer_link, &page_id).await?;
+    sleep(Duration::from_millis(500)).await;
+
+    // Owner creates dynamic layer via schema
+    let owner_scribe = s.owner().butler.open_page(&page_id).await?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    owner_scribe.cast(ScribeMessage::CreateDynamicLayer {
+        schema_key: "channels/{id}/messages".to_string(),
+        layer_id: "my-channel".to_string(),
+        reply: tx,
+    })?;
+    let full_name = rx.await??;
+
+    // Strip page_id prefix for bare layer name
+    let bare = full_name.strip_prefix(&format!("{}/", page_id))
+        .unwrap_or(&full_name);
+
+    // Write data to the dynamic layer
+    owner_scribe.cast(ScribeMessage::MapInsert {
+        layer_name: bare.to_string(),
+        path: String::new(),
+        key: "msg1".to_string(),
+        value: serde_json::json!({"text": "Hello"}),
+    })?;
+
+    // Node issues layer permits automatically → viewer receives data
+    let viewer_data = wait_for_layer_data(
+        &s.viewer(0).butler, &page_id, bare, Duration::from_secs(10),
+    ).await?;
+    assert!(!viewer_data.is_empty());
+
+    s.shutdown().await;
+    Ok(())
+}
+```
+
+Dynamic layers require:
+- `dynamic_layer_schemas` in the permit template for ALL roles (owner, node, viewer, consent)
+- `role_permissions` keys matching peer `relationship` values
+- Node mode Scribe with `PermitIssuer` wired (handled automatically by Butler)
+
 ### Validation test (standalone Lua, no P2P)
 
 Validation tests load `validation.lua` from sample apps and test directly with mlua. No Scenario needed.
@@ -241,10 +302,9 @@ Tests use real sample apps from `sample_apps/`. Each app's `permit_template.json
 
 | App | Layers | Use for |
 |-----|--------|---------|
-| `osvauld-demos` | `messages` (list), `reactions` (map), `app:Group Chat` (map) | Most protocol tests |
+| `osvauld-demos` | `messages` (list), `reactions` (map), `channels_meta` (map), `channels/*/messages` (map), `app:Group Chat` (map) | Most protocol tests, dynamic layer sync |
 | `my-shop` | `products` (map), `orders/{aud}` (list), `derived/orders_summary` (map), multiple app layers | Derivation, validation, ecomm sync |
 | `my-booking` | `schedule` (map), `bookings/{aud}` (list), `derived/calendar` (map) | Validation tests |
-| `osvauld-demos` | `messages` (list), `presence` (map) | Presence validation |
 
 ### Layer constraints
 
@@ -387,6 +447,15 @@ Layer data sync happens afterward via the Scribe subscription system:
 3. Node (subscribed via PeerActor) receives SyncOffer → applies update
 4. Viewer (if connected) also receives via node relay
 
+**Dynamic layer sync** adds a permit issuance step:
+1. Owner calls `create_layer("channels/{id}/messages", "my-channel")` → creates DID-namespaced layer
+2. Owner writes data → SyncOffer sent to node
+3. Node detects new layer matching a `dynamic_layer_schemas` entry
+4. Node issues **layer permits** to connected peers based on `role_permissions`
+5. Node adds layer permits to subscriber info → enables `can_receive_layer()` check
+6. Node broadcasts layer data to permitted subscribers
+7. Node sends `NewDynamicLayer` event via Coordinator → PeerActors deliver permits to peers
+
 ## Test Categories
 
 | Category | Files | P2P? | Scribe? | LuaRuntime? |
@@ -411,5 +480,9 @@ Layer data sync happens afterward via the Scribe subscription system:
 - **Scribe strips `{page_id}/` prefix.** Layer names in the permit use `{page_id}/messages` but you write to `"messages"` (bare name). The Scribe normalizes internally.
 
 - **`ActorScribeHandle` uses `block_on`.** When passing a Scribe to `LuaRuntime`, use `ActorScribeHandle::new(scribe_ref)`. This bridges sync Lua calls to the async Scribe actor. Don't call it from an async context directly.
+
+- **Dynamic layer names are DID-namespaced.** `create_layer("channels/{id}/messages", "general")` produces `channels/{creator_did}/general/messages`. The bare layer name (without page_id prefix) is what you pass to `wait_for_layer_data`.
+
+- **Dynamic layer sync requires `PermitIssuer`.** The node's Scribe needs a `PermitIssuer` to issue layer permits for dynamic layers. Butler wires this automatically for node mode via `ButlerPermitIssuer`.
 
 - **Presence requires permit entry.** Cross-peer presence sync only works if the permit includes the presence layer (e.g. `{page_id}/presence`). The `osvauld-demos` app doesn't have one, so presence tests use local-only verification.

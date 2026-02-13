@@ -127,40 +127,20 @@ pub fn decide_page_owner_token(
     // Keep operations as strings ("allow"/"deny") instead of converting to booleans
     decision.add_fact("operations".into(), json!(ops));
 
-    // Copy layers if present
-    if let Some(layers) = owner_template.get("layers") {
-        decision.add_fact("layers".into(), layers.clone());
+    // Copy all template fields to facts, then resolve {page_id}
+    let template_fields = [
+        "layers", "sync", "issue_on", "peer_capabilities",
+        "presence", "ephemeral_funcs", "dynamic_layer_schemas",
+    ];
+    for field in &template_fields {
+        if let Some(val) = owner_template.get(*field) {
+            decision.add_fact((*field).to_string(), val.clone());
+        }
     }
+    // Note: layer_patterns intentionally NOT copied (replaced by dynamic_layer_schemas)
 
-    // Copy layer_patterns if present
-    if let Some(layer_patterns) = owner_template.get("layer_patterns") {
-        decision.add_fact("layer_patterns".into(), layer_patterns.clone());
-    }
-
-    // Copy sync facts if present
-    if let Some(sync) = owner_template.get("sync") {
-        decision.add_fact("sync".into(), sync.clone());
-    }
-
-    // Copy issue_on templates (self-describing permits)
-    if let Some(issue_on) = owner_template.get("issue_on") {
-        decision.add_fact("issue_on".into(), issue_on.clone());
-    }
-
-    // Copy peer_capabilities if present (needed for accept_publish, etc.)
-    if let Some(peer_capabilities) = owner_template.get("peer_capabilities") {
-        decision.add_fact("peer_capabilities".into(), peer_capabilities.clone());
-    }
-
-    // Copy presence if present (visibility, display name for /users layer)
-    if let Some(presence) = owner_template.get("presence") {
-        decision.add_fact("presence".into(), presence.clone());
-    }
-
-    // Copy ephemeral_funcs if present (allowed ephemeral function names)
-    if let Some(ephemeral_funcs) = owner_template.get("ephemeral_funcs") {
-        decision.add_fact("ephemeral_funcs".into(), ephemeral_funcs.clone());
-    }
+    // Resolve {page_id} in layer keys and nested issue_on templates
+    crate::parser::resolve_page_id_in_facts(&mut decision.facts, page_id);
 
     Ok(decision)
 }

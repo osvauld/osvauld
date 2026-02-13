@@ -17,9 +17,12 @@ use tracing::{debug, error, info, warn, instrument};
 use domains::Layer;
 
 use super::broadcast::{broadcast_update, notify_layer_discovered};
+use crate::layer_unit::LayerUnit;
+use crate::layer_unit::{find_matching_dynamic_schema, prepare_layer_permits};
 use crate::loro_observer::{set_pending_update_source, clear_pending_update_source, setup_layer_observer};
 use crate::permit::{Permissions, PermitContext};
 use crate::state::ScribeState;
+use crate::SyncEvent;
 use crate::JsonOp;
 use crate::state::normalize_layer_name;
 
@@ -62,7 +65,7 @@ impl UpdateContext {
     ) -> Self {
         let is_remote = from_peer.is_some();
         let is_local_only = Permissions::is_local_only(layer_name);
-        let is_new_layer = !state.layers.contains_key(layer_name);
+        let is_new_layer = !state.units.contains_key(layer_name);
 
         // Determine peer role for validation
         let peer_role = if let Some(ref peer) = from_peer {
@@ -143,15 +146,26 @@ pub async fn handle_apply_update(
     let outcome = apply_update_core(state, &ctx, update).await;
 
     // Step 2: Handle the outcome
+    let from_peer_did = ctx.from_peer.as_ref().map(|(d, _)| d.as_str());
     match outcome {
         ApplyOutcome::Applied { layer_name, ops: _, created_layer } => {
             // Mark layer as dirty for persistence
-            state.dirty_layers.insert(layer_name.clone());
+            if let Some(unit) = state.units.get_mut(&layer_name) {
+                unit.mark_dirty();
+            }
             debug!(layer = %layer_name, created = created_layer, "Update applied successfully");
+            state.emit_apply_update_capture(&layer_name, from_peer_did, "applied", None);
 
             // Post-apply handling for remote updates
             if ctx.is_remote {
                 handle_post_apply(state, &layer_name, ctx.from_peer.clone()).await;
+            }
+
+            // Node-side: detect new dynamic layers and issue permits
+            if created_layer {
+                if let Some(ref from_peer) = ctx.from_peer {
+                    emit_dynamic_layer_permits(state, &layer_name, from_peer).await;
+                }
             }
 
             // Update sender's vector
@@ -171,6 +185,7 @@ pub async fn handle_apply_update(
         }
         ApplyOutcome::Rejected { reason } => {
             warn!(layer = %layer_name, reason = %reason, "Update rejected");
+            state.emit_apply_update_capture(layer_name, from_peer_did, "rejected", Some(&reason));
             Err(reason)
         }
     }
@@ -323,9 +338,34 @@ fn create_layer_from_peer(state: &mut ScribeState, layer_name: &str) {
     // Defense-in-depth: normalize layer name (strip page_id/ prefix)
     let layer_name = normalize_layer_name(layer_name, &state.page_id);
     let layer_name = layer_name.as_str();
-    state.layers.insert(layer_name.to_string(), Layer::new());
-    state.dirty_layers.insert(layer_name.to_string());
+    let mut unit = LayerUnit::new_empty();
+    unit.set_local_only(!state.should_sync_layer(layer_name));
+    unit.mark_dirty();
+    state.units.insert(layer_name.to_string(), unit);
     info!(layer = %layer_name, "Created new layer from peer sync");
+
+    // Authorize existing subscribers for this new layer
+    if let Ok(subs) = state.subscribers.read() {
+        for ((did, _), info) in subs.iter() {
+            if info.can_receive_layer(layer_name, &state.page_id) {
+                if let Some(unit) = state.units.get(layer_name) {
+                    unit.authorize_did(did);
+                    state.emit_layer_auth_capture(layer_name, did, "authorized_subscriber");
+                }
+            }
+        }
+    }
+
+    // Apply any pending authorizations (from AuthorizeLayerSubscriber before layer creation)
+    if let Some(pending_dids) = state.pending_layer_authorizations.remove(layer_name) {
+        if let Some(unit) = state.units.get(layer_name) {
+            for did in &pending_dids {
+                unit.authorize_did(did);
+                state.emit_layer_auth_capture(layer_name, did, "applied_pending");
+                info!(layer = %layer_name, did = %did, "Applied pending layer authorization");
+            }
+        }
+    }
 
     // Set up Loro observer for new layer to enable sync broadcasts
     setup_layer_observer(state, layer_name);
@@ -349,8 +389,8 @@ fn apply_crdt_update(
     set_pending_update_source(state, from_peer);
 
     // Get the layer and apply update
-    let result = if let Some(layer) = state.layers.get(layer_name) {
-        layer.apply(update)
+    let result = if let Some(unit) = state.units.get(layer_name) {
+        unit.layer().apply(update)
     } else {
         clear_pending_update_source(state);
         return Err("Layer not found".to_string());
@@ -382,14 +422,14 @@ async fn handle_post_apply(
 ) {
     // For app layers, flush immediately to storage so restart loads new code
     if layer_name.starts_with("app:") {
-        if let Some(layer) = state.layers.get(layer_name) {
-            let snapshot = layer.export_snapshot();
+        if let Some(unit) = state.units.get_mut(layer_name) {
+            let snapshot = unit.layer().export_snapshot();
             if let Err(e) = state.layer_storage.save_layer(layer_name, &snapshot) {
                 error!(layer = %layer_name, error = %e, "Failed to save app layer immediately");
             } else {
                 info!(layer = %layer_name, "Saved app layer immediately for restart");
-                // Remove from dirty set since we just saved it
-                state.dirty_layers.remove(layer_name);
+                // Remove from dirty since we just saved it
+                unit.clear_dirty();
             }
         }
     }
@@ -402,15 +442,127 @@ async fn handle_post_apply(
 /// Update sender's peer vector after receiving their update
 #[instrument(skip_all, fields(page_id = %state.page_id, layer = %layer_name))]
 fn update_sender_vector(state: &mut ScribeState, peer: &(String, String), layer_name: &str) {
-    if let Some(layer) = state.layers.get(layer_name) {
+    if let Some(unit) = state.units.get(layer_name) {
         if let Ok(mut subs) = state.subscribers.write() {
             if let Some(info) = subs.get_mut(peer) {
-                let current_vector = layer.version_vector();
+                let current_vector = unit.layer().version_vector();
                 info.vectors.insert(layer_name.to_string(), current_vector);
                 debug!(user_did = %peer.0, "Updated sender's peer vector");
             }
         }
     }
+}
+
+/// Detect if a newly created layer matches a dynamic schema and emit permits
+///
+/// **Context**: Node receives a new layer from peer. If it matches a dynamic schema,
+/// prepare layer permits for all connected peers and emit SyncEvent::NewDynamicLayer.
+/// **Coordinator** distributes the permits to PeerActors → peers.
+#[instrument(skip(state), fields(page_id = %state.page_id, layer = %layer_name))]
+async fn emit_dynamic_layer_permits(
+    state: &ScribeState,
+    layer_name: &str,
+    from_peer: &(String, String),
+) {
+    // Only nodes issue permits (require permit_issuer + our_permit + sync_event_tx)
+    let Some(ref permit_issuer) = state.permit_issuer else { return; };
+    let Some(ref our_permit) = state.our_permit else { return; };
+    let Some(ref sync_event_tx) = state.sync_event_tx else { return; };
+
+    // Check if layer matches a dynamic schema
+    let Some((schema_key, schema, creator_did)) =
+        find_matching_dynamic_schema(our_permit, layer_name, &state.page_id) else { return; };
+
+    // Validate creator namespace: sender's DID must match DID in path
+    if from_peer.0 != creator_did {
+        warn!(
+            layer = %layer_name,
+            sender = %from_peer.0,
+            creator = %creator_did,
+            "Creator namespace mismatch — sender DID doesn't match path DID"
+        );
+        return;
+    }
+
+    // Mark the layer as dynamic
+    if let Some(unit) = state.units.get(layer_name) {
+        // Note: is_dynamic is pub so we'd need get_mut, but we can't mutate here.
+        // The flag is informational; permit issuance is the critical path.
+        let _ = unit;
+    }
+
+    // Collect connected peers with their roles
+    let connected_peers = collect_connected_peers_with_roles(state);
+
+    // Prepare layer permits
+    let full_layer_name = format!("{}/{}", state.page_id, layer_name);
+    match prepare_layer_permits(
+        permit_issuer.as_ref(),
+        &state.page_id,
+        &full_layer_name,
+        schema,
+        &creator_did,
+        &connected_peers,
+    ) {
+        Ok(permits) if !permits.is_empty() => {
+            info!(
+                layer = %layer_name,
+                schema = %schema_key,
+                creator = %creator_did,
+                permit_count = permits.len(),
+                "Prepared dynamic layer permits, emitting NewDynamicLayer"
+            );
+
+            // Authorize recipient DIDs on the LayerUnit for broadcast
+            if let Some(unit) = state.units.get(layer_name) {
+                for (recipient_did, _token) in &permits {
+                    unit.authorize_did(recipient_did);
+                    state.emit_layer_auth_capture(layer_name, recipient_did, "authorized_dynamic_permit");
+                    debug!(
+                        recipient = %recipient_did,
+                        layer = %layer_name,
+                        "Authorized subscriber for dynamic layer"
+                    );
+                }
+            }
+
+            let event = SyncEvent::NewDynamicLayer {
+                page_id: state.page_id.clone(),
+                layer_name: full_layer_name,
+                permits,
+            };
+
+            state.emit_sync_event_capture(&event);
+            if let Err(e) = sync_event_tx.send(event).await {
+                error!(error = %e, "Failed to emit NewDynamicLayer event");
+            }
+        }
+        Ok(_) => {
+            debug!(layer = %layer_name, "No permits needed for dynamic layer");
+        }
+        Err(e) => {
+            error!(layer = %layer_name, error = %e, "Failed to prepare dynamic layer permits");
+        }
+    }
+}
+
+/// Collect connected peers with their roles from subscriber info
+///
+/// **Context**: Node needs (did, role) pairs for prepare_layer_permits
+fn collect_connected_peers_with_roles(state: &ScribeState) -> Vec<(String, String)> {
+    let mut peers = Vec::new();
+
+    if let Ok(subs) = state.subscribers.read() {
+        for ((did, _device_id), info) in subs.iter() {
+            let role = info.permit.relationship().unwrap_or("peer").to_string();
+            // Avoid duplicates (same DID, different devices)
+            if !peers.iter().any(|(d, _): &(String, String)| d == did) {
+                peers.push((did.clone(), role));
+            }
+        }
+    }
+
+    peers
 }
 
 /// Get role for a peer from their stored permit

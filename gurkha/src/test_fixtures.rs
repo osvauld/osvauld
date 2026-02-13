@@ -46,6 +46,12 @@ pub fn create_permit(filename: &str, role: &str, page_id: &str, audience: &str) 
     // Inject page_id
     facts.insert("page_id".to_string(), json!(page_id));
 
+    // Resolve {page_id} in layer keys and nested issue_on templates
+    crate::parser::resolve_page_id_in_facts(&mut facts, page_id);
+
+    // Resolve {aud} in layer keys (test-time resolution for explicit permits)
+    resolve_aud_in_layers(&mut facts, audience);
+
     let (token, _cid) = pollster::block_on(generate_permit_with_cid(
         &TEST_KEY,
         audience,
@@ -79,6 +85,12 @@ pub fn create_permit_token(filename: &str, role: &str, page_id: &str, audience: 
 
     // Inject page_id
     facts.insert("page_id".to_string(), json!(page_id));
+
+    // Resolve {page_id} in layer keys and nested issue_on templates
+    crate::parser::resolve_page_id_in_facts(&mut facts, page_id);
+
+    // Resolve {aud} in layer keys (test-time resolution for explicit permits)
+    resolve_aud_in_layers(&mut facts, audience);
 
     let (token, _cid) = pollster::block_on(generate_permit_with_cid(
         &TEST_KEY,
@@ -206,4 +218,22 @@ pub fn chat_lurker(page_id: &str, did: &str) -> Permit {
 /// Create chat lurker permit token
 pub fn chat_lurker_token(page_id: &str, did: &str) -> String {
     create_permit_token("chat.json", "lurker", page_id, did)
+}
+
+/// Resolve {aud} placeholder in layer keys (test-time only)
+///
+/// In production, dynamic layers are added via permit re-issuance.
+/// For test fixtures, we resolve {aud} at create time to simulate
+/// explicit layer grants.
+fn resolve_aud_in_layers(facts: &mut serde_json::Map<String, Value>, aud: &str) {
+    if let Some(layers) = facts.remove("layers") {
+        if let Some(layers_obj) = layers.as_object() {
+            let mut resolved = serde_json::Map::new();
+            for (key, val) in layers_obj {
+                let resolved_key = key.replace("{aud}", aud);
+                resolved.insert(resolved_key, val.clone());
+            }
+            facts.insert("layers".to_string(), Value::Object(resolved));
+        }
+    }
 }

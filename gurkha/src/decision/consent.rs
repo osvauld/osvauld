@@ -137,3 +137,63 @@ pub fn decide_sync_page_consent(
     trace!("Page sync consent decision created for page {} -> node {}", page_id, node_pubkey);
     Ok(decision)
 }
+
+/// Decide what should be in a layer sync consent permit
+///
+/// **Context**: Viewer received a LayerPermit for a dynamic layer, now consents to sync.
+/// This is the dynamic layer equivalent of page consent.
+///
+/// **Issued by**: Viewer
+/// **Audience**: Node (the specific node DID)
+/// **Proof**: The LayerPermit token (establishes delegation chain)
+///
+/// Layer consent permits have:
+/// - Specific node pubkey as audience
+/// - Facts expressing consent to receive updates for a specific layer
+/// - The layer name identifying which dynamic layer
+/// - Proof chain to the layer permit
+pub fn decide_sync_layer_consent(
+    viewer_verifying_key: &VerifyingKey,
+    node_pubkey: &str,
+    page_id: &str,
+    layer_name: &str,
+    layer_permit_token: &str,
+    template_json: &str,
+) -> DecisionResult<TokenDecision> {
+    let viewer_pub_key_b64 = general_purpose::STANDARD.encode(viewer_verifying_key.as_bytes());
+
+    let mut decision = TokenDecision::new(node_pubkey);
+
+    // Parse consent template (reuse page consent template structure)
+    let template_data: Value = serde_json::from_str(template_json)
+        .map_err(|e| GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e)))?;
+
+    let consent_template = template_data
+        .get("consent_template")
+        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing consent_template".to_string()))?;
+
+    // Core consent facts
+    decision.add_fact("token_type".into(), json!("sync_layer_consent"));
+    decision.add_fact("relationship".into(), json!("sync_consent"));
+    decision.add_fact("page_id".into(), json!(page_id));
+    decision.add_fact("layer_name".into(), json!(layer_name));
+    decision.add_fact("user_id".into(), json!(viewer_pub_key_b64));
+
+    // Operations from template
+    if let Some(operations) = consent_template.get("operations") {
+        decision.add_fact("operations".into(), operations.clone());
+    }
+
+    // Auth capabilities from template
+    if let Some(auth_caps) = consent_template.get("auth_capabilities") {
+        decision.add_fact("auth_capabilities".into(), auth_caps.clone());
+    }
+
+    // Calculate CID of the layer permit and add to proof chain
+    let proof_cid = crate::crypto::get_permit_cid(layer_permit_token)?;
+    decision.proofs.push(proof_cid.clone());
+    decision.proof_tokens.insert(proof_cid, layer_permit_token.to_string());
+
+    trace!("Layer sync consent decision created for page {} layer {} -> node {}", page_id, layer_name, node_pubkey);
+    Ok(decision)
+}

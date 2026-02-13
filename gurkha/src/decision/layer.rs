@@ -1,275 +1,444 @@
 //! Layer Pattern Authorization
 //!
 //! Functions for checking if a permit authorizes access to a layer.
+//! Supports two-tier access: page permit (static layers) + layer permits (dynamic layers).
 
-/// Check if permit authorizes access to a layer (IDENTITY-based)
+/// Check if permit authorizes access to a layer
 ///
-/// **Note**: This only checks if the viewer CAN access the layer based on identity.
-/// State-based checks (can_write, can_delete) happen via auth_lua in AuthSandbox.
+/// With fully-resolved permits, this is a simple map lookup.
+/// Layer keys in the permit are already expanded (e.g., "abc123/products").
 ///
 /// # Arguments
 /// * `permit` - The viewer's permit
-/// * `layer_name` - Name of the layer to access
-/// * `operation` - Operation to check: "create", "sync", "read", "write"
+/// * `layer_name` - Name of the layer to access (bare or full)
+/// * `operation` - Operation to check: "read", "write", "sync"
 ///
 /// # Returns
 /// `true` if the permit authorizes this layer access
 pub fn can_access_layer(permit: &crate::parser::Permit, layer_name: &str, operation: &str) -> bool {
-    let aud_b64 = permit.audience().unwrap_or("");
-    let iss = permit.issuer().unwrap_or("");
-
-    // Convert base64 audience to DID format for pattern matching
-    // Layer names use DID format (e.g., "shop123/orders/did:key:z6Mk...")
-    let aud_did = crate::crypto::did_from_base64_pubkey(aud_b64)
-        .unwrap_or_else(|_| aud_b64.to_string());
-
-    // Get page_id from permit facts for placeholder expansion
     let page_id = permit.get_fact("page_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    // Check fixed layers with {page_id} expansion
-    // Fixed layers in permit have keys like "{page_id}/products" that need expansion
-    // Accepts both bare names ("products") and full names ("{uuid}/products")
+    // Try direct lookup first
+    if let Some(config) = permit.layers().get(layer_name) {
+        return check_operation(config, operation);
+    }
+
+    // Try with page_id prefix (for bare names like "products")
+    let full_name = format!("{}/{}", page_id, layer_name);
+    if let Some(config) = permit.layers().get(&full_name) {
+        return check_operation(config, operation);
+    }
+
+    // Try stripping page_id prefix (for full names when permit has bare)
     let page_prefix = format!("{}/", page_id);
-    for (layer_key, config) in permit.layers() {
-        let expanded_key = expand_pattern_with_iss(layer_key, page_id, &aud_did, iss);
-        let bare_key = expanded_key.strip_prefix(&page_prefix).unwrap_or(&expanded_key);
-
-        if bare_key == layer_name || expanded_key == layer_name {
-            let allowed = config.sync || operation == "read" || operation == "write";
-            tracing::debug!(
-                "[can_access_layer] Fixed layer '{}' → '{}' matches '{}': {} = {}",
-                layer_key, expanded_key, layer_name, operation, allowed
-            );
-            return allowed;
+    if let Some(bare) = layer_name.strip_prefix(&page_prefix) {
+        if let Some(config) = permit.layers().get(bare) {
+            return check_operation(config, operation);
         }
     }
 
-    // Check layer_patterns with placeholder expansion
-    // Use DID format for {aud} so it matches DID-based layer names
-    for (pattern, config) in permit.layer_patterns() {
-        let expanded = expand_pattern_with_iss(pattern, page_id, &aud_did, iss);
-        let bare = expanded.strip_prefix(&page_prefix).unwrap_or(&expanded);
-
-        if matches_layer_pattern(layer_name, bare) || matches_layer_pattern(layer_name, &expanded) {
-            let allowed = match operation {
-                "create" => config.create,
-                "sync" => config.sync,
-                "read" | "write" => true, // State-based checks in AuthSandbox
-                _ => false,
-            };
-            tracing::debug!(
-                "[can_access_layer] Pattern '{}' → '{}' matches '{}': {} = {}",
-                pattern, expanded, layer_name, operation, allowed
-            );
-            return allowed;
-        }
-    }
-
-    tracing::debug!("🚫 [can_access_layer] No pattern matches '{}'", layer_name);
+    tracing::debug!("[can_access_layer] No layer match for '{}'", layer_name);
     false
 }
 
-/// Expand pattern with {page_id}, {aud}, and {iss} placeholders
+/// Check access across a page permit + set of layer permits (two-tier model)
 ///
-/// Extends parser::expand_pattern with additional {iss} support for layer access checks.
-fn expand_pattern_with_iss(pattern: &str, page_id: &str, aud: &str, iss: &str) -> String {
-    crate::parser::expand_pattern(pattern, page_id, aud)
-        .replace("{iss}", iss)
+/// **Context**: Dynamic layers are authorized via separate layer permits.
+/// This function checks if any permit in the set grants access to the layer.
+///
+/// Access check = page permit layers ∪ all layer permit layers
+pub fn can_access_with_layer_permits(
+    page_permit: &crate::parser::Permit,
+    layer_permits: &[crate::parser::Permit],
+    layer_name: &str,
+    page_id: &str,
+    did: &str,
+    operation: &str,
+) -> bool {
+    // Check page permit first
+    if can_access_layer(page_permit, layer_name, operation) {
+        return true;
+    }
+
+    // Check each layer permit
+    for lp in layer_permits {
+        if can_access_layer(lp, layer_name, operation) {
+            return true;
+        }
+    }
+
+    // Schema fallback: creator can access dynamic layers matching their own DID in path
+    if matches_creator_schema(page_permit, layer_name, page_id, did, operation) {
+        return true;
+    }
+
+    false
 }
 
-/// Match a layer name against a pattern
+/// Check if a layer matches a dynamic schema for a given role (node-side auth)
 ///
-/// Supports:
-/// - Exact match: "layer_name" matches "layer_name"
-/// - Prefix wildcard: "did:key:abc:*" matches "did:key:abc:orders"
-/// - Suffix wildcard: "*:orders" matches "did:key:abc:orders"
-fn matches_layer_pattern(layer_name: &str, pattern: &str) -> bool {
-    if pattern.ends_with(":*") {
-        // Prefix match: "did:key:abc:*" matches "did:key:abc:anything"
-        layer_name.starts_with(&pattern[..pattern.len() - 1])
-    } else if pattern.ends_with("*") {
-        // General prefix: "prefix*" matches "prefixanything"
-        layer_name.starts_with(&pattern[..pattern.len() - 1])
-    } else if pattern.starts_with("*:") {
-        // Suffix match: "*:orders" matches "anything:orders"
-        layer_name.ends_with(&pattern[1..])
-    } else {
-        // Exact match
-        layer_name == pattern
+/// **Context**: Node needs to authorize writes from peers to dynamic layers.
+/// The peer's page permit doesn't cover the dynamic layer (it has another user's DID in the path).
+/// Instead, the node checks its own permit's `dynamic_layer_schemas` + the peer's role.
+///
+/// **Example**: Bob (collaborator) writes to `channels/did:key:alice/project-x/messages`.
+/// Node's permit has schema `channels/{id}/messages` with `role_permissions.collaborator.write = true`.
+/// The path structure matches the schema → write is allowed.
+pub fn matches_dynamic_schema_for_role(
+    permit: &crate::parser::Permit,
+    layer_name: &str,
+    page_id: &str,
+    role: &str,
+    operation: &str,
+) -> bool {
+    let schemas = permit.dynamic_layer_schemas();
+    if schemas.is_empty() {
+        return false;
+    }
+
+    // Strip page_id prefix to get bare layer path
+    let page_prefix = format!("{}/", page_id);
+    let bare_path = layer_name.strip_prefix(&page_prefix).unwrap_or(layer_name);
+
+    for (schema_pattern, schema) in schemas {
+        if matches_dynamic_path_any_did(bare_path, schema_pattern) {
+            // Check role_permissions (for role-granted schemas)
+            if let Some(perm) = schema.role_permissions.get(role) {
+                if check_operation(perm, operation) {
+                    return true;
+                }
+            }
+            // Check general permissions (for explicit grant schemas)
+            if let Some(ref config) = schema.permissions {
+                if check_operation(config, operation) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Match a layer path against a dynamic schema pattern (any DID accepted)
+///
+/// **Context**: Unlike `matches_dynamic_path`, this doesn't require a specific DID.
+/// Used for node-side authorization where the peer writing isn't the creator.
+///
+/// **Pattern**: `channels/{id}/messages`
+/// **Path**:    `channels/did:key:alice/project-x/messages`
+///
+/// Accepts any value in the DID position (path_parts[1]).
+fn matches_dynamic_path_any_did(bare_path: &str, schema_pattern: &str) -> bool {
+    let path_parts: Vec<&str> = bare_path.split('/').collect();
+    let pattern_parts: Vec<&str> = schema_pattern.split('/').collect();
+
+    // Dynamic path has one extra segment (the DID) compared to schema pattern
+    if path_parts.len() != pattern_parts.len() + 1 {
+        return false;
+    }
+
+    // First segment must match literally
+    if path_parts.is_empty() || pattern_parts.is_empty() || path_parts[0] != pattern_parts[0] {
+        return false;
+    }
+
+    // path_parts[1] is the DID segment — accept any value (no specific DID check)
+
+    // Remaining segments: match path[2..] against pattern[1..]
+    for (path_seg, pat_seg) in path_parts[2..].iter().zip(pattern_parts[1..].iter()) {
+        if *pat_seg != "{id}" && path_seg != pat_seg {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Schema fallback for creator access to dynamic layers
+///
+/// **Context**: When a creator creates a dynamic layer, they can access it immediately
+/// via schema matching (before the node issues a layer permit). The layer path must
+/// contain the creator's DID to prove ownership.
+///
+/// **Example**: Creator with DID `did:key:alice` and schema `channels/{id}/messages`
+/// can access `page1/channels/did:key:alice/general/messages` because:
+/// 1. Schema `channels/{id}/messages` exists in their permit
+/// 2. The path contains their DID after stripping page_id prefix
+pub fn matches_creator_schema(
+    permit: &crate::parser::Permit,
+    layer_name: &str,
+    page_id: &str,
+    our_did: &str,
+    operation: &str,
+) -> bool {
+    let schemas = permit.dynamic_layer_schemas();
+    if schemas.is_empty() {
+        return false;
+    }
+
+    // Strip page_id prefix to get bare layer path
+    let page_prefix = format!("{}/", page_id);
+    let bare_path = layer_name.strip_prefix(&page_prefix).unwrap_or(layer_name);
+
+    // For creator access, the path must contain the creator's DID
+    // Path format: {schema_prefix}/{creator_did}/{id_segments}/{schema_suffix}
+    if !bare_path.contains(our_did) {
+        return false;
+    }
+
+    // Try to match against each schema pattern
+    // Schema pattern: "channels/{id}/messages"
+    // Layer path:     "channels/did:key:alice/general/messages"
+    // We need to check if the path matches the schema with DID inserted
+    for (schema_pattern, schema) in schemas {
+        if matches_dynamic_path(bare_path, schema_pattern, our_did) {
+            let config = schema.permissions.as_ref().cloned().unwrap_or(
+                crate::parser::LayerConfig { sync: true, write: true, layer_type: None }
+            );
+            if check_operation(&config, operation) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Check if a layer path matches a dynamic schema pattern with a DID inserted
+///
+/// Schema patterns use `{id}` as wildcard. For creator access, the DID is
+/// inserted as an additional path segment after the first literal segment.
+///
+/// **Pattern**: `channels/{id}/messages`
+/// **Path**:    `channels/did:key:alice/general/messages`
+///
+/// The DID segment (`did:key:alice`) is the creator's namespace.
+/// The `{id}` matches the user-chosen ID (`general`).
+fn matches_dynamic_path(bare_path: &str, schema_pattern: &str, creator_did: &str) -> bool {
+    let path_parts: Vec<&str> = bare_path.split('/').collect();
+    let pattern_parts: Vec<&str> = schema_pattern.split('/').collect();
+
+    // Dynamic path has one extra segment (the DID) compared to schema pattern
+    if path_parts.len() != pattern_parts.len() + 1 {
+        return false;
+    }
+
+    // First segment must match literally
+    if path_parts.is_empty() || pattern_parts.is_empty() || path_parts[0] != pattern_parts[0] {
+        return false;
+    }
+
+    // Second segment in path must be the creator's DID
+    if path_parts.len() < 2 || path_parts[1] != creator_did {
+        return false;
+    }
+
+    // Remaining segments: match path[2..] against pattern[1..]
+    for (path_seg, pat_seg) in path_parts[2..].iter().zip(pattern_parts[1..].iter()) {
+        if *pat_seg != "{id}" && path_seg != pat_seg {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Check if a layer config allows the given operation
+fn check_operation(config: &crate::parser::LayerConfig, operation: &str) -> bool {
+    match operation {
+        "read" => config.sync,
+        "write" => config.write,
+        "sync" => config.sync,
+        _ => false,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_strategies::*;
-    use proptest::prelude::*;
+    use crate::test_fixtures;
 
-    // expand_pattern_with_iss: Placeholder expansion with {iss}
-
-    proptest! {
-        /// expand_pattern_with_iss handles all three placeholders
-        #[test]
-        fn expand_with_iss_handles_all_placeholders(
-            page_id in page_id_strategy(),
-            aud in did_strategy(),
-            iss in did_strategy(),
-        ) {
-            let pattern = "{page_id}/{aud}/{iss}";
-            let result = expand_pattern_with_iss(pattern, &page_id, &aud, &iss);
-
-            prop_assert!(!result.contains("{page_id}"), "Should expand page_id");
-            prop_assert!(!result.contains("{aud}"), "Should expand aud");
-            prop_assert!(!result.contains("{iss}"), "Should expand iss");
-            prop_assert!(result.contains(&page_id), "Should contain page_id value");
-            prop_assert!(result.contains(&aud), "Should contain aud value");
-            prop_assert!(result.contains(&iss), "Should contain iss value");
-        }
+    #[test]
+    fn test_can_access_layer_direct_match() {
+        let permit = test_fixtures::shop_owner("shop123", "did:key:owner");
+        // Owner has resolved layer "shop123/products"
+        assert!(can_access_layer(&permit, "shop123/products", "read"));
+        assert!(can_access_layer(&permit, "shop123/products", "write"));
+        assert!(can_access_layer(&permit, "shop123/products", "sync"));
     }
 
     #[test]
-    fn doc_expand_pattern_with_iss() {
-        let result = expand_pattern_with_iss(
-            "{page_id}/orders/{aud}/from/{iss}",
-            "shop123",
-            "did:key:viewer",
-            "did:key:issuer"
-        );
-        assert_eq!(result, "shop123/orders/did:key:viewer/from/did:key:issuer");
-    }
-
-    // Complex Colon Pattern Tests
-
-    #[test]
-    fn complex_did_colon_nested_patterns() {
-        let did = "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK";
-
-        let layer = format!("{}:data", did);
-        assert!(matches_layer_pattern(&layer, &layer));
-
-        let prefix_pattern = format!("{}:*", did);
-        assert!(matches_layer_pattern(&layer, &prefix_pattern));
-        assert!(matches_layer_pattern(&format!("{}:orders", did), &prefix_pattern));
-
-        assert!(matches_layer_pattern(&layer, "*:data"));
+    fn test_can_access_layer_bare_name() {
+        let permit = test_fixtures::shop_owner("shop123", "did:key:owner");
+        // Bare name "products" should resolve via page_id prefix
+        assert!(can_access_layer(&permit, "products", "read"));
+        assert!(can_access_layer(&permit, "products", "write"));
     }
 
     #[test]
-    fn complex_prefix_vs_suffix_wildcard_semantics() {
-        // Prefix matching
-        assert!(matches_layer_pattern("app:feature1", "app:*"));
-        assert!(matches_layer_pattern("app:feature2", "app:*"));
-        assert!(matches_layer_pattern("app:", "app:*"));
-        assert!(!matches_layer_pattern("other:feature1", "app:*"));
-
-        // Suffix matching
-        assert!(matches_layer_pattern("ns1:data", "*:data"));
-        assert!(matches_layer_pattern("ns2:data", "*:data"));
-        assert!(matches_layer_pattern(":data", "*:data"));
-        assert!(!matches_layer_pattern("ns1:other", "*:data"));
+    fn test_can_access_layer_app_layer() {
+        let permit = test_fixtures::shop_owner("shop123", "did:key:owner");
+        // App layers don't have page_id prefix
+        assert!(can_access_layer(&permit, "app:Shop", "read"));
+        assert!(can_access_layer(&permit, "app:Shop", "write"));
     }
 
     #[test]
-    fn complex_general_prefix_wildcard() {
-        assert!(matches_layer_pattern("appdata", "app*"));
-        assert!(matches_layer_pattern("application", "app*"));
-        assert!(matches_layer_pattern("app", "app*"));
-        assert!(!matches_layer_pattern("myapp", "app*"));
-
-        // Compare with colon pattern
-        assert!(matches_layer_pattern("app:data", "app:*"));
-        assert!(!matches_layer_pattern("appdata", "app:*"));
+    fn test_can_access_layer_no_match() {
+        let permit = test_fixtures::shop_owner("shop123", "did:key:owner");
+        assert!(!can_access_layer(&permit, "nonexistent", "read"));
+        assert!(!can_access_layer(&permit, "shop123/nonexistent", "read"));
     }
 
     #[test]
-    fn complex_no_wildcard_exact_match() {
-        assert!(matches_layer_pattern("exact:match", "exact:match"));
-        assert!(!matches_layer_pattern("exact:match", "exact:other"));
-        assert!(!matches_layer_pattern("exact:match", "other:match"));
-        assert!(!matches_layer_pattern("exact:match:extra", "exact:match"));
-        assert!(!matches_layer_pattern("exact:matc", "exact:match"));
+    fn test_can_access_layer_read_only() {
+        let permit = test_fixtures::shop_customer("shop123", "did:key:customer");
+        // Customer has products with write=false, sync=true
+        assert!(can_access_layer(&permit, "shop123/products", "read"));
+        assert!(can_access_layer(&permit, "shop123/products", "sync"));
+        assert!(!can_access_layer(&permit, "shop123/products", "write"));
     }
 
     #[test]
-    fn complex_colon_in_middle_of_pattern() {
-        let layer = "namespace:category:item";
-
-        assert!(matches_layer_pattern(layer, "namespace:category:item"));
-        assert!(matches_layer_pattern(layer, "namespace:category:*"));
-        assert!(matches_layer_pattern(layer, "*:item"));
-        assert!(matches_layer_pattern(layer, "namespace:*"));
-        assert!(matches_layer_pattern("namespace:anything:else:here", "namespace:*"));
-        assert!(!matches_layer_pattern("namespace:other:item", "namespace:category:*"));
+    fn test_check_operation() {
+        let config = crate::parser::LayerConfig {
+            sync: true,
+            write: false,
+            layer_type: None,
+        };
+        assert!(check_operation(&config, "read"));
+        assert!(check_operation(&config, "sync"));
+        assert!(!check_operation(&config, "write"));
+        assert!(!check_operation(&config, "unknown"));
     }
 
     #[test]
-    fn edge_case_empty_segments_colon() {
-        assert!(matches_layer_pattern(":data", ":data"));
-        assert!(matches_layer_pattern(":data", "*:data"));
-        assert!(matches_layer_pattern("prefix:", "prefix:"));
-        assert!(matches_layer_pattern("prefix:", "prefix:*"));
-        assert!(matches_layer_pattern(":", ":"));
+    fn test_two_tier_access_check() {
+        let page_permit = test_fixtures::shop_owner("shop1", "did:key:owner");
+        // Page permit has static layers (products, etc.)
+        assert!(can_access_with_layer_permits(
+            &page_permit, &[], "shop1/products", "shop1", "did:key:owner", "read"
+        ));
+        // Dynamic layer not in page permit → no access without layer permit
+        assert!(!can_access_with_layer_permits(
+            &page_permit, &[], "shop1/channels/did:key:bob/general/messages", "shop1", "did:key:owner", "read"
+        ));
     }
 
     #[test]
-    fn edge_case_no_colon_in_layer() {
-        assert!(matches_layer_pattern("simple", "simple"));
-        assert!(!matches_layer_pattern("simple", "other"));
-        assert!(matches_layer_pattern("simple", "sim*"));
-        assert!(matches_layer_pattern("simulation", "sim*"));
+    fn test_schema_fallback_creator_access() {
+        // Shop owner has dynamic_layer_schemas: { "orders/{id}": { grant: "explicit", ... } }
+        let owner = test_fixtures::shop_owner("shop1", "did:key:owner");
+
+        // Creator can access dynamic layer matching their DID via schema fallback
+        assert!(can_access_with_layer_permits(
+            &owner, &[], "shop1/orders/did:key:owner/uuid-123", "shop1", "did:key:owner", "read"
+        ));
+        assert!(can_access_with_layer_permits(
+            &owner, &[], "shop1/orders/did:key:owner/uuid-123", "shop1", "did:key:owner", "write"
+        ));
+
+        // Non-matching DID in path → denied
+        assert!(!can_access_with_layer_permits(
+            &owner, &[], "shop1/orders/did:key:other/uuid-123", "shop1", "did:key:owner", "read"
+        ));
+
+        // Non-matching schema path → denied
+        assert!(!can_access_with_layer_permits(
+            &owner, &[], "shop1/invalid_schema/did:key:owner/foo", "shop1", "did:key:owner", "read"
+        ));
     }
 
-    proptest! {
-        /// Prefix wildcard matches all suffixes
-        #[test]
-        fn colon_prefix_wild_matches_all_suffixes(
-            prefix in "[a-z][a-z0-9]{0,10}",
-            suffix1 in "[a-z][a-z0-9]{0,10}",
-            suffix2 in "[a-z][a-z0-9]{0,10}",
-        ) {
-            let pattern = format!("{}:*", prefix);
-            let layer1 = format!("{}:{}", prefix, suffix1);
-            let layer2 = format!("{}:{}", prefix, suffix2);
+    #[test]
+    fn test_matches_dynamic_path() {
+        // orders/{id} with DID inserted
+        assert!(matches_dynamic_path(
+            "orders/did:key:alice/uuid-123", "orders/{id}", "did:key:alice"
+        ));
+        // channels/{id}/messages with DID inserted
+        assert!(matches_dynamic_path(
+            "channels/did:key:alice/general/messages", "channels/{id}/messages", "did:key:alice"
+        ));
+        // Wrong DID
+        assert!(!matches_dynamic_path(
+            "channels/did:key:bob/general/messages", "channels/{id}/messages", "did:key:alice"
+        ));
+        // Wrong prefix
+        assert!(!matches_dynamic_path(
+            "wrong/did:key:alice/general/messages", "channels/{id}/messages", "did:key:alice"
+        ));
+        // Different segment count
+        assert!(!matches_dynamic_path(
+            "channels/did:key:alice/messages", "channels/{id}/messages", "did:key:alice"
+        ));
+    }
 
-            prop_assert!(matches_layer_pattern(&layer1, &pattern),
-                "Prefix wildcard should match: {} vs {}", layer1, pattern);
-            prop_assert!(matches_layer_pattern(&layer2, &pattern),
-                "Prefix wildcard should match: {} vs {}", layer2, pattern);
-        }
+    #[test]
+    fn test_matches_dynamic_path_any_did() {
+        // Matches with any DID in position 1
+        assert!(matches_dynamic_path_any_did(
+            "channels/did:key:alice/general/messages", "channels/{id}/messages"
+        ));
+        assert!(matches_dynamic_path_any_did(
+            "channels/did:key:bob/project-x/messages", "channels/{id}/messages"
+        ));
+        // Wrong prefix
+        assert!(!matches_dynamic_path_any_did(
+            "wrong/did:key:alice/general/messages", "channels/{id}/messages"
+        ));
+        // Wrong suffix
+        assert!(!matches_dynamic_path_any_did(
+            "channels/did:key:alice/general/wrong", "channels/{id}/messages"
+        ));
+        // Different segment count
+        assert!(!matches_dynamic_path_any_did(
+            "channels/did:key:alice/messages", "channels/{id}/messages"
+        ));
+    }
 
-        /// Suffix wildcard matches all prefixes
-        #[test]
-        fn colon_suffix_wild_matches_all_prefixes(
-            prefix1 in "[a-z][a-z0-9]{0,10}",
-            prefix2 in "[a-z][a-z0-9]{0,10}",
-            suffix in "[a-z][a-z0-9]{0,10}",
-        ) {
-            let pattern = format!("*:{}", suffix);
-            let layer1 = format!("{}:{}", prefix1, suffix);
-            let layer2 = format!("{}:{}", prefix2, suffix);
+    #[test]
+    fn test_matches_dynamic_schema_for_role_explicit_grant() {
+        // Shop owner has explicit grant: permissions apply regardless of role
+        let owner = test_fixtures::shop_owner("shop1", "did:key:owner");
 
-            prop_assert!(matches_layer_pattern(&layer1, &pattern),
-                "Suffix wildcard should match: {} vs {}", layer1, pattern);
-            prop_assert!(matches_layer_pattern(&layer2, &pattern),
-                "Suffix wildcard should match: {} vs {}", layer2, pattern);
-        }
+        // Any role can access via explicit permissions { sync: true, write: true }
+        assert!(matches_dynamic_schema_for_role(
+            &owner, "orders/did:key:customer/uuid-123", "shop1", "any_role", "write"
+        ));
+        assert!(matches_dynamic_schema_for_role(
+            &owner, "orders/did:key:customer/uuid-123", "shop1", "any_role", "read"
+        ));
 
-        /// Different prefixes don't match without wildcard
-        #[test]
-        fn colon_different_prefix_no_match(
-            prefix1 in "[a-z][a-z0-9]{0,10}",
-            prefix2 in "[a-z][a-z0-9]{0,10}",
-            suffix in "[a-z][a-z0-9]{0,10}",
-        ) {
-            prop_assume!(prefix1 != prefix2);
+        // Non-matching schema path → denied
+        assert!(!matches_dynamic_schema_for_role(
+            &owner, "invalid/did:key:customer/uuid-123", "shop1", "any_role", "write"
+        ));
 
-            let layer = format!("{}:{}", prefix1, suffix);
-            let pattern = format!("{}:{}", prefix2, suffix);
+        // Works with page_id prefix stripped
+        assert!(matches_dynamic_schema_for_role(
+            &owner, "shop1/orders/did:key:customer/uuid-123", "shop1", "any_role", "write"
+        ));
+    }
 
-            prop_assert!(!matches_layer_pattern(&layer, &pattern),
-                "Different prefixes should not match: {} vs {}", layer, pattern);
-        }
+    #[test]
+    fn test_matches_dynamic_schema_for_role_role_grant() {
+        // Admin has role-based grant: role_permissions { admin: { sync: true, write: false } }
+        let admin = test_fixtures::shop_admin("shop1", "did:key:admin");
+
+        // Admin role can read but not write
+        assert!(matches_dynamic_schema_for_role(
+            &admin, "orders/did:key:customer/uuid-123", "shop1", "admin", "read"
+        ));
+        assert!(!matches_dynamic_schema_for_role(
+            &admin, "orders/did:key:customer/uuid-123", "shop1", "admin", "write"
+        ));
+
+        // Unknown role → denied (not in role_permissions, no fallback permissions)
+        assert!(!matches_dynamic_schema_for_role(
+            &admin, "orders/did:key:customer/uuid-123", "shop1", "unknown_role", "read"
+        ));
     }
 }

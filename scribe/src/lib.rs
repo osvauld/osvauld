@@ -37,6 +37,7 @@ pub mod operations;
 pub mod loro_observer;
 pub mod sync;
 pub mod ephemeral;
+pub mod layer_unit;
 
 // Test infrastructure (only compiled in test mode)
 #[cfg(test)]
@@ -61,9 +62,9 @@ pub use error::{ScribeError, Result};
 
 // Storage traits
 pub use storage::{
-    LayerStorage, PeerVectorStorage, PeerResolver,
-    LayerStorageRef, PeerVectorStorageRef, PeerResolverRef,
-    NullLayerStorage, NullPeerVectorStorage, NullPeerResolver,
+    LayerStorage, PeerVectorStorage, PeerResolver, PermitIssuer,
+    LayerStorageRef, PeerVectorStorageRef, PeerResolverRef, PermitIssuerRef,
+    NullLayerStorage, NullPeerVectorStorage, NullPeerResolver, NullPermitIssuer,
 };
 
 // Actor and state types
@@ -72,4 +73,5 @@ pub use state::{
     ScribeState, ScribeArgs, SyncConfig, SyncMode,
     SubscriberInfo, QuerySubscriberInfo,
 };
+pub use layer_unit::LayerUnit;
 pub use permit::{PermitContext, Permissions, glob_match};

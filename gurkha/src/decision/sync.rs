@@ -45,65 +45,37 @@ impl SyncContext {
 
 /// Determine if we should send updates for a layer
 ///
-/// Uses layer capabilities and patterns from permit.
+/// With fully-resolved permits, checks if the layer exists with sync=true.
 /// Returns DontSend if no access.
 pub fn should_send_updates(context: &SyncContext, layer_name: &str) -> SyncDecision {
-    tracing::debug!("🔍 [should_send_updates] Checking layer '{}'", layer_name);
+    tracing::debug!("[should_send_updates] Checking layer '{}'", layer_name);
 
-    // Check fixed layer capability
     if let Some(config) = context.our_permit.get_layer_config(layer_name) {
         if config.sync {
-            tracing::info!("✅ [should_send_updates] '{}' → SendIncrementalUpdates (fixed layer)", layer_name);
+            tracing::info!("[should_send_updates] '{}' → SendIncrementalUpdates", layer_name);
             return SyncDecision::SendIncrementalUpdates;
         }
     }
 
-    // Check layer patterns
-    for (pattern, config) in context.our_permit.layer_patterns() {
-        if config.sync && matches_pattern(layer_name, pattern) {
-            tracing::info!("✅ [should_send_updates] '{}' → SendIncrementalUpdates (pattern match)", layer_name);
-            return SyncDecision::SendIncrementalUpdates;
-        }
-    }
-
-    tracing::info!("🚫 [should_send_updates] '{}' → DontSend (no access)", layer_name);
+    tracing::info!("[should_send_updates] '{}' → DontSend (no access)", layer_name);
     SyncDecision::DontSend
-}
-
-/// Pattern matching for layer names (delegates to parser::matches_wildcard)
-fn matches_pattern(layer_name: &str, pattern: &str) -> bool {
-    // Treat placeholders like {aud} as wildcards for unexpanded patterns
-    let normalized = pattern
-        .replace("{page_id}", "*")
-        .replace("{aud}", "*")
-        .replace("{iss}", "*");
-    crate::parser::matches_wildcard(layer_name, &normalized)
 }
 
 /// Check if we can receive updates for a layer
 ///
-/// Uses layer capabilities and patterns from permit.
+/// With fully-resolved permits, checks if the layer exists with sync=true.
 /// Returns false if no access.
 pub fn can_receive_updates(context: &SyncContext, layer_name: &str) -> bool {
-    tracing::debug!("🔒 [can_receive_updates] Checking layer '{}'", layer_name);
+    tracing::debug!("[can_receive_updates] Checking layer '{}'", layer_name);
 
-    // Check fixed layer capability
     if let Some(config) = context.our_permit.get_layer_config(layer_name) {
         if config.sync {
-            tracing::info!("🎯 [can_receive_updates] '{}' → true (fixed layer)", layer_name);
+            tracing::info!("[can_receive_updates] '{}' → true", layer_name);
             return true;
         }
     }
 
-    // Check layer patterns
-    for (pattern, config) in context.our_permit.layer_patterns() {
-        if config.sync && matches_pattern(layer_name, pattern) {
-            tracing::info!("🎯 [can_receive_updates] '{}' → true (pattern match)", layer_name);
-            return true;
-        }
-    }
-
-    tracing::info!("🎯 [can_receive_updates] '{}' → false (no access)", layer_name);
+    tracing::info!("[can_receive_updates] '{}' → false (no access)", layer_name);
     false
 }
 
@@ -127,50 +99,63 @@ pub fn should_request_updates(context: &SyncContext, layer_name: &str) -> SyncDe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_strategies::*;
-    use proptest::prelude::*;
+    use crate::test_fixtures;
 
-    // matches_pattern: Placeholder-to-wildcard conversion
+    #[test]
+    fn should_send_updates_for_synced_layer() {
+        let owner = test_fixtures::shop_owner("shop123", "did:key:owner");
+        let peer = test_fixtures::shop_customer("shop123", "did:key:peer");
+        let ctx = SyncContext::from_permits(owner, peer);
 
-    proptest! {
-        /// Patterns with placeholders are normalized to wildcards
-        #[test]
-        fn matches_pattern_normalizes_placeholders(
-            seg1 in segment_strategy(),
-            seg2 in segment_strategy(),
-            seg3 in segment_strategy(),
-        ) {
-            let layer = format!("{}/{}/{}", seg1, seg2, seg3);
-
-            // {page_id} becomes * - pattern matches any first segment
-            let pattern_page_id = format!("{{page_id}}/{}/{}", seg2, seg3);
-            prop_assert!(matches_pattern(&layer, &pattern_page_id),
-                "Pattern with {{page_id}} should match via wildcard conversion");
-
-            // {aud} becomes * - pattern matches any middle segment
-            let pattern_aud = format!("{}/{{aud}}/{}", seg1, seg3);
-            prop_assert!(matches_pattern(&layer, &pattern_aud),
-                "Pattern with {{aud}} should match via wildcard conversion");
-
-            // {iss} becomes * - pattern matches any last segment
-            let pattern_iss = format!("{}/{}/{{iss}}", seg1, seg2);
-            prop_assert!(matches_pattern(&layer, &pattern_iss),
-                "Pattern with {{iss}} should match via wildcard conversion");
-        }
-
-        /// Multiple placeholders all become wildcards
-        #[test]
-        fn matches_pattern_multiple_placeholders(
-            seg1 in segment_strategy(),
-            seg2 in segment_strategy(),
-            seg3 in segment_strategy(),
-        ) {
-            let layer = format!("{}/{}/{}", seg1, seg2, seg3);
-
-            // All placeholders become wildcards
-            prop_assert!(matches_pattern(&layer, "{page_id}/{aud}/{iss}"),
-                "All placeholders should become wildcards");
-        }
+        let result = should_send_updates(&ctx, "shop123/products");
+        assert_eq!(result, SyncDecision::SendIncrementalUpdates);
     }
 
+    #[test]
+    fn should_not_send_updates_for_unknown_layer() {
+        let owner = test_fixtures::shop_owner("shop123", "did:key:owner");
+        let peer = test_fixtures::shop_customer("shop123", "did:key:peer");
+        let ctx = SyncContext::from_permits(owner, peer);
+
+        let result = should_send_updates(&ctx, "shop123/nonexistent");
+        assert_eq!(result, SyncDecision::DontSend);
+    }
+
+    #[test]
+    fn should_not_send_updates_for_local_only_layer() {
+        let owner = test_fixtures::shop_owner("shop123", "did:key:owner");
+        let peer = test_fixtures::shop_customer("shop123", "did:key:peer");
+        let ctx = SyncContext::from_permits(owner, peer);
+
+        // drafts has sync=false
+        let result = should_send_updates(&ctx, "shop123/drafts");
+        assert_eq!(result, SyncDecision::DontSend);
+    }
+
+    #[test]
+    fn can_receive_updates_for_synced_layer() {
+        let owner = test_fixtures::shop_owner("shop123", "did:key:owner");
+        let peer = test_fixtures::shop_customer("shop123", "did:key:peer");
+        let ctx = SyncContext::from_permits(owner, peer);
+
+        assert!(can_receive_updates(&ctx, "shop123/products"));
+        assert!(!can_receive_updates(&ctx, "shop123/drafts"));
+        assert!(!can_receive_updates(&ctx, "shop123/nonexistent"));
+    }
+
+    #[test]
+    fn should_request_updates_mirrors_can_receive() {
+        let owner = test_fixtures::shop_owner("shop123", "did:key:owner");
+        let peer = test_fixtures::shop_customer("shop123", "did:key:peer");
+        let ctx = SyncContext::from_permits(owner, peer);
+
+        assert_eq!(
+            should_request_updates(&ctx, "shop123/products"),
+            SyncDecision::SendIncrementalUpdates
+        );
+        assert_eq!(
+            should_request_updates(&ctx, "shop123/nonexistent"),
+            SyncDecision::DontSend
+        );
+    }
 }

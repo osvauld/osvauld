@@ -61,18 +61,19 @@ fn main() {
     #[cfg(feature = "profiling")]
     let _flame_guard = setup_profiling();
 
-    // Initialize logging (skip if profiling takes over subscriber)
+    // Initialize logging with capture support (skip if profiling takes over subscriber)
     #[cfg(not(feature = "profiling"))]
     let use_json = std::env::var("OSVAULD_LOG_FORMAT")
         .map(|v| v == "json")
         .unwrap_or(false);
 
     #[cfg(not(feature = "profiling"))]
-    let _log_guard = logging_utils::init_rich_tracing(logging_utils::LogConfig {
+    let (_log_guard, capture_handle) = logging_utils::init_rich_tracing_with_capture(logging_utils::LogConfig {
         level: "info".to_string(),
         log_to_stdout: true,
         use_tree_format: !use_json,
         stdout_json: use_json,
+        instance_name: Some(args.db_name.clone()),
         ..Default::default()
     })
     .expect("Failed to initialize logging");
@@ -127,11 +128,15 @@ fn main() {
         let (ui_tx, rx) = mpsc::channel::<UiCommand>(100);
         ui_rx = Some(rx);
 
-        // Create debug server and set UI channel + butler
+        // Create debug server and set UI channel + butler + capture
         let server =
             ControlServer::new(socket_path.clone(), instance_name, courier_handle.clone());
         server.set_butler(butler.clone());
         server.set_ui_channel(ui_tx);
+
+        // Set capture handle for event capture commands
+        #[cfg(not(feature = "profiling"))]
+        server.set_capture_handle(capture_handle.clone());
         let server = Arc::new(server);
 
         // Spawn debug server in background
@@ -165,6 +170,17 @@ fn main() {
         shell.set_current_screen("initiation".into());
     }
 
+    // Create capture broadcast channel for event capture
+    #[cfg(not(feature = "profiling"))]
+    let capture_tx = {
+        let (tx, _) = tokio::sync::broadcast::channel::<String>(1024);
+        tokio_handle.block_on(capture_handle.register_source(tx.clone()));
+        tokio_handle.block_on(butler.set_capture_tx(tx.clone()));
+        Some(tx)
+    };
+    #[cfg(feature = "profiling")]
+    let capture_tx: Option<tokio::sync::broadcast::Sender<String>> = None;
+
     // Register callbacks
 
     // Auth callback: on login success, initialize P2P and event listener
@@ -173,6 +189,7 @@ fn main() {
     let sync_event_rx_for_login = sync_event_rx.clone();
     let shell_weak_for_login = shell.as_weak();
     let tokio_handle_for_login = tokio_handle.clone();
+    let capture_tx_for_login = capture_tx.clone();
 
     let on_login_success: sthalam_shell::callbacks::auth::OnLoginSuccess =
         Arc::new(move |identity| {
@@ -181,6 +198,7 @@ fn main() {
             let sync_rx = sync_event_rx_for_login.clone();
             let shell_weak = shell_weak_for_login.clone();
             let tokio_handle = tokio_handle_for_login.clone();
+            let capture_tx = capture_tx_for_login.clone();
 
             tokio_handle.spawn(async move {
                 butler.set_identity(identity.clone()).await;
@@ -190,7 +208,7 @@ fn main() {
 
                 tracing::info!("Initializing P2P...");
                 if let Some(sync_rx) = sync_rx {
-                    match setup::init_p2p(butler.clone(), sync_rx).await {
+                    match setup::init_p2p(butler.clone(), sync_rx, capture_tx).await {
                         Ok((handle, event_rx)) => {
                             tracing::info!("P2P initialized successfully");
                             *courier_handle.write().await = Some(handle.clone());

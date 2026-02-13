@@ -23,6 +23,7 @@ Every app directory contains a `permit_template.json` that defines the capabilit
         "peer_capabilities": { ... },
         "layers": { ... },
         "layer_patterns": { ... },
+        "dynamic_layer_schemas": { ... },
         "issue_on": {
             "node": { ... },
             "customer": { ... }
@@ -47,6 +48,7 @@ Every app directory contains a `permit_template.json` that defines the capabilit
 | `peer_capabilities` | P2P capabilities | `"relay": false, "share": true` |
 | `layers` | Fixed layer access with type/sync/write | See below |
 | `layer_patterns` | Dynamic layer patterns with wildcards | See below |
+| `dynamic_layer_schemas` | Schemas for runtime-created layers | See below |
 | `issue_on` | Delegation templates for child roles | See below |
 
 ### Layer Definition
@@ -78,6 +80,48 @@ Patterns use wildcards for dynamic, per-user layers:
     }
 }
 ```
+
+### Dynamic Layer Schemas
+
+Dynamic layer schemas define layers created at runtime via `scribe:create_layer()`. Unlike fixed layers (declared in `layers`) or pattern-matched layers (declared in `layer_patterns`), dynamic layers are DID-namespaced and get their own layer permits issued by the node.
+
+```json
+"dynamic_layer_schemas": {
+    "channels/{id}/messages": {
+        "type": "map",
+        "grant": "role",
+        "role_permissions": {
+            "owner": { "sync": true, "write": true },
+            "collaborator": { "sync": true, "write": true },
+            "node": { "sync": true, "write": true }
+        }
+    }
+}
+```
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `type` | string | `"list"` or `"map"` |
+| `grant` | string | `"role"` (all members with matching roles) or `"explicit"` (creator + named participants) |
+| `role_permissions` | object | Maps role names to `{ sync, write }` configs. Used when `grant: "role"`. |
+| `permissions` | object | Default `{ sync, write }` for `grant: "explicit"` (creator gets this). |
+
+**How it works:**
+
+1. Lua app calls `scribe:create_layer("channels/{id}/messages", "general")`
+2. Scribe generates a DID-namespaced path: `channels/{creator_did}/general/messages`
+3. When the layer reaches the node, the node matches it against its `dynamic_layer_schemas`
+4. Node issues **layer permits** to connected peers based on `grant` type:
+   - `"role"`: All peers whose `relationship` matches a key in `role_permissions`
+   - `"explicit"`: Only the creator (+ named participants in future)
+5. Peers with a layer permit can receive and write to the dynamic layer
+
+**Grant types:**
+
+- **`role`** -- For shared channels. All members with a matching role get access automatically. Used for channels visible to all page members.
+- **`explicit`** -- For private/DM channels. Only the creator gets access initially. Named participants will be added in a future phase.
+
+**Important:** `role_permissions` keys must match the `relationship` field in peer permits. If a viewer's permit has `"relationship": "collaborator"`, there must be a `"collaborator"` entry in `role_permissions` for the viewer to receive dynamic layer data.
 
 ## Pattern Variables
 
@@ -266,5 +310,7 @@ end
 - **`consent_template` is sync-only** -- it authorizes data flow, not sharing or delegation
 - **Node needs `relay: true`** in `peer_capabilities` to relay data between peers
 - **Derived layers**: `write: true` only for the `node` role; `write: false` for everyone else
+- **`dynamic_layer_schemas` must be in ALL roles** -- owner, node, viewer, and consent templates all need the same schemas for dynamic layers to sync through the full chain
+- **`role_permissions` keys must match `relationship` values** -- if viewer's permit has `"relationship": "collaborator"`, use `"collaborator"` (not `"viewer"`) in `role_permissions`
 - **`ephemeral_funcs`**: List of allowed ephemeral function names for structured ephemeral messages
 - **Clean the DB** (`rm -rf ~/.local/share/osvauld`) when changing permit templates -- old permits are cached

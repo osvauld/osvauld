@@ -6,7 +6,7 @@ use crate::error::{ButlerError, Result};
 use crate::storage::RedbStore;
 use crate::models::{
     PageData, PageMeta, Page,
-    Layer, DecryptedPage,
+    Layer, DecryptedPage, json_to_loro_value,
 };
 use herald::{generate_aes_key, encrypt, encrypt_symmetric};
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ pub async fn create_page(
     owner_did: String,
     owner_public_key: &[u8; 32],
     signing_key: &[u8; 32],
-    layer_names: Vec<String>,
+    mut layer_names: Vec<String>,
     permit_template_json: &str,
 ) -> Result<Page> {
     // Verify space exists
@@ -36,9 +36,55 @@ pub async fn create_page(
     // Generate random AES-256 key for this page
     let aes_key = generate_aes_key();
 
+    // Issue page owner permit via gurkha (needed to compute sync bootstrap metadata)
+    let (owner_permit, _cid) = gurkha::issue_page_owner_token(
+        signing_key,
+        &page_id,
+        permit_template_json,
+    ).await.map_err(|e| ButlerError::permit_error(e.to_string()))?;
+
+    let parsed_owner_permit = gurkha::Permit::from_token(&owner_permit)
+        .map_err(|e| ButlerError::permit_error(format!("Failed to parse owner permit: {:?}", e)))?;
+
+    // Protocol bootstrap layer for per-peer sync metadata
+    let owner_sync_meta = format!("__sync_meta/{}", owner_did);
+    if !layer_names.iter().any(|name| name == &owner_sync_meta) {
+        layer_names.push(owner_sync_meta.clone());
+    }
+
+    let page_prefix = format!("{}/", page_id);
+    let sync_bootstrap_layers: Vec<String> = parsed_owner_permit
+        .layers()
+        .iter()
+        .filter_map(|(name, config)| {
+            if !config.sync || name.starts_with("__sync_meta/") {
+                return None;
+            }
+            Some(name.strip_prefix(&page_prefix).unwrap_or(name).to_string())
+        })
+        .collect();
+
     // Create and encrypt layers for each layer_name
     for layer_name in &layer_names {
         let layer = Layer::new();
+
+        // Bootstrap owner sync-meta content to a fully synced baseline.
+        let normalized_name = layer_name
+            .strip_prefix("{page_id}/")
+            .unwrap_or(layer_name);
+
+        if normalized_name == owner_sync_meta {
+            let map = layer.loro().get_map(normalized_name);
+            for tracked_layer in &sync_bootstrap_layers {
+                map.insert(
+                    tracked_layer,
+                    json_to_loro_value(&serde_json::json!({"synced": true, "version": 1})),
+                )
+                .map_err(|e| ButlerError::Database(format!("Failed to initialize sync-meta: {}", e)))?;
+            }
+            layer.commit();
+        }
+
         let snapshot = layer.export_snapshot();
 
         // Encrypt layer with AES key
@@ -48,10 +94,6 @@ pub async fn create_page(
         // Strip {page_id}/ prefix from template layer names
         // Template uses "{page_id}/products", but put_layer adds page_id prefix
         // So we store just "products" which becomes "actual-uuid/products"
-        let normalized_name = layer_name
-            .strip_prefix("{page_id}/")
-            .unwrap_or(layer_name);
-
         // Store at hierarchical key: {page_id}/{layer_name}
         store.put_layer(&page_id, normalized_name, &encrypted_layer)?;
     }
@@ -59,13 +101,6 @@ pub async fn create_page(
     // Encrypt AES key for owner using X25519 ECIES
     let encrypted_key = encrypt(owner_public_key, &aes_key)
         .map_err(|e| ButlerError::Encryption(e.to_string()))?;
-
-    // Issue page owner permit via gurkha
-    let (owner_permit, _cid) = gurkha::issue_page_owner_token(
-        signing_key,
-        &page_id,
-        permit_template_json,
-    ).await.map_err(|e| ButlerError::permit_error(e.to_string()))?;
 
     // Create page metadata with encrypted key
     let mut meta = PageMeta::new(name, space_id, owner_did)
@@ -88,7 +123,7 @@ pub async fn create_private_page(
     name: String,
     owner_did: String,
     owner_public_key: &[u8; 32],
-    layer_names: Vec<String>,
+    mut layer_names: Vec<String>,
 ) -> Result<Page> {
     // Verify space exists
     if store.get_space(&space_id)?.is_none() {
@@ -97,6 +132,12 @@ pub async fn create_private_page(
 
     let page_id = Uuid::new_v4().to_string();
     let aes_key = generate_aes_key();
+
+    // Protocol bootstrap layer for per-peer sync metadata
+    let owner_sync_meta = format!("__sync_meta/{}", owner_did);
+    if !layer_names.iter().any(|name| name == &owner_sync_meta) {
+        layer_names.push(owner_sync_meta);
+    }
 
     // Create and encrypt layers
     for layer_name in &layer_names {

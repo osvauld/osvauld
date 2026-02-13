@@ -126,6 +126,25 @@ pub enum PeerMessage {
         data: Vec<u8>,
     },
 
+    /// Internal: Send a layer permit to this peer (Node mode)
+    ///
+    /// **Context**: Coordinator received NewDynamicLayer event with ready permits
+    /// **We do**: Send LayerPermitMsg to peer
+    SendLayerPermit {
+        page_id: String,
+        layer_name: String,
+        permit: String,
+    },
+
+    /// Internal: Send updated page permit to this peer (Node mode)
+    ///
+    /// **Context**: Page permit reissued with new app layers
+    /// **We do**: Send PermitUpdate message to peer
+    SendPermitUpdate {
+        page_id: String,
+        permit: String,
+    },
+
     /// Internal: Request an asset from the peer
     ///
     /// **Context**: External component (e.g., Coordinator) wants to fetch an asset
@@ -200,6 +219,8 @@ pub struct PeerActorArgs<C: Connection> {
     pub message_tx: Option<tokio::sync::mpsc::UnboundedSender<MessageTrace>>,
     /// Our node ID (for trace context)
     pub our_node_id: NodeId,
+    /// Broadcast channel for capture system (pre-serialized JSON lines)
+    pub capture_tx: Option<tokio::sync::broadcast::Sender<String>>,
 }
 
 // Unified Outbound Update (replaces BroadcastPayload + EphemeralOutbound)
@@ -371,6 +392,8 @@ pub struct PeerActorState<C: Connection> {
     message_tx: Option<tokio::sync::mpsc::UnboundedSender<MessageTrace>>,
     /// Our node ID (for trace context)
     our_node_id: NodeId,
+    /// Broadcast channel for capture system (pre-serialized JSON lines)
+    capture_tx: Option<tokio::sync::broadcast::Sender<String>>,
 }
 
 /// PeerActor handles one P2P connection
@@ -400,14 +423,35 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        if let Some(tx) = &state.message_tx {
-            let _ = tx.send(MessageTrace {
-                direction: TraceDirection::Sent,
-                msg_name: msg.name(),
-                node_id: state.our_node_id,
-                peer_node_id: self.node_id,
-                timestamp: Instant::now(),
+        // Emit to trace channel (tests) and capture channel (observability)
+        let mut trace = MessageTrace::new(
+            TraceDirection::Sent,
+            msg.name(),
+            state.our_node_id,
+            self.node_id,
+        );
+        let (ctx_page_id, ctx_layer) = msg.context();
+        trace.page_id = ctx_page_id.map(String::from);
+        trace.layer_name = ctx_layer.map(String::from);
+        if let Some(tx) = &state.capture_tx {
+            let mut json = serde_json::json!({
+                "type": "message_trace",
+                "ts": &trace.ts,
+                "direction": "Sent",
+                "msg": trace.msg_name,
+                "node_id": trace.node_id.to_string(),
+                "peer_node_id": trace.peer_node_id.to_string(),
             });
+            if let Some(ref pid) = trace.page_id {
+                json["page_id"] = serde_json::json!(pid);
+            }
+            if let Some(ref ln) = trace.layer_name {
+                json["layer"] = serde_json::json!(ln);
+            }
+            let _ = tx.send(json.to_string());
+        }
+        if let Some(tx) = &state.message_tx {
+            let _ = tx.send(trace);
         }
 
         if let Err(e) = state.conn.send_bytes(&bytes).await {
@@ -468,6 +512,20 @@ impl<C: Connection> PeerActor<C> {
 
     /// Notify coordinator of authentication
     fn notify_authenticated(&self, state: &PeerActorState<C>, peer_type: PeerType, did: &str, username: &str) {
+        // Emit peer_identity event for capture system (DID → human-readable mapping)
+        if let Some(ref tx) = state.capture_tx {
+            let short_did = &did[did.len().saturating_sub(12)..];
+            let _ = tx.send(serde_json::json!({
+                "type": "peer_identity",
+                "ts": chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                "node_id": self.node_id.to_string(),
+                "peer_type": format!("{:?}", peer_type),
+                "did": did,
+                "short_did": short_did,
+                "username": username,
+            }).to_string());
+        }
+
         let _ = state.coordinator.cast(CoordinatorMessage::PeerAuthenticated {
             node_id: self.node_id,
             peer_type,
@@ -596,6 +654,7 @@ impl<C: Connection> Actor for PeerActor<C> {
             pending_space_request: None,
             message_tx: args.message_tx,
             our_node_id: args.our_node_id,
+            capture_tx: args.capture_tx,
         })
     }
 
@@ -661,6 +720,14 @@ impl<C: Connection> Actor for PeerActor<C> {
                 self.handle_datagram(&data, state).await;
             }
 
+            PeerMessage::SendLayerPermit { page_id, layer_name, permit } => {
+                self.send_layer_permit(&page_id, &layer_name, &permit, state).await;
+            }
+
+            PeerMessage::SendPermitUpdate { page_id, permit } => {
+                self.send_page_permit_update(&page_id, &permit, state).await;
+            }
+
             PeerMessage::RequestAsset { page_id, hash } => {
                 info!(page_id = %page_id, hash = %hash, "RequestAsset: sending AssetPrepare to peer");
                 self.send_asset_prepare(&page_id, &hash, state).await;
@@ -719,14 +786,35 @@ impl<C: Connection> PeerActor<C> {
         message: Message,
         state: &mut PeerActorState<C>,
     ) {
-        if let Some(tx) = &state.message_tx {
-            let _ = tx.send(MessageTrace {
-                direction: TraceDirection::Received,
-                msg_name: message.name(),
-                node_id: state.our_node_id,
-                peer_node_id: self.node_id,
-                timestamp: Instant::now(),
+        // Emit to trace channel (tests) and capture channel (observability)
+        let mut trace = MessageTrace::new(
+            TraceDirection::Received,
+            message.name(),
+            state.our_node_id,
+            self.node_id,
+        );
+        let (ctx_page_id, ctx_layer) = message.context();
+        trace.page_id = ctx_page_id.map(String::from);
+        trace.layer_name = ctx_layer.map(String::from);
+        if let Some(tx) = &state.capture_tx {
+            let mut json = serde_json::json!({
+                "type": "message_trace",
+                "ts": &trace.ts,
+                "direction": "Received",
+                "msg": trace.msg_name,
+                "node_id": trace.node_id.to_string(),
+                "peer_node_id": trace.peer_node_id.to_string(),
             });
+            if let Some(ref pid) = trace.page_id {
+                json["page_id"] = serde_json::json!(pid);
+            }
+            if let Some(ref ln) = trace.layer_name {
+                json["layer"] = serde_json::json!(ln);
+            }
+            let _ = tx.send(json.to_string());
+        }
+        if let Some(tx) = &state.message_tx {
+            let _ = tx.send(trace);
         }
 
         match message {
@@ -780,7 +868,17 @@ impl<C: Connection> PeerActor<C> {
 
             // 3-Step Sync Protocol messages
             Message::SyncOffer(m) => {
-                self.on_sync_offer(myself.clone(), &m.page_id, &m.layer_name, &m.data, &m.state_vector, &m.ephemeral_public, state).await;
+                self.on_sync_offer(
+                    myself.clone(),
+                    &m.page_id,
+                    &m.layer_name,
+                    &m.data,
+                    &m.state_vector,
+                    &m.ephemeral_public,
+                    m.authority_permit.as_deref(),
+                    state,
+                )
+                .await;
             }
 
             Message::SyncAccept(m) => {
@@ -832,6 +930,19 @@ impl<C: Connection> PeerActor<C> {
 
             Message::SyncConsentAck(m) => {
                 self.on_sync_consent_ack(&m.request_id, &m.space_id, state).await;
+            }
+
+            // Layer permit + consent messages
+            Message::LayerPermit(m) => {
+                self.on_layer_permit(&m.request_id, &m.page_id, &m.layer_name, &m.permit, state).await;
+            }
+
+            Message::LayerConsentGrant(m) => {
+                self.on_layer_consent_grant(&m.request_id, &m.page_id, &m.layer_name, &m.consent_permit, state).await;
+            }
+
+            Message::LayerConsentAck(m) => {
+                self.on_layer_consent_ack(&m.request_id, &m.page_id, &m.layer_name, state).await;
             }
 
             // Asset sync messages

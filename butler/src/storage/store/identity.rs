@@ -1,10 +1,10 @@
 //! Identity table operations
 
-use redb::{ReadableTable, ReadableDatabase};
+use super::{RedbStore, IDENTITY};
 use crate::error::{ButlerError, Result};
 use crate::models::{EncryptedKeyStore, IdentityData};
+use redb::{ReadableDatabase, ReadableTable};
 use tracing::instrument;
-use super::{RedbStore, IDENTITY};
 
 impl RedbStore {
     #[instrument(skip_all)]
@@ -25,8 +25,8 @@ impl RedbStore {
 
     #[instrument(skip_all)]
     pub fn set_identity(&self, identity: &IdentityData) -> Result<()> {
-        let value = bincode::serialize(identity)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(identity).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {
@@ -55,8 +55,8 @@ impl RedbStore {
 
     #[instrument(skip_all)]
     pub fn set_keystore(&self, keystore: &EncryptedKeyStore) -> Result<()> {
-        let value = bincode::serialize(keystore)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(keystore).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {

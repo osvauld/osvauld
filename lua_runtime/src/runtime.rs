@@ -919,7 +919,7 @@ impl LuaRuntime {
             let all_bindings: Vec<_> = manager.all_bindings()
                 .map(|b| format!("{}→{}", b.expanded_pattern, b.ui_property))
                 .collect();
-            info!(
+            debug!(
                 page_id = %self.page_id,
                 layer = %layer_name,
                 registered_bindings = ?all_bindings,

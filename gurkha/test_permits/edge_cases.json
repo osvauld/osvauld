@@ -5,17 +5,17 @@
   },
   "only_patterns": {
     "token_type": "pattern_only",
-    "layer_patterns": {
-      "{page_id}/*": { "sync": true, "write": false }
+    "layers": {
+      "{page_id}/anything": { "sync": true, "write": false },
+      "{page_id}/foo": { "sync": true, "write": false }
     }
   },
   "deep_nesting": {
     "token_type": "nested",
     "layers": {
-      "{page_id}/a/b/c/d": { "sync": true, "write": true }
-    },
-    "layer_patterns": {
-      "{page_id}/x/y/*": { "sync": true, "write": true }
+      "{page_id}/a/b/c/d": { "sync": true, "write": true },
+      "{page_id}/x/y/z": { "sync": true, "write": true },
+      "{page_id}/x/y/anything": { "sync": true, "write": true }
     }
   },
   "colon_layers": {

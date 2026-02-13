@@ -5,10 +5,11 @@
 //! for the trace channel; test code passes `Some(tx)`.
 
 use std::time::Instant;
+use serde::Serialize;
 use transport::NodeId;
 
 /// Direction of a traced protocol message
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum TraceDirection {
     Sent,
     Received,
@@ -27,4 +28,31 @@ pub struct MessageTrace {
     pub peer_node_id: NodeId,
     /// When this trace was recorded
     pub timestamp: Instant,
+    /// ISO 8601 timestamp for serialization
+    pub ts: String,
+    /// Page ID context (for sync messages)
+    pub page_id: Option<String>,
+    /// Layer name context (for sync messages)
+    pub layer_name: Option<String>,
+}
+
+impl MessageTrace {
+    /// Create a new MessageTrace with both Instant and ISO 8601 timestamps
+    pub fn new(
+        direction: TraceDirection,
+        msg_name: &'static str,
+        node_id: NodeId,
+        peer_node_id: NodeId,
+    ) -> Self {
+        Self {
+            direction,
+            msg_name,
+            node_id,
+            peer_node_id,
+            timestamp: Instant::now(),
+            ts: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            page_id: None,
+            layer_name: None,
+        }
+    }
 }

@@ -71,7 +71,7 @@ impl Peer {
         let (coordinator, _) = Actor::spawn(
             Some(format!("coordinator-{}-{}", name, node_id)),
             Coordinator::<MockConnection>::new(),
-            (node_id, mode, butler.clone(), blob, Some(connect_tx), Some(event_tx), message_tx),
+            (node_id, mode, butler.clone(), blob, Some(connect_tx), Some(event_tx), message_tx, None),
         )
         .await?;
 
@@ -82,6 +82,16 @@ impl Peer {
                 match event {
                     butler::SyncEvent::EnsureSync { user_did } => {
                         let _ = coord.cast(CoordinatorMessage::EnsureSync { user_did });
+                    }
+                    butler::SyncEvent::NewDynamicLayer { page_id, layer_name, permits } => {
+                        let _ = coord.cast(CoordinatorMessage::DistributeLayerPermits {
+                            page_id, layer_name, permits,
+                        });
+                    }
+                    butler::SyncEvent::LayerAccessChanged { page_id, layer_name, permits } => {
+                        let _ = coord.cast(CoordinatorMessage::DistributeLayerPermits {
+                            page_id, layer_name, permits,
+                        });
                     }
                 }
             }

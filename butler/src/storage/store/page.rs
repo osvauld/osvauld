@@ -3,17 +3,17 @@
 //! Key: {page_id} (v2 schema - page_id is globally unique)
 //! Also maintains SPACE_PAGES index: {space_id}/{page_id} → ()
 
-use redb::{ReadableTable, ReadableDatabase};
+use super::{RedbStore, LAYERS, PAGES, SPACE_PAGES};
 use crate::error::{ButlerError, Result};
 use crate::models::PageData;
+use redb::{ReadableDatabase, ReadableTable};
 use tracing::instrument;
-use super::{RedbStore, PAGES, SPACE_PAGES, LAYERS};
 
 impl RedbStore {
     #[instrument(skip_all)]
     pub fn put_page(&self, page: &PageData) -> Result<()> {
-        let value = bincode::serialize(page)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(page).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {

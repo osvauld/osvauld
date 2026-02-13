@@ -7,11 +7,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use ractor::RpcReplyPort;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use serde::{Serialize, Deserialize};
 
-use domains::{QuerySpec, QueryDelta, QueryResult, JsonOp};
 use crate::Result;
+use domains::{JsonOp, QueryDelta, QueryResult, QuerySpec};
 
 /// Payload sent to PeerActor for broadcast (3-step sync protocol)
 ///
@@ -66,7 +66,9 @@ pub enum LoroDelta {
     List { ops: Vec<ListOp> },
 
     /// Map delta: updated keys
-    Map { updated: HashMap<String, Option<serde_json::Value>> },
+    Map {
+        updated: HashMap<String, Option<serde_json::Value>>,
+    },
 
     /// Text delta (for future rich text support)
     Text { ops: Vec<TextOp> },
@@ -113,12 +115,12 @@ pub enum TextOp {
 /// **Context**: Single channel replaces 3 separate broadcast types
 /// **Benefits**: 3 listener tasks → 1, unified fan-out logic
 /// **Consumers**: UI/Lua callbacks, Broadcast to peers, Derivation engine
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum PageUpdate {
     /// Layer data changed (local edit or remote sync)
     LayerChanged {
         layer: String,
-        from_peer: Option<(String, String)>,  // (did, device_id)
+        from_peer: Option<(String, String)>, // (did, device_id)
         /// Structured operations extracted from the update (same format as validation)
         /// Enables surgical UI updates - Lua can process individual ops
         ops: Option<Vec<JsonOp>>,
@@ -139,10 +141,7 @@ pub enum PageUpdate {
     },
 
     /// Query result changed
-    QueryUpdated {
-        query_id: String,
-        delta: QueryDelta,
-    },
+    QueryUpdated { query_id: String, delta: QueryDelta },
 
     /// Peer subscribed to this page
     PeerSubscribed {
@@ -152,9 +151,7 @@ pub enum PageUpdate {
     },
 
     /// Peer unsubscribed from this page
-    PeerUnsubscribed {
-        did: String,
-    },
+    PeerUnsubscribed { did: String },
 
     /// Structured ephemeral received (permission-validated)
     ///
@@ -176,10 +173,31 @@ pub type PageUpdateTx = mpsc::Sender<PageUpdate>;
 /// - Device resolution
 /// - Connection establishment
 /// - Subscription (PeerActor discovers active Scribes on connect)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum SyncEvent {
     /// Ensure this user is synced (connected + subscribed to active Scribes)
     EnsureSync { user_did: String },
+
+    /// Node detected a new dynamic layer — permits already created by layer_unit
+    ///
+    /// **Context**: Scribe detected a dynamic layer (via schema match) and used
+    /// PermitIssuer to create ready-to-send permits. Coordinator just distributes.
+    NewDynamicLayer {
+        page_id: String,
+        layer_name: String,
+        /// Ready-to-send permits: (recipient_did, layer_permit_token)
+        permits: Vec<(String, String)>,
+    },
+
+    /// Layer access changed — new permits need distribution
+    ///
+    /// **Context**: Scribe added a participant and issued permits for connected peers
+    LayerAccessChanged {
+        page_id: String,
+        layer_name: String,
+        /// Ready-to-send permits: (recipient_did, layer_permit_token)
+        permits: Vec<(String, String)>,
+    },
 }
 
 // ScribeMessage - Actor Messages for Scribe
@@ -204,10 +222,7 @@ pub enum ScribeMessage {
     },
 
     /// Peer unsubscription
-    Unsubscribe {
-        user_did: String,
-        device_id: String,
-    },
+    Unsubscribe { user_did: String, device_id: String },
 
     /// Apply layer update (from local UI or remote peer)
     ///
@@ -323,7 +338,6 @@ pub enum ScribeMessage {
     },
 
     // Typed read operations (Lua → Scribe, avoids stale handles)
-
     /// Get item at index from a list layer
     ///
     /// **Context**: Lua calls list:get(index)
@@ -382,10 +396,7 @@ pub enum ScribeMessage {
     /// **We do**: Store sender, forward PageUpdate events when they occur
     /// **Consumers**: UI/Lua callbacks, Broadcast to peers, Derivation engine - all filter as needed
     /// **Design**: Unified channel for layer changes, ephemeral data, and peer presence
-    SubscribeToPageUpdates {
-        tx: mpsc::Sender<PageUpdate>,
-    },
-
+    SubscribeToPageUpdates { tx: mpsc::Sender<PageUpdate> },
 
     /// Get layer data as JSON value
     ///
@@ -442,9 +453,7 @@ pub enum ScribeMessage {
     },
 
     /// Unsubscribe from query updates
-    UnsubscribeQuery {
-        query_id: String,
-    },
+    UnsubscribeQuery { query_id: String },
 
     /// Update layer from JSON (for UI commits via CEL commit())
     ///
@@ -459,7 +468,6 @@ pub enum ScribeMessage {
     },
 
     // Typed CRDT Operations (from template actions)
-
     /// Push item to a list (append)
     ///
     /// **Context**: Template `action: { messages: append({...}) }`
@@ -511,11 +519,52 @@ pub enum ScribeMessage {
         amount: i64,
     },
 
+    /// Create a dynamic layer (from Lua app)
+    ///
+    /// **Context**: Lua calls scribe:create_layer("channels/general/messages")
+    /// **We do**: Validate schema exists in permit, generate path with our DID, create layer
+    /// **We reply**: Full layer name (with page_id and DID prefix)
+    CreateDynamicLayer {
+        /// Schema key from dynamic_layer_schemas, e.g. "channels/{id}/messages"
+        schema_key: String,
+        /// User-chosen ID that fills the {id} in the schema, e.g. "general"
+        layer_id: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<String, String>>,
+    },
+
+    /// Issue access for a DID to an explicit dynamic layer
+    ///
+    /// **Context**: Lua calls scribe:add_layer_access(layer_name, did)
+    /// **We do**: Check manage_layer_access capability, require authority permit, issue permit if subscribed
+    AddLayerAccess {
+        layer_name: String,
+        did: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
+    },
+
+    /// Remove access for a DID from an explicit dynamic layer
+    ///
+    /// **Context**: Lua calls scribe:remove_layer_access(layer_name, did)
+    /// **We do**: Check manage_layer_access capability, reject metadata-era revoke path
+    RemoveLayerAccess {
+        layer_name: String,
+        did: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
+    },
+
+    /// Authorize a subscriber DID for a specific layer
+    ///
+    /// **Context**: Viewer received LayerPermit from node. Authorize the node
+    /// (subscriber) on the local Scribe's LayerUnit so the observer broadcasts to it.
+    AuthorizeLayerSubscriber {
+        layer_name: String,
+        subscriber_did: String,
+    },
+
     /// Shutdown the actor
     Shutdown,
 
     // Ephemeral Events (from datagrams via PeerActor)
-
     /// Remote ephemeral data (from datagram via PeerActor)
     ///
     /// **Context**: Peer sent ephemeral data (cursor, typing, etc.) for this page
@@ -569,7 +618,6 @@ pub enum ScribeMessage {
     },
 
     // Derivation Operations (via ScribeLuaRuntime)
-
     /// Rebuild a derived layer from all source layers
     ///
     /// **Context**: Called on startup or manual rebuild request
@@ -594,12 +642,9 @@ pub enum ScribeMessage {
     /// Create an empty derived layer
     ///
     /// **Context**: When registering a derivation rule, create target layer
-    CreateDerivedLayer {
-        target_layer: String,
-    },
+    CreateDerivedLayer { target_layer: String },
 
     // App Refresh Operations
-
     /// Refresh app from filesystem (owner only)
     ///
     /// **Context**: Owner wants to reload app code from disk (development workflow)

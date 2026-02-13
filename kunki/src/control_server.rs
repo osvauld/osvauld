@@ -7,6 +7,7 @@ use control_server::{
     async_trait, CommandHandler, ControlServer, Response, error_codes,
     commands::butler as butler_cmds,
 };
+use logging_utils::CaptureHandle;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -37,6 +38,7 @@ pub struct KunkiHandler {
     state: Arc<RwLock<Option<NodeState>>>,
     butler: Option<Arc<Butler>>,
     validation_handle: Arc<RwLock<Option<ValidationHandle>>>,
+    capture_handle: Arc<RwLock<Option<CaptureHandle>>>,
 }
 
 impl KunkiHandler {
@@ -45,6 +47,48 @@ impl KunkiHandler {
             state: Arc::new(RwLock::new(None)),
             butler,
             validation_handle: Arc::new(RwLock::new(None)),
+            capture_handle: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Set capture handle (for event capture)
+    pub async fn set_capture_handle(&self, handle: CaptureHandle) {
+        *self.capture_handle.write().await = Some(handle);
+    }
+
+    /// Handle capture_start command
+    async fn handle_capture_start(&self, params: Option<serde_json::Value>, id: u64) -> Response {
+        let handle_guard = self.capture_handle.read().await;
+        let Some(ref handle) = *handle_guard else {
+            return Response::err(id, error_codes::INTERNAL_ERROR, "CaptureHandle not available");
+        };
+
+        let Some(params_obj) = params.as_ref().and_then(|p| p.as_object()) else {
+            return Response::err(id, error_codes::INVALID_PARAMS, "Invalid params object");
+        };
+
+        let Some(file_path) = params_obj.get("file_path").and_then(|v| v.as_str()) else {
+            return Response::err(id, error_codes::INVALID_PARAMS, "Missing file_path");
+        };
+
+        let include_logs = params_obj.get("include_logs").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        match handle.start_capture(PathBuf::from(file_path), include_logs).await {
+            Ok(()) => Response::ok(id, serde_json::json!({"status": "capturing", "file_path": file_path})),
+            Err(e) => Response::err(id, error_codes::INTERNAL_ERROR, &e),
+        }
+    }
+
+    /// Handle capture_end command
+    async fn handle_capture_end(&self, id: u64) -> Response {
+        let handle_guard = self.capture_handle.read().await;
+        let Some(ref handle) = *handle_guard else {
+            return Response::err(id, error_codes::INTERNAL_ERROR, "CaptureHandle not available");
+        };
+
+        match handle.stop_capture().await {
+            Ok(()) => Response::ok(id, serde_json::json!({"status": "stopped"})),
+            Err(e) => Response::err(id, error_codes::INTERNAL_ERROR, &e),
         }
     }
 
@@ -140,6 +184,9 @@ impl CommandHandler for KunkiHandler {
 
             "validate_ops" => Some(self.handle_validate_ops(params, id).await),
 
+            "capture_start" => Some(self.handle_capture_start(params, id).await),
+            "capture_end" => Some(self.handle_capture_end(id).await),
+
             // Butler commands - delegate to shared implementations
             "list_spaces" => {
                 if let Some(ref butler) = self.butler {
@@ -198,6 +245,11 @@ impl KunkiControlServer {
         self.handler.set_validation_handle(handle).await;
     }
 
+    /// Set capture handle (for event capture)
+    pub async fn set_capture_handle(&self, handle: CaptureHandle) {
+        self.handler.set_capture_handle(handle).await;
+    }
+
     /// Update node state
     pub async fn set_state(&self, state: NodeState) {
         self.handler.set_state(state).await;
@@ -216,6 +268,7 @@ impl Clone for KunkiHandler {
             state: self.state.clone(),
             butler: self.butler.clone(),
             validation_handle: self.validation_handle.clone(),
+            capture_handle: self.capture_handle.clone(),
         }
     }
 }

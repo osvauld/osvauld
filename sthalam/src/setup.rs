@@ -10,10 +10,12 @@ use courier::{Courier, CourierEvent, CourierHandle, CourierMode, HandshakeServic
 ///
 /// **Context**: Called after Butler identity is set
 /// **sync_rx**: Receiver for sync events (EnsureSync) - created in main.rs, sender passed to Butler
+/// **capture_tx**: Optional broadcast channel for event capture (from CaptureHandle)
 /// **Returns**: (CourierHandle, event receiver) for P2P operations
 pub async fn init_p2p(
     butler: Arc<Butler>,
     mut sync_rx: tokio::sync::mpsc::Receiver<SyncEvent>,
+    capture_tx: Option<tokio::sync::broadcast::Sender<String>>,
 ) -> Result<(CourierHandle, tokio::sync::mpsc::Receiver<CourierEvent>), String> {
     // Get device key from Butler (requires identity)
     let device_key = butler
@@ -36,9 +38,9 @@ pub async fn init_p2p(
     // Create HandshakeServices with Butler
     let handshake_services = Arc::new(HandshakeServices::new(butler.clone()));
 
-    // Initialize Courier with services
+    // Initialize Courier with services and optional capture
     let (handle, event_rx, courier) =
-        Courier::init_with_services(CourierMode::User, transport, Some(handshake_services));
+        Courier::init_with_services_and_capture(CourierMode::User, transport, Some(handshake_services), capture_tx);
 
     // Spawn courier event loop
     tokio::spawn(async move {
@@ -57,6 +59,28 @@ pub async fn init_p2p(
                         tracing::warn!(user_did = %user_did, error = %e, "Failed to forward EnsureSync");
                     } else {
                         tracing::info!(user_did = %user_did, "Forwarded EnsureSync to Coordinator");
+                    }
+                }
+                SyncEvent::NewDynamicLayer { page_id, layer_name, permits } => {
+                    tracing::info!(
+                        page_id = %page_id,
+                        layer = %layer_name,
+                        permit_count = permits.len(),
+                        "Received NewDynamicLayer from Scribe, forwarding to Coordinator"
+                    );
+                    if let Err(e) = handle_for_sync.distribute_layer_permits(&page_id, &layer_name, permits) {
+                        tracing::warn!(error = %e, "Failed to distribute layer permits");
+                    }
+                }
+                SyncEvent::LayerAccessChanged { page_id, layer_name, permits } => {
+                    tracing::info!(
+                        page_id = %page_id,
+                        layer = %layer_name,
+                        permit_count = permits.len(),
+                        "Received LayerAccessChanged from Scribe, forwarding to Coordinator"
+                    );
+                    if let Err(e) = handle_for_sync.distribute_layer_permits(&page_id, &layer_name, permits) {
+                        tracing::warn!(error = %e, "Failed to distribute layer permits for access change");
                     }
                 }
             }

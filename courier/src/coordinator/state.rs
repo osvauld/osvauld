@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use ractor::ActorRef;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tracing::warn;
 use transport::{Connection, NodeId};
 
@@ -75,6 +75,9 @@ pub struct CoordinatorState<C: Connection> {
 
     /// Optional trace channel for protocol message capture (tests only)
     pub message_tx: Option<mpsc::UnboundedSender<MessageTrace>>,
+
+    /// Broadcast channel for capture system (pre-serialized JSON lines)
+    pub capture_tx: Option<broadcast::Sender<String>>,
 }
 
 impl<C: Connection> CoordinatorState<C> {
@@ -87,6 +90,7 @@ impl<C: Connection> CoordinatorState<C> {
         connect_tx: Option<mpsc::Sender<ConnectRequest>>,
         event_tx: Option<mpsc::Sender<CourierEvent>>,
         message_tx: Option<mpsc::UnboundedSender<MessageTrace>>,
+        capture_tx: Option<broadcast::Sender<String>>,
     ) -> Self {
         Self {
             our_node_id,
@@ -99,6 +103,7 @@ impl<C: Connection> CoordinatorState<C> {
             event_tx,
             connect_tx,
             message_tx,
+            capture_tx,
         }
     }
 

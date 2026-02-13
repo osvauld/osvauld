@@ -37,8 +37,9 @@ pub mod test_fixtures;
 // Re-export commonly used items
 pub use types::*;
 pub use parser::{Permit, DelegationTemplate, PermitError, PermitResult, LayerPatternConfig, PeerCapabilities, LayerConfig};
-pub use parser::{expand_pattern, matches_wildcard};  // Pattern matching utilities
-pub use decision::{TokenDecision, DelegationDecision, SyncContext, should_send_updates, can_receive_updates, can_access_layer, extract_issue_template};
+pub use parser::{DynamicLayerSchema, GrantType};  // Dynamic layer types
+pub use parser::{expand_pattern, matches_wildcard, matches_schema_pattern, resolve_page_id_in_facts};  // Pattern/resolution utilities
+pub use decision::{TokenDecision, DelegationDecision, SyncContext, should_send_updates, can_receive_updates, can_access_layer, can_access_with_layer_permits, matches_dynamic_schema_for_role, extract_issue_template};
 
 // Re-export stateless permit functions
 pub use service::{
@@ -57,6 +58,12 @@ pub use service::{
     // Sync consent tokens (viewer-issued)
     issue_sync_space_consent,
     issue_sync_page_consent,
+    issue_sync_layer_consent,
+    // Dynamic layer permits (node-issued)
+    issue_layer_permit,
+    issue_layer_authority_permit,
+    // Dynamic layer re-issuance
+    reissue_permit_with_layers,
     // Utilities
     get_public_key,
     extract_space_id,

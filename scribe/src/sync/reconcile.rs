@@ -27,20 +27,26 @@ pub async fn handle_reconcile_with_peers(state: &mut ScribeState) {
     }
 
     let sub_count = state.subscribers.read().map(|s| s.len()).unwrap_or(0);
-    debug!(subscriber_count = sub_count, layer_count = state.layers.len(), "Starting periodic reconciliation");
+    debug!(subscriber_count = sub_count, layer_count = state.units.len(), "Starting periodic reconciliation");
 
     // For each layer, check if any subscriber needs sync
-    for layer_name in state.layers.keys().cloned().collect::<Vec<_>>() {
-        let our_vector = match state.layers.get(&layer_name) {
-            Some(layer) => layer.version_vector(),
+    let layer_names: Vec<String> = state.units.keys().cloned().collect();
+    for layer_name in layer_names {
+        let (our_vector, authorized) = match state.units.get(&layer_name) {
+            Some(unit) => {
+                let vector = unit.layer().version_vector();
+                let auth = unit.authorized_dids().read()
+                    .map(|s| s.clone())
+                    .unwrap_or_default();
+                (vector, auth)
+            }
             None => continue,
         };
 
-        // Check if any subscriber has a different vector (may be behind)
+        // Check if any authorized subscriber has a different vector (may be behind)
         let needs_sync = if let Ok(subs) = state.subscribers.read() {
-            subs.iter().any(|(_, info)| {
-                // Skip if they can't receive this layer (checks fixed AND pattern permissions)
-                if !info.can_receive_layer(&layer_name, &state.page_id) {
+            subs.iter().any(|((user_did, _), info)| {
+                if !authorized.contains(user_did) {
                     return false;
                 }
 
@@ -114,6 +120,7 @@ pub fn emit_sync_events_for_missing_targets(state: &ScribeState) {
         if let Some(ref sync_event_tx) = state.sync_event_tx {
             let event = SyncEvent::EnsureSync { user_did: user_did.clone() };
 
+            state.emit_sync_event_capture(&event);
             if let Err(e) = sync_event_tx.try_send(event) {
                 warn!(user_did = %user_did, error = %e, "Failed to emit EnsureSync");
             } else {

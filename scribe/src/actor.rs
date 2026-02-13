@@ -10,8 +10,9 @@
 //! - Broadcast updates to subscribed PeerActors
 //! - Notify UI subscribers of changes
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicU64;
 
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use tokio::time::{interval, Duration};
@@ -19,6 +20,7 @@ use tracing::{debug, error, info, instrument, trace, warn};
 
 use domains::Layer;
 
+use crate::layer_unit::LayerUnit;
 use crate::message;
 use crate::state::{ScribeArgs, ScribeState, SyncMode, normalize_layer_name};
 use crate::permit::glob_match;
@@ -126,45 +128,57 @@ impl Actor for Scribe {
             });
         }
 
+        // Convert args.layers → LayerUnit instances
+        let mut units: HashMap<String, LayerUnit> = args.layers
+            .into_iter()
+            .map(|(name, layer)| (name, LayerUnit::new(layer)))
+            .collect();
+
         let mut state = ScribeState {
             page_id: args.page_id,
-            layers: args.layers,
+            units: HashMap::new(), // Populated below
             subscribers: Arc::new(std::sync::RwLock::new(HashMap::new())),
-            local_only_layers: Arc::new(std::sync::RwLock::new(HashSet::new())),
             query_subscribers: HashMap::new(),
-            dirty_layers: HashSet::new(),
             // Storage traits
             layer_storage: args.layer_storage,
             vector_storage: args.vector_storage,
             peer_resolver: args.peer_resolver,
+            permit_issuer: args.permit_issuer,
             // Sync configuration
             sync_config: args.sync_config,
             sync_event_tx: args.sync_event_tx,
-            loro_subscriptions: HashMap::new(),
+            capture_tx: args.capture_tx,
+            capture_seq: AtomicU64::new(0),
             page_update_subscribers: Arc::new(std::sync::RwLock::new(Vec::new())),
             pending_update_source: Arc::new(Mutex::new(None)),
             validation_handle: args.validation_handle,
             our_permit,
             our_did: args.our_did.clone(),
             node_script_shutdown: None,
+            pending_layer_authorizations: HashMap::new(),
         };
 
         // Pre-create static layers from permit (already extracted via PermitContext)
         // Static layers are fully known after expanding {page_id} and {aud}
         // Dynamic layers (with wildcards) are created on-demand during sync
         for layer_name in static_layers {
-            if !state.layers.contains_key(&layer_name) {
+            if !units.contains_key(&layer_name) {
                 info!(
                     page_id = %state.page_id,
                     layer = %layer_name,
                     "Pre-creating static layer from permit"
                 );
-                state.layers.insert(layer_name, Layer::new());
+                units.insert(layer_name, LayerUnit::new_empty());
             }
         }
 
-        // Update local_only_layers based on permit before setting up observers
-        state.update_local_only_layers();
+        // Set is_local_only on each unit based on permit
+        for (name, unit) in units.iter_mut() {
+            unit.set_local_only(!state.should_sync_layer(name));
+        }
+
+        // Move units into state
+        state.units = units;
 
         // Set up Loro observers for all layers (including pre-created ones)
         // This ensures import() triggers broadcasts via observer pattern
@@ -183,6 +197,7 @@ impl Actor for Scribe {
                     let event = message::SyncEvent::EnsureSync {
                         user_did: user_did.clone(),
                     };
+                    state.emit_sync_event_capture(&event);
                     match tx.try_send(event) {
                         Ok(()) => info!(user_did = %user_did, page_id = %state.page_id, "Emitted EnsureSync on page open"),
                         Err(e) => warn!(user_did = %user_did, error = %e, "Failed to emit EnsureSync on page open"),
@@ -197,7 +212,7 @@ impl Actor for Scribe {
         Ok(state)
     }
 
-    #[instrument(skip_all, fields(page_id = %state.page_id))]
+    #[instrument(level = "trace", skip_all, fields(page_id = %state.page_id))]
     async fn handle(
         &self,
         myself: ActorRef<Self::Msg>,
@@ -321,8 +336,9 @@ impl Actor for Scribe {
                 info!(layer = %layer_name, snapshot_len = snapshot.len(), "Replacing layer with authoritative snapshot");
                 let result = match Layer::from_snapshot(&snapshot) {
                     Ok(layer) => {
-                        state.layers.insert(layer_name.clone(), layer);
-                        state.dirty_layers.insert(layer_name.clone());
+                        let unit = state.units.entry(layer_name.clone()).or_insert_with(LayerUnit::new_empty);
+                        unit.replace_layer(layer);
+                        unit.mark_dirty();
                         info!(layer = %layer_name, "Layer replaced successfully");
                         Ok(())
                     }
@@ -341,13 +357,13 @@ impl Actor for Scribe {
             ScribeMessage::EnsureLoroList { layer_name, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 // Get existing layer or create new one (for list access)
-                let is_new_layer = !state.layers.contains_key(&layer_name);
+                let is_new_layer = !state.units.contains_key(&layer_name);
                 if is_new_layer {
-                    state.layers.insert(layer_name.clone(), Layer::new());
-                    state.dirty_layers.insert(layer_name.clone());
+                    let mut unit = LayerUnit::new_empty();
+                    unit.set_local_only(!state.should_sync_layer(&layer_name));
+                    unit.mark_dirty();
+                    state.units.insert(layer_name.clone(), unit);
                     debug!(layer = %layer_name, "Created new layer for Lua list");
-                    // Check if layer is local-only (sync: false in permit)
-                    state.mark_layer_local_only_if_needed(&layer_name);
                     // Set up Loro observer for new layer to enable sync broadcasts
                     loro_observer::setup_layer_observer(state, &layer_name);
                     // Notify UI subscribers about the new layer
@@ -360,13 +376,13 @@ impl Actor for Scribe {
             ScribeMessage::EnsureLoroMap { layer_name, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 // Get existing layer or create new one (for map access)
-                let is_new_layer = !state.layers.contains_key(&layer_name);
+                let is_new_layer = !state.units.contains_key(&layer_name);
                 if is_new_layer {
-                    state.layers.insert(layer_name.clone(), Layer::new());
-                    state.dirty_layers.insert(layer_name.clone());
+                    let mut unit = LayerUnit::new_empty();
+                    unit.set_local_only(!state.should_sync_layer(&layer_name));
+                    unit.mark_dirty();
+                    state.units.insert(layer_name.clone(), unit);
                     debug!(layer = %layer_name, "Created new layer for Lua map");
-                    // Check if layer is local-only (sync: false in permit)
-                    state.mark_layer_local_only_if_needed(&layer_name);
                     // Set up Loro observer for new layer to enable sync broadcasts
                     loro_observer::setup_layer_observer(state, &layer_name);
                 }
@@ -376,7 +392,7 @@ impl Actor for Scribe {
 
             ScribeMessage::LayerExists { layer_name, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let exists = state.layers.contains_key(&layer_name);
+                let exists = state.units.contains_key(&layer_name);
                 let _ = reply.send(exists);
             }
 
@@ -384,7 +400,8 @@ impl Actor for Scribe {
 
             ScribeMessage::ListGet { layer_name, index, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result = state.layers.get(&layer_name)
+                let result = state.units.get(&layer_name)
+                    .map(|unit| unit.layer())
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
                         let list = layer.loro().get_list(layer_name.clone());
@@ -398,7 +415,8 @@ impl Actor for Scribe {
 
             ScribeMessage::ListLength { layer_name, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result = state.layers.get(&layer_name)
+                let result = state.units.get(&layer_name)
+                    .map(|unit| unit.layer())
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
                         let list = layer.loro().get_list(layer_name.clone());
@@ -409,7 +427,8 @@ impl Actor for Scribe {
 
             ScribeMessage::MapGet { layer_name, key, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result = state.layers.get(&layer_name)
+                let result = state.units.get(&layer_name)
+                    .map(|unit| unit.layer())
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
                         let map = layer.loro().get_map(layer_name.clone());
@@ -423,7 +442,8 @@ impl Actor for Scribe {
 
             ScribeMessage::MapLength { layer_name, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result = state.layers.get(&layer_name)
+                let result = state.units.get(&layer_name)
+                    .map(|unit| unit.layer())
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
                         let map = layer.loro().get_map(layer_name.clone());
@@ -434,7 +454,8 @@ impl Actor for Scribe {
 
             ScribeMessage::MapKeys { layer_name, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result = state.layers.get(&layer_name)
+                let result = state.units.get(&layer_name)
+                    .map(|unit| unit.layer())
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
                         let map = layer.loro().get_map(layer_name.clone());
@@ -447,7 +468,7 @@ impl Actor for Scribe {
                 let pattern = normalize_layer_name(&pattern, &state.page_id);
                 // Match layer names against glob pattern
                 let matching: Vec<String> = state
-                    .layers
+                    .units
                     .keys()
                     .filter(|name| glob_match(&pattern, name))
                     .cloned()
@@ -458,8 +479,8 @@ impl Actor for Scribe {
 
             ScribeMessage::GetLayerData { layer_name, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result = state.layers.get(&layer_name)
-                    .map(|layer| layer.get_content(&layer_name))
+                let result = state.units.get(&layer_name)
+                    .map(|unit| unit.layer().get_content(&layer_name))
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()));
                 let _ = reply.send(result);
             }
@@ -485,13 +506,13 @@ impl Actor for Scribe {
 
             ScribeMessage::GetSnapshot { layer_name, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result = state.layers.get(&layer_name).map(|layer| layer.export_snapshot());
+                let result = state.units.get(&layer_name).map(|unit| unit.layer().export_snapshot());
                 let _ = reply.send(result);
             }
 
             ScribeMessage::GetLayerJson { layer_name, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result = state.layers.get(&layer_name).map(|layer| layer.get_content(&layer_name));
+                let result = state.units.get(&layer_name).map(|unit| unit.layer().get_content(&layer_name));
                 let _ = reply.send(result);
             }
 
@@ -596,6 +617,71 @@ impl Actor for Scribe {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 if let Err(e) = operations::handle_counter_inc(state, &layer_name, &path, amount).await {
                     warn!(error = %e, "CounterInc failed");
+                }
+            }
+
+            ScribeMessage::CreateDynamicLayer { schema_key, layer_id, reply } => {
+                let result = crate::layer_unit::handle_create_dynamic_layer(
+                    state, &schema_key, &layer_id,
+                );
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::AddLayerAccess { layer_name, did, reply } => {
+                let result = crate::layer_unit::handle_add_layer_access(state, &layer_name, &did).await;
+                if let Err(ref e) = result {
+                    warn!(
+                        page_id = %state.page_id,
+                        layer = %layer_name,
+                        did = %did,
+                        error = %e,
+                        "AddLayerAccess failed"
+                    );
+                }
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::RemoveLayerAccess { layer_name, did, reply } => {
+                let result = crate::layer_unit::handle_remove_layer_access(state, &layer_name, &did);
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::AuthorizeLayerSubscriber { layer_name, subscriber_did } => {
+                let bare = normalize_layer_name(&layer_name, &state.page_id);
+                if let Some(unit) = state.units.get(&bare) {
+                    unit.authorize_did(&subscriber_did);
+                    state.emit_layer_auth_capture(&bare, &subscriber_did, "authorized");
+                    info!(layer = %bare, did = %subscriber_did, "Authorized subscriber for layer");
+                } else {
+                    // Layer doesn't exist yet — store pending authorization
+                    state.pending_layer_authorizations
+                        .entry(bare.clone())
+                        .or_insert_with(Vec::new)
+                        .push(subscriber_did.clone());
+                    // Emit with pending_count showing queue size
+                    let pending_count = state.pending_layer_authorizations
+                        .get(&bare).map(|v| v.len()).unwrap_or(0);
+                    if let Some(ref tx) = state.capture_tx {
+                        let ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis())
+                            .unwrap_or(0);
+                        if let Ok(json) = serde_json::to_string(&serde_json::json!({
+                            "type": "layer_auth",
+                            "ts": ts,
+                            "seq": state.capture_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                            "page_id": &state.page_id,
+                            "layer": &bare,
+                            "layer_short": crate::state::layer_short(&bare),
+                            "did": &subscriber_did,
+                            "short_did": crate::state::short_did(&subscriber_did),
+                            "action": "pending",
+                            "pending_count": pending_count,
+                        })) {
+                            let _ = tx.send(json);
+                        }
+                    }
+                    info!(layer = %bare, did = %subscriber_did, pending_count = pending_count, "Stored pending layer authorization (layer not yet created)");
                 }
             }
 
@@ -748,11 +834,11 @@ impl Actor for Scribe {
             ScribeMessage::CreateDerivedLayer { target_layer } => {
                 let target_layer = normalize_layer_name(&target_layer, &state.page_id);
                 // Create the derived layer (empty) so it exists for subscribers
-                if !state.layers.contains_key(&target_layer) {
-                    let layer = Layer::new();
-                    let _ = layer.loro().get_map(target_layer.clone());
-                    layer.commit();
-                    state.layers.insert(target_layer.clone(), layer);
+                if !state.units.contains_key(&target_layer) {
+                    let unit = LayerUnit::new_empty();
+                    let _ = unit.layer().loro().get_map(target_layer.clone());
+                    unit.layer().commit();
+                    state.units.insert(target_layer.clone(), unit);
                     info!(target = %target_layer, "Created empty derived layer");
 
                     // Set up observer for the new layer
@@ -763,8 +849,8 @@ impl Actor for Scribe {
             ScribeMessage::GetAppFiles { app_name, reply } => {
                 // Use bare layer name (Scribe uses bare names, no page_id/ prefix)
                 let layer_name = format!("app:{}", app_name);
-                let result = if let Some(layer) = state.layers.get(&layer_name) {
-                    Ok(layer.get_all_files())
+                let result = if let Some(unit) = state.units.get(&layer_name) {
+                    Ok(unit.layer().get_all_files())
                 } else {
                     Err(format!("App layer '{}' not found", layer_name))
                 };
@@ -795,8 +881,10 @@ impl Actor for Scribe {
         state: &mut Self::State,
     ) -> std::result::Result<(), ActorProcessingErr> {
         // Flush any dirty layers before stopping
-        if !state.dirty_layers.is_empty() {
-            info!(page_id = %state.page_id, dirty_count = state.dirty_layers.len(), "Flushing dirty layers on shutdown");
+        let has_dirty = state.units.values().any(|u| u.is_dirty());
+        if has_dirty {
+            let dirty_count = state.units.values().filter(|u| u.is_dirty()).count();
+            info!(page_id = %state.page_id, dirty_count = dirty_count, "Flushing dirty layers on shutdown");
             sync::handle_flush(state).await;
         }
 
@@ -827,22 +915,22 @@ impl Scribe {
     ) -> Result<()> {
         info!(layer = %layer_name, path = %path, "Updating layer from JSON");
 
-        // Get or create the layer
-        let layer = state
-            .layers
+        // Get or create the layer unit
+        let unit = state
+            .units
             .entry(layer_name.to_string())
-            .or_insert_with(Layer::new);
+            .or_insert_with(LayerUnit::new_empty);
 
         // Convert JSON to Loro and update
-        layer
+        unit.layer()
             .set_from_json(path, &value)
             .map_err(|e| ScribeError::CrdtError(format!("Layer: {}", e)))?;
 
         // Commit to trigger Loro observer (which broadcasts to peers + notifies UI)
-        layer.commit();
+        unit.layer().commit();
 
         // Mark as dirty for persistence
-        state.dirty_layers.insert(layer_name.to_string());
+        unit.mark_dirty();
 
         debug!("Layer update from JSON complete, observer will broadcast");
         Ok(())

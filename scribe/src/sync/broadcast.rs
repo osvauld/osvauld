@@ -21,11 +21,15 @@ pub async fn broadcast_update(
     layer_name: &str,
     from_peer: Option<&(String, String)>,
 ) {
-    let Some(layer) = state.layers.get(layer_name) else {
+    let Some(unit) = state.units.get(layer_name) else {
         return;
     };
 
-    let current_vector = layer.version_vector();
+    let current_vector = unit.layer().version_vector();
+    let layer = unit.layer().clone(); // Clone for use inside subscriber lock
+
+    // Read authorized_dids once before the subscriber loop
+    let authorized = unit.authorized_dids().read().unwrap_or_else(|e| e.into_inner()).clone();
 
     // Track subscribers to remove (channel closed = peer disconnected)
     let mut to_remove: Vec<(String, String)> = Vec::new();
@@ -34,11 +38,13 @@ pub async fn broadcast_update(
         for ((user_did, device_id), info) in subs.iter_mut() {
             // Skip sender
             if from_peer == Some(&(user_did.clone(), device_id.clone())) {
+                state.emit_broadcast_decision_capture(layer_name, user_did, "skip_sender");
                 continue;
             }
 
-            // Check can receive (fixed layers OR pattern-based)
-            if !info.can_receive_layer(layer_name, &state.page_id) {
+            // Check authorization via LayerUnit
+            if !authorized.contains(user_did) {
+                state.emit_broadcast_decision_capture(layer_name, user_did, "not_authorized");
                 continue;
             }
 
@@ -97,12 +103,12 @@ pub async fn broadcast_update(
 /// **We do**: Send PageUpdate::LayerChanged with created=true to unified subscribers
 #[instrument(skip(state), fields(page_id = %state.page_id, layer = %layer_name))]
 pub fn notify_layer_discovered(state: &ScribeState, layer_name: &str) {
-    let full_data = state.layers.get(layer_name)
-        .map(|layer| layer.get_content(layer_name))
+    let full_data = state.units.get(layer_name)
+        .map(|unit| unit.layer().get_content(layer_name))
         .unwrap_or(serde_json::Value::Null);
 
-    let state_vector = state.layers.get(layer_name)
-        .map(|layer| layer.version_vector())
+    let state_vector = state.units.get(layer_name)
+        .map(|unit| unit.layer().version_vector())
         .unwrap_or_default();
 
     let update = PageUpdate::LayerChanged {
@@ -114,10 +120,10 @@ pub fn notify_layer_discovered(state: &ScribeState, layer_name: &str) {
         full_data: Some(full_data.clone()),
         created: true,
     };
+    state.emit_page_update_capture(&update);
     if let Ok(subs) = state.page_update_subscribers.read() {
         for tx in subs.iter() {
             let _ = tx.try_send(update.clone());
         }
     }
 }
-

@@ -185,29 +185,59 @@ fn test_real_world_patterns() {
     let page_id = "shop123abc";
     let customer_did = "did:key:z6MkCustomer123";
 
-    assert_eq!(expand_pattern("{page_id}/products", page_id, customer_did), "shop123abc/products");
-    assert_eq!(expand_pattern("{page_id}/derived/orders_summary", page_id, customer_did), "shop123abc/derived/orders_summary");
+    assert_eq!(
+        expand_pattern("{page_id}/products", page_id, customer_did),
+        "shop123abc/products"
+    );
+    assert_eq!(
+        expand_pattern("{page_id}/derived/orders_summary", page_id, customer_did),
+        "shop123abc/derived/orders_summary"
+    );
 
     let orders_expanded = expand_pattern("{page_id}/orders/*", page_id, customer_did);
-    assert!(matches_wildcard("shop123abc/orders/customer1", &orders_expanded));
-    assert!(matches_wildcard("shop123abc/orders/did:key:abc", &orders_expanded));
+    assert!(matches_wildcard(
+        "shop123abc/orders/customer1",
+        &orders_expanded
+    ));
+    assert!(matches_wildcard(
+        "shop123abc/orders/did:key:abc",
+        &orders_expanded
+    ));
 
     let customer_orders = expand_pattern("{page_id}/orders/{aud}", page_id, customer_did);
-    assert!(matches_wildcard("shop123abc/orders/did:key:z6MkCustomer123", &customer_orders));
-    assert!(!matches_wildcard("shop123abc/orders/did:key:z6MkOther456", &customer_orders));
+    assert!(matches_wildcard(
+        "shop123abc/orders/did:key:z6MkCustomer123",
+        &customer_orders
+    ));
+    assert!(!matches_wildcard(
+        "shop123abc/orders/did:key:z6MkOther456",
+        &customer_orders
+    ));
 
     // Booking patterns
     let page_id = "booking789";
     let customer_did = "did:key:z6MkBookingUser";
 
-    assert_eq!(expand_pattern("{page_id}/schedule", page_id, customer_did), "booking789/schedule");
+    assert_eq!(
+        expand_pattern("{page_id}/schedule", page_id, customer_did),
+        "booking789/schedule"
+    );
 
     let owner_pattern = expand_pattern("{page_id}/bookings/*", page_id, customer_did);
-    assert!(matches_wildcard("booking789/bookings/customer1", &owner_pattern));
+    assert!(matches_wildcard(
+        "booking789/bookings/customer1",
+        &owner_pattern
+    ));
 
     let customer_pattern = expand_pattern("{page_id}/bookings/{aud}", page_id, customer_did);
-    assert!(matches_wildcard("booking789/bookings/did:key:z6MkBookingUser", &customer_pattern));
-    assert!(!matches_wildcard("booking789/bookings/did:key:z6MkOther", &customer_pattern));
+    assert!(matches_wildcard(
+        "booking789/bookings/did:key:z6MkBookingUser",
+        &customer_pattern
+    ));
+    assert!(!matches_wildcard(
+        "booking789/bookings/did:key:z6MkOther",
+        &customer_pattern
+    ));
 }
 
 #[test]
@@ -242,7 +272,10 @@ fn real_world_drafts_local_only() {
 
     // The layer name is exact, no wildcards
     assert!(matches_wildcard("page456/drafts", &drafts_expanded));
-    assert!(!matches_wildcard("page456/drafts/subfolder", &drafts_expanded));
+    assert!(!matches_wildcard(
+        "page456/drafts/subfolder",
+        &drafts_expanded
+    ));
 }
 
 // Complex Pattern Interaction Tests
@@ -304,8 +337,14 @@ fn complex_nested_resource_hierarchy() {
 
     assert_eq!(expanded[0], "workspace001/spaces");
     assert_eq!(expanded[1], format!("workspace001/spaces/{}", user_did));
-    assert_eq!(expanded[2], format!("workspace001/spaces/{}/documents", user_did));
-    assert_eq!(expanded[3], format!("workspace001/spaces/{}/documents/*", user_did));
+    assert_eq!(
+        expanded[2],
+        format!("workspace001/spaces/{}/documents", user_did)
+    );
+    assert_eq!(
+        expanded[3],
+        format!("workspace001/spaces/{}/documents/*", user_did)
+    );
 
     // Test matching at each level
     let doc_layer = format!("workspace001/spaces/{}/documents/doc123", user_did);
@@ -314,7 +353,7 @@ fn complex_nested_resource_hierarchy() {
     assert!(!matches_wildcard(&doc_layer, &expanded[0])); // wrong depth
     assert!(!matches_wildcard(&doc_layer, &expanded[1])); // wrong depth
     assert!(!matches_wildcard(&doc_layer, &expanded[2])); // wrong depth
-    assert!(matches_wildcard(&doc_layer, &expanded[3]));  // wildcard matches
+    assert!(matches_wildcard(&doc_layer, &expanded[3])); // wildcard matches
 }
 
 #[test]
@@ -334,9 +373,9 @@ fn complex_multiple_wildcards_in_pattern() {
     assert!(matches_wildcard("multi123/x/y/data", &pattern));
 
     // Should NOT match wrong structure
-    assert!(!matches_wildcard("multi123/a/data", &pattern));       // too few segments
-    assert!(!matches_wildcard("multi123/a/b/c/data", &pattern));   // too many segments
-    assert!(!matches_wildcard("multi123/a/b/other", &pattern));    // wrong suffix
+    assert!(!matches_wildcard("multi123/a/data", &pattern)); // too few segments
+    assert!(!matches_wildcard("multi123/a/b/c/data", &pattern)); // too many segments
+    assert!(!matches_wildcard("multi123/a/b/other", &pattern)); // wrong suffix
 }
 
 #[test]
@@ -371,19 +410,31 @@ fn complex_placeholder_at_different_positions() {
     assert_eq!(expand_pattern("{page_id}/data", page_id, did), "pg1/data");
 
     // {page_id} in middle
-    assert_eq!(expand_pattern("prefix/{page_id}/suffix", page_id, did), "prefix/pg1/suffix");
+    assert_eq!(
+        expand_pattern("prefix/{page_id}/suffix", page_id, did),
+        "prefix/pg1/suffix"
+    );
 
     // {page_id} at end
     assert_eq!(expand_pattern("data/{page_id}", page_id, did), "data/pg1");
 
     // {aud} at start
-    assert_eq!(expand_pattern("{aud}/inbox", page_id, did), "did:key:z6MkU/inbox");
+    assert_eq!(
+        expand_pattern("{aud}/inbox", page_id, did),
+        "did:key:z6MkU/inbox"
+    );
 
     // {aud} in middle
-    assert_eq!(expand_pattern("users/{aud}/profile", page_id, did), "users/did:key:z6MkU/profile");
+    assert_eq!(
+        expand_pattern("users/{aud}/profile", page_id, did),
+        "users/did:key:z6MkU/profile"
+    );
 
     // {aud} at end
-    assert_eq!(expand_pattern("messages/{aud}", page_id, did), "messages/did:key:z6MkU");
+    assert_eq!(
+        expand_pattern("messages/{aud}", page_id, did),
+        "messages/did:key:z6MkU"
+    );
 
     // Both placeholders
     assert_eq!(
@@ -428,11 +479,10 @@ fn complex_pattern_specificity() {
     assert!(matches_wildcard(layer, all_wild));
 
     // Wrong specificity patterns should NOT match
-    assert!(!matches_wildcard(layer, "shop/*"));           // too few segments
-    assert!(!matches_wildcard(layer, "shop/*/*/*"));       // too many segments
-    assert!(!matches_wildcard(layer, "other/orders/*"));   // wrong prefix
+    assert!(!matches_wildcard(layer, "shop/*")); // too few segments
+    assert!(!matches_wildcard(layer, "shop/*/*/*")); // too many segments
+    assert!(!matches_wildcard(layer, "other/orders/*")); // wrong prefix
 }
-
 
 proptest! {
     // Complex Property Tests
@@ -549,27 +599,35 @@ fn issue_on_preserved_in_page_owner_token() {
     let page_id = "test-page-123";
 
     // Create owner token
-    let (token, _cid) = pollster::block_on(issue_page_owner_token(&signing_key, page_id, PAGE_TEMPLATE))
-        .expect("Failed to create page owner token");
+    let (token, _cid) =
+        pollster::block_on(issue_page_owner_token(&signing_key, page_id, PAGE_TEMPLATE))
+            .expect("Failed to create page owner token");
 
     // Parse the token
     let permit = Permit::from_token(&token).expect("Failed to parse token");
 
     // Verify issue_on templates are present
-    assert!(permit.has_issue_templates(), "Permit should have issue_on templates");
+    assert!(
+        permit.has_issue_templates(),
+        "Permit should have issue_on templates"
+    );
 
     // Verify issue_on.node exists
-    let node_template = permit.get_issue_template("node")
+    let node_template = permit
+        .get_issue_template("node")
         .expect("Permit should have issue_on.node template");
     assert_eq!(node_template.token_type, "page_share");
 
     // Verify issue_on.viewer exists
-    let viewer_template = permit.get_issue_template("viewer")
+    let viewer_template = permit
+        .get_issue_template("viewer")
         .expect("Permit should have issue_on.viewer template");
     assert_eq!(viewer_template.token_type, "page_viewer");
 
     // Verify nested issue_on (node's issue_on.viewer)
-    let nested_viewer = node_template.issue_on.get("viewer")
+    let nested_viewer = node_template
+        .issue_on
+        .get("viewer")
         .expect("Node template should have nested issue_on.viewer");
     assert_eq!(nested_viewer.token_type, "page_viewer");
 }

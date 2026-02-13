@@ -297,6 +297,14 @@ impl<C: Connection> PeerActor<C> {
         payload: butler::BroadcastPayload,
         state: &mut PeerActorState<C>,
     ) {
+        let peer_did = match require_auth(&state.state) {
+            Ok((did, _)) => did.to_string(),
+            Err(_) => {
+                warn!("Cannot send SyncOffer: peer not authenticated");
+                return;
+            }
+        };
+
         // Need peer's encryption key
         let peer_encryption_key = match state.peer_encryption_key {
             Some(key) => key,
@@ -322,6 +330,31 @@ impl<C: Connection> PeerActor<C> {
         // Trust CRDTs to converge. This avoids false divergence detection when
         // rapid writes cause state vectors to advance before SyncAccept arrives.
 
+        let full_layer_name = if payload.layer_name.starts_with(&format!("{}/", payload.page_id)) {
+            payload.layer_name.clone()
+        } else {
+            format!("{}/{}", payload.page_id, payload.layer_name)
+        };
+
+        let authority_permit = match state
+            .butler
+            .permits()
+            .get_layer_authority_permit(&payload.page_id, &full_layer_name, &peer_did)
+        {
+            Ok(Some((_version, permit))) => Some(permit),
+            Ok(None) => None,
+            Err(e) => {
+                warn!(
+                    page_id = %payload.page_id,
+                    layer_name = %full_layer_name,
+                    audience = %peer_did,
+                    error = %e,
+                    "Failed to look up layer authority permit for SyncOffer"
+                );
+                None
+            }
+        };
+
         // Send SyncOffer with our state vector
         let msg = Message::SyncOffer(SyncOfferMsg {
             page_id: payload.page_id,
@@ -330,6 +363,7 @@ impl<C: Connection> PeerActor<C> {
             data: encrypted_data,
             state_vector: payload.state_vector,
             ephemeral_public,
+            authority_permit,
         });
 
         self.send_message(&msg, state).await;

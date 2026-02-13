@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-Group Chat E2E Test — bidirectional message sync.
+Group Chat E2E Test — bidirectional message sync with event capture.
 
 Tests:
 - Alice sends message -> syncs to Bob and Carol
 - Bob replies -> syncs back to Alice and Carol
 
+Captures all courier/scribe events to JSONL for debugging.
+
 Usage:
     python e2e_tests/test_chat.py
     python e2e_tests/test_chat.py --keep
     python e2e_tests/test_chat.py --debug
+    python e2e_tests/test_chat.py --capture-logs  # also capture tracing logs
 """
 
 import sys
@@ -36,6 +39,12 @@ with AppTestScenario(
     alice = s.peer("alice")
     bob = s.peer("bob")
     carol = s.peer("carol")
+
+    # Start event capture on all instances
+    include_logs = "--capture-logs" in sys.argv
+    print("[0/4] Starting event capture...")
+    captures_dir = s.capture_start("chat", include_logs=include_logs)
+    print(f"  Capturing to {captures_dir}/")
 
     # Alice sends a message
     print("[1/4] Alice sends message...")
@@ -75,6 +84,15 @@ with AppTestScenario(
     )
     print(f"  Alice has {alice.eval('return get_message_count()')} message(s) - BIDIRECTIONAL SYNC OK")
     print(f"  Carol has {carol.eval('return get_message_count()')} message(s) - THREE-WAY SYNC OK")
+
+    # Stop capture and merge
+    print("\n  Stopping capture...")
+    merged = s.capture_end("chat", merge=True)
+    if merged and merged.exists():
+        line_count = sum(1 for _ in open(merged))
+        print(f"  Captured {line_count} events -> {merged}")
+    else:
+        print("  Warning: No capture data collected")
 
     print(f"\n{'=' * 60}")
     print("  [SUCCESS] Group Chat E2E Test Passed!")

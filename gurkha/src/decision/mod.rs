@@ -53,7 +53,8 @@ pub use sync::{
 pub use consent::{
     decide_sync_space_consent,
     decide_sync_page_consent,
+    decide_sync_layer_consent,
 };
 
 // Re-export layer authorization
-pub use layer::can_access_layer;
+pub use layer::{can_access_layer, can_access_with_layer_permits, matches_creator_schema, matches_dynamic_schema_for_role};

@@ -250,12 +250,14 @@ pub async fn handle_layer_modified_by_lua(state: &mut ScribeState, layer_name: S
 
     // Commit the Loro transaction to trigger native observer
     // This makes the observer fire immediately with delta information
-    if let Some(layer) = state.layers.get(&layer_name) {
-        layer.commit();
+    if let Some(unit) = state.units.get(&layer_name) {
+        unit.layer().commit();
     }
 
     // Mark layer as dirty for periodic flush (every 10s)
-    state.dirty_layers.insert(layer_name.clone());
+    if let Some(unit) = state.units.get_mut(&layer_name) {
+        unit.mark_dirty();
+    }
 
     // NOTE: We don't manually notify observers here!
     // The commit() above triggers Loro's native observer (setup in handle_subscribe_loro_changes)
@@ -279,15 +281,16 @@ pub async fn handle_layer_modified_by_lua(state: &mut ScribeState, layer_name: S
 /// go through the same observer-based notification path.
 #[instrument(skip_all, fields(page_id = %state.page_id))]
 pub fn setup_observers_for_all_layers(state: &mut ScribeState) {
-    let layer_names: Vec<String> = state.layers.keys().cloned().collect();
+    let layer_names: Vec<String> = state.units.keys().cloned().collect();
 
     for layer_name in layer_names {
         setup_layer_observer(state, &layer_name);
     }
 
+    let observer_count = state.units.values().filter(|u| u.has_observer()).count();
     info!(
         page_id = %state.page_id,
-        layer_count = state.loro_subscriptions.len(),
+        layer_count = observer_count,
         "Set up Loro observers for all layers"
     );
 }
@@ -301,28 +304,34 @@ pub fn setup_observers_for_all_layers(state: &mut ScribeState) {
 #[instrument(skip(state), fields(page_id = %state.page_id))]
 pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
     // Skip if already set up
-    if state.loro_subscriptions.contains_key(layer_name) {
-        return;
-    }
-
-    let layer = match state.layers.get(layer_name) {
-        Some(l) => l,
+    match state.units.get(layer_name) {
+        Some(u) if u.has_observer() => return,
+        Some(_) => {}
         None => {
             warn!(layer_name = %layer_name, "Layer not found for observer setup");
             return;
         }
     };
 
+    // We need to get the layer clone and is_local_only before borrowing state mutably
+    let (layer_clone, is_local_only) = {
+        let unit = state.units.get(layer_name).unwrap();
+        (unit.layer().clone(), unit.is_local_only())
+    };
+
     // Create internal channel for observer signals (includes ops for reactive bindings)
     let (signal_tx, mut signal_rx) = tokio::sync::mpsc::unbounded_channel::<ObserverSignal>();
 
     // Clone for the async task
-    let layer_for_task = layer.clone();
+    let layer_for_task = layer_clone.clone();
     let layer_name_for_task = layer_name.to_string();
     let subscribers_for_task = state.subscribers.clone();
-    let local_only_for_task = state.local_only_layers.clone();
     let page_id_for_task = state.page_id.clone();
     let page_update_subscribers_for_task = state.page_update_subscribers.clone();
+    // Capture authorized_dids Arc for broadcast filtering
+    let authorized_dids_for_task = state.units.get(layer_name).unwrap().authorized_dids().clone();
+    // Clone capture_tx for the observer task
+    let capture_tx_for_task = state.capture_tx.clone();
 
     // Clone pending_update_source for the synchronous callback
     let pending_update_source = state.pending_update_source.clone();
@@ -354,6 +363,21 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
                 full_data,
                 created: false,
             };
+            // Emit to capture channel (pre-serialized JSON line)
+            if let Some(ref capture_tx) = capture_tx_for_task {
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0);
+                if let Ok(json) = serde_json::to_string(&serde_json::json!({
+                    "type": "page_update",
+                    "ts": ts,
+                    "page_id": &page_id_for_task,
+                    "data": &page_update,
+                })) {
+                    let _ = capture_tx.send(json);
+                }
+            }
             if let Ok(subs) = page_update_subscribers_for_task.read() {
                 for tx in subs.iter() {
                     let _ = tx.try_send(page_update.clone());
@@ -368,21 +392,47 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
             }
 
             // Check if layer is local-only (sync: false in permit)
-            // If so, skip peer broadcasting entirely
-            if let Ok(local_only) = local_only_for_task.read() {
-                if local_only.contains(&layer_name_for_task) {
-                    debug!(
-                        layer_name = %layer_name_for_task,
-                        "Skipping peer broadcast for local-only layer (sync: false)"
-                    );
-                    continue;
+            // Captured as bool at observer setup time — static per layer
+            if is_local_only {
+                if let Some(ref ctx) = capture_tx_for_task {
+                    let ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0);
+                    let _ = ctx.send(serde_json::json!({
+                        "type": "broadcast_decision",
+                        "ts": ts,
+                        "page_id": &page_id_for_task,
+                        "layer": &layer_name_for_task,
+                        "decision": "skip",
+                        "reason": "local_only",
+                    }).to_string());
                 }
+                debug!(
+                    layer_name = %layer_name_for_task,
+                    "Skipping peer broadcast for local-only layer (sync: false)"
+                );
+                continue;
             }
 
             // Skip peer broadcast for remote updates (sender exclusion)
             // Remote updates are forwarded via broadcast_update() in apply.rs which has proper sender exclusion
             // Broadcasting here would send the update back to the original sender, causing a sync storm
             if signal.from_peer.is_some() {
+                if let Some(ref ctx) = capture_tx_for_task {
+                    let ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0);
+                    let _ = ctx.send(serde_json::json!({
+                        "type": "broadcast_decision",
+                        "ts": ts,
+                        "page_id": &page_id_for_task,
+                        "layer": &layer_name_for_task,
+                        "decision": "skip",
+                        "reason": "remote_handled_by_apply",
+                    }).to_string());
+                }
                 debug!(
                     layer_name = %layer_name_for_task,
                     "Skipping observer peer broadcast for remote update (handled by broadcast_update)"
@@ -401,8 +451,24 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
                     subscriber_count = subs.len(),
                     "Observer broadcasting to subscribers"
                 );
+                let authorized = authorized_dids_for_task.read().unwrap_or_else(|e| e.into_inner());
                 for ((user_did, device_id), info) in subs.iter() {
-                    if !info.can_receive_layer(&layer_name_for_task, &page_id_for_task) {
+                    if !authorized.contains(user_did) {
+                        if let Some(ref ctx) = capture_tx_for_task {
+                            let ts = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis())
+                                .unwrap_or(0);
+                            let _ = ctx.send(serde_json::json!({
+                                "type": "broadcast_decision",
+                                "ts": ts,
+                                "page_id": &page_id_for_task,
+                                "layer": &layer_name_for_task,
+                                "peer_did": user_did,
+                                "decision": "skip",
+                                "reason": "not_authorized",
+                            }).to_string());
+                        }
                         continue;
                     }
 
@@ -447,7 +513,7 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
     });
 
     // Subscribe to Loro changes - extract ops and delta for reactive bindings
-    let subscription = layer.subscribe_root(move |diff_event: loro::event::DiffEvent| {
+    let subscription = layer_clone.subscribe_root(move |diff_event: loro::event::DiffEvent| {
         // Extract structured ops for reactive Lua bindings (surgical UI updates)
         let ops = diff_event_to_ops(&diff_event);
 
@@ -462,8 +528,10 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
         let _ = signal_tx.send(ObserverSignal { delta, ops, from_peer });
     });
 
-    // Store subscription
-    state.loro_subscriptions.insert(layer_name.to_string(), subscription);
+    // Store subscription in the LayerUnit
+    if let Some(unit) = state.units.get_mut(layer_name) {
+        unit.set_observer(subscription);
+    }
     debug!(layer_name = %layer_name, "Set up Loro observer for layer");
 }
 

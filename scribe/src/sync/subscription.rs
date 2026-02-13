@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn, instrument};
 
-use crate::message::{BroadcastPayload, EphemeralOutbound};
+use crate::message::{BroadcastPayload, EphemeralOutbound, SyncEvent};
 use crate::state::{ScribeState, SubscriberInfo, normalize_layer_name};
 use crate::ephemeral::{emit_peer_subscribed, emit_peer_unsubscribed};
 
@@ -121,6 +121,9 @@ pub async fn handle_subscribe(
         debug!(subscriber_count = subs.len(), "Subscriber added");
     }
 
+    // Populate authorized_dids on existing LayerUnits for this subscriber
+    authorize_subscriber_for_layers(state, &user_did, &permit, &permit_holder_did, can_see_others);
+
     // Notify app subscribers about peer joining (lifecycle event)
     emit_peer_subscribed(state, &user_did);
 
@@ -130,9 +133,69 @@ pub async fn handle_subscribe(
         &user_did,
         &device_id,
         &broadcast_tx,
-        &permit,
-        &permit_holder_did,
     ).await;
+
+    // Issue pending layer permits for explicit dynamic layers (node mode only)
+    issue_pending_layer_permits(state, &user_did, &device_id).await;
+
+    // Emit subscriber state snapshot for observability
+    let authorized_layers: Vec<String> = state.units.iter()
+        .filter(|(_, unit)| unit.is_authorized(&user_did))
+        .map(|(name, _)| name.clone())
+        .collect();
+    state.emit_subscriber_state_capture(
+        &user_did,
+        &authorized_layers,
+        state.units.len(),
+        can_see_others,
+        is_visible,
+    );
+}
+
+/// Populate authorized_dids on all existing LayerUnits for a newly subscribed peer
+///
+/// **Context**: Peer just subscribed with a page permit. Check each layer
+/// against their permit and authorize accordingly.
+fn authorize_subscriber_for_layers(
+    state: &ScribeState,
+    user_did: &str,
+    permit: &gurkha::Permit,
+    permit_holder_did: &str,
+    can_see_others: bool,
+) {
+    let sync_target = state
+        .sync_config
+        .as_ref()
+        .and_then(|cfg| cfg.sync_target.as_deref());
+
+    for (layer_name, unit) in &state.units {
+        if unit.is_local_only() { continue; }
+
+        if layer_name.starts_with("__sync_meta/") {
+            let did_in_layer = layer_name.trim_start_matches("__sync_meta/");
+            if user_did == did_in_layer || sync_target == Some(user_did) {
+                unit.authorize_did(user_did);
+                state.emit_layer_auth_capture(layer_name, user_did, "authorized_protocol_sync_meta");
+            }
+            continue;
+        }
+
+        // Presence layer: only if can_see_others
+        if (layer_name == "presence" || layer_name.ends_with("/presence")) && !can_see_others {
+            continue;
+        }
+
+        // no_incoming_updates check
+        if permit.sync_facts().no_incoming_updates.contains(&layer_name.to_string()) {
+            continue;
+        }
+
+        // Check if page permit covers this layer
+        if permit.can_read_layer(layer_name, &state.page_id, permit_holder_did) {
+            unit.authorize_did(user_did);
+            state.emit_layer_auth_capture(layer_name, user_did, "authorized_page_permit");
+        }
+    }
 }
 
 /// Handle peer unsubscription
@@ -156,6 +219,11 @@ pub async fn handle_unsubscribe(
         debug!(subscriber_count = subs.len(), "Subscriber removed");
     }
 
+    // Remove DID from all LayerUnits' authorized_dids
+    for (_, unit) in &state.units {
+        unit.revoke_did(user_did);
+    }
+
     // Notify app subscribers about peer leaving (lifecycle event)
     emit_peer_unsubscribed(state, user_did);
 }
@@ -166,15 +234,13 @@ pub async fn handle_unsubscribe(
 ///
 /// **Context**: Peer just subscribed, may have missed previous updates
 /// **We do**: Send current snapshot for each layer they have permission for
-/// **Checks**: Uses permit.can_read_layer() which handles both fixed and pattern-based
+/// **Checks**: Uses LayerUnit.is_authorized() (populated by authorize_subscriber_for_layers)
 #[instrument(skip_all, fields(page_id = %state.page_id, user_did = %user_did))]
 async fn send_initial_state_to_subscriber(
     state: &ScribeState,
     user_did: &str,
     device_id: &str,
     broadcast_tx: &mpsc::Sender<BroadcastPayload>,
-    permit: &gurkha::Permit,
-    subscriber_did: &str,
 ) {
     // Get peer's stored vectors (if any), normalizing keys to bare names
     let peer_vectors = match state.vector_storage.load_vectors(user_did, device_id) {
@@ -185,15 +251,11 @@ async fn send_initial_state_to_subscriber(
         Err(_) => HashMap::new(),
     };
 
-    for (layer_name, layer) in &state.layers {
-        // Skip layers in no_incoming_updates (from sync facts)
-        if permit.sync_facts().no_incoming_updates.contains(&layer_name.to_string()) {
-            continue;
-        }
+    for (layer_name, unit) in &state.units {
+        let layer = unit.layer();
 
-        // Check if they can receive this layer using permit's can_read_layer
-        // This handles both fixed layers and pattern-based permissions
-        if !permit.can_read_layer(layer_name, &state.page_id, subscriber_did) {
+        // Check if they're authorized for this layer (populated at subscribe time)
+        if !unit.is_authorized(user_did) {
             continue;
         }
 
@@ -223,9 +285,11 @@ async fn send_initial_state_to_subscriber(
         // Get our current state vector for 3-step sync protocol
         let state_vector = layer.version_vector();
 
-        // Skip empty data or empty state vectors (no operations)
-        // Empty LoroDoc has state_vector [0] (single byte indicating 0 entries)
-        if data.is_empty() || state_vector.len() <= 1 {
+        // Skip empty data or empty state vectors (no operations).
+        // Protocol sync metadata must still be sent as initial snapshot so the
+        // remote side materializes the layer for pairwise sync state.
+        let is_protocol_sync_meta = layer_name.starts_with("__sync_meta/");
+        if data.is_empty() || (!is_protocol_sync_meta && state_vector.len() <= 1) {
             debug!(user_did = %user_did, layer = %layer_name, "Skipping empty layer in initial state");
             continue;
         }
@@ -233,7 +297,7 @@ async fn send_initial_state_to_subscriber(
         let payload = BroadcastPayload {
             page_id: state.page_id.clone(),
             layer_name: layer_name.clone(),
-            layer_type: domains::LayerType::from_layer_name(&layer_name),
+            layer_type: domains::LayerType::from_layer_name(layer_name),
             update: data,
             state_vector,
         };
@@ -246,3 +310,90 @@ async fn send_initial_state_to_subscriber(
     }
 }
 
+/// Issue pending layer permits for a newly subscribed peer (node mode only)
+///
+/// **Context**: Peer just subscribed. Compute missing access permits from
+/// authority permits and issue fresh layer permits.
+#[instrument(skip_all, fields(page_id = %state.page_id, user_did = %user_did))]
+async fn issue_pending_layer_permits(
+    state: &ScribeState,
+    user_did: &str,
+    _device_id: &str,
+) {
+    let Some(ref issuer) = state.permit_issuer else { return; };
+    let Some(ref sync_event_tx) = state.sync_event_tx else { return; };
+
+    let authority_permits = match issuer.list_layer_authority_permits_for_audience(user_did) {
+        Ok(permits) => permits,
+        Err(e) => {
+            warn!(error = %e, "Failed to list layer authority permits for subscriber");
+            return;
+        }
+    };
+
+    for (layer_name, _version, authority_token) in authority_permits {
+        let already_issued = match issuer.has_layer_access_permit(user_did, &layer_name) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(error = %e, layer = %layer_name, "Failed to check existing layer permit");
+                continue;
+            }
+        };
+        if already_issued {
+            continue;
+        }
+
+        let Some(config) = authority_layer_config(&authority_token, &layer_name, &state.page_id) else {
+            warn!(layer = %layer_name, "Authority permit missing layer config for subscriber");
+            continue;
+        };
+
+        let intent_cid = match gurkha::crypto::get_permit_cid(&authority_token) {
+            Ok(cid) => cid,
+            Err(e) => {
+                warn!(error = %e, layer = %layer_name, "Failed to compute authority permit CID");
+                continue;
+            }
+        };
+
+        match issuer.issue_layer_permit(user_did, &layer_name, config, Some(&intent_cid)) {
+            Ok((token, _cid)) => {
+                let bare_name = normalize_layer_name(&layer_name, &state.page_id);
+                if let Some(unit) = state.units.get(&bare_name) {
+                    unit.authorize_did(user_did);
+                    state.emit_layer_auth_capture(&bare_name, user_did, "authorized_layer_permit");
+                }
+
+                let event = SyncEvent::LayerAccessChanged {
+                    page_id: state.page_id.clone(),
+                    layer_name: layer_name.to_string(),
+                    permits: vec![(user_did.to_string(), token)],
+                };
+                state.emit_sync_event_capture(&event);
+                if let Err(e) = sync_event_tx.send(event).await {
+                    warn!(error = %e, layer = %layer_name, "Failed to emit pending layer permit");
+                }
+            }
+            Err(e) => warn!(error = %e, layer = %layer_name, "Failed to issue pending layer permit"),
+        }
+    }
+}
+
+fn authority_layer_config(
+    authority_token: &str,
+    layer_name: &str,
+    page_id: &str,
+) -> Option<gurkha::LayerConfig> {
+    let parsed = gurkha::Permit::from_token(authority_token).ok()?;
+
+    if let Some(config) = parsed.layers().get(layer_name) {
+        return Some(config.clone());
+    }
+
+    let bare = normalize_layer_name(layer_name, page_id);
+    if let Some(config) = parsed.layers().get(&bare) {
+        return Some(config.clone());
+    }
+
+    None
+}

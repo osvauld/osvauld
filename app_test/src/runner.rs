@@ -55,14 +55,23 @@ impl AppTestRunner {
         let lua_code = std::fs::read_to_string(&lua_path)
             .map_err(|e| format!("Failed to read {}: {}", entry_logic, e))?;
 
+        // Set package.path so require() finds .lua modules in the app directory
+        // (matches production behavior in renderer_slint)
+        let app_dir_abs = app_dir.canonicalize()
+            .map_err(|e| format!("Failed to resolve app dir: {}", e))?;
+        let package_path_preamble = format!(
+            "package.path = '{}/?.lua;' .. package.path\n",
+            app_dir_abs.display()
+        );
+
         // Also check for init.lua (derivation rules)
         let init_path = app_dir.join("init.lua");
         let full_code = if init_path.exists() {
             let init_code = std::fs::read_to_string(&init_path)
                 .map_err(|e| format!("Failed to read init.lua: {}", e))?;
-            format!("{}\n{}", init_code, lua_code)
+            format!("{}{}\n{}", package_path_preamble, init_code, lua_code)
         } else {
-            lua_code
+            format!("{}{}", package_path_preamble, lua_code)
         };
 
         let app_name = manifest
@@ -96,6 +105,8 @@ impl AppTestRunner {
         name: &str,
     ) -> Result<Self, String> {
         let mock_state = MockScribeHandle::shared_state();
+        // Set page_id for layer name normalization (matches real Scribe behavior)
+        mock_state.lock().unwrap().set_page_id(page_id);
         let scribe = MockScribeHandle::with_shared_state(mock_state.clone());
 
         let config = LuaRuntimeConfig {
@@ -141,6 +152,8 @@ impl AppTestRunner {
         name: &str,
         shared_state: Arc<Mutex<MockScribeState>>,
     ) -> Result<Self, String> {
+        // Ensure page_id is set for layer name normalization
+        shared_state.lock().unwrap().set_page_id(page_id);
         let scribe = MockScribeHandle::with_shared_state(shared_state.clone());
 
         let config = LuaRuntimeConfig {

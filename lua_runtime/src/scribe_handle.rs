@@ -82,6 +82,22 @@ pub trait ScribeHandle: Send + Sync {
     /// Get layer data as JSON (returns error if layer doesn't exist)
     fn get_layer_data(&self, layer_name: &str) -> Result<JsonValue, String>;
 
+    // -- Dynamic layers --
+
+    /// Create a dynamic layer from a schema pattern
+    ///
+    /// **Context**: Lua app calls `scribe:create_layer("channels/{id}/messages", "general")`
+    /// **Returns**: Full layer name (e.g., "{page_id}/channels/{our_did}/general/messages")
+    fn create_layer(&self, schema_key: &str, layer_id: &str) -> Result<String, String>;
+
+    // -- Layer access --
+
+    /// Add a DID as participant to an explicit dynamic layer
+    fn add_layer_access(&self, layer_name: &str, did: &str) -> Result<(), String>;
+
+    /// Remove a DID from an explicit dynamic layer
+    fn remove_layer_access(&self, layer_name: &str, did: &str) -> Result<(), String>;
+
     // -- Peers & Ephemeral --
 
     /// Get count of subscribers to this page
@@ -320,6 +336,42 @@ impl ScribeHandle for ActorScribeHandle {
                 reply: tx,
             })
             .map_err(|e| format!("Failed to request layer data: {}", e))?;
+        rpc(rx)
+    }
+
+    fn create_layer(&self, schema_key: &str, layer_id: &str) -> Result<String, String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::CreateDynamicLayer {
+                schema_key: schema_key.to_string(),
+                layer_id: layer_id.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to create dynamic layer: {}", e))?;
+        rpc(rx)
+    }
+
+    fn add_layer_access(&self, layer_name: &str, did: &str) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::AddLayerAccess {
+                layer_name: layer_name.to_string(),
+                did: did.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to add layer access: {}", e))?;
+        rpc(rx)
+    }
+
+    fn remove_layer_access(&self, layer_name: &str, did: &str) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::RemoveLayerAccess {
+                layer_name: layer_name.to_string(),
+                did: did.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to remove layer access: {}", e))?;
         rpc(rx)
     }
 

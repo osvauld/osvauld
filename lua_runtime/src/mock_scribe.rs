@@ -161,7 +161,8 @@ impl MockScribeState {
 
     /// Get layer data as JSON
     pub fn get_layer_data(&self, name: &str) -> Option<JsonValue> {
-        match self.layers.get(name) {
+        let name = self.normalize(name);
+        match self.layers.get(&name) {
             Some(MockLayer::List(items)) => Some(JsonValue::Array(items.clone())),
             Some(MockLayer::Map(map)) => {
                 Some(JsonValue::Object(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()))
@@ -177,12 +178,14 @@ impl MockScribeState {
 
     /// Directly set layer data (for injecting peer writes in tests)
     pub fn inject_list_data(&mut self, name: &str, items: Vec<JsonValue>) {
-        self.layers.insert(name.to_string(), MockLayer::List(items));
+        let name = self.normalize(name);
+        self.layers.insert(name, MockLayer::List(items));
     }
 
     /// Directly set map data (for injecting peer writes in tests)
     pub fn inject_map_data(&mut self, name: &str, data: HashMap<String, JsonValue>) {
-        self.layers.insert(name.to_string(), MockLayer::Map(data));
+        let name = self.normalize(name);
+        self.layers.insert(name, MockLayer::Map(data));
     }
 }
 
@@ -386,6 +389,21 @@ impl ScribeHandle for MockScribeHandle {
 
     fn get_subscriber_count(&self) -> usize {
         self.state.lock().unwrap().subscriber_count
+    }
+
+    fn create_layer(&self, schema_key: &str, layer_id: &str) -> Result<String, String> {
+        // Mock: generate a simple layer name from schema_key and layer_id
+        // In production, Scribe generates the full path with DID
+        let layer_name = format!("mock-page/{}/{}", schema_key.replace("{id}", layer_id), layer_id);
+        Ok(layer_name)
+    }
+
+    fn add_layer_access(&self, _layer_name: &str, _did: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn remove_layer_access(&self, _layer_name: &str, _did: &str) -> Result<(), String> {
+        Ok(())
     }
 
     fn send_ephemeral(&self, payload: Vec<u8>) -> Result<(), String> {

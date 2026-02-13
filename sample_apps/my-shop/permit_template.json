@@ -10,7 +10,8 @@
         "peer_capabilities": {
             "relay": false,
             "share": true,
-            "accept_publish": true
+            "accept_publish": true,
+            "manage_layer_access": true
         },
         "layers": {
             "{page_id}/products": {
@@ -44,10 +45,11 @@
                 "write": true
             }
         },
-        "layer_patterns": {
-            "{page_id}/orders/*": {
-                "sync": true,
-                "write": true
+        "dynamic_layer_schemas": {
+            "orders/{id}": {
+                "type": "map",
+                "grant": "explicit",
+                "permissions": { "sync": true, "write": true }
             }
         },
         "issue_on": {
@@ -56,7 +58,8 @@
                 "peer_capabilities": {
                     "relay": true,
                     "share": true,
-                    "accept_publish": true
+                    "accept_publish": true,
+                    "manage_layer_access": true
                 },
                 "operations": {
                     "share_page": "allow",
@@ -84,10 +87,11 @@
                         "write": false
                     }
                 },
-                "layer_patterns": {
-                    "{page_id}/orders/*": {
-                        "sync": true,
-                        "create": true
+                "dynamic_layer_schemas": {
+                    "orders/{id}": {
+                        "type": "map",
+                        "grant": "explicit",
+                        "permissions": { "sync": true, "write": true }
                     }
                 },
                 "auth_capabilities": {
@@ -126,10 +130,11 @@
                                 "write": false
                             }
                         },
-                        "layer_patterns": {
-                            "{page_id}/orders/{aud}": {
-                                "write": true,
-                                "sync": true
+                        "dynamic_layer_schemas": {
+                            "orders/{id}": {
+                                "type": "map",
+                                "grant": "explicit",
+                                "permissions": { "sync": true, "write": true }
                             }
                         },
                         "auth_capabilities": {
@@ -168,10 +173,11 @@
                         "write": false
                     }
                 },
-                "layer_patterns": {
-                    "{page_id}/orders/{aud}": {
-                        "write": true,
-                        "sync": true
+                "dynamic_layer_schemas": {
+                    "orders/{id}": {
+                        "type": "map",
+                        "grant": "explicit",
+                        "permissions": { "sync": true, "write": true }
                     }
                 },
                 "auth_capabilities": {
@@ -198,9 +204,13 @@
                         "write": true
                     }
                 },
-                "layer_patterns": {
-                    "{page_id}/orders/*": {
-                        "sync": true
+                "dynamic_layer_schemas": {
+                    "orders/{id}": {
+                        "type": "map",
+                        "grant": "role",
+                        "role_permissions": {
+                            "admin": { "sync": true, "write": false }
+                        }
                     }
                 },
                 "auth_capabilities": {
@@ -236,9 +246,11 @@
                 "write": false
             }
         },
-        "layer_patterns": {
-            "{page_id}/orders/*": {
-                "sync": true
+        "dynamic_layer_schemas": {
+            "orders/{id}": {
+                "type": "map",
+                "grant": "explicit",
+                "permissions": { "sync": true, "write": true }
             }
         },
         "auth_capabilities": {

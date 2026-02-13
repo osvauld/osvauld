@@ -1,17 +1,17 @@
 //! Space table operations
 
-use redb::{ReadableTable, ReadableDatabase};
+use super::{RedbStore, SPACES};
 use crate::error::{ButlerError, Result};
 use crate::models::SpaceData;
+use redb::{ReadableDatabase, ReadableTable};
 use tracing::instrument;
-use super::{RedbStore, SPACES};
 
 impl RedbStore {
     #[instrument(skip_all)]
     pub fn put_space(&self, space: &SpaceData) -> Result<()> {
         let key = &space.meta.id;
-        let value = bincode::serialize(space)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(space).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {

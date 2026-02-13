@@ -1,10 +1,10 @@
 //! Contact and Device table operations
 
-use redb::{ReadableTable, ReadableDatabase};
+use super::{RedbStore, CONTACTS, DEVICES};
 use crate::error::{ButlerError, Result};
 use crate::models::{ContactData, DeviceData};
+use redb::{ReadableDatabase, ReadableTable};
 use tracing::instrument;
-use super::{RedbStore, CONTACTS, DEVICES};
 
 impl RedbStore {
     // Device Operations
@@ -12,8 +12,8 @@ impl RedbStore {
 
     #[instrument(skip_all)]
     pub fn put_device(&self, device: &DeviceData) -> Result<()> {
-        let value = bincode::serialize(device)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(device).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {
@@ -104,8 +104,8 @@ impl RedbStore {
 
     #[instrument(skip_all)]
     pub fn put_contact(&self, contact: &ContactData) -> Result<()> {
-        let value = bincode::serialize(contact)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(contact).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {

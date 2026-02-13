@@ -66,6 +66,11 @@ pub mod tags {
     // Consent (0x05xx)
     pub const SYNC_CONSENT_GRANT: u16 = 0x0500;
     pub const SYNC_CONSENT_ACK: u16 = 0x0501;
+    pub const LAYER_CONSENT_GRANT: u16 = 0x0502;
+    pub const LAYER_CONSENT_ACK: u16 = 0x0503;
+
+    // Layer Permits (extends Publishing 0x02xx)
+    pub const LAYER_PERMIT: u16 = 0x0205;
 
     // Errors (0xFFxx)
     pub const ERROR: u16 = 0xFF00;
@@ -114,7 +119,8 @@ pub struct SyncOfferMsg {
     pub data: Vec<u8>,
     pub state_vector: Vec<u8>,
     pub ephemeral_public: [u8; 32],
-    // No permit field — validated at subscription
+    #[serde(default)]
+    pub authority_permit: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -279,6 +285,40 @@ pub struct SyncConsentAckMsg {
     pub space_id: String,
 }
 
+/// Layer permit for a dynamic layer (Node → Viewer)
+///
+/// **Context**: Node detected a new dynamic layer, issues per-layer UCAN permits
+/// **Viewer receives**: Stores alongside page permit, then issues layer consent
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayerPermitMsg {
+    pub request_id: String,
+    pub page_id: String,
+    pub layer_name: String,
+    pub permit: String,
+}
+
+/// Viewer consents to sync a specific dynamic layer (Viewer → Node)
+///
+/// **Context**: Viewer received LayerPermit, now consents to receive sync
+/// **Node stores**: Layer consent to authorize future sync for this layer
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayerConsentGrantMsg {
+    pub request_id: String,
+    pub page_id: String,
+    pub layer_name: String,
+    pub consent_permit: String,
+}
+
+/// Node acknowledges viewer's layer consent (Node → Viewer)
+///
+/// **Context**: Node stored viewer's layer consent, sync can now start
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayerConsentAckMsg {
+    pub request_id: String,
+    pub page_id: String,
+    pub layer_name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorMsg {
     pub id: Option<String>,
@@ -335,6 +375,11 @@ pub enum Message {
     SyncConsentGrant(SyncConsentGrantMsg),
     SyncConsentAck(SyncConsentAckMsg),
 
+    // Layer Permits + Consent
+    LayerPermit(LayerPermitMsg),
+    LayerConsentGrant(LayerConsentGrantMsg),
+    LayerConsentAck(LayerConsentAckMsg),
+
     // Errors
     Error(ErrorMsg),
 }
@@ -370,7 +415,25 @@ impl Message {
             Message::SpaceRequestError(_) => "SpaceRequestError",
             Message::SyncConsentGrant(_) => "SyncConsentGrant",
             Message::SyncConsentAck(_) => "SyncConsentAck",
+            Message::LayerPermit(_) => "LayerPermit",
+            Message::LayerConsentGrant(_) => "LayerConsentGrant",
+            Message::LayerConsentAck(_) => "LayerConsentAck",
             Message::Error(_) => "Error",
+        }
+    }
+
+    /// Get page_id and layer_name context for trace enrichment (sync messages only)
+    pub fn context(&self) -> (Option<&str>, Option<&str>) {
+        match self {
+            Message::SyncOffer(m) => (Some(&m.page_id), Some(&m.layer_name)),
+            Message::SyncAccept(m) => (Some(&m.page_id), Some(&m.layer_name)),
+            Message::SyncAck(m) => (Some(&m.page_id), Some(&m.layer_name)),
+            Message::SyncReset(m) => (Some(&m.page_id), Some(&m.layer_name)),
+            Message::SyncSnapshot(m) => (Some(&m.page_id), Some(&m.layer_name)),
+            Message::LayerPermit(m) => (Some(&m.page_id), Some(&m.layer_name)),
+            Message::LayerConsentGrant(m) => (Some(&m.page_id), Some(&m.layer_name)),
+            Message::LayerConsentAck(m) => (Some(&m.page_id), Some(&m.layer_name)),
+            _ => (None, None),
         }
     }
 
@@ -404,6 +467,9 @@ impl Message {
             Message::SpaceRequestError(m) => encode_tagged(tags::SPACE_REQUEST_ERROR, m),
             Message::SyncConsentGrant(m) => encode_tagged(tags::SYNC_CONSENT_GRANT, m),
             Message::SyncConsentAck(m) => encode_tagged(tags::SYNC_CONSENT_ACK, m),
+            Message::LayerPermit(m) => encode_tagged(tags::LAYER_PERMIT, m),
+            Message::LayerConsentGrant(m) => encode_tagged(tags::LAYER_CONSENT_GRANT, m),
+            Message::LayerConsentAck(m) => encode_tagged(tags::LAYER_CONSENT_ACK, m),
             Message::Error(m) => encode_tagged(tags::ERROR, m),
         }
     }
@@ -439,7 +505,10 @@ fn dispatch_message(tag: u16, payload: &[u8]) -> Result<Message, bincode::Error>
         tags::HELLO => Ok(Message::Hello(bincode::deserialize(payload)?)),
         tags::WELCOME => Ok(Message::Welcome(bincode::deserialize(payload)?)),
         tags::PERMIT_GRANT => Ok(Message::PermitGrant(bincode::deserialize(payload)?)),
-        tags::ACK => { let _: () = bincode::deserialize(payload)?; Ok(Message::Ack) }
+        tags::ACK => {
+            let _: () = bincode::deserialize(payload)?;
+            Ok(Message::Ack)
+        }
         tags::REJECTED => Ok(Message::Rejected(bincode::deserialize(payload)?)),
         tags::SYNC_OFFER => Ok(Message::SyncOffer(bincode::deserialize(payload)?)),
         tags::SYNC_ACCEPT => Ok(Message::SyncAccept(bincode::deserialize(payload)?)),
@@ -455,18 +524,26 @@ fn dispatch_message(tag: u16, payload: &[u8]) -> Result<Message, bincode::Error>
         tags::PAGE_ANNOUNCE_ACK => Ok(Message::PageAnnounceAck(bincode::deserialize(payload)?)),
         tags::PERMIT_UPDATE => Ok(Message::PermitUpdate(bincode::deserialize(payload)?)),
         tags::PUBLISH_ERROR => Ok(Message::PublishError(bincode::deserialize(payload)?)),
-        tags::GET_LINK_REQ => Ok(Message::GetShareableLinkRequest(bincode::deserialize(payload)?)),
-        tags::GET_LINK_RESP => Ok(Message::GetShareableLinkResponse(bincode::deserialize(payload)?)),
+        tags::GET_LINK_REQ => Ok(Message::GetShareableLinkRequest(bincode::deserialize(
+            payload,
+        )?)),
+        tags::GET_LINK_RESP => Ok(Message::GetShareableLinkResponse(bincode::deserialize(
+            payload,
+        )?)),
         tags::SPACE_REQUEST => Ok(Message::SpaceRequest(bincode::deserialize(payload)?)),
         tags::SPACE_DATA => Ok(Message::SpaceData(bincode::deserialize(payload)?)),
         tags::SPACE_DATA_ACK => Ok(Message::SpaceDataAck(bincode::deserialize(payload)?)),
         tags::SPACE_REQUEST_ERROR => Ok(Message::SpaceRequestError(bincode::deserialize(payload)?)),
         tags::SYNC_CONSENT_GRANT => Ok(Message::SyncConsentGrant(bincode::deserialize(payload)?)),
         tags::SYNC_CONSENT_ACK => Ok(Message::SyncConsentAck(bincode::deserialize(payload)?)),
+        tags::LAYER_PERMIT => Ok(Message::LayerPermit(bincode::deserialize(payload)?)),
+        tags::LAYER_CONSENT_GRANT => Ok(Message::LayerConsentGrant(bincode::deserialize(payload)?)),
+        tags::LAYER_CONSENT_ACK => Ok(Message::LayerConsentAck(bincode::deserialize(payload)?)),
         tags::ERROR => Ok(Message::Error(bincode::deserialize(payload)?)),
-        _ => Err(bincode::Error::from(bincode::ErrorKind::Custom(
-            format!("Unknown message tag: 0x{:04X}", tag),
-        ))),
+        _ => Err(bincode::Error::from(bincode::ErrorKind::Custom(format!(
+            "Unknown message tag: 0x{:04X}",
+            tag
+        )))),
     }
 }
 
@@ -544,10 +621,7 @@ impl ConnectionString {
     }
 
     pub fn decode(encoded: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            encoded,
-        )?;
+        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)?;
         let json = String::from_utf8(bytes)?;
         let conn: Self = serde_json::from_str(&json)?;
         Ok(conn)
@@ -626,6 +700,7 @@ mod tests {
             data: vec![1, 2, 3],
             state_vector: vec![4, 5],
             ephemeral_public: [6u8; 32],
+            authority_permit: None,
         });
 
         let bytes = msg.to_bytes().unwrap();
@@ -658,7 +733,10 @@ mod tests {
         });
 
         let bytes = msg.to_bytes().unwrap();
-        assert_eq!(u16::from_be_bytes([bytes[0], bytes[1]]), tags::PAGE_ANNOUNCE);
+        assert_eq!(
+            u16::from_be_bytes([bytes[0], bytes[1]]),
+            tags::PAGE_ANNOUNCE
+        );
 
         let deserialized = Message::from_bytes(&bytes).unwrap();
         match deserialized {
@@ -674,7 +752,9 @@ mod tests {
     fn test_tagged_roundtrip_permit_update() {
         let msg = Message::PermitUpdate(PermitUpdateMsg {
             permit: "new-permit".to_string(),
-            scope: PermitScope::Page { page_id: "p1".to_string() },
+            scope: PermitScope::Page {
+                page_id: "p1".to_string(),
+            },
         });
 
         let bytes = msg.to_bytes().unwrap();
@@ -692,6 +772,88 @@ mod tests {
     }
 
     #[test]
+    fn test_tagged_roundtrip_layer_permit() {
+        let msg = Message::LayerPermit(LayerPermitMsg {
+            request_id: "req-1".to_string(),
+            page_id: "page-1".to_string(),
+            layer_name: "page-1/channels/did:key:alice/general/messages".to_string(),
+            permit: "layer-permit-token".to_string(),
+        });
+
+        let bytes = msg.to_bytes().unwrap();
+        assert_eq!(u16::from_be_bytes([bytes[0], bytes[1]]), tags::LAYER_PERMIT);
+
+        let deserialized = Message::from_bytes(&bytes).unwrap();
+        match deserialized {
+            Message::LayerPermit(m) => {
+                assert_eq!(m.page_id, "page-1");
+                assert_eq!(
+                    m.layer_name,
+                    "page-1/channels/did:key:alice/general/messages"
+                );
+                assert_eq!(m.permit, "layer-permit-token");
+            }
+            _ => panic!("Wrong message type"),
+        }
+    }
+
+    #[test]
+    fn test_tagged_roundtrip_layer_consent_grant() {
+        let msg = Message::LayerConsentGrant(LayerConsentGrantMsg {
+            request_id: "req-2".to_string(),
+            page_id: "page-1".to_string(),
+            layer_name: "page-1/channels/did:key:alice/general/messages".to_string(),
+            consent_permit: "consent-token".to_string(),
+        });
+
+        let bytes = msg.to_bytes().unwrap();
+        assert_eq!(
+            u16::from_be_bytes([bytes[0], bytes[1]]),
+            tags::LAYER_CONSENT_GRANT
+        );
+
+        let deserialized = Message::from_bytes(&bytes).unwrap();
+        match deserialized {
+            Message::LayerConsentGrant(m) => {
+                assert_eq!(m.page_id, "page-1");
+                assert_eq!(
+                    m.layer_name,
+                    "page-1/channels/did:key:alice/general/messages"
+                );
+                assert_eq!(m.consent_permit, "consent-token");
+            }
+            _ => panic!("Wrong message type"),
+        }
+    }
+
+    #[test]
+    fn test_tagged_roundtrip_layer_consent_ack() {
+        let msg = Message::LayerConsentAck(LayerConsentAckMsg {
+            request_id: "req-3".to_string(),
+            page_id: "page-1".to_string(),
+            layer_name: "page-1/channels/did:key:alice/general/messages".to_string(),
+        });
+
+        let bytes = msg.to_bytes().unwrap();
+        assert_eq!(
+            u16::from_be_bytes([bytes[0], bytes[1]]),
+            tags::LAYER_CONSENT_ACK
+        );
+
+        let deserialized = Message::from_bytes(&bytes).unwrap();
+        match deserialized {
+            Message::LayerConsentAck(m) => {
+                assert_eq!(m.page_id, "page-1");
+                assert_eq!(
+                    m.layer_name,
+                    "page-1/channels/did:key:alice/general/messages"
+                );
+            }
+            _ => panic!("Wrong message type"),
+        }
+    }
+
+    #[test]
     fn test_unknown_tag_returns_error() {
         let mut data = vec![0xFF, 0xFE]; // unknown tag 0xFFFE
         data.extend_from_slice(&bincode::serialize(&()).unwrap());
@@ -700,10 +862,22 @@ mod tests {
 
     #[test]
     fn test_layer_type_from_name() {
-        assert_eq!(LayerType::from_layer_name("page-1/app:Canvas"), LayerType::App);
-        assert_eq!(LayerType::from_layer_name("page-1/static:logo.png"), LayerType::Static);
-        assert_eq!(LayerType::from_layer_name("page-1/products"), LayerType::Data);
-        assert_eq!(LayerType::from_layer_name("page-1/messages"), LayerType::Data);
+        assert_eq!(
+            LayerType::from_layer_name("page-1/app:Canvas"),
+            LayerType::App
+        );
+        assert_eq!(
+            LayerType::from_layer_name("page-1/static:logo.png"),
+            LayerType::Static
+        );
+        assert_eq!(
+            LayerType::from_layer_name("page-1/products"),
+            LayerType::Data
+        );
+        assert_eq!(
+            LayerType::from_layer_name("page-1/messages"),
+            LayerType::Data
+        );
         assert_eq!(LayerType::from_layer_name("app:Canvas"), LayerType::App);
     }
 
@@ -743,9 +917,13 @@ mod tests {
                 timestamp: 0,
                 permit_for_peer: "p".to_string(),
             }),
-            Message::PermitGrant(PermitGrantMsg { permit_for_node: "p".to_string() }),
+            Message::PermitGrant(PermitGrantMsg {
+                permit_for_node: "p".to_string(),
+            }),
             Message::Ack,
-            Message::Rejected(RejectedMsg { reason: "r".to_string() }),
+            Message::Rejected(RejectedMsg {
+                reason: "r".to_string(),
+            }),
             Message::SyncOffer(SyncOfferMsg {
                 page_id: "p".to_string(),
                 layer_name: "l".to_string(),
@@ -753,6 +931,7 @@ mod tests {
                 data: vec![],
                 state_vector: vec![],
                 ephemeral_public: [0; 32],
+                authority_permit: None,
             }),
             Message::SyncAccept(SyncAcceptMsg {
                 page_id: "p".to_string(),
@@ -773,7 +952,11 @@ mod tests {
 
         let names: Vec<&str> = messages.iter().map(|m| m.name()).collect();
         let unique_names: std::collections::HashSet<&str> = names.iter().cloned().collect();
-        assert_eq!(names.len(), unique_names.len(), "Message names should be unique");
+        assert_eq!(
+            names.len(),
+            unique_names.len(),
+            "Message names should be unique"
+        );
     }
 
     // --- Property-Based Tests ---
@@ -826,6 +1009,7 @@ mod tests {
                 page_id, layer_name,
                 layer_type: LayerType::Data,
                 data, state_vector, ephemeral_public,
+                authority_permit: None,
             })
         }
     }

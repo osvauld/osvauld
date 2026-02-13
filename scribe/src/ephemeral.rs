@@ -62,6 +62,7 @@ pub fn route_remote_ephemeral(state: &mut ScribeState, from_did: &str, payload: 
 /// iterates subscribers, sends update. Returns count of successful sends.
 #[instrument(skip_all, fields(page_id = %state.page_id))]
 pub fn emit_to_page_subscribers(state: &ScribeState, update: PageUpdate) -> usize {
+    state.emit_page_update_capture(&update);
     let Ok(subs) = state.page_update_subscribers.read() else {
         warn!(page_id = %state.page_id, "Cannot emit to page subscribers - failed to acquire lock");
         return 0;

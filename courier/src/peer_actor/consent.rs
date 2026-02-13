@@ -35,6 +35,16 @@ pub(in crate::peer_actor) const DEFAULT_PAGE_CONSENT_TEMPLATE: &str = r#"{
   }
 }"#;
 
+/// Default layer consent template - viewer consents to receive a specific dynamic layer
+pub(in crate::peer_actor) const DEFAULT_LAYER_CONSENT_TEMPLATE: &str = r#"{
+  "consent_template": {
+    "token_type": "sync_layer_consent",
+    "operations": { "receive_layer_updates": "allow" },
+    "auth_capabilities": { "accept_sync": true },
+    "relationship": "sync_consent"
+  }
+}"#;
+
 impl<C: Connection> PeerActor<C> {
 
     /// Issue sync consent permits and send to node (User/Viewer mode)
@@ -409,5 +419,261 @@ impl<C: Connection> PeerActor<C> {
         );
 
         info!("Sync consent complete for space {}", space_id);
+    }
+
+    // --- Layer Permit + Consent ---
+
+    /// Send a LayerPermit to this peer (Node mode)
+    ///
+    /// **Context**: Coordinator received NewDynamicLayer, forwards to PeerActor
+    /// **We do**: Send LayerPermitMsg on the wire
+    #[instrument(skip(self, state, permit), fields(page_id = %page_id, layer = %layer_name))]
+    pub(in crate::peer_actor) async fn send_layer_permit(
+        &self,
+        page_id: &str,
+        layer_name: &str,
+        permit: &str,
+        state: &mut PeerActorState<C>,
+    ) {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let msg = Message::LayerPermit(LayerPermitMsg {
+            request_id,
+            page_id: page_id.to_string(),
+            layer_name: layer_name.to_string(),
+            permit: permit.to_string(),
+        });
+
+        self.send_message(&msg, state).await;
+        info!("Sent LayerPermit for page={} layer={}", page_id, layer_name);
+    }
+
+    /// Send a PermitUpdate to this peer (Node mode)
+    ///
+    /// **Context**: Page permit reissued with new app layers
+    /// **We do**: Send PermitUpdate message on the wire
+    #[instrument(skip(self, state, permit), fields(page_id = %page_id))]
+    pub(in crate::peer_actor) async fn send_page_permit_update(
+        &self,
+        page_id: &str,
+        permit: &str,
+        state: &mut PeerActorState<C>,
+    ) {
+        let msg = Message::PermitUpdate(PermitUpdateMsg {
+            permit: permit.to_string(),
+            scope: PermitScope::Page { page_id: page_id.to_string() },
+        });
+
+        self.send_message(&msg, state).await;
+        info!("Sent PermitUpdate for page={}", page_id);
+    }
+
+    /// Handle incoming LayerPermit from node (Viewer-side handler)
+    ///
+    /// **Context**: Node detected a new dynamic layer and issued a layer permit to us
+    /// **We store**: Layer permit alongside page permit in butler
+    /// **We do**: Auto-issue layer consent back to node
+    #[instrument(skip(self, state, permit), fields(page_id = %page_id, layer = %layer_name))]
+    pub(in crate::peer_actor) async fn on_layer_permit(
+        &self,
+        request_id: &str,
+        page_id: &str,
+        layer_name: &str,
+        permit: &str,
+        state: &mut PeerActorState<C>,
+    ) {
+        if require_user_mode(state.mode, "on_layer_permit").is_some() {
+            return;
+        }
+
+        let (node_did, _) = match require_auth(&state.state) {
+            Ok(info) => (info.0.to_string(), info.1.to_string()),
+            Err(_) => {
+                warn!("LayerPermit from unauthenticated peer: {}", self.node_id);
+                return;
+            }
+        };
+
+        info!(
+            "LayerPermit: page={} layer={} from node={}",
+            page_id, layer_name, node_did
+        );
+
+        // Get our DID for storage
+        let our_did = match state.butler.get_identity().await {
+            Ok(identity) => identity.did().to_string(),
+            Err(e) => {
+                error!("Failed to get our identity: {}", e);
+                return;
+            }
+        };
+
+        // Store layer permit in butler
+        if let Err(e) = state.butler.permits().store_layer_permit(
+            page_id,
+            &our_did,
+            layer_name,
+            permit,
+        ) {
+            error!("Failed to store layer permit: {}", e);
+            return;
+        }
+
+        info!("Stored layer permit for page={} layer={}", page_id, layer_name);
+
+        // Authorize this layer on local Scribe so observer can broadcast to the node
+        // The node is a subscriber on our (viewer's) local Scribe
+        if let Some(subscription) = state.page_subscriptions.get(page_id) {
+            let bare_name = layer_name.strip_prefix(&format!("{}/", page_id))
+                .unwrap_or(layer_name);
+            subscription.scribe.cast(butler::ScribeMessage::AuthorizeLayerSubscriber {
+                layer_name: bare_name.to_string(),
+                subscriber_did: node_did.clone(),
+            }).ok();
+            info!("Sent AuthorizeLayerSubscriber to local Scribe for layer={}", bare_name);
+        }
+
+        // Auto-issue layer consent back to node
+        self.issue_layer_consent(page_id, layer_name, permit, state).await;
+    }
+
+    /// Issue layer consent permit and send to node (Viewer mode)
+    ///
+    /// **Context**: Viewer received LayerPermit, now consents to sync for that layer
+    /// **We do**: Issue consent permit via gurkha, send LayerConsentGrant to node
+    /// **Node stores**: Layer consent to authorize future sync for this layer
+    #[instrument(skip(self, state, layer_permit_token), fields(page_id = %page_id, layer = %layer_name))]
+    pub(in crate::peer_actor) async fn issue_layer_consent(
+        &self,
+        page_id: &str,
+        layer_name: &str,
+        layer_permit_token: &str,
+        state: &mut PeerActorState<C>,
+    ) {
+        if require_user_mode(state.mode, "issue_layer_consent").is_some() {
+            return;
+        }
+
+        // Extract node's DID from the layer permit (iss field)
+        let node_pubkey = match parse_permit(layer_permit_token) {
+            Ok(permit) => permit.parsed().issuer().to_string(),
+            Err(e) => {
+                error!("Cannot issue layer consent: failed to parse permit: {}", e);
+                return;
+            }
+        };
+
+        let signing_key = match state.butler.signing_key().await {
+            Ok(key) => key,
+            Err(e) => {
+                error!("Failed to get signing key for layer consent: {}", e);
+                return;
+            }
+        };
+
+        let (consent_permit, _cid) = match gurkha::issue_sync_layer_consent(
+            &signing_key,
+            &node_pubkey,
+            page_id,
+            layer_name,
+            layer_permit_token,
+            DEFAULT_LAYER_CONSENT_TEMPLATE,
+        ).await {
+            Ok(result) => result,
+            Err(e) => {
+                error!("Failed to issue layer consent permit: {}", e);
+                return;
+            }
+        };
+
+        info!("Issued layer consent for page={} layer={}", page_id, layer_name);
+
+        // Send LayerConsentGrant to node
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let msg = Message::LayerConsentGrant(LayerConsentGrantMsg {
+            request_id,
+            page_id: page_id.to_string(),
+            layer_name: layer_name.to_string(),
+            consent_permit,
+        });
+
+        self.send_message(&msg, state).await;
+    }
+
+    /// Handle incoming LayerConsentGrant from viewer (Node-side handler)
+    ///
+    /// **Context**: Viewer consented to receive sync for a dynamic layer
+    /// **We store**: Layer consent in butler
+    /// **We send**: LayerConsentAck to confirm
+    #[instrument(skip(self, state, consent_permit), fields(page_id = %page_id, layer = %layer_name))]
+    pub(in crate::peer_actor) async fn on_layer_consent_grant(
+        &self,
+        request_id: &str,
+        page_id: &str,
+        layer_name: &str,
+        consent_permit: &str,
+        state: &mut PeerActorState<C>,
+    ) {
+        // Extract viewer's DID from consent permit (iss field)
+        let viewer_did = match parse_permit(consent_permit) {
+            Ok(permit) => permit.parsed().issuer().to_string(),
+            Err(e) => {
+                error!("Cannot process LayerConsentGrant: failed to parse permit: {}", e);
+                return;
+            }
+        };
+
+        info!(
+            "LayerConsentGrant: page={} layer={} from viewer={}",
+            page_id, layer_name, viewer_did
+        );
+
+        // Store layer consent in butler
+        if let Err(e) = state.butler.permits().store_viewer_layer_consent(
+            &viewer_did,
+            page_id,
+            layer_name,
+            consent_permit,
+        ) {
+            error!("Failed to store viewer layer consent: {}", e);
+            return;
+        }
+
+        info!("Stored viewer layer consent for page={} layer={} viewer={}", page_id, layer_name, viewer_did);
+
+        // Send acknowledgment
+        let msg = Message::LayerConsentAck(LayerConsentAckMsg {
+            request_id: request_id.to_string(),
+            page_id: page_id.to_string(),
+            layer_name: layer_name.to_string(),
+        });
+        self.send_message(&msg, state).await;
+    }
+
+    /// Handle incoming LayerConsentAck from node (Viewer-side handler)
+    ///
+    /// **Context**: Node acknowledged our layer consent
+    /// **We know**: Node can now sync this dynamic layer to us
+    #[instrument(skip(self, state), fields(page_id = %page_id, layer = %layer_name))]
+    pub(in crate::peer_actor) async fn on_layer_consent_ack(
+        &self,
+        request_id: &str,
+        page_id: &str,
+        layer_name: &str,
+        state: &mut PeerActorState<C>,
+    ) {
+        let (node_did, _) = match require_auth(&state.state) {
+            Ok(info) => (info.0.to_string(), info.1.to_string()),
+            Err(_) => {
+                warn!("LayerConsentAck from unauthenticated peer: {}", self.node_id);
+                return;
+            }
+        };
+
+        info!(
+            "LayerConsentAck: page={} layer={} from node={} request={}",
+            page_id, layer_name, node_did, request_id
+        );
+
+        info!("Layer consent complete for page={} layer={}", page_id, layer_name);
     }
 }

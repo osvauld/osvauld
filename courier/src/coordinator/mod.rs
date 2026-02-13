@@ -24,7 +24,7 @@ use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 use tracing::{debug, error, info, warn, instrument};
 use transport::{Connection, NodeId};
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::handle::CourierEvent;
 use crate::peer_actor::{PeerActor, PeerActorArgs, PeerMessage};
@@ -99,6 +99,25 @@ pub enum CoordinatorMessage<C: Connection> {
     /// Scribe requested sync with a user
     EnsureSync { user_did: String },
 
+    /// Distribute layer permits for a new dynamic layer (Node mode)
+    ///
+    /// **Context**: Scribe detected a new dynamic layer, permits already created
+    /// **We do**: Store permits in butler, send LayerPermitMsg to each recipient's PeerActor
+    DistributeLayerPermits {
+        page_id: String,
+        layer_name: String,
+        permits: Vec<(String, String)>,  // (recipient_did, layer_permit_token)
+    },
+
+    /// Distribute updated page permits to peers (Node mode)
+    ///
+    /// **Context**: New app installed → page permits reissued with new layers
+    /// **We do**: Store updated permits in butler, send PermitUpdate to each recipient's PeerActor
+    DistributePagePermitUpdates {
+        page_id: String,
+        permits: Vec<(String, String)>,  // (recipient_did, new_permit_token)
+    },
+
     /// Page opened - trigger subscription refresh for all authenticated peers
     ///
     /// **Context**: App opened a page, we need to ensure subscriptions are set up
@@ -141,6 +160,17 @@ impl<C: Connection> Coordinator<C> {
 
     /// Emit an event to the app layer via event_tx channel
     fn emit_event(state: &CoordinatorState<C>, event: CourierEvent) {
+        // Serialize to capture broadcast if active
+        if let Some(tx) = &state.capture_tx {
+            if let Ok(json) = serde_json::to_string(&serde_json::json!({
+                "type": "courier_event",
+                "ts": chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                "data": &event,
+            })) {
+                let _ = tx.send(json);
+            }
+        }
+
         if let Some(tx) = &state.event_tx {
             if let Err(e) = tx.try_send(event) {
                 warn!("Failed to emit event: {}", e);
@@ -181,6 +211,7 @@ impl<C: Connection> Actor for Coordinator<C> {
         Option<mpsc::Sender<ConnectRequest>>,
         Option<mpsc::Sender<CourierEvent>>,
         Option<mpsc::UnboundedSender<MessageTrace>>,
+        Option<broadcast::Sender<String>>,
     );
 
     #[instrument(skip_all)]
@@ -189,7 +220,7 @@ impl<C: Connection> Actor for Coordinator<C> {
         _myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        let (our_node_id, mode, butler, blob_store, connect_tx, event_tx, message_tx) = args;
+        let (our_node_id, mode, butler, blob_store, connect_tx, event_tx, message_tx, capture_tx) = args;
 
         info!("Coordinator started in {:?} mode (node_id={})", mode, our_node_id);
 
@@ -201,6 +232,7 @@ impl<C: Connection> Actor for Coordinator<C> {
             connect_tx,
             event_tx,
             message_tx,
+            capture_tx,
         ))
     }
 
@@ -290,6 +322,14 @@ impl<C: Connection> Actor for Coordinator<C> {
 
             CoordinatorMessage::EnsureSync { user_did } => {
                 self.on_ensure_sync(myself.clone(), user_did, state).await;
+            }
+
+            CoordinatorMessage::DistributeLayerPermits { page_id, layer_name, permits } => {
+                self.on_distribute_layer_permits(&page_id, &layer_name, &permits, state).await;
+            }
+
+            CoordinatorMessage::DistributePagePermitUpdates { page_id, permits } => {
+                self.on_distribute_page_permit_updates(&page_id, &permits, state).await;
             }
 
             CoordinatorMessage::PageOpened { page_id } => {
@@ -394,6 +434,7 @@ impl<C: Connection> Coordinator<C> {
             permit,
             message_tx: state.message_tx.clone(),
             our_node_id: state.our_node_id,
+            capture_tx: state.capture_tx.clone(),
         };
 
         match Actor::spawn_linked(None, peer_actor, args, myself.get_cell()).await {
@@ -556,6 +597,119 @@ impl<C: Connection> Coordinator<C> {
         state.authenticated_peers()
             .find(|(_, entry)| entry.auth.as_ref().map(|a| a.did.as_str()) == Some(user_did))
             .map(|(_, entry)| &entry.actor)
+    }
+
+    /// Distribute layer permits for a new dynamic layer (Node mode)
+    ///
+    /// **Context**: Scribe detected new dynamic layer, permits already created by layer_unit
+    /// **We do**: Store each permit in butler, send LayerPermitMsg to each recipient's PeerActor
+    #[instrument(skip_all, fields(page_id = %page_id, layer = %layer_name, permit_count = permits.len()))]
+    async fn on_distribute_layer_permits(
+        &self,
+        page_id: &str,
+        layer_name: &str,
+        permits: &[(String, String)],
+        state: &mut CoordinatorState<C>,
+    ) {
+        info!(
+            "Distributing {} layer permits for page={} layer={}",
+            permits.len(), page_id, layer_name
+        );
+
+        for (recipient_did, permit_token) in permits {
+            // Store layer permit in butler
+            if let Err(e) = state.butler.permits().store_layer_permit(
+                page_id,
+                recipient_did,
+                layer_name,
+                permit_token,
+            ) {
+                warn!(
+                    recipient = %recipient_did,
+                    error = %e,
+                    "Failed to store layer permit"
+                );
+                continue;
+            }
+
+            // Find PeerActor for this recipient and send
+            if let Some(actor) = state.get_peer_actor_for_did(recipient_did) {
+                if let Err(e) = actor.cast(PeerMessage::SendLayerPermit {
+                    page_id: page_id.to_string(),
+                    layer_name: layer_name.to_string(),
+                    permit: permit_token.clone(),
+                }) {
+                    warn!(
+                        recipient = %recipient_did,
+                        error = %e,
+                        "Failed to send LayerPermit to PeerActor"
+                    );
+                } else {
+                    info!(recipient = %recipient_did, "Sent LayerPermit to PeerActor");
+                }
+            } else {
+                // Peer not connected — permit stored, will be sent on reconnect
+                debug!(
+                    recipient = %recipient_did,
+                    "Peer not connected, layer permit stored for reconnect"
+                );
+            }
+        }
+    }
+
+    /// Distribute updated page permits after reissue (Node mode)
+    ///
+    /// **Context**: New app installed → page permits reissued with new layers
+    /// **We do**: Store updated permits in butler, send PermitUpdate to each recipient
+    #[instrument(skip_all, fields(page_id = %page_id, permit_count = permits.len()))]
+    async fn on_distribute_page_permit_updates(
+        &self,
+        page_id: &str,
+        permits: &[(String, String)],
+        state: &mut CoordinatorState<C>,
+    ) {
+        info!(
+            "Distributing {} page permit updates for page={}",
+            permits.len(), page_id
+        );
+
+        for (recipient_did, permit_token) in permits {
+            // Store updated permit in butler
+            if let Err(e) = state.butler.permits().store_page_permit(
+                page_id,
+                recipient_did,
+                permit_token,
+            ) {
+                warn!(
+                    recipient = %recipient_did,
+                    error = %e,
+                    "Failed to store updated page permit"
+                );
+                continue;
+            }
+
+            // Find PeerActor for this recipient and send
+            if let Some(actor) = state.get_peer_actor_for_did(recipient_did) {
+                if let Err(e) = actor.cast(PeerMessage::SendPermitUpdate {
+                    page_id: page_id.to_string(),
+                    permit: permit_token.clone(),
+                }) {
+                    warn!(
+                        recipient = %recipient_did,
+                        error = %e,
+                        "Failed to send PermitUpdate to PeerActor"
+                    );
+                } else {
+                    info!(recipient = %recipient_did, "Sent PermitUpdate to PeerActor");
+                }
+            } else {
+                // Peer not connected — permit stored, will be picked up on reconnect
+                debug!(
+                    recipient = %recipient_did,
+                    "Peer not connected, updated page permit stored for reconnect"
+                );
+            }
+        }
     }
 
     /// Handle page opened - refresh subscriptions for all authenticated peers

@@ -3,11 +3,11 @@
 //! Key: {page_id}/{user_did}/{device_id}
 //! Value: HashMap<layer_name, state_vector_bytes>
 
-use std::collections::HashMap;
-use redb::{ReadableTable, ReadableDatabase};
-use crate::error::{ButlerError, Result};
-use tracing::instrument;
 use super::{RedbStore, VECTORS};
+use crate::error::{ButlerError, Result};
+use redb::{ReadableDatabase, ReadableTable};
+use std::collections::HashMap;
+use tracing::instrument;
 
 impl RedbStore {
     /// Get peer vectors for a specific peer on a page.
@@ -28,9 +28,8 @@ impl RedbStore {
         match table.get(key.as_str())? {
             Some(guard) => {
                 let bytes = guard.value();
-                let vectors: HashMap<String, Vec<u8>> =
-                    bincode::deserialize(bytes)
-                        .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+                let vectors: HashMap<String, Vec<u8>> = bincode::deserialize(bytes)
+                    .map_err(|e| ButlerError::Serialization(e.to_string()))?;
                 Ok(Some(vectors))
             }
             None => Ok(None),
@@ -50,8 +49,8 @@ impl RedbStore {
         vectors: &HashMap<String, Vec<u8>>,
     ) -> Result<()> {
         let key = format!("{}/{}/{}", page_id, user_did, device_id);
-        let value = bincode::serialize(vectors)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(vectors).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {

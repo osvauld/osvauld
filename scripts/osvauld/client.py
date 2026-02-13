@@ -515,3 +515,27 @@ class ControlClient:
             params["level"] = level
         result = self.send("logs", params)
         return result.get("logs", []) if isinstance(result, dict) else []
+
+    # ============================================================
+    # Capture commands
+    # ============================================================
+
+    def capture_start(self, file_path: str, include_logs: bool = False) -> Dict:
+        """Start capturing events to a JSONL file.
+
+        Args:
+            file_path: Path to output JSONL file
+            include_logs: If True, also capture tracing log events
+
+        Returns:
+            Dict with status and file_path
+        """
+        return self.send("capture_start", {"file_path": file_path, "include_logs": include_logs})
+
+    def capture_end(self) -> Dict:
+        """Stop capturing events.
+
+        Returns:
+            Dict with status
+        """
+        return self.send("capture_end")

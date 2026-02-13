@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! Courier - P2P Protocol Layer
 //!
 //! This crate owns all protocol message types and handles peer connections.
@@ -58,6 +59,7 @@ pub use message::{
     GetShareableLinkRequestMsg, GetShareableLinkResponseMsg,
     AssetPrepareMsg, AssetReadyMsg, AssetAckMsg,
     SyncConsentGrantMsg, SyncConsentAckMsg,
+    LayerPermitMsg, LayerConsentGrantMsg, LayerConsentAckMsg,
     ErrorMsg,
 };
 pub use state::PeerState;

@@ -1,10 +1,10 @@
 //! Sovereign Node and Owner Info table operations
 
-use redb::{ReadableTable, ReadableDatabase};
+use super::{RedbStore, OWNER_INFO, SOVEREIGN_NODES};
 use crate::error::{ButlerError, Result};
-use crate::models::{SovereignNode, OwnerInfo};
+use crate::models::{OwnerInfo, SovereignNode};
+use redb::{ReadableDatabase, ReadableTable};
 use tracing::instrument;
-use super::{RedbStore, SOVEREIGN_NODES, OWNER_INFO};
 
 impl RedbStore {
     // Sovereign Node Operations (external nodes we connect to)
@@ -12,8 +12,8 @@ impl RedbStore {
 
     #[instrument(skip_all)]
     pub fn put_sovereign_node(&self, node: &SovereignNode) -> Result<()> {
-        let value = bincode::serialize(node)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(node).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {
@@ -129,7 +129,11 @@ impl RedbStore {
     /// **Context**: After setup_test_dbs, stored nodes may have invalid relay URLs.
     /// This updates the relay URL with the real one from running kunki.
     #[instrument(skip_all)]
-    pub fn update_sovereign_node_relay(&self, node_id: &str, relay_url: Option<String>) -> Result<bool> {
+    pub fn update_sovereign_node_relay(
+        &self,
+        node_id: &str,
+        relay_url: Option<String>,
+    ) -> Result<bool> {
         if let Some(mut node) = self.get_sovereign_node(node_id)? {
             node.relay_url = relay_url;
             self.put_sovereign_node(&node)?;
@@ -162,8 +166,8 @@ impl RedbStore {
     /// Store owner info (only one owner per node)
     #[instrument(skip_all)]
     pub fn set_owner(&self, owner: &OwnerInfo) -> Result<()> {
-        let value = bincode::serialize(owner)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(owner).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {

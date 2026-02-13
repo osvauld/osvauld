@@ -41,7 +41,8 @@ pub fn handle_sync_request(
     layer_name: &str,
     their_vector: &[u8],
 ) -> Result<Vec<u8>> {
-    let layer = state.layers.get(layer_name)
+    let layer = state.units.get(layer_name)
+        .map(|u| u.layer())
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
 
     layer.export_updates(their_vector)
@@ -54,7 +55,8 @@ pub fn handle_export_snapshot(
     state: &ScribeState,
     layer_name: &str,
 ) -> Result<Vec<u8>> {
-    let layer = state.layers.get(layer_name)
+    let layer = state.units.get(layer_name)
+        .map(|u| u.layer())
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
 
     Ok(layer.export_snapshot())
@@ -66,7 +68,8 @@ pub fn handle_get_state_vector(
     state: &ScribeState,
     layer_name: &str,
 ) -> Result<Vec<u8>> {
-    let layer = state.layers.get(layer_name)
+    let layer = state.units.get(layer_name)
+        .map(|u| u.layer())
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
 
     Ok(layer.version_vector())
@@ -79,7 +82,8 @@ pub fn handle_get_updates_since(
     layer_name: &str,
     their_vector: &[u8],
 ) -> Result<Vec<u8>> {
-    let layer = state.layers.get(layer_name)
+    let layer = state.units.get(layer_name)
+        .map(|u| u.layer())
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
 
     layer.export_updates(their_vector)
@@ -89,17 +93,18 @@ pub fn handle_get_updates_since(
 /// Handle flush - save only dirty layers
 #[instrument(skip(state), fields(page_id = %state.page_id))]
 pub async fn handle_flush(state: &mut ScribeState) {
-    if state.dirty_layers.is_empty() {
+    let has_dirty = state.units.values().any(|u| u.is_dirty());
+    if !has_dirty {
         return;
     }
 
-    debug!(page_id = %state.page_id, dirty_count = state.dirty_layers.len(), "Flushing layers");
+    let dirty_count = state.units.values().filter(|u| u.is_dirty()).count();
+    debug!(page_id = %state.page_id, dirty_count = dirty_count, "Flushing layers");
 
-    for layer_name in state.dirty_layers.drain() {
-        if let Some(layer) = state.layers.get(&layer_name) {
-            let snapshot = layer.export_snapshot();
-            if let Err(e) = state.layer_storage.save_layer(&layer_name, &snapshot) {
-                tracing::error!(layer = %layer_name, error = %e, "Failed to save layer");
+    for (name, unit) in state.units.iter_mut() {
+        if let Some(snapshot) = unit.take_dirty_snapshot() {
+            if let Err(e) = state.layer_storage.save_layer(name, &snapshot) {
+                tracing::error!(layer = %name, error = %e, "Failed to save layer");
             }
         }
     }

@@ -68,13 +68,6 @@ layer("sim_state", "map", {
 
 -- Group Chat layers
 
--- Channel metadata (name, topic, created_at)
-layer("channels_meta", "map", {
-    owner = {"read", "write", "sync"},
-    collaborator = {"read", "write", "sync"},
-    node = {"read", "write", "sync"}
-})
-
 -- Dynamic per-channel messages — LoroMap keyed by message ID
 -- Everyone can read/write/sync
 layer("channels/{channel_id}/messages", "map", {

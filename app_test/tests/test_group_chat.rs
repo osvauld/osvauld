@@ -12,9 +12,27 @@ fn chat_app_dir() -> PathBuf {
         .join("../sample_apps/osvauld-demos/group-chat")
 }
 
-fn chat_lua_code() -> String {
-    let app_dir = chat_app_dir();
-    std::fs::read_to_string(app_dir.join("app.lua")).unwrap()
+/// Helper: get message count from the channels/general/messages map layer
+fn message_count(runner: &AppTestRunner) -> usize {
+    let data = runner.layer_data("channels/general/messages");
+    match data {
+        Some(obj) => obj.as_object().map(|m| m.len()).unwrap_or(0),
+        None => 0,
+    }
+}
+
+/// Helper: get all messages as a sorted-by-timestamp vec
+fn get_messages(runner: &AppTestRunner) -> Vec<serde_json::Value> {
+    let data = runner.layer_data("channels/general/messages");
+    match data {
+        Some(obj) => {
+            let map = obj.as_object().unwrap();
+            let mut msgs: Vec<serde_json::Value> = map.values().cloned().collect();
+            msgs.sort_by_key(|m| m["timestamp"].as_i64().unwrap_or(0));
+            msgs
+        }
+        None => vec![],
+    }
 }
 
 // -- Single-peer tests --
@@ -38,11 +56,7 @@ fn test_chat_send_message() {
     runner.tick();
 
     // Check the message landed in the scribe layer
-    let page_id = runner.page_id().to_string();
-    let layer = format!("{}/messages", page_id);
-    let data = runner.layer_data(&layer).expect("messages layer should exist");
-    let messages = data.as_array().unwrap();
-
+    let messages = get_messages(&runner);
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["text"], "Hello world!");
     assert_eq!(messages[0]["sender_did"], "did:key:alice");
@@ -72,10 +86,7 @@ fn test_chat_empty_message_rejected() {
         .unwrap();
     runner.tick();
 
-    let page_id = runner.page_id().to_string();
-    let layer = format!("{}/messages", page_id);
-    let data = runner.layer_data(&layer).expect("messages layer should exist");
-    assert_eq!(data.as_array().unwrap().len(), 0, "Empty message should be rejected");
+    assert_eq!(message_count(&runner), 0, "Empty message should be rejected");
 
     // Nil
     runner
@@ -83,8 +94,7 @@ fn test_chat_empty_message_rejected() {
         .unwrap();
     runner.tick();
 
-    let data = runner.layer_data(&layer).unwrap();
-    assert_eq!(data.as_array().unwrap().len(), 0, "Nil message should be rejected");
+    assert_eq!(message_count(&runner), 0, "Nil message should be rejected");
 }
 
 #[test]
@@ -106,14 +116,14 @@ fn test_chat_multiple_messages() {
         runner.tick();
     }
 
-    let page_id = runner.page_id().to_string();
-    let layer = format!("{}/messages", page_id);
-    let data = runner.layer_data(&layer).unwrap();
-    let messages = data.as_array().unwrap();
+    assert_eq!(message_count(&runner), 5);
 
-    assert_eq!(messages.len(), 5);
-    assert_eq!(messages[0]["text"], "Message 1");
-    assert_eq!(messages[4]["text"], "Message 5");
+    // Collect all message texts (order may vary since os.time() is same-second)
+    let messages = get_messages(&runner);
+    let texts: Vec<&str> = messages.iter().map(|m| m["text"].as_str().unwrap()).collect();
+    for i in 1..=5 {
+        assert!(texts.contains(&format!("Message {}", i).as_str()), "Missing Message {}", i);
+    }
 }
 
 #[test]
@@ -129,14 +139,14 @@ fn test_chat_on_init_ui_state() {
     runner.call_on_init();
 
     // on_init sets these UI properties
-    let show_mentions = runner.eval_sync("return ui:get('show_mentions')").unwrap();
-    assert_eq!(show_mentions, serde_json::json!(false));
-
     let auto_scroll = runner.eval_sync("return ui:get('auto_scroll')").unwrap();
     assert_eq!(auto_scroll, serde_json::json!(true));
 
-    let show_online = runner.eval_sync("return ui:get('show_online_panel')").unwrap();
-    assert_eq!(show_online, serde_json::json!(false));
+    let show_emoji = runner.eval_sync("return ui:get('show_emoji_picker')").unwrap();
+    assert_eq!(show_emoji, serde_json::json!(false));
+
+    let thread_open = runner.eval_sync("return ui:get('thread_open')").unwrap();
+    assert_eq!(thread_open, serde_json::json!(false));
 }
 
 #[test]
@@ -158,11 +168,7 @@ fn test_chat_on_submit() {
         .unwrap();
     runner.tick();
 
-    let page_id = runner.page_id().to_string();
-    let layer = format!("{}/messages", page_id);
-    let data = runner.layer_data(&layer).unwrap();
-    let messages = data.as_array().unwrap();
-
+    let messages = get_messages(&runner);
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["text"], "typed message");
 
@@ -190,25 +196,23 @@ fn test_chat_reply_to_message() {
     runner.tick();
 
     // Get the message ID
-    let page_id = runner.page_id().to_string();
-    let layer = format!("{}/messages", page_id);
-    let data = runner.layer_data(&layer).unwrap();
-    let msg_id = data.as_array().unwrap()[0]["id"].as_str().unwrap().to_string();
+    let messages = get_messages(&runner);
+    let msg_id = messages[0]["id"].as_str().unwrap().to_string();
 
-    // Set reply state, then send reply
+    // Set reply state + draft text, then call on_submit (like pressing Enter)
     runner.eval_sync(&format!("ui:set('replying_to_id', '{}')", msg_id)).unwrap();
     runner.eval_sync("ui:set('replying_to_text', 'Original message')").unwrap();
+    runner.eval_sync("ui:set('draft_text', 'This is a reply')").unwrap();
     runner
-        .fire_callback("send_message", vec![serde_json::json!("This is a reply")])
+        .fire_callback("on_submit", vec![])
         .unwrap();
     runner.tick();
 
-    let data = runner.layer_data(&layer).unwrap();
-    let messages = data.as_array().unwrap();
-    assert_eq!(messages.len(), 2);
+    assert_eq!(message_count(&runner), 2);
 
-    let reply = &messages[1];
-    assert_eq!(reply["text"], "This is a reply");
+    // Find the reply message (not the original)
+    let messages = get_messages(&runner);
+    let reply = messages.iter().find(|m| m["text"] == "This is a reply").unwrap();
     assert_eq!(reply["reply_to"], msg_id);
     assert_eq!(reply["reply_preview"], "Original message");
 }
@@ -217,11 +221,8 @@ fn test_chat_reply_to_message() {
 
 #[test]
 fn test_chat_multi_peer() {
-    let lua_code = chat_lua_code();
-
-    let mut multi = MultiPeerRunner::from_code(
-        &lua_code,
-        "Group Chat",
+    let mut multi = MultiPeerRunner::from_dir(
+        &chat_app_dir(),
         "shared-page",
         &[
             PeerRole::new("did:key:alice", "Alice", "owner"),
@@ -240,8 +241,7 @@ fn test_chat_multi_peer() {
     multi.tick_all();
 
     // Bob can see Alice's message (shared MockScribeState)
-    let data = multi.peer(1).layer_data("shared-page/messages").unwrap();
-    let messages = data.as_array().unwrap();
+    let messages = get_messages(multi.peer(1));
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["text"], "Hello from Alice");
     assert_eq!(messages[0]["sender_name"], "Alice");
@@ -254,13 +254,13 @@ fn test_chat_multi_peer() {
     multi.tick_all();
 
     // Both see 2 messages
-    let data = multi.peer(0).layer_data("shared-page/messages").unwrap();
-    assert_eq!(data.as_array().unwrap().len(), 2);
+    assert_eq!(message_count(multi.peer(0)), 2);
+    assert_eq!(message_count(multi.peer(1)), 2);
 
-    let data = multi.peer(1).layer_data("shared-page/messages").unwrap();
-    let messages = data.as_array().unwrap();
-    assert_eq!(messages.len(), 2);
-    assert_eq!(messages[1]["sender_name"], "Bob");
+    // Verify Bob's message exists
+    let messages = get_messages(multi.peer(1));
+    let bob_msg = messages.iter().find(|m| m["sender_name"] == "Bob").unwrap();
+    assert_eq!(bob_msg["text"], "Hi Alice!");
 }
 
 #[test]

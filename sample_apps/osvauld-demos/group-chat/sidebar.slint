@@ -14,7 +14,21 @@ export struct Channel {
 export struct OnlineUser {
     did: string,
     name: string,
+    full_did: string,
     is_online: bool,
+}
+
+export struct DirectMessage {
+    id: string,
+    name: string,
+    is_active: bool,
+    is_group: bool,
+}
+
+export struct MemberPickerItem {
+    did: string,
+    name: string,
+    is_selected: bool,
 }
 
 // Single channel row
@@ -89,11 +103,14 @@ component ChannelItem inherits Rectangle {
     }
 }
 
-// Single user row
+// Single user row with DM action
 component UserItem inherits Rectangle {
     in property<OnlineUser> user;
+    callback dm_clicked();
 
     height: 26px;
+
+    user-touch := TouchArea {}
 
     HorizontalLayout {
         padding-left: 14px;
@@ -117,6 +134,66 @@ component UserItem inherits Rectangle {
             color: user.is_online ? Theme.text-primary : Theme.text-secondary;
             vertical-alignment: center;
             overflow: elide;
+            horizontal-stretch: 1;
+        }
+
+        // Message icon (visible on hover)
+        if user-touch.has-hover: Rectangle {
+            width: 18px;
+            height: 18px;
+            background: dm-btn-touch.has-hover ? Theme.bg-active : Theme.bg-hover;
+            border-radius: 4px;
+            y: (parent.height - self.height) / 2;
+
+            Text {
+                text: "✉";
+                font-size: 10px;
+                color: Theme.text-secondary;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            dm-btn-touch := TouchArea {
+                clicked => { root.dm_clicked(); }
+            }
+        }
+    }
+}
+
+// Single DM row
+component DmItem inherits Rectangle {
+    in property<DirectMessage> dm;
+    callback clicked();
+
+    height: 30px;
+    background: dm.is_active ? Theme.bg-active : (touch.has-hover ? Theme.bg-hover : transparent);
+    border-radius: 4px;
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+
+        // Person icon (1:1) or group icon (multi)
+        Text {
+            text: dm.is_group ? "G" : "@";
+            font-size: 12px;
+            color: dm.is_active ? Theme.text-bright : Theme.text-secondary;
+            vertical-alignment: center;
+            width: 14px;
+        }
+
+        Text {
+            text: dm.name;
+            font-size: 14px;
+            color: dm.is_active ? Theme.text-bright : Theme.text-secondary;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
         }
     }
 }
@@ -124,15 +201,21 @@ component UserItem inherits Rectangle {
 // Full sidebar component
 export component Sidebar inherits Rectangle {
     in property<[Channel]> channels;
+    in property<[DirectMessage]> dms: [];
     in property<[OnlineUser]> online_users;
     in property<string> workspace_name: "osvauld";
     in property<string> my_name: "";
     in property<bool> my_online: true;
     in property<bool> channels_collapsed: false;
+    in property<bool> dms_collapsed: false;
     in property<bool> online_collapsed: false;
     callback channel_clicked(string);
     callback create_channel_clicked();
+    callback dm_clicked(string);
+    callback create_private_channel_clicked();
+    callback start_dm_clicked(/* did */ string, /* name */ string);
     callback toggle_channels_collapsed();
+    callback toggle_dms_collapsed();
     callback toggle_online_collapsed();
 
     width: 220px;
@@ -250,7 +333,79 @@ export component Sidebar inherits Rectangle {
                     }
 
                     // Spacer
-                    Rectangle { height: 16px; }
+                    Rectangle { height: 12px; }
+
+                    // Direct Messages section header
+                    Rectangle {
+                        height: 28px;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 28px;
+
+                                HorizontalLayout {
+                                    spacing: 4px;
+
+                                    Text {
+                                        text: root.dms_collapsed ? "▸" : "▾";
+                                        font-size: 10px;
+                                        color: Theme.text-secondary;
+                                        vertical-alignment: center;
+                                        width: 12px;
+                                    }
+
+                                    Text {
+                                        text: "Direct Messages";
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: Theme.text-secondary;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                dms-header-touch := TouchArea {
+                                    clicked => { root.toggle_dms_collapsed(); }
+                                }
+                            }
+
+                            // Add private channel button
+                            Rectangle {
+                                width: 20px;
+                                height: 20px;
+                                background: add-dm-touch.has-hover ? Theme.bg-hover : transparent;
+                                border-radius: 4px;
+
+                                Text {
+                                    text: "+";
+                                    font-size: 14px;
+                                    color: Theme.text-secondary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                add-dm-touch := TouchArea {
+                                    clicked => { root.create_private_channel_clicked(); }
+                                }
+                            }
+                        }
+                    }
+
+                    // DM list (hidden when collapsed)
+                    if !root.dms_collapsed: VerticalLayout {
+                        spacing: 2px;
+
+                        for dm in root.dms: DmItem {
+                            dm: dm;
+                            clicked => { root.dm_clicked(dm.id); }
+                        }
+                    }
+
+                    // Spacer
+                    Rectangle { height: 12px; }
 
                     // Online users section header
                     Rectangle {
@@ -297,6 +452,7 @@ export component Sidebar inherits Rectangle {
 
                         for user in root.online_users: UserItem {
                             user: user;
+                            dm_clicked => { root.start_dm_clicked(user.full_did, user.name); }
                         }
                     }
                 }

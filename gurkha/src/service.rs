@@ -393,6 +393,160 @@ impl From<crate::decision::DelegationDecision> for crate::decision::TokenDecisio
     }
 }
 
+/// Re-issue a permit with additional layers merged in
+///
+/// **Context**: Used for dynamic layer grants (channels, DMs, orders).
+/// Parses the existing permit, merges new layers into its layer map,
+/// and re-signs with the provided key.
+///
+/// **Preserves**: All existing facts, layers, operations, issue_on templates.
+/// **Adds**: New layers from `new_layers` parameter.
+///
+/// # Arguments
+/// * `signing_key_bytes` - 32-byte Ed25519 secret key (node's key)
+/// * `existing_permit` - Current permit token string
+/// * `audience` - Audience DID for the new permit
+/// * `new_layers` - Layers to add to the permit
+///
+/// # Returns
+/// * `Ok((token, cid))` - Re-issued permit with merged layers
+#[instrument(skip(signing_key_bytes, existing_permit, new_layers))]
+pub async fn reissue_permit_with_layers(
+    signing_key_bytes: &[u8; 32],
+    existing_permit: &str,
+    audience: &str,
+    new_layers: std::collections::HashMap<String, crate::parser::LayerConfig>,
+) -> ServiceResult<(String, String)> {
+    trace!("Re-issuing permit with {} new layers", new_layers.len());
+
+    let parsed = Permit::from_token(existing_permit)?;
+
+    // Start from existing facts
+    let mut facts = parsed.facts().clone();
+
+    // Merge new layers into existing layers
+    let mut layers_map = if let Some(layers_val) = facts.remove("layers") {
+        layers_val.as_object().cloned().unwrap_or_default()
+    } else {
+        serde_json::Map::new()
+    };
+
+    for (name, config) in &new_layers {
+        let mut layer_obj = serde_json::Map::new();
+        layer_obj.insert("sync".to_string(), serde_json::json!(config.sync));
+        layer_obj.insert("write".to_string(), serde_json::json!(config.write));
+        if let Some(ref t) = config.layer_type {
+            layer_obj.insert("type".to_string(), serde_json::json!(t));
+        }
+        layers_map.insert(name.clone(), serde_json::Value::Object(layer_obj));
+    }
+    facts.insert("layers".to_string(), serde_json::Value::Object(layers_map));
+
+    // Build new token with merged facts
+    let decision = crate::decision::TokenDecision {
+        audience: audience.to_string(),
+        capabilities: Vec::new(),
+        facts,
+        expiry: None,
+        proofs: parsed.proof_chain().to_vec(),
+        proof_tokens: std::collections::HashMap::new(),
+    };
+
+    let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
+
+    info!("Permit re-issued with {} new layers: cid={}", new_layers.len(), cid);
+    Ok((token, cid))
+}
+
+/// Issue a layer authority permit for a dynamic layer.
+///
+/// **Context**: Holder of a page permit issues authority intent for one dynamic layer.
+/// Used for explicit/role targeting via `authorized_peers` facts.
+///
+/// **Issued by**: Page permit holder (owner/viewer/collaborator)
+/// **Audience**: Typically node DID
+/// **Proof**: Delegator page permit (establishes delegation chain)
+///
+/// # Arguments
+/// * `signing_key_bytes` - Issuer's 32-byte Ed25519 secret key
+/// * `delegator_permit` - Issuer's page permit carrying `issue_on.layer_authority`
+/// * `audience` - Recipient DID
+/// * `layer_name` - Full dynamic layer name
+/// * `config` - Layer permissions for this authority
+/// * `authorized_peers` - None => role-based, Some(vec) => explicit recipients
+/// * `version` - Monotonic authority version
+#[instrument(skip(signing_key_bytes, delegator_permit, config, authorized_peers), fields(layer_name = %layer_name, token_type = "layer_authority"))]
+pub async fn issue_layer_authority_permit(
+    signing_key_bytes: &[u8; 32],
+    delegator_permit: &str,
+    audience: &str,
+    layer_name: &str,
+    config: crate::parser::LayerConfig,
+    authorized_peers: Option<Vec<String>>,
+    version: u64,
+) -> ServiceResult<(String, String)> {
+    trace!("Issuing layer authority permit");
+
+    let parsed = Permit::from_token(delegator_permit)?;
+    let page_id = parsed
+        .get_fact("page_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ServiceError::InvalidPermit("Missing page_id in token facts".to_string()))?
+        .to_string();
+
+    let template = decision::extract_issue_template(delegator_permit, "layer_authority")?;
+    let delegation_decision = decision::decide_delegation(&template, &page_id, "page", audience)?;
+
+    let mut facts = delegation_decision.facts;
+
+    let mut layer_obj = serde_json::Map::new();
+    layer_obj.insert("sync".to_string(), serde_json::json!(config.sync));
+    layer_obj.insert("write".to_string(), serde_json::json!(config.write));
+    if let Some(ref t) = config.layer_type {
+        layer_obj.insert("type".to_string(), serde_json::json!(t));
+    }
+
+    let mut layers = serde_json::Map::new();
+    layers.insert(layer_name.to_string(), serde_json::Value::Object(layer_obj));
+    facts.insert("layers".to_string(), serde_json::Value::Object(layers));
+
+    if let Some(peers) = authorized_peers {
+        let authorized_value = serde_json::Value::Array(
+            peers
+                .into_iter()
+                .map(serde_json::Value::String)
+                .collect(),
+        );
+        let normalized = crate::parser::parse_authorized_peers_fact(Some(&authorized_value))?
+            .unwrap_or_default();
+        let normalized_value = serde_json::Value::Array(
+            normalized
+                .into_iter()
+                .map(serde_json::Value::String)
+                .collect(),
+        );
+        facts.insert("authorized_peers".to_string(), normalized_value);
+    }
+    facts.insert("version".to_string(), serde_json::json!(version));
+
+    let proof_cid = crate::crypto::get_permit_cid(delegator_permit)?;
+    let mut proof_tokens = std::collections::HashMap::new();
+    proof_tokens.insert(proof_cid.clone(), delegator_permit.to_string());
+
+    let decision = crate::decision::TokenDecision {
+        audience: audience.to_string(),
+        capabilities: Vec::new(),
+        facts,
+        expiry: None,
+        proofs: vec![proof_cid],
+        proof_tokens,
+    };
+
+    let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
+    info!("Layer authority permit issued: layer={}, cid={}", layer_name, cid);
+    Ok((token, cid))
+}
+
 /// Issue a space sync consent permit
 ///
 /// **Context**: Viewer issues this permit back to the node after receiving SpaceSync.
@@ -438,6 +592,75 @@ pub async fn issue_sync_space_consent(
     Ok((token, cid))
 }
 
+/// Issue a layer permit granting access to a single dynamic layer
+///
+/// **Context**: Node detected a new dynamic layer and issues permits to eligible peers.
+/// Contains just one layer in facts, proof chain references node's page permit.
+///
+/// # Arguments
+/// * `signing_key_bytes` - Node's 32-byte Ed25519 secret key
+/// * `node_permit` - Node's page permit token (used as proof)
+/// * `audience` - Recipient DID
+/// * `page_id` - Page identifier
+/// * `layer_name` - Fully resolved layer path (e.g., "page1/channels/did:key:alice/general/messages")
+/// * `config` - Layer permissions (sync, write)
+///
+/// # Returns
+/// * `Ok((token, cid))` - The layer permit token and its CID
+#[instrument(skip(signing_key_bytes, node_permit, config), fields(page_id = %page_id, layer_name = %layer_name, token_type = "layer_permit"))]
+pub async fn issue_layer_permit(
+    signing_key_bytes: &[u8; 32],
+    node_permit: &str,
+    audience: &str,
+    page_id: &str,
+    layer_name: &str,
+    config: crate::parser::LayerConfig,
+    intent_cid: Option<&str>,
+) -> ServiceResult<(String, String)> {
+    trace!("Issuing layer permit for dynamic layer");
+
+    // Build facts with exactly one layer
+    let mut facts = serde_json::Map::new();
+    facts.insert("token_type".to_string(), serde_json::json!("layer_permit"));
+    facts.insert("page_id".to_string(), serde_json::json!(page_id));
+    facts.insert("relationship".to_string(), serde_json::json!("layer_permit"));
+
+    // Single layer entry
+    let mut layer_obj = serde_json::Map::new();
+    layer_obj.insert("sync".to_string(), serde_json::json!(config.sync));
+    layer_obj.insert("write".to_string(), serde_json::json!(config.write));
+    if let Some(ref t) = config.layer_type {
+        layer_obj.insert("type".to_string(), serde_json::json!(t));
+    }
+
+    let mut layers = serde_json::Map::new();
+    layers.insert(layer_name.to_string(), serde_json::Value::Object(layer_obj));
+    facts.insert("layers".to_string(), serde_json::Value::Object(layers));
+
+    if let Some(cid) = intent_cid {
+        facts.insert("intent_cid".to_string(), serde_json::json!(cid));
+    }
+
+    // Proof chain references node's page permit
+    let proof_cid = crate::crypto::get_permit_cid(node_permit)?;
+    let mut proof_tokens = std::collections::HashMap::new();
+    proof_tokens.insert(proof_cid.clone(), node_permit.to_string());
+
+    let decision = crate::decision::TokenDecision {
+        audience: audience.to_string(),
+        capabilities: Vec::new(),
+        facts,
+        expiry: None,
+        proofs: vec![proof_cid],
+        proof_tokens,
+    };
+
+    let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
+
+    info!("Layer permit issued: layer={}, cid={}", layer_name, cid);
+    Ok((token, cid))
+}
+
 /// Issue a page sync consent permit
 ///
 /// **Context**: Viewer issues this permit back to the node after receiving PageSync.
@@ -480,5 +703,53 @@ pub async fn issue_sync_page_consent(
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &token_decision).await?;
 
     info!("Page sync consent permit issued: cid={}", cid);
+    Ok((token, cid))
+}
+
+/// Issue a layer sync consent permit
+///
+/// **Context**: Viewer received a LayerPermit for a dynamic layer, now consents to sync.
+/// This is the dynamic layer equivalent of page consent.
+///
+/// **Issued by**: Viewer
+/// **Audience**: Node (specific node pubkey/DID)
+/// **Proof**: The LayerPermit token (establishes delegation chain)
+///
+/// # Arguments
+/// * `signing_key_bytes` - Viewer's 32-byte Ed25519 secret key
+/// * `node_pubkey` - Node's public key (audience of the consent permit)
+/// * `page_id` - Page identifier
+/// * `layer_name` - Fully resolved dynamic layer path
+/// * `layer_permit_token` - The LayerPermit token received from node (used as proof)
+/// * `consent_template` - JSON template for the consent permit
+///
+/// # Returns
+/// * `Ok((token, cid))` - The consent permit token and its CID
+#[instrument(skip(signing_key_bytes, layer_permit_token, consent_template), fields(page_id = %page_id, layer_name = %layer_name, token_type = "sync_layer_consent"))]
+pub async fn issue_sync_layer_consent(
+    signing_key_bytes: &[u8; 32],
+    node_pubkey: &str,
+    page_id: &str,
+    layer_name: &str,
+    layer_permit_token: &str,
+    consent_template: &str,
+) -> ServiceResult<(String, String)> {
+    trace!("Issuing layer sync consent permit");
+
+    let signing_key = SigningKey::from_bytes(signing_key_bytes);
+    let verifying_key = signing_key.verifying_key();
+
+    let token_decision = decision::decide_sync_layer_consent(
+        &verifying_key,
+        node_pubkey,
+        page_id,
+        layer_name,
+        layer_permit_token,
+        consent_template,
+    )?;
+
+    let (token, cid) = crypto::sign_permit(signing_key_bytes, &token_decision).await?;
+
+    info!("Layer sync consent permit issued: cid={}", cid);
     Ok((token, cid))
 }

@@ -10,6 +10,7 @@ use control_server::{
     commands::butler as butler_cmds,
 };
 use courier::CourierHandle;
+use logging_utils::CaptureHandle;
 use renderer_slint::{AppStatus, DebugEvalRequest};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -68,6 +69,7 @@ pub struct ShellHandler {
     eval_tx: Arc<RwLock<Option<mpsc::Sender<DebugEvalRequest>>>>,
     lua_worker_tx: Arc<RwLock<Option<mpsc::Sender<lua_runtime::LuaCommand>>>>,
     app_status: Arc<RwLock<AppStatus>>,
+    capture_handle: Arc<RwLock<Option<CaptureHandle>>>,
 }
 
 impl ShellHandler {
@@ -79,7 +81,12 @@ impl ShellHandler {
             eval_tx: Arc::new(RwLock::new(None)),
             lua_worker_tx: Arc::new(RwLock::new(None)),
             app_status: Arc::new(RwLock::new(AppStatus::new())),
+            capture_handle: Arc::new(RwLock::new(None)),
         }
+    }
+
+    pub fn set_capture_handle_blocking(&self, handle: CaptureHandle) {
+        *self.capture_handle.blocking_write() = Some(handle);
     }
 
     pub fn app_status(&self) -> Arc<RwLock<AppStatus>> {
@@ -112,6 +119,7 @@ impl Clone for ShellHandler {
             eval_tx: self.eval_tx.clone(),
             lua_worker_tx: self.lua_worker_tx.clone(),
             app_status: self.app_status.clone(),
+            capture_handle: self.capture_handle.clone(),
         }
     }
 }
@@ -521,6 +529,41 @@ impl CommandHandler for ShellHandler {
                 })))
             }
 
+            // Capture commands
+            "capture_start" => {
+                let handle_guard = self.capture_handle.read().await;
+                let Some(ref handle) = *handle_guard else {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "CaptureHandle not available"));
+                };
+
+                let Some(params_obj) = params.as_ref().and_then(|p| p.as_object()) else {
+                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Invalid params object"));
+                };
+
+                let Some(file_path) = params_obj.get("file_path").and_then(|v| v.as_str()) else {
+                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing file_path"));
+                };
+
+                let include_logs = params_obj.get("include_logs").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                match handle.start_capture(PathBuf::from(file_path), include_logs).await {
+                    Ok(()) => Some(Response::ok(id, serde_json::json!({"status": "capturing", "file_path": file_path}))),
+                    Err(e) => Some(Response::err(id, error_codes::INTERNAL_ERROR, &e)),
+                }
+            }
+
+            "capture_end" => {
+                let handle_guard = self.capture_handle.read().await;
+                let Some(ref handle) = *handle_guard else {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "CaptureHandle not available"));
+                };
+
+                match handle.stop_capture().await {
+                    Ok(()) => Some(Response::ok(id, serde_json::json!({"status": "stopped"}))),
+                    Err(e) => Some(Response::err(id, error_codes::INTERNAL_ERROR, &e)),
+                }
+            }
+
             _ => None,
         }
     }
@@ -566,6 +609,10 @@ impl ControlServer {
 
     pub fn set_eval_channel(&self, tx: mpsc::Sender<DebugEvalRequest>) {
         self.handler.set_eval_channel_blocking(tx);
+    }
+
+    pub fn set_capture_handle(&self, handle: CaptureHandle) {
+        self.handler.set_capture_handle_blocking(handle);
     }
 
     pub fn set_lua_worker_channel(&self, tx: mpsc::Sender<lua_runtime::LuaCommand>) {

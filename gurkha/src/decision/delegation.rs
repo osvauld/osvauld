@@ -48,7 +48,12 @@ pub fn decide_delegation(
     // Add ID based on type (space or page only)
     match resource_type {
         "space" => facts.insert("space_id".to_string(), json!(resource_id)),
-        "page" => facts.insert("page_id".to_string(), json!(resource_id)),
+        "page" => {
+            facts.insert("page_id".to_string(), json!(resource_id));
+            // Resolve {page_id} in layer keys and nested issue_on templates
+            crate::parser::resolve_page_id_in_facts(&mut facts, resource_id);
+            None
+        },
         _ => return Err(GurkhaError::ValidationError(format!("Unknown resource type: {}", resource_type))),
     };
 

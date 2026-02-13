@@ -13,8 +13,8 @@
 
 use tracing::{debug, instrument, trace};
 
-use crate::{ScribeError, Result};
 use crate::state::ScribeState;
+use crate::{Result, ScribeError};
 
 // PermitContext - Thin Wrapper around gurkha::Permit
 
@@ -65,29 +65,38 @@ impl PermitContext {
     /// Check if layer can be written to
     /// Delegates to gurkha::Permit::can_write_layer()
     pub fn can_write_layer(&self, layer_name: &str) -> bool {
-        self.permit.can_write_layer(layer_name, &self.page_id, &self.our_did)
+        self.permit
+            .can_write_layer(layer_name, &self.page_id, &self.our_did)
     }
 
     /// Check if layer can be read/synced
     /// Delegates to gurkha::Permit::can_read_layer()
     pub fn can_read_layer(&self, layer_name: &str) -> bool {
-        self.permit.can_read_layer(layer_name, &self.page_id, &self.our_did)
+        self.permit
+            .can_read_layer(layer_name, &self.page_id, &self.our_did)
     }
 
     /// Check if layer should sync (not local-only)
     /// Delegates to gurkha::Permit::should_sync_layer()
     pub fn should_sync_layer(&self, layer_name: &str) -> bool {
-        self.permit.should_sync_layer(layer_name, &self.page_id, &self.our_did)
+        self.permit
+            .should_sync_layer(layer_name, &self.page_id, &self.our_did)
     }
 
     /// Check if layer should send full snapshot instead of incremental
     pub fn should_send_full_snapshot(&self, layer_name: &str) -> bool {
-        self.permit.sync_facts().send_full_snapshot.contains(&layer_name.to_string())
+        self.permit
+            .sync_facts()
+            .send_full_snapshot
+            .contains(&layer_name.to_string())
     }
 
     /// Check if layer is local-only (never synced)
     pub fn is_layer_local_only(&self, layer_name: &str) -> bool {
-        self.permit.sync_facts().local_only.contains(&layer_name.to_string())
+        self.permit
+            .sync_facts()
+            .local_only
+            .contains(&layer_name.to_string())
     }
 
     /// Get the raw permit token
@@ -168,12 +177,26 @@ impl Permissions {
     /// 1. Peer is a subscriber with write permission via permit.can_write_layer()
     /// 2. OR peer is our sync_target (owner/viewer mode - trust sync source)
     /// 3. OR peer has a stored permit with write access (node mode - permit-based sync auth)
+    /// 4. OR our permit's dynamic_layer_schemas grant write for peer's role (dynamic layers)
     ///
     /// **Security**: For pattern-based layers, gurkha::Permit validates that:
     /// - The layer name matches the expanded pattern
     /// - Patterns with {aud} expand to the peer's actual DID (namespace enforcement)
     pub fn can_write(state: &ScribeState, peer: &(String, String), layer_name: &str) -> bool {
         let peer_did = &peer.0;
+
+        // Protocol-reserved sync metadata is pairwise by DID namespace.
+        if let Some(layer_did) = layer_name.strip_prefix("__sync_meta/") {
+            if layer_did == peer_did {
+                state.emit_permission_check_capture(
+                    layer_name,
+                    peer_did,
+                    "allowed",
+                    "protocol_sync_meta_owner",
+                );
+                return true;
+            }
+        }
 
         // 1. Check if peer is a subscriber with write permission
         if let Ok(subs) = state.subscribers.read() {
@@ -184,6 +207,12 @@ impl Permissions {
                         user_did = %peer_did,
                         layer = %layer_name,
                         "Write allowed via subscriber permit"
+                    );
+                    state.emit_permission_check_capture(
+                        layer_name,
+                        peer_did,
+                        "allowed",
+                        "subscriber_permit",
                     );
                     return true;
                 }
@@ -196,6 +225,12 @@ impl Permissions {
             if let Some(ref sync_target) = config.sync_target {
                 if peer_did == sync_target {
                     debug!(user_did = %peer_did, layer = %layer_name, "Write allowed from sync_target");
+                    state.emit_permission_check_capture(
+                        layer_name,
+                        peer_did,
+                        "allowed",
+                        "sync_target",
+                    );
                     return true;
                 }
             }
@@ -208,34 +243,78 @@ impl Permissions {
                 if let Ok(permit) = gurkha::Permit::from_token(&permit_token) {
                     if permit.can_write_layer(layer_name, &state.page_id, peer_did) {
                         debug!(user_did = %peer_did, layer = %layer_name, "Write allowed via stored permit");
+                        state.emit_permission_check_capture(
+                            layer_name,
+                            peer_did,
+                            "allowed",
+                            "stored_permit",
+                        );
                         return true;
                     }
                 }
             }
         }
 
+        // 4. Node mode: check our permit's dynamic_layer_schemas with peer's role
+        //
+        // **Context**: Dynamic layers (e.g. channels/did:key:alice/project-x/messages)
+        // aren't in the peer's page permit (they contain another user's DID in the path).
+        // The node's own permit has dynamic_layer_schemas with role_permissions that grant
+        // write access to collaborators/owners. We check the schema + peer's role.
+        if let Some(ref our_permit) = state.our_permit {
+            let peer_role = Self::get_peer_role(state, peer_did);
+            if gurkha::matches_dynamic_schema_for_role(
+                our_permit,
+                layer_name,
+                &state.page_id,
+                &peer_role,
+                "write",
+            ) {
+                debug!(
+                    user_did = %peer_did,
+                    layer = %layer_name,
+                    role = %peer_role,
+                    "Write allowed via dynamic_layer_schema role check"
+                );
+                state.emit_permission_check_capture(
+                    layer_name,
+                    peer_did,
+                    "allowed",
+                    "dynamic_schema_role",
+                );
+                return true;
+            }
+        }
+
+        state.emit_permission_check_capture(layer_name, peer_did, "denied", "all_paths_failed");
         false
     }
 
-    /// Check if peer can receive updates for layer
+    /// Get peer's role from subscriber info or stored permit
     ///
-    /// **Context**: Deciding whether to broadcast layer update to peer
-    /// **We check**:
-    /// 1. Fixed layer permission exists AND not in no_incoming_updates
-    /// 2. OR pattern matches peer's readable_patterns
-    ///
-    /// **Privacy**: Patterns like {page_id}/*/{aud} ensure:
-    /// - Customer A only receives their own layers (shop123/orders/did:key:customer_a)
-    /// - Customer B doesn't receive Customer A's layers
-    /// - Owner/Admin with {page_id}/*/* pattern receives all layers
-    #[allow(dead_code)]
-    pub fn can_receive(state: &ScribeState, peer: &(String, String), layer_name: &str) -> bool {
+    /// **Context**: Used by can_write path 4 for dynamic schema role check
+    fn get_peer_role(state: &ScribeState, peer_did: &str) -> String {
+        // Check subscriber info first
         if let Ok(subs) = state.subscribers.read() {
-            if let Some(info) = subs.get(peer) {
-                return info.can_receive_layer(layer_name, &state.page_id);
+            for ((did, _), info) in subs.iter() {
+                if did == peer_did {
+                    if let Some(role) = info.permit.relationship() {
+                        return role.to_string();
+                    }
+                }
             }
         }
-        false
+        // Fall back to stored permit
+        if let Some(ref resolver) = state.peer_resolver {
+            if let Some(permit_token) = resolver.load_user_permit(peer_did) {
+                if let Ok(permit) = gurkha::Permit::from_token(&permit_token) {
+                    if let Some(role) = permit.relationship() {
+                        return role.to_string();
+                    }
+                }
+            }
+        }
+        "peer".to_string()
     }
 
     /// Check if we (local user) can write to a layer
@@ -263,19 +342,40 @@ mod tests {
     #[test]
     fn test_wildcard_pattern_matching() {
         // Exact segments with single wildcard
-        assert!(gurkha::matches_wildcard("shop123/orders/did:key:customer_a", "shop123/*/did:key:customer_a"));
-        assert!(gurkha::matches_wildcard("shop123/cart/did:key:customer_a", "shop123/*/did:key:customer_a"));
+        assert!(gurkha::matches_wildcard(
+            "shop123/orders/did:key:customer_a",
+            "shop123/*/did:key:customer_a"
+        ));
+        assert!(gurkha::matches_wildcard(
+            "shop123/cart/did:key:customer_a",
+            "shop123/*/did:key:customer_a"
+        ));
 
         // Double wildcard (owner/admin pattern)
-        assert!(gurkha::matches_wildcard("shop123/orders/did:key:customer_a", "shop123/*/*"));
-        assert!(gurkha::matches_wildcard("shop123/anything/anything_else", "shop123/*/*"));
+        assert!(gurkha::matches_wildcard(
+            "shop123/orders/did:key:customer_a",
+            "shop123/*/*"
+        ));
+        assert!(gurkha::matches_wildcard(
+            "shop123/anything/anything_else",
+            "shop123/*/*"
+        ));
 
         // Wrong segment count
-        assert!(!gurkha::matches_wildcard("shop123/orders", "shop123/*/did:key:customer_a"));
-        assert!(!gurkha::matches_wildcard("shop123/orders/sub/did:key:customer_a", "shop123/*/did:key:customer_a"));
+        assert!(!gurkha::matches_wildcard(
+            "shop123/orders",
+            "shop123/*/did:key:customer_a"
+        ));
+        assert!(!gurkha::matches_wildcard(
+            "shop123/orders/sub/did:key:customer_a",
+            "shop123/*/did:key:customer_a"
+        ));
 
         // Wrong DID
-        assert!(!gurkha::matches_wildcard("shop123/orders/did:key:customer_b", "shop123/*/did:key:customer_a"));
+        assert!(!gurkha::matches_wildcard(
+            "shop123/orders/did:key:customer_b",
+            "shop123/*/did:key:customer_a"
+        ));
     }
 
     #[test]
@@ -283,14 +383,34 @@ mod tests {
         let pattern = "{page_id}/*/{aud}";
 
         // Expansion matches own DID
-        assert!(matches_with_expansion("shop123/orders/did:key:customer_a", pattern, "shop123", "did:key:customer_a"));
+        assert!(matches_with_expansion(
+            "shop123/orders/did:key:customer_a",
+            pattern,
+            "shop123",
+            "did:key:customer_a"
+        ));
         // Expansion rejects other DID
-        assert!(!matches_with_expansion("shop123/orders/did:key:customer_b", pattern, "shop123", "did:key:customer_a"));
+        assert!(!matches_with_expansion(
+            "shop123/orders/did:key:customer_b",
+            pattern,
+            "shop123",
+            "did:key:customer_a"
+        ));
 
         // Owner wildcard pattern matches all
         let owner_pattern = "{page_id}/*/*";
-        assert!(matches_with_expansion("shop123/orders/did:key:customer_a", owner_pattern, "shop123", "did:key:owner"));
-        assert!(matches_with_expansion("shop123/orders/did:key:customer_b", owner_pattern, "shop123", "did:key:owner"));
+        assert!(matches_with_expansion(
+            "shop123/orders/did:key:customer_a",
+            owner_pattern,
+            "shop123",
+            "did:key:owner"
+        ));
+        assert!(matches_with_expansion(
+            "shop123/orders/did:key:customer_b",
+            owner_pattern,
+            "shop123",
+            "did:key:owner"
+        ));
     }
 
     #[test]
@@ -300,13 +420,33 @@ mod tests {
         let layer_b = "shop123/orders/did:key:customer_b";
 
         // Customer A can access their own layer
-        assert!(matches_with_expansion(layer_a, pattern, "shop123", "did:key:customer_a"));
+        assert!(matches_with_expansion(
+            layer_a,
+            pattern,
+            "shop123",
+            "did:key:customer_a"
+        ));
         // Customer A cannot access Customer B's layer
-        assert!(!matches_with_expansion(layer_b, pattern, "shop123", "did:key:customer_a"));
+        assert!(!matches_with_expansion(
+            layer_b,
+            pattern,
+            "shop123",
+            "did:key:customer_a"
+        ));
 
         // Customer B can access their own layer
-        assert!(matches_with_expansion(layer_b, pattern, "shop123", "did:key:customer_b"));
+        assert!(matches_with_expansion(
+            layer_b,
+            pattern,
+            "shop123",
+            "did:key:customer_b"
+        ));
         // Customer B cannot access Customer A's layer
-        assert!(!matches_with_expansion(layer_a, pattern, "shop123", "did:key:customer_b"));
+        assert!(!matches_with_expansion(
+            layer_a,
+            pattern,
+            "shop123",
+            "did:key:customer_b"
+        ));
     }
 }

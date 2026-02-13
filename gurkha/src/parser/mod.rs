@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::result::Result as StdResult;
 use ucan::Ucan;
 
@@ -43,6 +43,9 @@ pub struct PeerCapabilities {
     /// Can accept published spaces from this peer
     #[serde(default)]
     pub accept_publish: bool,
+    /// Can manage layer access (add/remove participants for explicit dynamic layers)
+    #[serde(default)]
+    pub manage_layer_access: bool,
 }
 
 impl PeerCapabilities {
@@ -51,7 +54,14 @@ impl PeerCapabilities {
         Self {
             relay: obj.get("relay").and_then(|v| v.as_bool()).unwrap_or(false),
             share: obj.get("share").and_then(|v| v.as_bool()).unwrap_or(false),
-            accept_publish: obj.get("accept_publish").and_then(|v| v.as_bool()).unwrap_or(false),
+            accept_publish: obj
+                .get("accept_publish")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            manage_layer_access: obj
+                .get("manage_layer_access")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         }
     }
 
@@ -60,7 +70,8 @@ impl PeerCapabilities {
         serde_json::json!({
             "relay": self.relay,
             "share": self.share,
-            "accept_publish": self.accept_publish
+            "accept_publish": self.accept_publish,
+            "manage_layer_access": self.manage_layer_access
         })
     }
 }
@@ -72,6 +83,74 @@ pub enum PermitError {
     ParsingFailed(String),
     MissingField(String),
     ValidationFailed(String),
+}
+
+/// Parse and validate `authorized_peers` fact value.
+///
+/// Semantics:
+/// - missing or null => role-based distribution (`None`)
+/// - array of DIDs   => explicit recipients (`Some(Vec<String>)`)
+pub fn parse_authorized_peers_fact(
+    value: Option<&serde_json::Value>,
+) -> PermitResult<Option<Vec<String>>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    if value.is_null() {
+        return Ok(None);
+    }
+
+    let arr = value.as_array().ok_or_else(|| {
+        PermitError::ValidationFailed(
+            "authorized_peers must be null or an array of DIDs".to_string(),
+        )
+    })?;
+
+    if arr.is_empty() {
+        return Err(PermitError::ValidationFailed(
+            "authorized_peers must be null for role-based distribution or a non-empty DID list"
+                .to_string(),
+        ));
+    }
+
+    let mut seen = HashSet::new();
+    let mut peers = Vec::new();
+    for entry in arr {
+        let did = entry
+            .as_str()
+            .ok_or_else(|| {
+                PermitError::ValidationFailed(
+                    "authorized_peers entries must be strings".to_string(),
+                )
+            })?
+            .trim();
+
+        if did.is_empty() {
+            return Err(PermitError::ValidationFailed(
+                "authorized_peers entries must be non-empty DIDs".to_string(),
+            ));
+        }
+
+        if !did.starts_with("did:") {
+            return Err(PermitError::ValidationFailed(format!(
+                "authorized_peers entry '{}' is not a DID",
+                did
+            )));
+        }
+
+        if seen.insert(did.to_string()) {
+            peers.push(did.to_string());
+        }
+    }
+
+    if peers.is_empty() {
+        return Err(PermitError::ValidationFailed(
+            "authorized_peers must contain at least one DID".to_string(),
+        ));
+    }
+
+    Ok(Some(peers))
 }
 
 impl std::fmt::Display for PermitError {
@@ -128,6 +207,16 @@ pub struct DelegationTemplate {
     /// Allowed ephemeral function names (empty = all allowed)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ephemeral_funcs: Vec<String>,
+    /// Schemas for dynamically-created layers (channels, DMs, orders)
+    /// Key is the pattern template (e.g., "channels/{id}/messages")
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub dynamic_layer_schemas: HashMap<String, DynamicLayerSchema>,
+    /// Explicit layer recipients for layer authority issuance.
+    ///
+    /// Omitted => role-based distribution
+    /// [did...] => explicit distribution
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorized_peers: Option<Vec<String>>,
 }
 
 /// Configuration for a fixed (non-pattern) layer
@@ -142,6 +231,37 @@ pub struct LayerConfig {
     /// Layer type: "list", "map", "text"
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub layer_type: Option<String>,
+}
+
+/// Schema for dynamically-created layers (channels, DMs, orders)
+///
+/// Dynamic layers are created at runtime and granted via permit re-issuance.
+/// The schema defines what types of dynamic layers an app supports.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DynamicLayerSchema {
+    /// Layer type: "map", "list", "text"
+    #[serde(rename = "type", default)]
+    pub layer_type: String,
+    /// Grant type: "role" (all peers) or "explicit" (named participants)
+    #[serde(default)]
+    pub grant: GrantType,
+    /// Permissions per role (for role-granted schemas)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub role_permissions: HashMap<String, LayerConfig>,
+    /// Permissions for explicit grants
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<LayerConfig>,
+}
+
+/// How a dynamic layer is granted to peers
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum GrantType {
+    /// Granted to all peers of matching roles
+    #[default]
+    Role,
+    /// Granted only to explicitly named participants
+    Explicit,
 }
 
 /// Presence configuration for a peer
@@ -160,7 +280,9 @@ pub struct PresenceConfig {
     pub name: Option<String>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// Internal struct for deserializing permit facts via serde
 ///
@@ -184,6 +306,9 @@ struct PermitFacts {
     /// Allowed ephemeral function names (empty = all allowed)
     #[serde(default)]
     ephemeral_funcs: Vec<String>,
+    /// Schemas for dynamically-created layers
+    #[serde(default)]
+    dynamic_layer_schemas: HashMap<String, DynamicLayerSchema>,
 }
 
 impl DelegationTemplate {
@@ -195,47 +320,69 @@ impl DelegationTemplate {
         let mut facts = serde_json::Map::new();
 
         // Add token_type
-        facts.insert("token_type".to_string(), serde_json::Value::String(self.token_type.clone()));
+        facts.insert(
+            "token_type".to_string(),
+            serde_json::Value::String(self.token_type.clone()),
+        );
 
         // Add peer_capabilities
-        facts.insert("peer_capabilities".to_string(), self.peer_capabilities.to_json());
+        facts.insert(
+            "peer_capabilities".to_string(),
+            self.peer_capabilities.to_json(),
+        );
 
         // Add operations (required for delegation chain - e.g., add_pages permission)
         if !self.operations.is_empty() {
-            let ops_json: serde_json::Map<String, serde_json::Value> = self.operations
+            let ops_json: serde_json::Map<String, serde_json::Value> = self
+                .operations
                 .iter()
                 .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
                 .collect();
-            facts.insert("operations".to_string(), serde_json::Value::Object(ops_json));
+            facts.insert(
+                "operations".to_string(),
+                serde_json::Value::Object(ops_json),
+            );
         }
 
         // Add auth_capabilities
         if !self.auth_capabilities.is_empty() {
-            let auth_json: serde_json::Map<String, serde_json::Value> = self.auth_capabilities
+            let auth_json: serde_json::Map<String, serde_json::Value> = self
+                .auth_capabilities
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
-            facts.insert("auth_capabilities".to_string(), serde_json::Value::Object(auth_json));
+            facts.insert(
+                "auth_capabilities".to_string(),
+                serde_json::Value::Object(auth_json),
+            );
         }
 
         // Add layer_patterns
         if !self.layer_patterns.is_empty() {
-            let patterns_json: serde_json::Map<String, serde_json::Value> = self.layer_patterns
+            let patterns_json: serde_json::Map<String, serde_json::Value> = self
+                .layer_patterns
                 .iter()
                 .map(|(pattern, config)| {
-                    (pattern.clone(), serde_json::json!({
-                        "create": config.create,
-                        "sync": config.sync,
-                        "write": config.write
-                    }))
+                    (
+                        pattern.clone(),
+                        serde_json::json!({
+                            "create": config.create,
+                            "sync": config.sync,
+                            "write": config.write
+                        }),
+                    )
                 })
                 .collect();
-            facts.insert("layer_patterns".to_string(), serde_json::Value::Object(patterns_json));
+            facts.insert(
+                "layer_patterns".to_string(),
+                serde_json::Value::Object(patterns_json),
+            );
         }
 
         // Add fixed layers
         if !self.layers.is_empty() {
-            let layers_json: serde_json::Map<String, serde_json::Value> = self.layers
+            let layers_json: serde_json::Map<String, serde_json::Value> = self
+                .layers
                 .iter()
                 .map(|(name, config)| {
                     let mut layer_obj = serde_json::Map::new();
@@ -252,38 +399,94 @@ impl DelegationTemplate {
 
         // Add relationship (for logging only)
         if let Some(rel) = &self.relationship {
-            facts.insert("relationship".to_string(), serde_json::Value::String(rel.clone()));
+            facts.insert(
+                "relationship".to_string(),
+                serde_json::Value::String(rel.clone()),
+            );
         }
 
         // Add issue_on (self-describing templates for what to issue on actions)
         if !self.issue_on.is_empty() {
-            let issue_on_json: serde_json::Map<String, serde_json::Value> = self.issue_on
+            let issue_on_json: serde_json::Map<String, serde_json::Value> = self
+                .issue_on
                 .iter()
                 .map(|(action, template)| {
-                    (action.clone(), serde_json::Value::Object(template.to_facts()))
+                    (
+                        action.clone(),
+                        serde_json::Value::Object(template.to_facts()),
+                    )
                 })
                 .collect();
-            facts.insert("issue_on".to_string(), serde_json::Value::Object(issue_on_json));
+            facts.insert(
+                "issue_on".to_string(),
+                serde_json::Value::Object(issue_on_json),
+            );
         }
 
         // Add presence configuration
         if let Some(ref presence) = self.presence {
             let mut presence_json = serde_json::Map::new();
-            presence_json.insert("visible".to_string(), serde_json::Value::Bool(presence.visible));
-            presence_json.insert("can_see_others".to_string(), serde_json::Value::Bool(presence.can_see_others));
+            presence_json.insert(
+                "visible".to_string(),
+                serde_json::Value::Bool(presence.visible),
+            );
+            presence_json.insert(
+                "can_see_others".to_string(),
+                serde_json::Value::Bool(presence.can_see_others),
+            );
             if let Some(ref name) = presence.name {
                 presence_json.insert("name".to_string(), serde_json::Value::String(name.clone()));
             }
-            facts.insert("presence".to_string(), serde_json::Value::Object(presence_json));
+            facts.insert(
+                "presence".to_string(),
+                serde_json::Value::Object(presence_json),
+            );
         }
 
         // Add ephemeral_funcs (allowed ephemeral function names)
         if !self.ephemeral_funcs.is_empty() {
-            let funcs: Vec<serde_json::Value> = self.ephemeral_funcs
+            let funcs: Vec<serde_json::Value> = self
+                .ephemeral_funcs
                 .iter()
                 .map(|f| serde_json::Value::String(f.clone()))
                 .collect();
-            facts.insert("ephemeral_funcs".to_string(), serde_json::Value::Array(funcs));
+            facts.insert(
+                "ephemeral_funcs".to_string(),
+                serde_json::Value::Array(funcs),
+            );
+        }
+
+        // Add dynamic_layer_schemas
+        if !self.dynamic_layer_schemas.is_empty() {
+            let schemas_json: serde_json::Map<String, serde_json::Value> = self
+                .dynamic_layer_schemas
+                .iter()
+                .map(|(pattern, schema)| {
+                    (
+                        pattern.clone(),
+                        serde_json::to_value(schema).unwrap_or_default(),
+                    )
+                })
+                .collect();
+            facts.insert(
+                "dynamic_layer_schemas".to_string(),
+                serde_json::Value::Object(schemas_json),
+            );
+        }
+
+        // Add authorized_peers for layer authority templates.
+        // Missing/None means role-based distribution.
+        if self.token_type == "layer_authority" {
+            if let Some(peers) = &self.authorized_peers {
+                let values = peers
+                    .iter()
+                    .map(|did| serde_json::Value::String(did.clone()))
+                    .collect();
+                facts.insert(
+                    "authorized_peers".to_string(),
+                    serde_json::Value::Array(values),
+                );
+            }
         }
 
         facts
@@ -323,6 +526,8 @@ pub struct Permit {
     presence: Option<PresenceConfig>,
     /// Allowed ephemeral function names (empty = all allowed)
     ephemeral_funcs: Vec<String>,
+    /// Schemas for dynamically-created layers (channels, DMs, orders)
+    dynamic_layer_schemas: HashMap<String, DynamicLayerSchema>,
 }
 
 impl Permit {
@@ -338,20 +543,25 @@ impl Permit {
         let parsed = Ucan::try_from(token)
             .map_err(|e| PermitError::ParsingFailed(format!("Permit parsing error: {}", e)))?;
 
-        trace!("JWT decoded - issuer: {}, audience: {}", parsed.issuer(), parsed.audience());
+        trace!(
+            "JWT decoded - issuer: {}, audience: {}",
+            parsed.issuer(),
+            parsed.audience()
+        );
 
         // Extract facts as raw JSON (source of truth)
-        let facts_ref = parsed.facts().as_ref().ok_or_else(|| {
-            PermitError::MissingField("Permit facts not found".to_string())
-        })?;
+        let facts_ref = parsed
+            .facts()
+            .as_ref()
+            .ok_or_else(|| PermitError::MissingField("Permit facts not found".to_string()))?;
 
         // Convert BTreeMap to serde_json::Value for deserialization
         let facts_value: serde_json::Value = serde_json::to_value(facts_ref)
             .map_err(|e| PermitError::ParsingFailed(format!("Facts conversion error: {}", e)))?;
 
         // Deserialize structured facts via serde (replaces ~60 lines of manual parsing)
-        let parsed_facts: PermitFacts = serde_json::from_value(facts_value.clone())
-            .unwrap_or_default();
+        let parsed_facts: PermitFacts =
+            serde_json::from_value(facts_value.clone()).unwrap_or_default();
 
         // Keep raw facts map for get_fact() lookups
         let facts: serde_json::Map<String, serde_json::Value> = facts_ref
@@ -362,7 +572,8 @@ impl Permit {
         trace!(facts = ?facts.keys().collect::<Vec<_>>(), "Facts extracted");
 
         // Parse issue_on templates
-        let issue_on: HashMap<String, DelegationTemplate> = parsed_facts.issue_on
+        let issue_on: HashMap<String, DelegationTemplate> = parsed_facts
+            .issue_on
             .iter()
             .filter_map(|(key, val)| {
                 Self::parse_delegation_template(key, val).map(|t| (key.clone(), t))
@@ -384,11 +595,15 @@ impl Permit {
             sync_facts: parsed_facts.sync,
             presence: parsed_facts.presence,
             ephemeral_funcs: parsed_facts.ephemeral_funcs,
+            dynamic_layer_schemas: parsed_facts.dynamic_layer_schemas,
         })
     }
 
     /// Parse a DelegationTemplate from a JSON value
-    fn parse_delegation_template(key: &str, template_val: &serde_json::Value) -> Option<DelegationTemplate> {
+    fn parse_delegation_template(
+        key: &str,
+        template_val: &serde_json::Value,
+    ) -> Option<DelegationTemplate> {
         let template_obj = template_val.as_object()?;
 
         // Extract token_type
@@ -407,15 +622,27 @@ impl Permit {
 
         // Extract layer_patterns
         let mut layer_patterns = HashMap::new();
-        if let Some(patterns_obj) = template_obj.get("layer_patterns").and_then(|v| v.as_object()) {
+        if let Some(patterns_obj) = template_obj
+            .get("layer_patterns")
+            .and_then(|v| v.as_object())
+        {
             for (pattern, config) in patterns_obj {
                 if let Some(config_obj) = config.as_object() {
                     layer_patterns.insert(
                         pattern.clone(),
                         LayerPatternConfig {
-                            create: config_obj.get("create").and_then(|v| v.as_bool()).unwrap_or(false),
-                            sync: config_obj.get("sync").and_then(|v| v.as_bool()).unwrap_or(false),
-                            write: config_obj.get("write").and_then(|v| v.as_bool()).unwrap_or(false),
+                            create: config_obj
+                                .get("create")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            sync: config_obj
+                                .get("sync")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            write: config_obj
+                                .get("write")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
                         },
                     );
                 }
@@ -427,11 +654,23 @@ impl Permit {
         if let Some(layers_obj) = template_obj.get("layers").and_then(|v| v.as_object()) {
             for (layer_name, layer_val) in layers_obj {
                 if let Some(layer_obj) = layer_val.as_object() {
-                    layers.insert(layer_name.clone(), LayerConfig {
-                        sync: layer_obj.get("sync").and_then(|v| v.as_bool()).unwrap_or(false),
-                        write: layer_obj.get("write").and_then(|v| v.as_bool()).unwrap_or(false),
-                        layer_type: layer_obj.get("type").and_then(|v| v.as_str()).map(String::from),
-                    });
+                    layers.insert(
+                        layer_name.clone(),
+                        LayerConfig {
+                            sync: layer_obj
+                                .get("sync")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            write: layer_obj
+                                .get("write")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
+                            layer_type: layer_obj
+                                .get("type")
+                                .and_then(|v| v.as_str())
+                                .map(String::from),
+                        },
+                    );
                 }
             }
         }
@@ -454,7 +693,10 @@ impl Permit {
 
         // Extract auth_capabilities (can_connect, sync_enabled, etc.)
         let mut auth_capabilities = HashMap::new();
-        if let Some(auth_obj) = template_obj.get("auth_capabilities").and_then(|v| v.as_object()) {
+        if let Some(auth_obj) = template_obj
+            .get("auth_capabilities")
+            .and_then(|v| v.as_object())
+        {
             for (cap_name, cap_val) in auth_obj {
                 auth_capabilities.insert(cap_name.clone(), cap_val.clone());
             }
@@ -464,23 +706,30 @@ impl Permit {
         let mut issue_on = HashMap::new();
         if let Some(issue_on_obj) = template_obj.get("issue_on").and_then(|v| v.as_object()) {
             for (action_key, nested_template_val) in issue_on_obj {
-                if let Some(nested_template) = Self::parse_delegation_template(action_key, nested_template_val) {
+                if let Some(nested_template) =
+                    Self::parse_delegation_template(action_key, nested_template_val)
+                {
                     issue_on.insert(action_key.clone(), Box::new(nested_template));
                 }
             }
         }
 
         // Extract presence configuration
-        let presence = template_obj.get("presence").and_then(|v| v.as_object()).map(|p| {
-            PresenceConfig {
+        let presence = template_obj
+            .get("presence")
+            .and_then(|v| v.as_object())
+            .map(|p| PresenceConfig {
                 visible: p.get("visible").and_then(|v| v.as_bool()).unwrap_or(false),
-                can_see_others: p.get("can_see_others").and_then(|v| v.as_bool()).unwrap_or(true),
+                can_see_others: p
+                    .get("can_see_others")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true),
                 name: p.get("name").and_then(|v| v.as_str()).map(String::from),
-            }
-        });
+            });
 
         // Extract ephemeral_funcs
-        let ephemeral_funcs = template_obj.get("ephemeral_funcs")
+        let ephemeral_funcs = template_obj
+            .get("ephemeral_funcs")
             .and_then(|v| v.as_array())
             .map(|arr| {
                 arr.iter()
@@ -488,6 +737,24 @@ impl Permit {
                     .collect()
             })
             .unwrap_or_default();
+
+        // Extract dynamic_layer_schemas
+        let mut dynamic_layer_schemas = HashMap::new();
+        if let Some(schemas_obj) = template_obj
+            .get("dynamic_layer_schemas")
+            .and_then(|v| v.as_object())
+        {
+            for (pattern, schema_val) in schemas_obj {
+                if let Ok(schema) = serde_json::from_value::<DynamicLayerSchema>(schema_val.clone())
+                {
+                    dynamic_layer_schemas.insert(pattern.clone(), schema);
+                }
+            }
+        }
+
+        let authorized_peers = parse_authorized_peers_fact(template_obj.get("authorized_peers"))
+            .ok()
+            .flatten();
 
         Some(DelegationTemplate {
             token_type,
@@ -500,6 +767,8 @@ impl Permit {
             issue_on,
             presence,
             ephemeral_funcs,
+            dynamic_layer_schemas,
+            authorized_peers,
         })
     }
 
@@ -602,6 +871,11 @@ impl Permit {
         self.peer_capabilities.accept_publish
     }
 
+    /// Check if peer can manage layer access (add/remove participants)
+    pub fn can_manage_layer_access(&self) -> bool {
+        self.peer_capabilities.manage_layer_access
+    }
+
     /// Get fixed layer config
     pub fn get_layer_config(&self, layer: &str) -> Option<&LayerConfig> {
         self.layers.get(layer)
@@ -684,6 +958,15 @@ impl Permit {
         &self.issue_on
     }
 
+    /// Parse validated `authorized_peers` fact.
+    ///
+    /// Returns:
+    /// - `Ok(None)` for role-based mode (missing/null)
+    /// - `Ok(Some(vec))` for explicit recipients
+    pub fn authorized_peers(&self) -> PermitResult<Option<Vec<String>>> {
+        parse_authorized_peers_fact(self.facts.get("authorized_peers"))
+    }
+
     /// Check if permit has any issue_on templates
     pub fn has_issue_templates(&self) -> bool {
         !self.issue_on.is_empty()
@@ -716,7 +999,10 @@ impl Permit {
 
     /// Check if this peer can see others' presence (receives presence layer sync)
     pub fn can_see_others(&self) -> bool {
-        self.presence.as_ref().map(|p| p.can_see_others).unwrap_or(true)
+        self.presence
+            .as_ref()
+            .map(|p| p.can_see_others)
+            .unwrap_or(true)
     }
 
     /// Get display name for this peer (from presence config)
@@ -737,126 +1023,94 @@ impl Permit {
         &self.ephemeral_funcs
     }
 
+    /// Get dynamic layer schemas
+    pub fn dynamic_layer_schemas(&self) -> &HashMap<String, DynamicLayerSchema> {
+        &self.dynamic_layer_schemas
+    }
+
     // These methods accept page_id and did for pattern expansion
 
     /// Check if a layer should sync based on permit configuration
     ///
     /// **Context**: Used to filter out local-only layers (sync: false)
-    /// **Checks**:
-    /// 1. Named layers in `layers` section - check `sync` flag
-    /// 2. Pattern matches in `layer_patterns` section - check `sync` flag
+    /// **Checks**: Layer lookup in `layers` section - check `sync` flag
     /// **Returns**: true if layer should sync, false if local-only
-    pub fn should_sync_layer(&self, layer_name: &str, page_id: &str, our_did: &str) -> bool {
-        // 1. Check named layers section
-        for (pattern, config) in &self.layers {
-            let expanded = expand_pattern(pattern, page_id, our_did);
-            let bare = strip_page_prefix(&expanded, page_id);
-            if bare == layer_name || expanded == layer_name {
-                return config.sync;
-            }
+    ///
+    /// With fully-resolved permits, layer names in the permit are already
+    /// expanded (e.g., "abc123/products" not "{page_id}/products").
+    pub fn should_sync_layer(&self, layer_name: &str, page_id: &str, _our_did: &str) -> bool {
+        // Check direct match
+        if let Some(config) = self.layers.get(layer_name) {
+            return config.sync;
         }
-
-        // 2. Check layer_patterns section
-        for (pattern, config) in &self.layer_patterns {
-            let expanded = expand_pattern(pattern, page_id, our_did);
-            let bare = strip_page_prefix(&expanded, page_id);
-            if matches_wildcard(layer_name, &bare) || matches_wildcard(layer_name, &expanded) {
-                return config.sync;
-            }
+        // Check with page_id prefix (for bare names like "products")
+        let full_name = format!("{}/{}", page_id, layer_name);
+        if let Some(config) = self.layers.get(&full_name) {
+            return config.sync;
         }
-
         // Default: sync
         true
     }
 
     /// Check if permit allows writing to a layer
     ///
-    /// **Checks**:
-    /// 1. Fixed layer permission (write=true)
-    /// 2. Pattern match with write or create permission
+    /// **Checks**: Layer lookup for write=true, then schema fallback for creator access
     ///
-    /// **Note**: Accepts both bare layer names (e.g. "products") and
-    /// full names (e.g. "{page_id}/products") for backward compatibility.
+    /// With fully-resolved permits, accepts both bare names ("products")
+    /// and full names ("abc123/products"). For dynamic layers, falls back
+    /// to schema matching if the creator's DID is in the layer path.
     pub fn can_write_layer(&self, layer_name: &str, page_id: &str, our_did: &str) -> bool {
-        // 1. Check fixed layers
-        for (pattern, config) in &self.layers {
-            let expanded = expand_pattern(pattern, page_id, our_did);
-            let bare = strip_page_prefix(&expanded, page_id);
-            if (bare == layer_name || expanded == layer_name) && config.write {
-                return true;
-            }
+        // Direct match
+        if let Some(config) = self.layers.get(layer_name) {
+            return config.write;
         }
-
-        // 2. Check layer_patterns
-        for (pattern, config) in &self.layer_patterns {
-            let expanded = expand_pattern(pattern, page_id, our_did);
-            let bare = strip_page_prefix(&expanded, page_id);
-            if (matches_wildcard(layer_name, &bare) || matches_wildcard(layer_name, &expanded))
-                && (config.write || config.create)
-            {
-                return true;
-            }
+        // Try with page_id prefix
+        let full_name = format!("{}/{}", page_id, layer_name);
+        if let Some(config) = self.layers.get(&full_name) {
+            return config.write;
         }
-
+        // Schema fallback for creator access to dynamic layers
+        if crate::decision::matches_creator_schema(self, layer_name, page_id, our_did, "write") {
+            return true;
+        }
         false
     }
 
     /// Check if permit allows reading/syncing a layer
     ///
-    /// **Checks**:
-    /// 1. Fixed layer exists with sync=true
-    /// 2. Pattern match with sync permission
+    /// **Checks**: Layer lookup for sync=true, then schema fallback for creator access
     ///
-    /// **Note**: Accepts both bare layer names and full names.
+    /// With fully-resolved permits, accepts both bare names and full names.
+    /// For dynamic layers, falls back to schema matching if the creator's DID
+    /// is in the layer path.
     pub fn can_read_layer(&self, layer_name: &str, page_id: &str, our_did: &str) -> bool {
-        // 1. Check fixed layers
-        for (pattern, config) in &self.layers {
-            let expanded = expand_pattern(pattern, page_id, our_did);
-            let bare = strip_page_prefix(&expanded, page_id);
-            if (bare == layer_name || expanded == layer_name) && config.sync {
-                return true;
-            }
+        // Direct match
+        if let Some(config) = self.layers.get(layer_name) {
+            return config.sync;
         }
-
-        // 2. Check layer_patterns
-        for (pattern, config) in &self.layer_patterns {
-            let expanded = expand_pattern(pattern, page_id, our_did);
-            let bare = strip_page_prefix(&expanded, page_id);
-            if (matches_wildcard(layer_name, &bare) || matches_wildcard(layer_name, &expanded))
-                && config.sync
-            {
-                return true;
-            }
+        // Try with page_id prefix
+        let full_name = format!("{}/{}", page_id, layer_name);
+        if let Some(config) = self.layers.get(&full_name) {
+            return config.sync;
         }
-
+        // Schema fallback for creator access to dynamic layers
+        if crate::decision::matches_creator_schema(self, layer_name, page_id, our_did, "read") {
+            return true;
+        }
         false
     }
 
-    /// Get all static layers (fully expanded, no wildcards) for pre-creation
+    /// Get all static layers (fully resolved) for pre-creation
     ///
     /// **Context**: Scribe pre-creates layers that are fully known from permit
-    /// **Returns**: Bare layer names (without {page_id}/ prefix) for Scribe's in-memory map
-    pub fn static_layers(&self, page_id: &str, our_did: &str) -> Vec<String> {
-        let mut layers = Vec::new();
-
-        // Fixed layers with placeholders expanded, then stripped to bare names
-        for pattern in self.layers.keys() {
-            let expanded = expand_pattern(pattern, page_id, our_did);
-            // Only include if no wildcards remain
-            if !expanded.contains('*') {
-                layers.push(strip_page_prefix(&expanded, page_id));
-            }
-        }
-
-        // Pattern layers that are fully expanded (no wildcards)
-        for pattern in self.layer_patterns.keys() {
-            let expanded = expand_pattern(pattern, page_id, our_did);
-            if !expanded.contains('*') {
-                layers.push(strip_page_prefix(&expanded, page_id));
-            }
-        }
-
-        layers
+    /// **Returns**: Bare layer names (without page_id/ prefix) for Scribe's in-memory map
+    ///
+    /// With fully-resolved permits, layer keys are already expanded.
+    pub fn static_layers(&self, page_id: &str, _our_did: &str) -> Vec<String> {
+        self.layers
+            .keys()
+            .map(|key| strip_page_prefix(key, page_id))
+            .collect()
     }
 }
 
@@ -872,7 +1126,8 @@ impl Permit {
 /// **Pass-through**: `"app:Shop"` (no prefix) → `"app:Shop"`
 fn strip_page_prefix(expanded: &str, page_id: &str) -> String {
     let prefix = format!("{}/", page_id);
-    expanded.strip_prefix(&prefix)
+    expanded
+        .strip_prefix(&prefix)
         .unwrap_or(expanded)
         .to_string()
 }
@@ -885,9 +1140,99 @@ fn strip_page_prefix(expanded: &str, page_id: &str) -> String {
 ///
 /// **Example:** `{page_id}/orders/{aud}` → `shop123/orders/did:key:abc`
 pub fn expand_pattern(pattern: &str, page_id: &str, did: &str) -> String {
-    pattern
-        .replace("{page_id}", page_id)
-        .replace("{aud}", did)
+    pattern.replace("{page_id}", page_id).replace("{aud}", did)
+}
+
+/// Resolve {page_id} placeholders in permit facts
+///
+/// Replaces {page_id} in layer keys at all levels (top-level and nested issue_on).
+/// Also removes `layer_patterns` from facts (replaced by dynamic_layer_schemas).
+pub fn resolve_page_id_in_facts(
+    facts: &mut serde_json::Map<String, serde_json::Value>,
+    page_id: &str,
+) {
+    // Resolve top-level layers
+    if let Some(layers) = facts.remove("layers") {
+        if let Some(layers_obj) = layers.as_object() {
+            let mut resolved = serde_json::Map::new();
+            for (key, val) in layers_obj {
+                let resolved_key = key.replace("{page_id}", page_id);
+                resolved.insert(resolved_key, val.clone());
+            }
+            facts.insert("layers".to_string(), serde_json::Value::Object(resolved));
+        }
+    }
+
+    // Remove layer_patterns (replaced by dynamic_layer_schemas)
+    facts.remove("layer_patterns");
+
+    // Recurse into issue_on templates
+    if let Some(issue_on) = facts.remove("issue_on") {
+        if let Some(issue_on_obj) = issue_on.as_object() {
+            let mut resolved_issue_on = serde_json::Map::new();
+            for (action, template_val) in issue_on_obj {
+                if let Some(mut template_obj) = template_val.as_object().cloned() {
+                    resolve_page_id_in_facts(&mut template_obj, page_id);
+                    resolved_issue_on
+                        .insert(action.clone(), serde_json::Value::Object(template_obj));
+                } else {
+                    resolved_issue_on.insert(action.clone(), template_val.clone());
+                }
+            }
+            facts.insert(
+                "issue_on".to_string(),
+                serde_json::Value::Object(resolved_issue_on),
+            );
+        }
+    }
+}
+
+/// Match a layer path against a dynamic layer schema pattern (issuance-side only)
+///
+/// Used at dynamic layer creation time to validate that the node has authority
+/// to create a layer of this type.
+///
+/// **Pattern:** `{id}` matches any single path segment
+///
+/// **Examples:**
+/// - `channels/announcements/messages` matches `channels/{id}/messages`
+/// - `dms/uuid-123/messages` matches `dms/{id}/messages`
+/// - `orders/uuid-456` matches `orders/{id}`
+pub fn matches_schema_pattern(layer_path: &str, schema_pattern: &str) -> bool {
+    let path_parts: Vec<&str> = layer_path.split('/').collect();
+    let pattern_parts: Vec<&str> = schema_pattern.split('/').collect();
+
+    if path_parts.len() != pattern_parts.len() {
+        return false;
+    }
+
+    path_parts
+        .iter()
+        .zip(pattern_parts.iter())
+        .all(|(path_seg, pat_seg)| *pat_seg == "{id}" || path_seg == pat_seg)
+}
+
+/// Check access across a page permit + set of layer permits (two-tier model)
+///
+/// Convenience function that delegates to `decision::can_access_with_layer_permits`.
+/// Checks if any permit in the set grants the requested access.
+///
+/// Access check = page permit layers ∪ all layer permit layers ∪ schema fallback
+pub fn can_access_with_layer_permits(
+    page_permit: &Permit,
+    layer_permits: &[Permit],
+    layer_name: &str,
+    page_id: &str,
+    did: &str,
+) -> bool {
+    crate::decision::can_access_with_layer_permits(
+        page_permit,
+        layer_permits,
+        layer_name,
+        page_id,
+        did,
+        "read",
+    )
 }
 
 /// Match layer name against pattern with path-segment wildcards
@@ -906,7 +1251,8 @@ pub fn matches_wildcard(layer_name: &str, pattern: &str) -> bool {
         return false;
     }
 
-    layer_parts.iter().zip(pattern_parts.iter()).all(|(layer, pat)| {
-        *pat == "*" || layer == pat
-    })
+    layer_parts
+        .iter()
+        .zip(pattern_parts.iter())
+        .all(|(layer, pat)| *pat == "*" || layer == pat)
 }

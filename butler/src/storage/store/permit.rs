@@ -7,14 +7,13 @@
 //! - User Page Permits (for sync authorization)
 //! - User Space Permits (node permits for spaces)
 
-use redb::{ReadableTable, ReadableDatabase};
-use crate::error::Result;
-use tracing::instrument;
 use super::{
-    RedbStore, PERMIT_CIDS, SPACE_SUBSCRIPTIONS,
-    VIEWER_CONSENT_SPACE, VIEWER_CONSENT_PAGE,
-    USER_PAGE_PERMITS, USER_SPACE_PERMITS, CONNECTION_PERMITS,
+    RedbStore, CONNECTION_PERMITS, PERMIT_CIDS, SPACE_SUBSCRIPTIONS, USER_PAGE_PERMITS,
+    USER_SPACE_PERMITS, VIEWER_CONSENT_PAGE, VIEWER_CONSENT_SPACE,
 };
+use crate::error::Result;
+use redb::{ReadableDatabase, ReadableTable};
+use tracing::instrument;
 
 impl RedbStore {
     // Permit CID Operations (for revocation tracking)
@@ -25,12 +24,7 @@ impl RedbStore {
     ///
     /// **Context**: Called when issuing a permit to track it for potential revocation.
     #[instrument(skip_all)]
-    pub fn put_permit_cid(
-        &self,
-        page_id: &str,
-        user_did: &str,
-        cid: &str,
-    ) -> Result<()> {
+    pub fn put_permit_cid(&self, page_id: &str, user_did: &str, cid: &str) -> Result<()> {
         let key = format!("{}/{}", page_id, user_did);
         let write_txn = self.db.begin_write()?;
         {
@@ -45,11 +39,7 @@ impl RedbStore {
     ///
     /// **Context**: Used to check if a permit has been issued and get its CID.
     #[instrument(skip_all)]
-    pub fn get_permit_cid(
-        &self,
-        page_id: &str,
-        user_did: &str,
-    ) -> Result<Option<String>> {
+    pub fn get_permit_cid(&self, page_id: &str, user_did: &str) -> Result<Option<String>> {
         let key = format!("{}/{}", page_id, user_did);
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(PERMIT_CIDS)?;
@@ -64,11 +54,7 @@ impl RedbStore {
     ///
     /// **Context**: Called when revoking access - marks the permit as revoked.
     #[instrument(skip_all)]
-    pub fn delete_permit_cid(
-        &self,
-        page_id: &str,
-        user_did: &str,
-    ) -> Result<bool> {
+    pub fn delete_permit_cid(&self, page_id: &str, user_did: &str) -> Result<bool> {
         let key = format!("{}/{}", page_id, user_did);
         let write_txn = self.db.begin_write()?;
         let removed = {
@@ -227,11 +213,7 @@ impl RedbStore {
     ///
     /// **Context**: Called when revoking a user's access to a space.
     #[instrument(skip_all)]
-    pub fn delete_space_subscription(
-        &self,
-        space_id: &str,
-        user_did: &str,
-    ) -> Result<bool> {
+    pub fn delete_space_subscription(&self, space_id: &str, user_did: &str) -> Result<bool> {
         let key = format!("{}/{}", space_id, user_did);
         let write_txn = self.db.begin_write()?;
         let removed = {
@@ -427,12 +409,7 @@ impl RedbStore {
     /// **Context**: Node receives owner's permit during PublishPage.
     /// This permit is used for sync authorization (layer permissions).
     #[instrument(skip_all)]
-    pub fn put_user_page_permit(
-        &self,
-        page_id: &str,
-        user_did: &str,
-        permit: &str,
-    ) -> Result<()> {
+    pub fn put_user_page_permit(&self, page_id: &str, user_did: &str, permit: &str) -> Result<()> {
         let key = format!("{}/{}", page_id, user_did);
         let write_txn = self.db.begin_write()?;
         {
@@ -447,11 +424,7 @@ impl RedbStore {
     ///
     /// **Context**: Node needs permit to authorize sync operations.
     #[instrument(skip_all)]
-    pub fn get_user_page_permit(
-        &self,
-        page_id: &str,
-        user_did: &str,
-    ) -> Result<Option<String>> {
+    pub fn get_user_page_permit(&self, page_id: &str, user_did: &str) -> Result<Option<String>> {
         let key = format!("{}/{}", page_id, user_did);
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(USER_PAGE_PERMITS)?;
@@ -460,6 +433,32 @@ impl RedbStore {
             Some(guard) => Ok(Some(guard.value().to_string())),
             None => Ok(None),
         }
+    }
+
+    /// List all user page permits for a given page.
+    ///
+    /// **Context**: Node needs to reissue permits when new app layers are added.
+    /// **Returns**: Vec of (user_did, permit_token) tuples.
+    #[instrument(skip_all)]
+    pub fn list_user_page_permits(&self, page_id: &str) -> Result<Vec<(String, String)>> {
+        let prefix = format!("{}/", page_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(USER_PAGE_PERMITS)?;
+
+        let mut permits = Vec::new();
+        for result in table.range(prefix.as_str()..)? {
+            let (key, value) = result?;
+            let key_str = key.value();
+
+            if !key_str.starts_with(&prefix) {
+                break;
+            }
+
+            if let Some(user_did) = key_str.strip_prefix(&prefix) {
+                permits.push((user_did.to_string(), value.value().to_string()));
+            }
+        }
+        Ok(permits)
     }
 
     // User Space Permits
@@ -488,11 +487,7 @@ impl RedbStore {
 
     /// Get a node's permit for a space (Owner mode - check if published)
     #[instrument(skip_all)]
-    pub fn get_user_space_permit(
-        &self,
-        space_id: &str,
-        node_did: &str,
-    ) -> Result<Option<String>> {
+    pub fn get_user_space_permit(&self, space_id: &str, node_did: &str) -> Result<Option<String>> {
         let key = format!("{}/{}", space_id, node_did);
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(USER_SPACE_PERMITS)?;

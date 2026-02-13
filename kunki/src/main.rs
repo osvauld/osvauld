@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "profiling")]
     let _flame_guard = setup_profiling();
 
-    // Initialize rich tracing (skip if profiling takes over subscriber)
+    // Initialize rich tracing with capture support
     // Check for OSVAULD_LOG_FORMAT=json to output JSON logs (for ai_interface)
     #[cfg(not(feature = "profiling"))]
     let use_json = std::env::var("OSVAULD_LOG_FORMAT")
@@ -102,11 +102,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(false);
 
     #[cfg(not(feature = "profiling"))]
-    let _guard = logging_utils::init_rich_tracing(logging_utils::LogConfig {
+    let (_guard, capture_handle) = logging_utils::init_rich_tracing_with_capture(logging_utils::LogConfig {
         level: "debug".to_string(),
         log_to_stdout: true,
         use_tree_format: !use_json,
         stdout_json: use_json,
+        instance_name: Some("kunki".to_string()),
         ..Default::default()
     })?;
 
@@ -145,7 +146,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Start { passphrase, debug_socket } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
-            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir).await?;
+            #[cfg(not(feature = "profiling"))]
+            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir, Some(capture_handle)).await?;
+            #[cfg(feature = "profiling")]
+            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir, None).await?;
         }
         Commands::FolderToken {
             passphrase,
@@ -192,6 +196,7 @@ async fn handle_start(
     redb_store: Arc<RedbStore>,
     debug_socket: Option<String>,
     data_dir: &std::path::Path,
+    capture_handle: Option<logging_utils::CaptureHandle>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists in Butler
     if !butler::is_signed_up(&redb_store)? {
@@ -296,6 +301,11 @@ async fn handle_start(
             connection_string: None,
         }).await;
 
+        // Set capture handle for event capture commands
+        if let Some(ref ch) = capture_handle {
+            debug_server.set_capture_handle(ch.clone()).await;
+        }
+
         // Spawn debug server
         let server = debug_server.clone();
         tokio::spawn(async move {
@@ -313,11 +323,23 @@ async fn handle_start(
     // Create HandshakeServices with Butler
     let handshake_services = Arc::new(HandshakeServices::new(butler.clone()));
 
-    // Initialize Courier with services for auto-processing
-    let (courier_handle, mut courier_events, courier) = Courier::init_with_services(
+    // Create capture broadcast channel for courier events
+    let (capture_tx, _) = tokio::sync::broadcast::channel::<String>(1024);
+
+    // Register capture sources with CaptureHandle
+    if let Some(ref ch) = capture_handle {
+        ch.register_source(capture_tx.clone()).await;
+    }
+
+    // Set capture_tx on butler so ScribeArgs get it
+    butler.set_capture_tx(capture_tx.clone()).await;
+
+    // Initialize Courier with services and capture broadcast
+    let (courier_handle, mut courier_events, courier) = Courier::init_with_services_and_capture(
         CourierMode::Node,
         transport.clone(),
         Some(handshake_services),
+        Some(capture_tx),
     );
 
     // Note: Router starts accepting connections automatically when Transport::init() is called
@@ -340,6 +362,28 @@ async fn handle_start(
                         tracing::warn!(user_did = %user_did, error = %e, "Failed to forward EnsureSync");
                     } else {
                         tracing::info!(user_did = %user_did, "Node forwarded EnsureSync to Coordinator");
+                    }
+                }
+                butler::SyncEvent::NewDynamicLayer { page_id, layer_name, permits } => {
+                    tracing::info!(
+                        page_id = %page_id,
+                        layer = %layer_name,
+                        permit_count = permits.len(),
+                        "Node received NewDynamicLayer from Scribe"
+                    );
+                    if let Err(e) = handle_for_sync.distribute_layer_permits(&page_id, &layer_name, permits) {
+                        tracing::warn!(error = %e, "Failed to distribute layer permits");
+                    }
+                }
+                butler::SyncEvent::LayerAccessChanged { page_id, layer_name, permits } => {
+                    tracing::info!(
+                        page_id = %page_id,
+                        layer = %layer_name,
+                        permit_count = permits.len(),
+                        "Node received LayerAccessChanged from Scribe"
+                    );
+                    if let Err(e) = handle_for_sync.distribute_layer_permits(&page_id, &layer_name, permits) {
+                        tracing::warn!(error = %e, "Failed to distribute layer permits for access change");
                     }
                 }
             }
