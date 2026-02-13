@@ -1,0 +1,225 @@
+Implement the following plan:
+
+# Observability Gaps Implementation Plan
+
+## Context
+
+After debugging a "viewer can't write to dynamic channels" issue using the JSONL capture system, we identified 8 categories of observability gaps. P0 items are already implemented and verified. This plan covers the remaining P1-P3 items.
+
+## Already Done (P0) — Verified
+
+### permission_check (`scribe/src/permit.rs` + `scribe/src/state.rs`)
+- `emit_permission_check_capture()` in `state.rs:312-337` — fields: type, ts, page_id, layer, peer_did, operation, result, granted_by
+- `can_write()` in `permit.rs:176-244` emits at all 5 decision points:
+  - Line 189: allowed / subscriber_permit
+  - Line 201: allowed / sync_target
+  - Line 214: allowed / stored_permit
+  - Line 238: allowed / dynamic_schema_role
+  - Line 243: denied / all_paths_failed
+
+### apply_update (`scribe/src/sync/apply.rs` + `scribe/src/state.rs`)
+- `emit_apply_update_capture()` in `state.rs:342-366` — fields: type, ts, page_id, layer, from_peer, result, reason
+- `handle_apply_update()` in `apply.rs:129-192` emits at both outcomes:
+  - Line 157: applied (no reason)
+  - Line 188: rejected (with reason string)
+
+---
+
+## Step 1: P1 — Layer Name in Message Traces
+
+**Problem**: SyncOffer/SyncAccept/SyncAck traces have no layer/page_id — can't tell which layer a sync message is for.
+
+**Files**: `courier/src/trace.rs`, `courier/src/peer_actor/mod.rs`
+
+**Approach**: Add optional `page_id` and `layer_name` fields to `MessageTrace`. Extract them from the `Message` enum before the trace is emitted (the message is available right there in `handle_protocol_message`).
+
+1. **`courier/src/trace.rs`**: Add optional fields to `MessageTrace`:
+   ```rust
+   pub page_id: Option<String>,
+   pub layer_name: Option<String>,
+   ```
+   Update `MessageTrace::new()` to set both to `None`.
+
+2. **`courier/src/peer_actor/mod.rs`** (line ~766, receive path): After creating the trace, extract context from the message:
+   ```rust
+   let (trace_page_id, trace_layer) = match &message {
+       Message::SyncOffer(m) => (Some(m.page_id.clone()), Some(m.layer_name.clone())),
+       Message::SyncAccept(m) => (Some(m.page_id.clone()), Some(m.layer_name.clone())),
+       Message::SyncAck(m) => (Some(m.page_id.clone()), Some(m.layer_name.clone())),
+       Message::SyncReset(m) => (Some(m.page_id.clone()), Some(m.layer_name.clone())),
+       Message::SyncSnapshot(m) => (Some(m.page_id.clone()), Some(m.layer_name.clone())),
+       _ => (None, None),
+   };
+   ```
+   Set on the trace and include in the capture JSON. Same pattern for the send path (line ~427) — but `send_message` doesn't know context. Instead, add a `Message::context()` method that returns `(Option<&str>, Option<&str>)` for page_id/layer_name.
+
+3. **`courier/src/message.rs`**: Add `Message::context()`:
+   ```rust
+   pub fn context(&self) -> (Option<&str>, Option<&str>) {
+       match self {
+           Message::SyncOffer(m) => (Some(&m.page_id), Some(&m.layer_name)),
+           Message::SyncAccept(m) => (Some(&m.page_id), Some(&m.layer_name)),
+           // ... etc for all sync messages, LayerPermit, LayerConsent
+           _ => (None, None),
+       }
+   }
+   ```
+
+4. Both capture emission blocks (send + receive) add `page_id` and `layer` to JSON when `Some`.
+
+---
+
+## Step 2: P1 — Peer Identity Mapping
+
+**Problem**: DIDs are 50+ chars, need a mapping event at auth time.
+
+**File**: `courier/src/peer_actor/mod.rs` — `notify_authenticated()` (line 504)
+
+**Approach**: Emit `peer_identity` event alongside the existing `CoordinatorMessage::PeerAuthenticated` cast. All needed data is already in the function params (node_id, peer_type, did, username). Use `state.capture_tx`.
+
+```json
+{"type": "peer_identity", "ts": "...", "node_id": "...", "peer_type": "Owner", "did": "did:key:...", "short_did": "...N22h2s5", "username": "bob"}
+```
+
+For `short_did`: simple inline `did.chars().skip(did.len().saturating_sub(12)).collect::<String>()` or take last 12 chars of the DID. No need for a library function.
+
+---
+
+## Step 3: P2 — Subscriber State Snapshot
+
+**Problem**: After subscription, no snapshot of what layers a DID is authorized for.
+
+**File**: `scribe/src/sync/subscription.rs` — end of `handle_subscribe()` (after line 140)
+
+**Approach**: After `issue_pending_layer_permits()`, enumerate `state.units` to find which layers the subscriber is authorized for.
+
+1. **`scribe/src/state.rs`**: Add `emit_subscriber_state_capture()`:
+   - Fields: page_id, peer_did, short_did, authorized_layers (Vec), total_layers, can_see_others, is_visible
+
+2. **`subscription.rs`** at end of `handle_subscribe()`:
+   ```rust
+   let authorized_layers: Vec<String> = state.units.iter()
+       .filter(|(_, unit)| unit.is_authorized(&user_did))
+       .map(|(name, _)| name.clone())
+       .collect();
+   state.emit_subscriber_state_capture(
+       &user_did, &authorized_layers, state.units.len(), can_see_others, is_visible,
+   );
+   ```
+
+---
+
+## Step 4: P2 — Broadcast Decision Skips
+
+**Problem**: When a subscriber is skipped during broadcast, there's no trace of why.
+
+**Files**: `scribe/src/sync/broadcast.rs`, `scribe/src/loro_observer.rs`
+
+**Approach**: Emit `broadcast_decision` events only on SKIP (not success — too noisy).
+
+### 4a: `broadcast.rs` — `broadcast_update()` (lines 40-46)
+Add `emit_broadcast_decision_capture()` to `ScribeState`. Call at skip points:
+- Line 40-42: skip sender → reason: `"skip_sender"`
+- Line 44-46: not authorized → reason: `"not_authorized"`
+
+### 4b: `loro_observer.rs` — observer async task (lines 394-430)
+The observer task has `capture_tx_for_task` cloned. Emit inline at skip points:
+- Line 396: local_only → reason: `"local_only"`
+- Line 407: from_peer → reason: `"remote_handled_by_apply"`
+- Line 428: not authorized → reason: `"not_authorized"`
+
+For the observer, emit inline using `capture_tx_for_task` since we don't have `&ScribeState` in the spawned task. Use same JSON structure.
+
+---
+
+## Step 5: P3 — Convenience Tags
+
+### 5a: `short_did` helper
+Add to all events that have a DID field. Simple utility — take last 12 chars:
+```rust
+fn short_did(did: &str) -> &str {
+    let start = did.len().saturating_sub(12);
+    &did[start..]
+}
+```
+Add as a free function in `scribe/src/state.rs` (used by Scribe emit methods) and inline in Courier emits.
+
+### 5b: `layer_short` helper
+Shorten `channels/did:key:z6Mk.../project-x/messages` → `channels/.../project-x/messages`. Collapse any path segment starting with `did:key:` to `...`.
+```rust
+fn layer_short(name: &str) -> String {
+    name.split('/').map(|seg| if seg.starts_with("did:key:") { "..." } else { seg })
+        .collect::<Vec<_>>().join("/")
+}
+```
+
+### 5c: `seq` monotonic counter
+Add `capture_seq: AtomicU64` to `ScribeState`. Increment on each emit. Helps disambiguate same-millisecond events.
+- Add field to `ScribeState` struct, initialize to 0
+- Add `next_capture_seq()` method
+- Add `seq` field to ALL existing + new emit methods in `state.rs`
+- For Courier: use a simple inline counter (AtomicU64 on PeerActorState, or just skip seq for Courier events — the message ordering from a single PeerActor is already deterministic)
+
+### 5d: Apply short_did + layer_short to ALL emit methods
+Mechanical pass through all emit methods — add `short_did` and `layer_short` fields alongside their full counterparts.
+
+---
+
+## Step 6: P3 — Pending Auth Enhancement
+
+**File**: `scribe/src/actor.rs` — `AuthorizeLayerSubscriber` handler (line 638-651)
+
+Already emits `"pending"` action. Add `pending_count` field showing queue size after the push:
+```rust
+let count = state.pending_layer_authorizations.get(&bare).map(|v| v.len()).unwrap_or(0);
+```
+Include in the emit call. Rather than changing `emit_layer_auth_capture` signature (8 call sites), just emit the pending count inline in the JSON for the `"pending"` case, using a direct `capture_tx` send.
+
+---
+
+## Step 7: Documentation
+
+**File**: `docs/OBSERVABILITY.md`
+
+Add "Event Types Reference" section documenting all event types with JSON schemas:
+- `permission_check` (P0, done)
+- `apply_update` (P0, done)
+- `message_trace` (enhanced with page_id/layer)
+- `peer_identity`
+- `subscriber_state`
+- `broadcast_decision`
+- `layer_auth` (enhanced with short_did, pending_count)
+
+Add filtering examples for new event types.
+
+---
+
+## Files Modified
+
+| File | Changes |
+|------|---------|
+| `courier/src/trace.rs` | Add optional page_id, layer_name to MessageTrace |
+| `courier/src/message.rs` | Add `Message::context()` method |
+| `courier/src/peer_actor/mod.rs` | Enhance trace emission with context, add peer_identity emit |
+| `scribe/src/state.rs` | Add short_did/layer_short helpers, seq counter, new emit methods (subscriber_state, broadcast_decision), enhance existing emits with seq/short_did/layer_short |
+| `scribe/src/sync/subscription.rs` | Add subscriber_state emit at end of handle_subscribe() |
+| `scribe/src/sync/broadcast.rs` | Add broadcast_decision skip emits |
+| `scribe/src/loro_observer.rs` | Add broadcast_decision skip emits (inline via capture_tx) |
+| `scribe/src/actor.rs` | Add pending_count to pending layer auth emit |
+| `docs/OBSERVABILITY.md` | Document all event types |
+
+## Verification
+
+1. `cargo check -p scribe -p courier` — compilation
+2. `cargo test -p scribe -p courier` — existing tests pass
+3. Run `python e2e_tests/test_custom_channel.py` with rebuilt binaries
+4. Verify new event types appear in merged JSONL:
+   - `grep '"permission_check"' merged.jsonl` — should show allowed/denied with granted_by path
+   - `grep '"apply_update"' merged.jsonl` — should show applied/rejected
+   - `grep '"peer_identity"' merged.jsonl` — should show DID→username mapping
+   - `grep '"subscriber_state"' merged.jsonl` — should show authorized layers list
+   - `grep '"broadcast_decision"' merged.jsonl` — should show skip reasons
+   - `grep '"layer"' merged.jsonl | grep message_trace` — sync messages should have layer names
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.REDACTED.jsonl
