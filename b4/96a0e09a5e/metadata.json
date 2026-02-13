@@ -10,6 +10,9 @@
     "app_test/tests/test_group_chat.rs",
     "butler/src/lib.rs",
     "butler/src/refresh.rs",
+    "courier/src/coordinator/mod.rs",
+    "courier/src/coordinator/state.rs",
+    "courier/src/handle.rs",
     "courier/src/message.rs",
     "courier/src/peer_actor/consent.rs",
     "courier/src/peer_actor/mod.rs",
@@ -23,6 +26,7 @@
     "gurkha/src/decision/mod.rs",
     "gurkha/src/lib.rs",
     "integration_tests/src/fixtures.rs",
+    "integration_tests/src/peer.rs",
     "integration_tests/src/tests/layer_sync.rs",
     "kunki/src/main.rs",
     "lua_runtime/src/mock_scribe.rs",
@@ -88,13 +92,20 @@
       "context": "/b4/96a0e09a5e/4/context.md",
       "content_hash": "/b4/96a0e09a5e/4/content_hash.txt",
       "prompt": "/b4/96a0e09a5e/4/prompt.txt"
+    },
+    {
+      "metadata": "/b4/96a0e09a5e/5/metadata.json",
+      "transcript": "/b4/96a0e09a5e/5/full.jsonl",
+      "context": "/b4/96a0e09a5e/5/context.md",
+      "content_hash": "/b4/96a0e09a5e/5/content_hash.txt",
+      "prompt": "/b4/96a0e09a5e/5/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 19129,
-    "cache_creation_tokens": 2680415,
-    "cache_read_tokens": 93774246,
-    "output_tokens": 297183,
-    "api_call_count": 875
+    "input_tokens": 19226,
+    "cache_creation_tokens": 2822722,
+    "cache_read_tokens": 103415033,
+    "output_tokens": 309907,
+    "api_call_count": 968
   }
 }

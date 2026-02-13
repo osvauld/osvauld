@@ -1,0 +1,252 @@
+Implement the following plan:
+
+# JSON Logging & Event Capture System
+
+## Context
+
+We have event systems spread across Courier and Scribe, plus a dormant log capture layer:
+
+| System | Location | Status | Captures |
+|--------|----------|--------|----------|
+| `CourierEvent` | `courier/src/handle.rs:26` | **Active** | App events: PeerAuthenticated, SpacePublished, ViewerSyncComplete |
+| `MessageTrace` | `courier/src/trace.rs` | **Test-only** (None in prod) | Protocol messages: Hello, Welcome with direction + node IDs |
+| `PageUpdate` | `scribe/src/message.rs:117` | **Active** | Layer changes, ephemeral, presence, queries |
+| `SyncEvent` | `scribe/src/message.rs:180` | **Active** | EnsureSync, NewDynamicLayer, LayerAccessChanged |
+| `DebugCaptureLayer` | `logging_utils/src/lib.rs:146` | **Unused** | All tracing log events |
+
+We want a unified capture where script/AI can:
+1. `capture_start` on ALL instances → events collected to `.jsonl` files
+2. Run operations
+3. `capture_end` → per-instance files merged for AI analysis
+
+**Default**: CourierEvents + MessageTraces + PageUpdates + SyncEvents (structured events only).
+**Optional**: `include_logs=true` adds tracing logs.
+
+## Architecture
+
+```
+Python Script / AI
+  │
+  ├─ client.capture_start("/path/file.jsonl")
+  │   └─→ Control Server → CaptureHandle.start()
+  │        ├─ Subscribes to CourierEvent broadcast
+  │        ├─ Subscribes to MessageTrace broadcast
+  │        ├─ Subscribes to PageUpdate broadcast
+  │        ├─ Subscribes to SyncEvent broadcast
+  │        └─ (if include_logs) Subscribes to DebugLogEntry broadcast
+  │
+  ├─ <operations happen>
+  │
+  └─ client.capture_end()
+      └─→ CaptureHandle.stop() → flush → file ready
+```
+
+### JSONL Output Format
+```json
+{"type": "courier_event", "ts": "...", "name": "PeerAuthenticated", "data": {...}, "instance": "owner"}
+{"type": "message_trace", "ts": "...", "direction": "Sent", "msg": "Hello", "node_id": "...", "instance": "node"}
+{"type": "page_update", "ts": "...", "name": "LayerChanged", "page_id": "...", "data": {...}, "instance": "owner"}
+{"type": "sync_event", "ts": "...", "name": "EnsureSync", "data": {...}, "instance": "node"}
+{"type": "log", "ts": "...", "level": "INFO", "target": "courier::coordinator", "msg": "...", "instance": "owner"}
+```
+
+## Implementation Steps
+
+### Step 1: Add Serialize + broadcast channels to Courier events
+
+**File**: `courier/src/handle.rs`
+- Add `#[derive(Serialize)]` to `CourierEvent`
+- In `CourierRunner`, add `broadcast::Sender<CourierEvent>` alongside existing `event_tx` mpsc
+- After sending to mpsc, also send to broadcast (for capture subscribers)
+
+**File**: `courier/src/trace.rs`
+- Add `#[derive(Serialize)]` to `MessageTrace` and `TraceDirection`
+- Add serializable `ts: String` (ISO 8601) alongside existing `timestamp: Instant`
+
+**File**: `courier/src/coordinator/state.rs`
+- Add `event_broadcast_tx: Option<broadcast::Sender<CourierEvent>>`
+- Add `message_broadcast_tx: Option<broadcast::Sender<MessageTrace>>`
+
+**File**: `courier/src/coordinator/mod.rs`
+- In `emit_event()`, also send to `event_broadcast_tx`
+- Pass `message_broadcast_tx` to PeerActor args
+
+**File**: `courier/src/peer_actor/mod.rs`
+- Add `message_broadcast_tx` field, send to it when tracing messages
+
+### Step 2: Add broadcast channels to Scribe events
+
+**File**: `scribe/src/state.rs`
+- Add `page_update_broadcast_tx: Option<broadcast::Sender<PageUpdate>>` to `ScribeState`
+- Add `sync_event_broadcast_tx: Option<broadcast::Sender<SyncEvent>>` to `ScribeState`
+- Add same to `ScribeArgs`
+
+**File**: `scribe/src/message.rs`
+- Add `#[derive(Serialize)]` to `PageUpdate` and `SyncEvent`
+- For `PageUpdate::LayerChanged`: skip serializing `state_vector: Vec<u8>` (or encode as hex/base64)
+
+**File**: `scribe/src/actor.rs`
+- When emitting `SyncEvent` (line ~186), also send to broadcast
+- When emitting `PageUpdate`, also send to broadcast
+
+**File**: `scribe/src/loro_observer.rs`
+- When emitting `PageUpdate::LayerChanged` (line ~353), also send to broadcast
+
+**File**: `scribe/src/sync/broadcast.rs` (and other files that emit PageUpdate)
+- Same pattern: send to broadcast alongside existing mpsc fanout
+
+### Step 3: CaptureHandle in logging_utils
+
+**File**: `logging_utils/Cargo.toml`
+- Add `serde`, `serde_json`
+- Extend tokio features: `["sync", "fs", "io-util", "time"]`
+
+**File**: `logging_utils/src/lib.rs`
+- Add `#[derive(Serialize)]` to `DebugLogEntry`, add `fields: HashMap<String, String>`
+- Replace `MessageVisitor` with `FieldCollector` (populates `msg` + `fields`)
+- Always create broadcast channel + DebugCaptureLayer (remove conditional)
+- Change `init_rich_tracing` return: `Result<(Option<WorkerGuard>, CaptureHandle), ...>`
+- Remove `debug_tx` from `LogConfig`
+
+**New**: `CaptureHandle` struct — generic over event sources:
+```rust
+#[derive(Clone)]
+pub struct CaptureHandle {
+    log_tx: broadcast::Sender<DebugLogEntry>,
+    /// Set after courier/scribe init via register methods
+    capture_sources: Arc<RwLock<CaptureSources>>,
+    cancel_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    instance_name: String,
+}
+
+struct CaptureSources {
+    courier_event_tx: Option<broadcast::Sender</* CourierEvent */>>,
+    message_trace_tx: Option<broadcast::Sender</* MessageTrace */>>,
+    page_update_tx: Option<broadcast::Sender</* PageUpdate */>>,
+    sync_event_tx: Option<broadcast::Sender</* SyncEvent */>>,
+}
+```
+
+Since `logging_utils` can't depend on `courier` or `scribe` (circular), `CaptureHandle` uses a trait or generic serialization approach:
+- Option A: `CaptureHandle` accepts `broadcast::Receiver<serde_json::Value>` — callers serialize before sending
+- Option B: Define a `CaptureEntry` enum in `logging_utils` with serialized JSON, callers convert
+- **Option C (simplest)**: Each source registers a `broadcast::Sender<String>` (pre-serialized JSON line). CaptureHandle subscribes to all registered senders.
+
+**Recommended: Option C** — keeps logging_utils dependency-free, each crate serializes its own events.
+
+```rust
+impl CaptureHandle {
+    /// Register a capture source (pre-serialized JSON lines)
+    pub async fn register_source(&self, tx: broadcast::Sender<String>);
+
+    /// Start capturing to file
+    pub async fn start_capture(&self, file_path: PathBuf, include_logs: bool) -> Result<(), String>;
+
+    /// Stop capturing
+    pub async fn stop_capture(&self) -> Result<(), String>;
+}
+```
+
+### Step 4: Control server capture commands
+
+**File**: `control_server/Cargo.toml`
+- Add: `logging_utils = { path = "../logging_utils", optional = true }`
+- Add feature: `capture = ["dep:logging_utils"]`
+
+**File**: `control_server/src/server.rs`
+- Add optional `capture_handle` field + `with_capture()` builder
+- Thread through `start()` → `handle_connection()` → `process_request()`
+- New commands: `capture_start` (params: `{file_path, include_logs?}`), `capture_end`
+
+### Step 5: Wire in kunki
+
+**File**: `kunki/Cargo.toml` — enable `capture` feature
+
+**File**: `kunki/src/main.rs`
+- `let (_guard, capture_handle) = init_rich_tracing(...)?;`
+- After courier init: create broadcast senders, register with capture_handle
+- After scribe init: register scribe broadcast senders
+- Pass capture_handle to KunkiControlServer
+
+**File**: `kunki/src/control_server.rs`
+- Accept + forward CaptureHandle
+
+### Step 6: Wire in sthalam
+
+**File**: `sthalam/Cargo.toml` — enable `capture` feature
+
+**File**: `sthalam/src/setup.rs` — return broadcast senders alongside CourierHandle
+
+**File**: `sthalam/src/main.rs` — wire broadcast senders into capture_handle, pass to control server
+
+### Step 7: Python client + scenario
+
+**File**: `scripts/osvauld/client.py`
+```python
+def capture_start(self, file_path: str, include_logs: bool = False):
+    return self.send("capture_start", {"file_path": file_path, "include_logs": include_logs})
+
+def capture_end(self):
+    return self.send("capture_end")
+```
+
+**File**: `scripts/osvauld/scenario.py`
+- `Scenario.capture_start(label)` — all instances, files: `{base_dir}/captures/{label}_{name}.jsonl`
+- `Scenario.capture_end(merge=True)` — stops all, merges into `{label}_merged.jsonl` sorted by `ts`
+
+## Critical Files
+
+| File | Change |
+|------|--------|
+| `courier/src/handle.rs` | Serialize CourierEvent, add broadcast |
+| `courier/src/trace.rs` | Serialize MessageTrace, serializable timestamp |
+| `courier/src/coordinator/state.rs` | Add broadcast senders |
+| `courier/src/coordinator/mod.rs` | Emit to broadcast in emit_event() |
+| `courier/src/peer_actor/mod.rs` | Emit to broadcast for traces |
+| `scribe/src/message.rs` | Serialize PageUpdate + SyncEvent |
+| `scribe/src/state.rs` | Add broadcast senders |
+| `scribe/src/actor.rs` | Emit to broadcast for SyncEvent + PageUpdate |
+| `scribe/src/loro_observer.rs` | Emit PageUpdate to broadcast |
+| `scribe/src/sync/broadcast.rs` | Emit PageUpdate to broadcast |
+| `logging_utils/Cargo.toml` | Add serde, serde_json, extend tokio |
+| `logging_utils/src/lib.rs` | CaptureHandle, enrich DebugLogEntry, always create broadcast |
+| `control_server/Cargo.toml` | Add optional logging_utils, capture feature |
+| `control_server/src/server.rs` | capture_handle, with_capture(), commands |
+| `kunki/Cargo.toml` | Enable capture feature |
+| `kunki/src/main.rs` | Wire all broadcast sources |
+| `kunki/src/control_server.rs` | Accept + forward CaptureHandle |
+| `sthalam/Cargo.toml` | Enable capture feature |
+| `sthalam/src/setup.rs` | Return broadcast senders |
+| `sthalam/src/main.rs` | Wire all broadcast sources |
+| `scripts/osvauld/client.py` | capture_start(), capture_end() |
+| `scripts/osvauld/scenario.py` | Multi-peer capture + merge |
+| `docs/OBSERVABILITY.md` | New doc: capture system, JSONL format, AI usage |
+
+### Step 8: Documentation — `docs/OBSERVABILITY.md`
+
+New file: `docs/OBSERVABILITY.md` covering:
+- **Overview**: Event capture system, what it captures (CourierEvents, MessageTraces, PageUpdates, SyncEvents, optional tracing logs)
+- **JSONL format**: Schema for each entry type with examples
+- **Usage from Python**: `client.capture_start()`, `client.capture_end()`, `scenario.capture_start()`/`capture_end()`
+- **Usage for AI analysis**: How to feed merged JSONL to AI for debugging sync issues
+- **Build**: No extra flags needed — capture is always compiled in via `cargo build`
+- **Architecture diagram**: Event flow from Scribe/Courier → broadcast channels → CaptureHandle → JSONL file
+
+## Build Notes
+
+**No extra build flags required.** The `capture` feature is enabled by `kunki` and `sthalam` in their `Cargo.toml` dependency declarations, so a plain `cargo build` includes capture support. The broadcast channels in courier/scribe are always compiled in (near-zero cost when no subscribers — `broadcast::send()` with 0 receivers is a no-op).
+
+This is different from profiling (`cargo build --features profiling`) which is opt-in.
+
+## Verification
+
+1. `cargo check -p courier` — Serialize derives compile
+2. `cargo check -p scribe` — Serialize derives compile
+3. `cargo check -p logging_utils` — CaptureHandle compiles
+4. `cargo check -p control_server --features capture` — capture commands compile
+5. `cargo check -p kunki && cargo check -p sthalam` — full wiring compiles
+6. Manual test: spawn via TmuxManager, `client.capture_start("/tmp/test.jsonl")`, do sync, `client.capture_end()`, verify JSONL has courier+scribe events
+7. Multi-peer: `scenario.capture_start("test")`, run operations, `scenario.capture_end()`, verify merged file has interleaved events from all instances sorted by time
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/3b11cee7-8262-4d72-8763-eefdc9b3722a.jsonl
