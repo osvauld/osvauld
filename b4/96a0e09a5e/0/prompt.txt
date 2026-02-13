@@ -1,0 +1,728 @@
+Implement the following plan:
+
+# Per-Layer Authorization: Move `authorized_dids` from SubscriberInfo to LayerUnit
+
+## Context
+
+**Problem**: Dynamic layer sync is broken on the viewer side. When a viewer receives a layer permit from the node, it's stored in butler DB but never communicated to the local Scribe. The observer's `can_receive_layer()` check fails, so local writes to dynamic layers never reach the node.
+
+**Deeper issue**: The current authorization model is subscriber-centric (`SubscriberInfo` holds permits, checked per-subscriber per-broadcast). On the node with many subscribers and many dynamic layers, this means N×M permit checks on every broadcast. The natural question is layer-centric: "who can access THIS layer?"
+
+**Decision**: Move authorization to `LayerUnit` for ALL layers (static + dynamic), creating one code path. Authorization is computed once (at subscription/permit-issuance time) and looked up O(1) at broadcast time.
+
+---
+
+## Step 1: Add `authorized_dids` to `LayerUnit`
+
+**File**: `scribe/src/layer_unit/mod.rs`
+
+```rust
+pub struct LayerUnit {
+    layer: Layer,
+    dirty: bool,
+    is_local_only: bool,
+    pub is_dynamic: bool,
+    loro_sub: Option<loro::Subscription>,
+    /// Which subscriber DIDs are authorized to receive updates for this layer.
+    /// Arc<RwLock> because the observer async task needs shared read access.
+    /// Populated at subscription time (page permit) and permit issuance (layer permits).
+    authorized_dids: Arc<RwLock<HashSet<String>>>,
+}
+```
+
+Add methods:
+- `pub fn authorized_dids(&self) -> &Arc<RwLock<HashSet<String>>>` — for observer to clone the Arc
+- `pub fn authorize_did(&self, did: &str)` — insert DID (takes `&self` via RwLock)
+- `pub fn revoke_did(&self, did: &str)` — remove DID
+- `pub fn is_authorized(&self, did: &str) -> bool` — check authorization
+
+Update `new()` and `new_empty()` to initialize `authorized_dids: Arc::new(RwLock::new(HashSet::new()))`.
+
+---
+
+## Step 2: Populate `authorized_dids` at subscription time
+
+**File**: `scribe/src/sync/subscription.rs` — `handle_subscribe()`
+
+After inserting the subscriber into `state.subscribers`, iterate all existing LayerUnits and check the new subscriber's permit:
+
+```rust
+// Populate authorized_dids on existing LayerUnits for this subscriber
+for (layer_name, unit) in &state.units {
+    // Skip local-only layers
+    if unit.is_local_only() { continue; }
+    // Presence layer: only if can_see_others
+    if (layer_name == "presence" || layer_name.ends_with("/presence")) && !can_see_others {
+        continue;
+    }
+    // no_incoming_updates check
+    if permit.sync_facts().no_incoming_updates.contains(&layer_name.to_string()) {
+        continue;
+    }
+    // Check if page permit covers this layer
+    if permit.can_read_layer(layer_name, &state.page_id, &permit_holder_did) {
+        unit.authorize_did(&user_did);
+    }
+}
+```
+
+Extract this into a helper: `fn authorize_subscriber_for_layers(state, user_did, permit, permit_holder_did, can_see_others)`.
+
+---
+
+## Step 3: Populate `authorized_dids` at layer creation time
+
+When new LayerUnits are created, check existing subscribers.
+
+### 3a: Static layer creation (`scribe/src/actor.rs`, `scribe/src/operations.rs`)
+
+After creating a new static LayerUnit and inserting into `state.units`:
+```rust
+// Authorize existing subscribers for this new layer
+if let Ok(subs) = state.subscribers.read() {
+    for ((did, _), info) in subs.iter() {
+        if info.can_receive_layer(layer_name, &state.page_id) {
+            unit.authorize_did(did);
+        }
+    }
+}
+```
+
+Note: During initial setup (before any subscribers), this is a no-op. That's fine.
+
+### 3b: Dynamic layer creation from peer (`scribe/src/sync/apply.rs` — `create_layer_from_peer()`)
+
+Same pattern — authorize existing subscribers who have matching permits.
+
+### 3c: Dynamic layer creation from Lua (`scribe/src/layer_unit/dynamic.rs` — `handle_create_dynamic_layer()`)
+
+For viewer-created dynamic layers:
+```rust
+// Creator can sync — authorize all current subscribers (viewer mode: just the node)
+if let Ok(subs) = state.subscribers.read() {
+    for ((did, _), _) in subs.iter() {
+        unit.authorize_did(did);
+    }
+}
+```
+
+---
+
+## Step 4: Populate `authorized_dids` when layer permits are issued (node side)
+
+### 4a: `emit_dynamic_layer_permits()` in `scribe/src/sync/apply.rs`
+
+Replace the block that adds layer permits to SubscriberInfo (lines 506-530) with:
+```rust
+// Add recipient DIDs to LayerUnit's authorized_dids
+if let Some(unit) = state.units.get(layer_name) {
+    for (recipient_did, _token) in &permits {
+        unit.authorize_did(recipient_did);
+    }
+}
+```
+
+### 4b: `handle_add_layer_access()` in `scribe/src/layer_unit/dynamic.rs`
+
+Replace `info.add_layer_permit(p)` (lines 349-356) with:
+```rust
+// Add to LayerUnit's authorized_dids
+let bare_name = normalize_layer_name(layer_name, &state.page_id);
+if let Some(unit) = state.units.get(&bare_name) {
+    unit.authorize_did(did);
+}
+```
+
+### 4c: `issue_pending_layer_permits()` in `scribe/src/sync/subscription.rs`
+
+Replace `info.add_layer_permit(p)` (lines 289-293) with:
+```rust
+// Add to LayerUnit's authorized_dids
+let bare_name = normalize_layer_name(layer_name, &state.page_id);
+if let Some(unit) = state.units.get(&bare_name) {
+    unit.authorize_did(user_did);
+}
+```
+
+---
+
+## Step 5: New ScribeMessage for viewer-side layer permit reception
+
+**File**: `scribe/src/message.rs`
+
+Add variant:
+```rust
+/// Authorize a subscriber DID for a specific layer
+///
+/// **Context**: Viewer received LayerPermit from node. Authorize the node
+/// (subscriber) on the local Scribe's LayerUnit so the observer broadcasts to it.
+AuthorizeLayerSubscriber {
+    layer_name: String,
+    subscriber_did: String,
+},
+```
+
+**File**: `scribe/src/actor.rs`
+
+Handle the message:
+```rust
+ScribeMessage::AuthorizeLayerSubscriber { layer_name, subscriber_did } => {
+    let bare = normalize_layer_name(&layer_name, &state.page_id);
+    if let Some(unit) = state.units.get(&bare) {
+        unit.authorize_did(&subscriber_did);
+        info!(layer = %bare, did = %subscriber_did, "Authorized subscriber for layer");
+    } else {
+        // Layer doesn't exist yet — store pending authorization
+        state.pending_layer_authorizations
+            .entry(bare)
+            .or_insert_with(Vec::new)
+            .push(subscriber_did);
+    }
+}
+```
+
+Add `pending_layer_authorizations: HashMap<String, Vec<String>>` to `ScribeState`. When a layer is later created (in `create_layer_from_peer`), check and apply pending authorizations.
+
+**File**: `courier/src/peer_actor/consent.rs` — `on_layer_permit()`
+
+After storing in butler and before issuing consent (around line 522), add:
+```rust
+// Authorize this layer on local Scribe so observer can broadcast
+if let Some(subscription) = state.page_subscriptions.get(page_id) {
+    let bare_name = layer_name.strip_prefix(&format!("{}/", page_id)).unwrap_or(layer_name);
+    subscription.scribe.cast(butler::ScribeMessage::AuthorizeLayerSubscriber {
+        layer_name: bare_name.to_string(),
+        subscriber_did: node_did.clone(),  // The node is our subscriber
+    }).ok();
+}
+```
+
+---
+
+## Step 6: Replace observer broadcast check
+
+**File**: `scribe/src/loro_observer.rs` — `setup_layer_observer()`
+
+Currently the observer captures `subscribers_for_task` and checks `info.can_receive_layer()`. Change to:
+
+```rust
+// Capture authorized_dids Arc at setup time
+let authorized_dids_for_task = state.units.get(layer_name).unwrap().authorized_dids().clone();
+
+// Inside the async task, replace:
+//   if !info.can_receive_layer(...) { continue; }
+// with:
+let authorized = authorized_dids_for_task.read().unwrap_or_else(|e| e.into_inner());
+for ((user_did, device_id), info) in subs.iter() {
+    if !authorized.contains(user_did) {
+        continue;
+    }
+    // ... broadcast
+}
+```
+
+---
+
+## Step 7: Replace `broadcast_update` check
+
+**File**: `scribe/src/sync/broadcast.rs`
+
+`broadcast_update` has direct access to `state.units`. Replace line 42:
+```rust
+// OLD: if !info.can_receive_layer(layer_name, &state.page_id) { continue; }
+// NEW:
+let authorized = unit.authorized_dids().read().unwrap_or_else(|e| e.into_inner());
+// ... inside subscriber loop:
+if !authorized.contains(user_did) { continue; }
+```
+
+Read the lock once before the subscriber loop (not per-subscriber).
+
+---
+
+## Step 8: Replace `reconcile` check
+
+**File**: `scribe/src/sync/reconcile.rs` — `handle_reconcile_with_peers()`
+
+Replace line 44 `info.can_receive_layer()` check. Since reconcile iterates layers then subscribers, read `authorized_dids` per layer:
+```rust
+let authorized = match state.units.get(&layer_name) {
+    Some(unit) => unit.authorized_dids().read().ok(),
+    None => continue,
+};
+// ... inside subscriber check:
+if !authorized.as_ref().map(|a| a.contains(&info.subscriber_did)).unwrap_or(false) {
+    return false;
+}
+```
+
+---
+
+## Step 9: Update `handle_unsubscribe`
+
+**File**: `scribe/src/sync/subscription.rs` — `handle_unsubscribe()`
+
+After removing from subscribers, remove DID from all LayerUnits:
+```rust
+for (_, unit) in &state.units {
+    unit.revoke_did(user_did);
+}
+```
+
+---
+
+## Step 10: Clean up SubscriberInfo
+
+**File**: `scribe/src/state.rs`
+
+- Remove `layer_permits: Vec<gurkha::Permit>` field from `SubscriberInfo`
+- Remove `can_receive_layer()` method (replaced by LayerUnit check)
+- Remove `add_layer_permit()` method
+- Keep `permit` field (still used for: write checks, role extraction, sync facts, initial state delivery)
+- Keep `can_write_layer()` (write auth stays subscriber-centric for now)
+- Keep `subscriber_did`, `is_visible`, `can_see_others` (presence still per-subscriber)
+
+Note: `can_write_layer()` still uses `gurkha::can_access_with_layer_permits()` but with empty `layer_permits`. For dynamic layer writes, the node trusts `sync_target` (path 2 in `Permissions::can_write`). This is fine for now — write auth can move to LayerUnit in a follow-up.
+
+Also remove `Permissions::can_receive()` from `scribe/src/permit.rs` (dead code, marked `#[allow(dead_code)]`).
+
+---
+
+## Step 11: Update `send_initial_state_to_subscriber`
+
+**File**: `scribe/src/sync/subscription.rs`
+
+After we populate `authorized_dids` in Step 2, `send_initial_state_to_subscriber` can use the same check:
+```rust
+// OLD: if !permit.can_read_layer(layer_name, &state.page_id, subscriber_did) { continue; }
+// NEW:
+if !unit.is_authorized(user_did) { continue; }
+```
+
+But note: the `no_incoming_updates` check is already handled in Step 2 (we skip those when populating). The presence check is also handled. So this simplification works.
+
+---
+
+## Integration Tests
+
+**File**: `integration_tests/src/tests/layer_sync.rs`
+
+The 8 existing tests should NOT require changes — they test end-to-end sync behavior, not internal authorization structures. The observable behavior is:
+- Static layers sync ✓ (authorized_dids populated from page permit at subscription)
+- Dynamic layers sync ✓ (authorized_dids populated when permits are issued)
+- Viewer receives data ✓ (AuthorizeLayerSubscriber message from PeerActor)
+
+**Tests that implicitly validate the refactor**:
+- `test_dynamic_layer_syncs_to_viewer` — dynamic layer + permit issuance
+- `test_custom_channel_data_syncs_to_viewer` — was previously failing (the bug!), should now pass
+- `test_static_channel_layer_syncs_to_viewer` — static channels through the new path
+
+**Risk**: If `can_write_layer()` on SubscriberInfo breaks for dynamic layers (since `layer_permits` is removed), writes could be rejected. Mitigation: `Permissions::can_write` has 3 paths — path 2 (`sync_target` trust) covers viewer→node, path 3 (stored permit lookup) covers node→viewer. Both bypass `SubscriberInfo.can_write_layer()`.
+
+---
+
+## Files Modified Summary
+
+| File | Changes |
+|------|---------|
+| `scribe/src/layer_unit/mod.rs` | Add `authorized_dids: Arc<RwLock<HashSet<String>>>` + methods |
+| `scribe/src/state.rs` | Remove `layer_permits`, `can_receive_layer()`, `add_layer_permit()` from SubscriberInfo. Add `pending_layer_authorizations` to ScribeState |
+| `scribe/src/sync/subscription.rs` | Populate authorized_dids at subscribe time, clean up at unsubscribe, update `send_initial_state_to_subscriber`, update `issue_pending_layer_permits` |
+| `scribe/src/loro_observer.rs` | Capture `authorized_dids` Arc, use for broadcast check |
+| `scribe/src/sync/broadcast.rs` | Use `unit.authorized_dids()` instead of `info.can_receive_layer()` |
+| `scribe/src/sync/reconcile.rs` | Use `unit.authorized_dids()` instead of `info.can_receive_layer()` |
+| `scribe/src/sync/apply.rs` | Update `emit_dynamic_layer_permits()`, `create_layer_from_peer()` |
+| `scribe/src/layer_unit/dynamic.rs` | Update `handle_create_dynamic_layer()`, `handle_add_layer_access()` |
+| `scribe/src/message.rs` | Add `AuthorizeLayerSubscriber` variant |
+| `scribe/src/actor.rs` | Handle `AuthorizeLayerSubscriber`, apply pending authorizations |
+| `scribe/src/permit.rs` | Remove dead `Permissions::can_receive()` |
+| `courier/src/peer_actor/consent.rs` | Send `AuthorizeLayerSubscriber` to local Scribe on layer permit receipt |
+
+---
+
+## Verification
+
+```bash
+# Build check
+cargo check --workspace
+
+# Scribe unit tests
+cargo test -p scribe
+
+# Gurkha tests (unchanged, but verify no regressions)
+cargo test -p gurkha
+
+# Integration tests (the real validation)
+cargo test -p integration_tests
+
+# Manual test: dynamic channels
+python scripts/test_chat.py
+```
+
+Key manual validation: Alice creates custom channel, Carol writes a message → message syncs to all peers.
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/76e9a3e9-b971-4142-b3e3-974ced98c479.jsonl
+
+---
+
+e2e_tests/test_custom_channel.py check this out, so now also we still have no data sync from other users, only alice data goes to them. refer the jsonl Captured 342 events -> /tmp/custom_channel_test/captures/custom_channel_merged.jsonl so we have the events here. can you check analyze it and check whats the issue?
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. The user provided a detailed implementation plan for "Per-Layer Authorization: Move `authorized_dids` from SubscriberInfo to LayerUnit". This was a comprehensive 11-step plan.
+
+2. I read all the key files to understand the current state:
+   - scribe/src/layer_unit/mod.rs
+   - scribe/src/state.rs
+   - scribe/src/message.rs
+   - scribe/src/actor.rs
+   - scribe/src/loro_observer.rs
+   - scribe/src/sync/subscription.rs
+   - scribe/src/sync/broadcast.rs
+   - scribe/src/sync/reconcile.rs
+   - scribe/src/sync/apply.rs
+   - scribe/src/layer_unit/dynamic.rs
+   - scribe/src/permit.rs
+   - courier/src/peer_actor/consent.rs
+   - scribe/src/lib.rs
+   - scribe/src/test_fixtures.rs
+
+3. I created 6 tasks and implemented the plan step by step:
+   - Task 1: Added `authorized_dids` to LayerUnit
+   - Task 2: Added AuthorizeLayerSubscriber message + pending_layer_authorizations
+   - Task 3: Populated authorized_dids at subscribe/create/permit time
+   - Task 4: Replaced broadcast checks + cleaned up SubscriberInfo
+   - Task 5: Wired courier peer_actor to send AuthorizeLayerSubscriber
+   - Task 6: Build check and test - ALL TESTS PASSED
+
+4. After implementation, the user made additional changes (system-reminder notes):
+   - Added `capture_tx` field to ScribeState and ScribeArgs (observability/capture system)
+   - Added `emit_sync_event_capture()` and `emit_page_update_capture()` methods to ScribeState
+   - Added Serialize derive to PageUpdate and SyncEvent
+   - Updated test_fixtures with `capture_tx: None`
+   - Added capture channel integration in loro_observer.rs, broadcast.rs, reconcile.rs, subscription.rs, apply.rs
+
+5. Then the user ran `e2e_tests/test_custom_channel.py` and found the issue persists: "we still have no data sync from other users, only alice data goes to them"
+
+6. The user asked me to analyze the captured JSONL events at /tmp/custom_channel_test/captures/custom_channel_merged.jsonl
+
+7. I launched an Explore agent to analyze the captures and also started investigating myself.
+
+8. The analysis revealed:
+   - Bob and Carol DO write locally (their own LayerChanged events appear)
+   - Bob and Carol's writes NEVER reach the node
+   - LayerPermit messages ARE being sent and received by all peers
+   - LayerConsent flow completes successfully
+   - No AuthorizeLayerSubscriber events visible in captures (but this is because the capture system doesn't capture ScribeMessages)
+
+9. The user then sent two additional messages:
+   - "do we need to capture anything more, check observability.md as well" 
+   - "so we need have deeper observability in the permit analysis as well right, these events need to be captured right?"
+
+These messages indicate the user wants me to:
+a) Add observability/capture for the AuthorizeLayerSubscriber flow
+b) Investigate why the fix isn't working despite tests passing
+
+The root cause analysis (which I was in the middle of) points to a timing issue:
+- When `create_layer_from_peer` runs on the viewer's Scribe, it tries `info.can_receive_layer()` for the node subscriber
+- `can_receive_layer()` now only checks the page permit (since we removed `layer_permits`)
+- The page permit likely doesn't cover dynamic layers like `channels/did:key:alice/project-x/messages`
+- The `AuthorizeLayerSubscriber` message should fix this, BUT there may be a timing issue where the observer fires BEFORE the authorization is applied
+
+Key timing issue: When viewer receives data AND creates the layer via `create_layer_from_peer`, the import happens immediately after layer creation. The observer fires during import. At this point, if `AuthorizeLayerSubscriber` hasn't been processed yet, the node won't be in `authorized_dids`, and the observer will skip broadcasting to the node. Later, when Bob writes his own message, if the authorization still hasn't been applied, Bob's message won't broadcast to the node either.
+
+But actually, the authorization SHOULD be applied by the time Bob writes (5+ seconds later). The issue might be something else entirely.
+
+Wait, let me reconsider. The `on_layer_permit` handler in consent.rs sends `AuthorizeLayerSubscriber`. But does it actually fire? The capture shows `LayerPermit` is received by Bob. Let me check the `require_user_mode` guard...
+
+Actually, looking at the event order in Bob's capture:
+- L29: LayerChanged channels_meta (from_peer=None) 
+- L33: LayerChanged channels/.../project-x/messages (from_peer=None) - this is the dynamic layer data arriving
+- L35: LayerPermit received
+- L47: LayerChanged channels/.../project-x/messages (from_peer=None) - this is Bob's own write
+
+So the layer data (L33) arrives BEFORE the LayerPermit (L35). This means:
+1. L33: `create_layer_from_peer` runs, `can_receive_layer` fails for node (page permit doesn't cover dynamic layer), pending_authorizations is empty → node NOT authorized
+2. L35: `on_layer_permit` fires → sends `AuthorizeLayerSubscriber` → layer exists → node gets authorized
+3. L47: Bob writes → observer fires → checks `authorized_dids` → should contain node now
+
+So by the time Bob writes at L47, the node should be authorized. Unless... the `AuthorizeLayerSubscriber` message hasn't been processed yet? Since Scribe is an actor, messages are processed sequentially. The `AuthorizeLayerSubscriber` cast is sent from the PeerActor to the Scribe. If the Scribe is busy processing other messages, it might not have processed the authorization yet.
+
+But there's a 1-second sleep between Bob switching channels and Bob sending a message. That should be enough time.
+
+Actually wait - I need to think about this differently. Let me check: does the `on_layer_permit` code actually work? Let me re-read:
+
+```rust
+if let Some(subscription) = state.page_subscriptions.get(page_id) {
+```
+
+What is `page_id` here? From the LayerPermit message, it's the page_id string. And `page_subscriptions` maps page_id → PageSubscription. This should work IF the page_id in the LayerPermit matches exactly the key in page_subscriptions.
+
+Actually, there might be a subtle issue. The `subscription.scribe` is the LOCAL Scribe ActorRef. But in viewer mode, who subscribes to the local Scribe? It's the PeerActor itself (representing the node). The subscriber on Bob's local Scribe has the node's DID.
+
+So `AuthorizeLayerSubscriber { subscriber_did: node_did }` should authorize the node. But wait - what DID does the node use when it subscribes to Bob's Scribe? Let me check... The subscription uses the node's DID as extracted from the handshake authentication. And the `node_did` in `on_layer_permit` is also from `require_auth`. These should match.
+
+Hmm, so if the code is correct in theory but Bob's messages still don't reach the node, we need better observability to see what's actually happening. The user's question about capturing more events is directly relevant.
+
+The user's most recent messages are:
+1. "do we need to capture anything more, check observability.md as well"
+2. "so we need have deeper observability in the permit analysis as well right, these events need to be captured right?"
+
+These suggest the user wants to add capture events for the authorization flow to debug the issue further.
+
+Summary:
+1. Primary Request and Intent:
+   The user provided a detailed 11-step plan to refactor per-layer authorization in the Scribe crate, moving `authorized_dids` from `SubscriberInfo` to `LayerUnit`. The goal was to fix broken dynamic layer sync on the viewer side — when a viewer receives a layer permit from the node, it was stored in butler DB but never communicated to the local Scribe, causing the observer's broadcast check to fail and preventing viewer writes from reaching the node.
+
+   After implementation, the user ran `e2e_tests/test_custom_channel.py` and found the issue PERSISTS: "we still have no data sync from other users, only alice data goes to them." The user then asked to analyze captured JSONL events and add deeper observability for the authorization/permit flow.
+
+2. Key Technical Concepts:
+   - **LayerUnit authorization**: `authorized_dids: Arc<RwLock<HashSet<String>>>` on each LayerUnit, consulted at broadcast time
+   - **AuthorizeLayerSubscriber**: New ScribeMessage variant for viewer-side authorization when receiving LayerPermits
+   - **pending_layer_authorizations**: HashMap on ScribeState for layers that don't exist yet when authorization arrives
+   - **Observer broadcast filtering**: Loro observer captures `authorized_dids` Arc at setup time, reads via RwLock during broadcast
+   - **Capture/Observability system**: JSONL event capture via `broadcast::Sender<String>` channels, captures CourierEvents, MessageTraces, PageUpdates, SyncEvents
+   - **Timing-sensitive flow**: LayerPermit, AuthorizeLayerSubscriber, and layer data arrival order affects whether node gets authorized before observer fires
+   - The user made parallel changes adding `capture_tx: Option<broadcast::Sender<String>>` to ScribeState/ScribeArgs and `emit_sync_event_capture()`/`emit_page_update_capture()` methods
+
+3. Files and Code Sections:
+
+   - **`scribe/src/layer_unit/mod.rs`** — Core of the refactor. Added `authorized_dids` field and accessor methods.
+     ```rust
+     use std::collections::HashSet;
+     use std::sync::{Arc, RwLock};
+     
+     pub struct LayerUnit {
+         // ... existing fields ...
+         authorized_dids: Arc<RwLock<HashSet<String>>>,
+     }
+     
+     impl LayerUnit {
+         pub fn new(layer: Layer) -> Self {
+             Self {
+                 // ... existing fields ...
+                 authorized_dids: Arc::new(RwLock::new(HashSet::new())),
+             }
+         }
+         pub fn authorized_dids(&self) -> &Arc<RwLock<HashSet<String>>> { &self.authorized_dids }
+         pub fn authorize_did(&self, did: &str) { ... }
+         pub fn revoke_did(&self, did: &str) { ... }
+         pub fn is_authorized(&self, did: &str) -> bool { ... }
+     }
+     ```
+
+   - **`scribe/src/message.rs`** — Added new ScribeMessage variant:
+     ```rust
+     AuthorizeLayerSubscriber {
+         layer_name: String,
+         subscriber_did: String,
+     },
+     ```
+
+   - **`scribe/src/state.rs`** — Removed `layer_permits` and `add_layer_permit()` from SubscriberInfo. Added `pending_layer_authorizations` to ScribeState. Simplified `can_receive_layer()` to page-permit-only check. User also added `capture_tx`, `emit_sync_event_capture()`, `emit_page_update_capture()`.
+     ```rust
+     pub struct SubscriberInfo {
+         pub permit: gurkha::Permit,
+         // REMOVED: pub layer_permits: Vec<gurkha::Permit>,
+         pub subscriber_did: String,
+         // ... other fields unchanged ...
+     }
+     
+     impl SubscriberInfo {
+         pub fn can_receive_layer(&self, layer_name: &str, page_id: &str) -> bool {
+             // Now checks page permit only, not layer_permits
+             self.permit.can_read_layer(layer_name, page_id, &self.subscriber_did)
+         }
+         // REMOVED: add_layer_permit()
+     }
+     
+     pub struct ScribeState {
+         // ... existing fields ...
+         pub pending_layer_authorizations: HashMap<String, Vec<String>>,
+         pub capture_tx: Option<broadcast::Sender<String>>, // Added by user
+     }
+     ```
+
+   - **`scribe/src/actor.rs`** — Handles AuthorizeLayerSubscriber message:
+     ```rust
+     ScribeMessage::AuthorizeLayerSubscriber { layer_name, subscriber_did } => {
+         let bare = normalize_layer_name(&layer_name, &state.page_id);
+         if let Some(unit) = state.units.get(&bare) {
+             unit.authorize_did(&subscriber_did);
+         } else {
+             state.pending_layer_authorizations
+                 .entry(bare.clone())
+                 .or_insert_with(Vec::new)
+                 .push(subscriber_did.clone());
+         }
+     }
+     ```
+     Also added `pending_layer_authorizations: HashMap::new()` to state initialization.
+
+   - **`scribe/src/sync/subscription.rs`** — Populates authorized_dids at subscribe time:
+     ```rust
+     fn authorize_subscriber_for_layers(
+         state: &ScribeState, user_did: &str, permit: &gurkha::Permit,
+         permit_holder_did: &str, can_see_others: bool,
+     ) {
+         for (layer_name, unit) in &state.units {
+             if unit.is_local_only() { continue; }
+             if (layer_name == "presence" || layer_name.ends_with("/presence")) && !can_see_others { continue; }
+             if permit.sync_facts().no_incoming_updates.contains(&layer_name.to_string()) { continue; }
+             if permit.can_read_layer(layer_name, &state.page_id, permit_holder_did) {
+                 unit.authorize_did(user_did);
+             }
+         }
+     }
+     ```
+     Updated `send_initial_state_to_subscriber` to use `unit.is_authorized(user_did)`. Updated `handle_unsubscribe` to `revoke_did` from all units. Updated `issue_pending_layer_permits` to authorize via LayerUnit.
+
+   - **`scribe/src/sync/apply.rs`** — Updated `create_layer_from_peer` to authorize existing subscribers and apply pending authorizations:
+     ```rust
+     fn create_layer_from_peer(state: &mut ScribeState, layer_name: &str) {
+         // ... create unit ...
+         // Authorize existing subscribers
+         if let Ok(subs) = state.subscribers.read() {
+             for ((did, _), info) in subs.iter() {
+                 if info.can_receive_layer(layer_name, &state.page_id) {
+                     if let Some(unit) = state.units.get(layer_name) {
+                         unit.authorize_did(did);
+                     }
+                 }
+             }
+         }
+         // Apply pending authorizations
+         if let Some(pending_dids) = state.pending_layer_authorizations.remove(layer_name) {
+             if let Some(unit) = state.units.get(layer_name) {
+                 for did in &pending_dids { unit.authorize_did(did); }
+             }
+         }
+         setup_layer_observer(state, layer_name);
+         notify_layer_discovered(state, layer_name);
+     }
+     ```
+     Updated `emit_dynamic_layer_permits` to authorize via LayerUnit instead of `add_layer_permit`.
+
+   - **`scribe/src/layer_unit/dynamic.rs`** — Updated `handle_create_dynamic_layer` to authorize all current subscribers. Updated `handle_add_layer_access` to authorize via LayerUnit.
+
+   - **`scribe/src/loro_observer.rs`** — Captures `authorized_dids` Arc at observer setup, replaces `info.can_receive_layer()` with `authorized.contains(user_did)`:
+     ```rust
+     let authorized_dids_for_task = state.units.get(layer_name).unwrap().authorized_dids().clone();
+     // ... in async task:
+     let authorized = authorized_dids_for_task.read().unwrap_or_else(|e| e.into_inner());
+     for ((user_did, device_id), info) in subs.iter() {
+         if !authorized.contains(user_did) { continue; }
+         // ... broadcast ...
+     }
+     ```
+
+   - **`scribe/src/sync/broadcast.rs`** — Reads `authorized_dids` once before subscriber loop:
+     ```rust
+     let authorized = unit.authorized_dids().read().unwrap_or_else(|e| e.into_inner()).clone();
+     // ... in subscriber loop:
+     if !authorized.contains(user_did) { continue; }
+     ```
+
+   - **`scribe/src/sync/reconcile.rs`** — Uses LayerUnit authorization instead of `can_receive_layer()`.
+
+   - **`scribe/src/permit.rs`** — Removed dead `Permissions::can_receive()` method.
+
+   - **`courier/src/peer_actor/consent.rs`** — Added AuthorizeLayerSubscriber in `on_layer_permit`:
+     ```rust
+     // After storing layer permit in butler:
+     if let Some(subscription) = state.page_subscriptions.get(page_id) {
+         let bare_name = layer_name.strip_prefix(&format!("{}/", page_id))
+             .unwrap_or(layer_name);
+         subscription.scribe.cast(butler::ScribeMessage::AuthorizeLayerSubscriber {
+             layer_name: bare_name.to_string(),
+             subscriber_did: node_did.clone(),
+         }).ok();
+     }
+     ```
+
+   - **`scribe/src/test_fixtures.rs`** — Removed `layer_permits: Vec::new()` from all SubscriberInfo builders. User also added `capture_tx: None` to all ScribeArgs builders.
+
+   - **`e2e_tests/test_custom_channel.py`** — Test script for custom channel capture. Creates channel, sends messages from owner and viewers, checks sync.
+
+   - **`docs/OBSERVABILITY.md`** — Documents the JSONL capture system: event types (CourierEvent, MessageTrace, PageUpdate, SyncEvent), format, Python API, filtering.
+
+4. Errors and fixes:
+   - **Missing `authorized_dids` field in LayerUnit initializers**: Fixed by adding field to `new()` constructor with `Arc::new(RwLock::new(HashSet::new()))`.
+   - **Non-exhaustive match in actor.rs**: Fixed by adding the `AuthorizeLayerSubscriber` match arm to the `handle` method.
+   - **Missing `pending_layer_authorizations` in ScribeState initializer**: Fixed by adding `pending_layer_authorizations: HashMap::new()` in `pre_start`.
+   - **Missing `capture_tx` field errors**: These came from the user's parallel changes adding `capture_tx` to ScribeState/ScribeArgs. The user fixed these in their own edits.
+   - **Removed `layer_permits` still referenced in test_fixtures.rs**: Fixed by removing `layer_permits: Vec::new()` from `mock_subscriber_info` and `mock_subscriber_with_ephemeral`.
+   - **Unused import of `Permissions`**: Initially removed then restored because `Permissions::can_local_write` was still used in `loro_observer.rs`.
+   - **`send_initial_state_to_subscriber` signature change**: Updated call site to remove `permit` and `subscriber_did` params (now uses `unit.is_authorized()`).
+   - **Unused `device_id` in `issue_pending_layer_permits`**: Fixed by renaming to `_device_id`.
+
+5. Problem Solving:
+   - **Solved**: All code compiles, all tests pass (18 scribe, 55 gurkha, 32 integration, 16 app_test).
+   - **Ongoing**: Despite the refactor, e2e test shows Bob and Carol's messages still don't reach the node. Analysis of captured JSONL events shows:
+     - LayerPermit IS received by Bob/Carol (confirmed in captures)
+     - Bob/Carol write locally successfully (LayerChanged events in their captures)
+     - Bob/Carol's writes NEVER reach the node
+     - The capture system doesn't capture ScribeMessage processing, so we can't confirm AuthorizeLayerSubscriber was actually processed
+   - **Suspected timing issue**: On Bob's capture, the layer data arrives (L33) BEFORE the LayerPermit (L35). When `create_layer_from_peer` runs, `can_receive_layer()` only checks page permit (which doesn't cover dynamic layers), so node isn't authorized. Then AuthorizeLayerSubscriber should fix it when LayerPermit arrives, but we need observability to confirm.
+
+6. All user messages:
+   - "Implement the following plan: [detailed 11-step plan for Per-Layer Authorization: Move authorized_dids from SubscriberInfo to LayerUnit]" — with full implementation steps, file changes, code snippets
+   - "e2e_tests/test_custom_channel.py check this out, so now also we still have no data sync from other users, only alice data goes to them. refer the jsonl Captured 342 events -> /tmp/custom_channel_test/captures/custom_channel_merged.jsonl so we have the events here. can you check analyze it and check whats the issue?"
+   - "do we need to capture anything more, check observaility.md as well."
+   - "so we need have deeper observability in the permit analysis as well right, these events need to be captured right?"
+
+7. Pending Tasks:
+   - **Add observability/capture events** for the AuthorizeLayerSubscriber flow and authorization decisions so we can trace why Bob/Carol's writes don't reach the node
+   - **Debug the root cause** of why dynamic layer sync from viewers to node still doesn't work despite the refactor
+   - Potentially add capture events for: AuthorizeLayerSubscriber processing, `authorize_did` calls on LayerUnit, observer broadcast decisions (authorized vs not), `create_layer_from_peer` authorization results
+
+8. Current Work:
+   I was analyzing the captured JSONL events from `test_custom_channel.py` to understand why viewer messages don't sync. I had:
+   - Launched an Explore agent that confirmed Bob/Carol write locally but writes never reach the node
+   - Found that LayerPermit messages ARE exchanged successfully
+   - Found no AuthorizeLayerSubscriber events in captures (expected since capture system doesn't capture ScribeMessages)
+   - Was tracing per-instance captures when the user sent two messages about needing deeper observability
+
+   The user's most recent messages were:
+   - "do we need to capture anything more, check observaility.md as well."
+   - "so we need have deeper observability in the permit analysis as well right, these events need to be captured right?"
+
+   These indicate the user wants to add capture events for the authorization/permit flow to diagnose why the refactor isn't fixing the actual sync issue.
+
+9. Optional Next Step:
+   Add observability capture events for the AuthorizeLayerSubscriber flow. Specifically:
+   - In `actor.rs` AuthorizeLayerSubscriber handler: emit a capture event showing the authorization being applied (or stored as pending)
+   - In `create_layer_from_peer`: emit capture events showing which subscribers got authorized and which didn't
+   - In `loro_observer.rs`: emit capture event when a subscriber is skipped due to not being in authorized_dids
+   - In `on_layer_permit` (consent.rs): emit capture event when AuthorizeLayerSubscriber is sent to local Scribe
+   
+   Then re-run `test_custom_channel.py` with captures to trace exactly where the authorization breaks down.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/0786d6ee-13d7-49a0-837c-94abf6c6da83.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+[Request interrupted by user]
+
+---
+
+check again in the captures we have added observability to there as well.
+
+---
+
+[Request interrupted by user]
+
+---
+
+only give me a detailed description of what all do you think we should add, now that you have used it, what  extra convinience tags could we add etc as well please. be detailed about it.
+
+---
+
+okay now lets add the fix as well please.

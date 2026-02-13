@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "b496a0e09a5e",
+  "strategy": "manual-commit",
+  "branch": "feature/coordinator-refactor",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "courier/src/peer_actor/consent.rs",
+    "gurkha/src/decision/layer.rs",
+    "gurkha/src/decision/mod.rs",
+    "gurkha/src/lib.rs",
+    "scribe/src/actor.rs",
+    "scribe/src/layer_unit/dynamic.rs",
+    "scribe/src/layer_unit/mod.rs",
+    "scribe/src/loro_observer.rs",
+    "scribe/src/message.rs",
+    "scribe/src/permit.rs",
+    "scribe/src/state.rs",
+    "scribe/src/sync/apply.rs",
+    "scribe/src/sync/broadcast.rs",
+    "scribe/src/sync/reconcile.rs",
+    "scribe/src/sync/subscription.rs",
+    "scribe/src/test_fixtures.rs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b4/96a0e09a5e/0/metadata.json",
+      "transcript": "/b4/96a0e09a5e/0/full.jsonl",
+      "context": "/b4/96a0e09a5e/0/context.md",
+      "content_hash": "/b4/96a0e09a5e/0/content_hash.txt",
+      "prompt": "/b4/96a0e09a5e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7454,
+    "cache_creation_tokens": 443551,
+    "cache_read_tokens": 16312699,
+    "output_tokens": 38584,
+    "api_call_count": 134
+  }
+}
