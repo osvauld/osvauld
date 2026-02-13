@@ -1,0 +1,705 @@
+we were doing a logging module capture , its in our plan check the plan where are we at with this?
+
+---
+
+[Request interrupted by user]
+
+---
+
+the plan is in home directory .claude/plans
+
+---
+
+[Request interrupted by user]
+
+---
+
+we were using some jsonL to write etc.
+
+---
+
+yes lets do that, we also need to update our chat test script and makesure we are getting it as well right.
+
+---
+
+so how do i use this?
+
+---
+
+If i want the ai to create a custom channel and send message only capture logs during this, event on 3 users how to do this. say wait for 2 seconds and dump it how to do that.
+
+---
+
+[FAIL] eval failed: runtime error: [string "lua_runtime/src/runtime.rs:808:39"]:1: attempt to index a nil value (global 'channels')
+stack traceback:
+        [C]: in metamethod 'index'
+        [string "lua_runtime/src/runtime.rs:808:39"]:1: in main chunk
+Traceback (most recent call last):
+  File "/home/abe/osvauld/e2e_tests/test_custom_channel.py", line 49, in <module>
+    alice.eval('channels.create_channel("project-x")')
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/abe/osvauld/scripts/osvauld/scenario.py", line 570, in eval
+    return self.client.eval(code)
+           ~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/abe/osvauld/scripts/osvauld/client.py", line 462, in eval
+    return self.send("eval", {"code": code})
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/abe/osvauld/scripts/osvauld/client.py", line 159, in send
+    raise RuntimeError(f"{method} failed: {msg}")
+RuntimeError: eval failed: runtime error: [string "lua_runtime/src/runtime.rs:808:39"]:1: attempt to index a nil value (global 'channels')
+stack traceback:
+        [C]: in metamethod 'index'
+        [string "lua_runtime/src/runtime.rs:808:39"]:1: in main chunk
+
+============================================================
+  Session kept alive: tmux attach -t custom_channel_test
+============================================================
+
+  Sockets:
+    alice       : /tmp/custom_channel_test/alice/alice.sock
+    bob         : /tmp/custom_channel_test/bob/bob.sock
+    carol       : /tmp/custom_channel_test/carol/carol.sock
+    node        : /tmp/custom_channel_test/node/node.sock channels can be created from the ui but we do have the issue that channel messages can only be sent by owner so we need to capture the logs and understand whats happening.
+
+---
+
+[Request interrupted by user]
+
+---
+
+so the api is not exposed we need to expose that right?
+
+---
+
+Stopping capture and merging...
+  Warning: Failed to stop capture on node: capture_end failed: Unknown method: capture_end
+  Warning: Failed to stop capture on alice: capture_end failed: Unknown method: capture_end
+  Warning: Failed to stop capture on bob: capture_end failed: Unknown method: capture_end
+  Warning: Failed to stop capture on carol: capture_end failed: Unknown method: capture_end
+  Captured 0 events -> /tmp/custom_channel_test/captures/custom_channel_merged.jsonl
+
+  Per-instance captures:
+
+  Quick filters:
+    grep 'sync_event' /tmp/custom_channel_test/captures/custom_channel_merged.jsonl
+    grep 'message_trace' /tmp/custom_channel_test/captures/custom_channel_merged.jsonl
+    grep 'page_update' /tmp/custom_channel_test/captures/custom_channel_merged.jsonl
+    grep 'LayerChanged' /tmp/custom_channel_test/captures/custom_channel_merged.jsonl
+    grep 'NewDynamicLayer' /tmp/custom_channel_test/captures/custom_channel_merged.jsonl
+    grep 'LayerAccessChanged' /tmp/custom_channel_test/captures/custom_channel_merged.jsonl
+
+============================================================
+  [PARTIAL] Owner message synced, viewer messages may be blocked
+  Check the capture JSONL for permit/access issues
+============================================================
+
+============================================================
+  Session kept alive: tmux attach -t custom_channel_test
+============================================================
+
+  Sockets:
+    alice       : /tmp/custom_channel_test/alice/alice.sock
+    bob         : /tmp/custom_channel_test/bob/bob.sock
+    carol       : /tmp/custom_channel_test/carol/carol.sock
+    node        : /tmp/custom_channel_test/node/node.sock
+
+---
+
+/5] Starting event capture...
+  Warning: Failed to start capture on node: capture_start failed: Unknown method: capture_start
+  Warning: Failed to start capture on alice: capture_start failed: Unknown method: capture_start
+  Warning: Failed to start capture on bob: capture_start failed: Unknown method: capture_start
+  Warning: Failed to start capture on carol: capture_start failed: Unknown method: capture_start
+
+---
+
+[Request interrupted by user]
+
+---
+
+so now we can update the observability right.
+
+---
+
+[Request interrupted by user]
+
+---
+
+Stopping capture and merging...
+
+[FAIL] '<' not supported between instances of 'int' and 'str'
+Traceback (most recent call last):
+  File "/home/abe/osvauld/e2e_tests/test_custom_channel.py", line 92, in <module>
+    merged = s.capture_end("custom_channel", merge=True)
+  File "/home/abe/osvauld/scripts/osvauld/scenario.py", line 955, in capture_end
+    all_events.sort(key=lambda e: e.get("ts", ""))
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: '<' not supported between instances of 'int' and 'str'
+
+============================================================
+  Session kept alive: tmux attach -t custom_channel_test
+============================================================
+
+  Sockets:
+    alice       : /tmp/custom_channel_test/alice/alice.sock
+    bob         : /tmp/custom_channel_test/bob/bob.sock
+    carol       : /tmp/custom_channel_test/carol/carol.sock
+    node        : /tmp/custom_channel_test/node/node.sock
+
+---
+
+[Request interrupted by user]
+
+---
+
+yes its working we need to update the documentation if required, in observability
+
+---
+
+should i add any cli tool for ai to analyze jsonl or python would do?
+
+---
+
+so we have we got observability into layer unit and AuthorizeLayerSubscriber events
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me go through the conversation chronologically:
+
+1. User asks about a logging module capture plan - found in `.claude/plans/shimmying-skipping-newell.md`
+2. Explored the plan which has 8 steps for a JSONL Event Capture System
+3. Agent investigated progress: 7 of 8 steps done, only Step 6 (Wire in sthalam) was missing
+4. User confirmed to implement Step 6 and also update the chat test script
+5. Implemented Step 6 across multiple files: sthalam/src/main.rs, sthalam/src/setup.rs, sthalam/src/control_server.rs
+6. Fixed kunki/src/main.rs which had a pre-existing compilation issue with capture_handle parameter
+7. Added capture helpers to AppTestScenario in scenario.py
+8. Enhanced e2e_tests/test_chat.py with capture
+9. User asked how to use it - provided usage instructions
+10. User asked for a script to create custom channel, send message, capture logs on 3 users
+11. Created e2e_tests/test_custom_channel.py
+12. Hit error: `channels` is a local in app.lua, not accessible from eval
+13. Added `api.export("create_channel", ...)` to app.lua
+14. Hit error: capture commands "Unknown method" - binaries needed rebuild
+15. Hit error: sort comparison `'<' not supported between instances of 'int' and 'str'` in merge
+16. Fixed sort key to use `str(e.get("ts", ""))`
+17. Capture started working
+18. Updated docs/OBSERVABILITY.md
+19. User asked about CLI tool for AI analysis - advised Python is sufficient
+20. User's last question: "so we have we got observability into layer unit and AuthorizeLayerSubscriber events"
+21. I was investigating what's captured from layer_unit and AuthorizeLayerSubscriber when user requested summary
+
+Key files modified:
+- sthalam/src/main.rs - switched to init_rich_tracing_with_capture, created broadcast channel, wired capture
+- sthalam/src/setup.rs - added capture_tx parameter to init_p2p
+- sthalam/src/control_server.rs - added CaptureHandle field, capture_start/capture_end commands
+- kunki/src/main.rs - fixed handle_start to take Option<CaptureHandle>
+- scripts/osvauld/scenario.py - added json import, capture helpers to AppTestScenario
+- e2e_tests/test_chat.py - enhanced with capture
+- e2e_tests/test_custom_channel.py - new script for custom channel capture testing
+- sample_apps/osvauld-demos/group-chat/app.lua - added create_channel API export
+- docs/OBSERVABILITY.md - updated documentation
+
+Current state of investigation: User asked about observability into layer_unit and AuthorizeLayerSubscriber. I was examining the code and found:
+- layer_unit/dynamic.rs DOES emit capture events (emit_sync_event_capture for LayerAccessChanged)
+- AuthorizeLayerSubscriber in actor.rs does NOT emit capture events - it only has info! logging
+- LayerUnit.authorize_did() has no capture events
+- The key gap: AuthorizeLayerSubscriber processing and pending_layer_authorizations are not captured as structured events
+
+Summary:
+1. Primary Request and Intent:
+   - User wanted to check progress on a JSONL Event Capture System plan (found in `.claude/plans/shimmying-skipping-newell.md`)
+   - Plan had 8 steps; 7 were complete, Step 6 (Wire CaptureHandle into sthalam) was missing
+   - User requested: implement Step 6, enhance the chat test script with capture, create a custom channel test script
+   - User asked about observability into `layer_unit` and `AuthorizeLayerSubscriber` events (most recent question)
+   - User noted a real bug: "channel messages can only be sent by owner" in custom channels — capture is needed to debug this
+
+2. Key Technical Concepts:
+   - **JSONL Event Capture System**: Records structured events (CourierEvents, MessageTraces, PageUpdates, SyncEvents) to `.jsonl` files
+   - **CaptureHandle** (in `logging_utils`): Subscribes to `broadcast::Sender<String>` channels, writes to file
+   - **Option C architecture**: Each crate serializes its own events to pre-serialized JSON strings, keeping `logging_utils` dependency-free
+   - **AppTestScenario**: High-level E2E test orchestrator using TmuxManager, manages owner/node/viewers
+   - **Dynamic layers**: Custom channels use `create_layer()` for DID-namespaced dynamic paths
+   - **AuthorizeLayerSubscriber**: Scribe message that authorizes a DID to receive updates for a layer; has pending authorization queue for layers not yet created
+   - **LayerUnit**: Per-layer compute unit with authorized_dids HashSet controlling who receives updates
+
+3. Files and Code Sections:
+
+   - **`sthalam/src/main.rs`** — Central wiring point for sthalam capture support
+     - Switched `init_rich_tracing` → `init_rich_tracing_with_capture` to get `CaptureHandle`
+     - Created broadcast channel, registered with CaptureHandle, set on Butler
+     - Passes `capture_tx` to `setup::init_p2p()` and `capture_handle` to control server
+     ```rust
+     #[cfg(not(feature = "profiling"))]
+     let (_log_guard, capture_handle) = logging_utils::init_rich_tracing_with_capture(logging_utils::LogConfig {
+         level: "info".to_string(),
+         log_to_stdout: true,
+         use_tree_format: !use_json,
+         stdout_json: use_json,
+         instance_name: Some(args.db_name.clone()),
+         ..Default::default()
+     })
+     .expect("Failed to initialize logging");
+     ```
+     ```rust
+     #[cfg(not(feature = "profiling"))]
+     let capture_tx = {
+         let (tx, _) = tokio::sync::broadcast::channel::<String>(1024);
+         tokio_handle.block_on(capture_handle.register_source(tx.clone()));
+         tokio_handle.block_on(butler.set_capture_tx(tx.clone()));
+         Some(tx)
+     };
+     #[cfg(feature = "profiling")]
+     let capture_tx: Option<tokio::sync::broadcast::Sender<String>> = None;
+     ```
+     - In on_login_success callback, passes `capture_tx` to `setup::init_p2p`
+     - Sets capture handle on debug server: `server.set_capture_handle(capture_handle.clone());`
+
+   - **`sthalam/src/setup.rs`** — P2P init accepts capture_tx
+     - Changed signature to accept `capture_tx: Option<tokio::sync::broadcast::Sender<String>>`
+     - Uses `Courier::init_with_services_and_capture()` instead of `init_with_services()`
+     ```rust
+     pub async fn init_p2p(
+         butler: Arc<Butler>,
+         mut sync_rx: tokio::sync::mpsc::Receiver<SyncEvent>,
+         capture_tx: Option<tokio::sync::broadcast::Sender<String>>,
+     ) -> Result<(CourierHandle, tokio::sync::mpsc::Receiver<CourierEvent>), String> {
+     ```
+     ```rust
+     let (handle, event_rx, courier) =
+         Courier::init_with_services_and_capture(CourierMode::User, transport, Some(handshake_services), capture_tx);
+     ```
+
+   - **`sthalam/src/control_server.rs`** — Added capture commands to sthalam's control server
+     - Added `capture_handle: Arc<RwLock<Option<CaptureHandle>>>` field to `ShellHandler`
+     - Added `set_capture_handle_blocking()` method
+     - Added `capture_start` and `capture_end` command handlers in the `handle()` match
+     - Added `set_capture_handle()` on the public `ControlServer` wrapper
+     ```rust
+     "capture_start" => {
+         let handle_guard = self.capture_handle.read().await;
+         let Some(ref handle) = *handle_guard else {
+             return Some(Response::err(id, error_codes::INTERNAL_ERROR, "CaptureHandle not available"));
+         };
+         let Some(params_obj) = params.as_ref().and_then(|p| p.as_object()) else {
+             return Some(Response::err(id, error_codes::INVALID_PARAMS, "Invalid params object"));
+         };
+         let Some(file_path) = params_obj.get("file_path").and_then(|v| v.as_str()) else {
+             return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing file_path"));
+         };
+         let include_logs = params_obj.get("include_logs").and_then(|v| v.as_bool()).unwrap_or(false);
+         match handle.start_capture(PathBuf::from(file_path), include_logs).await {
+             Ok(()) => Some(Response::ok(id, serde_json::json!({"status": "capturing", "file_path": file_path}))),
+             Err(e) => Some(Response::err(id, error_codes::INTERNAL_ERROR, &e)),
+         }
+     }
+     ```
+
+   - **`kunki/src/main.rs`** — Fixed pre-existing compilation issue
+     - Changed `handle_start` to take `capture_handle: Option<logging_utils::CaptureHandle>` instead of bare `CaptureHandle`
+     - Updated call sites to pass `Some(capture_handle)` / `None`
+     - Replaced `#[cfg(not(feature = "profiling"))]` guards inside function body with `if let Some(ref ch) = capture_handle`
+
+   - **`scripts/osvauld/scenario.py`** — Added capture helpers
+     - Added `import json` (was missing — latent bug in existing `Scenario.capture_end`)
+     - Added `capture_start()` and `capture_end()` methods to `AppTestScenario` class
+     - Fixed sort key: `str(e.get("ts", ""))` to handle mixed int/string timestamps
+     ```python
+     def capture_start(self, label: str = "capture", include_logs: bool = False) -> Path:
+         captures_dir = self.base_dir / "captures"
+         captures_dir.mkdir(parents=True, exist_ok=True)
+         all_clients = [("node", self._tm.get_client("node"))]
+         for pname in self.peers_config:
+             all_clients.append((pname, self._tm.get_client(pname)))
+         for name, client in all_clients:
+             file_path = str(captures_dir / f"{label}_{name}.jsonl")
+             try:
+                 client.capture_start(file_path, include_logs=include_logs)
+             except Exception as e:
+                 print(f"  Warning: Failed to start capture on {name}: {e}")
+         return captures_dir
+     ```
+
+   - **`e2e_tests/test_chat.py`** — Enhanced with capture
+     - Added `capture_start("chat")` before tests and `capture_end("chat")` after
+     - Supports `--capture-logs` flag
+     - Reports event count from merged JSONL
+
+   - **`e2e_tests/test_custom_channel.py`** — New script for custom channel + capture testing
+     - Sets up 3 users (alice owner, bob/carol viewers)
+     - Creates custom channel via `create_channel("project-x")`
+     - Alice sends message, Bob and Carol switch and try to send
+     - Captures all events, merges, and reports
+
+   - **`sample_apps/osvauld-demos/group-chat/app.lua`** — Added create_channel API export
+     ```lua
+     api.export("create_channel", function(name) channels.create_channel(name) end)
+     ```
+
+   - **`docs/OBSERVABILITY.md`** — Updated documentation
+     - Documented sthalam support (was previously kunki-only)
+     - Added AppTestScenario usage examples
+     - Listed e2e test scripts
+     - Added filtering examples
+     - Added wiring table for kunki/sthalam
+
+   - **`scribe/src/actor.rs:638`** — AuthorizeLayerSubscriber handler (read, not modified)
+     - Only has `info!()` logging, no structured capture events emitted
+     - Pending authorizations stored but not captured
+
+   - **`scribe/src/layer_unit/dynamic.rs:352-365`** — Dynamic layer capture (read, not modified)
+     - DOES emit `emit_sync_event_capture` for `LayerAccessChanged`
+     - `authorize_did()` calls on LayerUnit have no capture events
+
+4. Errors and Fixes:
+   - **`register_source_blocking` / `set_capture_tx_blocking` not found**: Sthalam's `main()` is not async, so can't call async methods directly. Fixed by using `tokio_handle.block_on()` instead of inventing blocking variants.
+   - **`init_p2p` takes 2 args but 3 supplied**: After adding `capture_tx` parameter to `setup::init_p2p`, the call site in the login callback needed updating. Fixed by passing `capture_tx` clone.
+   - **kunki `handle_start` compilation error (pre-existing)**: The function took 4 params but was called with 5 (including `capture_handle`). Fixed by changing signature to take `capture_handle: Option<CaptureHandle>` and updating both cfg-gated call sites.
+   - **`channels` is nil global in eval**: `channels` is a local variable in `app.lua`, not accessible from eval. User confirmed we need to expose it. Fixed by adding `api.export("create_channel", ...)` to app.lua.
+   - **"Unknown method: capture_start"**: First occurrence was because binaries weren't rebuilt. After rebuild, it worked.
+   - **`'<' not supported between instances of 'int' and 'str'`**: Some events have numeric `ts` instead of string. Fixed sort key: `str(e.get("ts", ""))`.
+
+5. Problem Solving:
+   - Successfully completed Step 6 of the capture plan (wiring sthalam)
+   - Fixed kunki compilation that was broken before our changes
+   - Got capture working end-to-end across all instances
+   - Identified that `AuthorizeLayerSubscriber` and `LayerUnit.authorize_did()` do NOT emit structured capture events — only `info!()` tracing logs
+   - The real debugging issue (viewer can't send messages in custom channels) needs the capture data to investigate
+
+6. All User Messages:
+   - "we were doing a logging module capture , its in our plan check the plan where are we at with this?"
+   - "the plan is in home directory .claude/plans"
+   - "we were using some jsonL to write etc."
+   - "yes lets do that, we also need to update our chat test script and makesure we are getting it as well right."
+   - "we already have the chat test script we need ot enchance it only."
+   - "so its in e2e_tests/test_chat"
+   - (After capture_start/end warnings) "so now we can update the observability right."
+   - "so how do i use this?"
+   - "If i want the ai to create a custom channel and send message only capture logs during this, event on 3 users how to do this. say wait for 2 seconds and dump it how to do that."
+   - (After channels nil error) "channels can be created from the ui but we do have the issue that channel messages can only be sent by owner so we need to capture the logs and understand whats happening."
+   - "so the api is not exposed we need to expose that right?"
+   - (After Unknown method errors) "so now we can update the observability right." (user wanted to move on)
+   - (After sort error showing capture IS working) — confirmed it's working
+   - "should i add any cli tool for ai to analyze jsonl or python would do?"
+   - "so we have we got observability into layer unit and AuthorizeLayerSubscriber events"
+
+7. Pending Tasks:
+   - Investigate/add structured capture events for `AuthorizeLayerSubscriber` and `LayerUnit` authorization changes (user's most recent question)
+   - Debug the actual issue: viewers can't send messages in custom channels (the reason capture was needed)
+
+8. Current Work:
+   User asked: "so we have we got observability into layer unit and AuthorizeLayerSubscriber events"
+   
+   I was investigating what's currently captured. Findings so far:
+   - `scribe/src/layer_unit/dynamic.rs` — DOES emit `emit_sync_event_capture` for `LayerAccessChanged` events (line 360)
+   - `scribe/src/actor.rs:638-651` — `AuthorizeLayerSubscriber` handler only has `info!()` logging, NO structured capture events
+   - `LayerUnit.authorize_did()` in `layer_unit/mod.rs:143-146` — NO capture events, just inserts into HashSet
+   - `scribe/src/sync/apply.rs:355-358` — pending authorization application has no capture events
+   
+   The gap: authorization events (who gets authorized for which layer, pending authorizations, authorization application) are NOT captured as structured events. They only appear if `include_logs=True` is used (tracing logs).
+
+9. Optional Next Step:
+   Based on user's question "so we have we got observability into layer unit and AuthorizeLayerSubscriber events" — the answer is partially no. The next step would be to confirm with the user whether they want to add structured capture events for:
+   - `AuthorizeLayerSubscriber` processing (authorized vs pending)
+   - `LayerUnit.authorize_did()` / `revoke_did()` calls
+   - Pending authorization application when layers are created
+   
+   This would help debug the "viewer can't send messages in custom channels" issue by making authorization flow visible in captures without needing `--capture-logs`.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.REDACTED.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+Observability Gaps: What I Needed But Didn't Have
+
+  After spending significant time tracing the captures to find the root cause, here's a
+  comprehensive breakdown.
+
+  ---
+  1. Write Permission Decisions (type: "permission_check")
+
+  This is the single biggest gap. The node silently rejected Bob's write to the dynamic layer,
+  and there was zero trace of it in the captures. I had to read the source code of
+  Permissions::can_write() and mentally simulate all 3 paths to figure out the rejection.
+
+  Where to add: scribe/src/permit.rs — Permissions::can_write()
+
+  Fields needed:
+  {
+    "type": "permission_check",
+    "ts": "...",
+    "page_id": "pg_123",
+    "layer": "channels/did:key:alice.../project-x/messages",
+    "peer_did": "did:key:z6MkhL...",
+    "operation": "write",
+    "result": "denied",
+    "path1_subscriber_permit": false,
+    "path2_sync_target": false,
+    "path3_stored_permit": false,
+    "instance": "kunki"
+  }
+
+  When result is "denied", include which paths were tried and why they failed. When result is
+  "allowed", include which path granted access. This would have immediately told me "the node
+  denied Bob's write to the dynamic layer via all 3 paths."
+
+  Also add the same for Permissions::can_local_write() in loro_observer.rs — this catches cases
+  where the local Scribe blocks writes.
+
+  ---
+  2. Apply Update Outcomes (type: "apply_update")
+
+  When handle_apply_update completes (success or rejection), there's no capture event. I could
+  only infer rejection from the absence of a page_update for the dynamic layer on the node —
+  which is error-prone when you're scanning 87 lines.
+
+  Where to add: scribe/src/sync/apply.rs — end of handle_apply_update()
+
+  Fields needed:
+  {
+    "type": "apply_update",
+    "ts": "...",
+    "page_id": "pg_123",
+    "layer": "channels/.../project-x/messages",
+    "from_peer": "did:key:z6MkhL...",
+    "result": "rejected",
+    "reason": "Permission denied: cannot write to layer",
+    "created_layer": false,
+    "instance": "kunki"
+  }
+
+  On success:
+  {
+    "type": "apply_update",
+    "ts": "...",
+    "page_id": "pg_123",
+    "layer": "read_positions",
+    "from_peer": "did:key:z6MkhL...",
+    "result": "applied",
+    "reason": null,
+    "created_layer": false,
+    "update_size": 142,
+    "instance": "kunki"
+  }
+
+  ---
+  3. Layer Name in Message Traces
+
+  The current message_trace for SyncOffer/SyncAccept/SyncAck only shows:
+  {"type": "message_trace", "msg": "SyncOffer", "direction": "Received", "peer_node_id":
+  "dcc3..."}
+
+  I could see Bob sent SyncOffer and the node sent SyncAccept. But I couldn't tell which layer
+  each was for. Bob was syncing both read_positions (which worked) and the dynamic layer (which
+  was silently rejected). Without the layer name, I had to correlate timestamps and infer from
+  page_update events.
+
+  Where to add: courier/src/trace.rs or wherever message traces are emitted.
+
+  Additional fields:
+  {
+    "type": "message_trace",
+    "msg": "SyncOffer",
+    "direction": "Received",
+    "peer_node_id": "dcc3...",
+    "layer": "channels/.../project-x/messages",
+    "update_size": 256,
+    "page_id": "pg_123"
+  }
+
+  The layer and page_id fields would let me immediately correlate: "Bob sent SyncOffer for the
+  dynamic layer → node received it → but no apply_update success for that layer → look at
+  permission_check."
+
+  ---
+  4. Subscriber State Events (type: "subscriber_state")
+
+  When the node subscribes Bob, what does the subscriber state look like? What layers is Bob
+  authorized for? Currently I can see individual layer_auth events, but there's no snapshot of
+  "here's the full authorization state for this subscriber."
+
+  Where to add: scribe/src/sync/subscription.rs — end of handle_subscribe()
+
+  Fields needed:
+  {
+    "type": "subscriber_state",
+    "ts": "...",
+    "page_id": "pg_123",
+    "action": "subscribed",
+    "peer_did": "did:key:z6MkhL...",
+    "peer_role": "collaborator",
+    "authorized_layers": ["messages", "channels_meta", "presence", "read_positions",
+  "channels/general/messages"],
+    "total_layers": 12,
+    "can_see_others": true,
+    "is_visible": true,
+    "instance": "kunki"
+  }
+
+  Similarly on unsubscribe. This gives a complete picture at subscription time without having to
+   aggregate individual layer_auth events.
+
+  ---
+  5. Observer Broadcast Decisions (type: "broadcast_decision")
+
+  In loro_observer.rs, the observer decides per-subscriber whether to broadcast. Currently
+  there's no trace when a subscriber is skipped (not in authorized_dids). This would have been
+  useful to see "observer fired for dynamic layer, but Bob was not in authorized_dids."
+
+  Where to add: scribe/src/loro_observer.rs — inside the subscriber loop
+
+  Fields needed (only emit on skip, not on success — too noisy):
+  {
+    "type": "broadcast_decision",
+    "ts": "...",
+    "page_id": "pg_123",
+    "layer": "channels/.../project-x/messages",
+    "peer_did": "did:key:z6MkhL...",
+    "action": "skipped",
+    "reason": "not_in_authorized_dids",
+    "instance": "kunki"
+  }
+
+  Also emit when skipping due to is_local_only or from_peer (remote update sender exclusion),
+  but with reason: "local_only" or reason: "sender_exclusion".
+
+  And in broadcast_update (broadcast.rs) and handle_reconcile_with_peers (reconcile.rs) — same
+  pattern.
+
+  ---
+  6. DID-to-Username Mapping Event (type: "peer_identity")
+
+  Full DIDs are 50+ characters long. Every time I analyzed events, I had to manually figure out
+  which DID was Alice, Bob, Carol, or the node. A one-time mapping event emitted at connection
+  time would save enormous time.
+
+  Where to add: courier/src/peer_actor/mod.rs — on successful authentication, or in the capture
+  system when capture starts.
+
+  {
+    "type": "peer_identity",
+    "ts": "...",
+    "did": "did:key:REDACTED",
+    "short_did": "z6MkhL...N22h2s5",
+    "username": "bob",
+    "node_id": "dcc38caf4e93...",
+    "role": "collaborator",
+    "instance": "kunki"
+  }
+
+  This allows building a lookup table at the start of any analysis session. Would also be useful
+   to add "peer_name" or "short_did" as a convenience field on ALL events that have a DID, so
+  you don't have to cross-reference.
+
+  ---
+  7. Convenience Tags on Existing Events
+
+  Add peer_name to layer_auth events:
+
+  Currently:
+  {"type": "layer_auth", "action": "authorized", "did":
+  "did:key:REDACTED", ...}
+
+  Better:
+  {"type": "layer_auth", "action": "authorized", "did": "did:key:z6Mkn3...", "short_did":
+  "z6Mkn3...dMVG3GT", ...}
+
+  Add layer_short to all events with a layer name:
+
+  The layer name
+  channels/did:key:REDACTED is very
+  long. A shortened version like channels/.../project-x/messages or just project-x/messages
+  would help scanning.
+
+  Add event_id or seq for ordering:
+
+  Timestamps have millisecond resolution. Multiple events happen in the same millisecond (e.g.,
+  the node emitting 3 authorized_dynamic_permit events all at 1770827302323). A monotonic
+  sequence number per instance would make ordering unambiguous.
+
+  Add phase tag for grouping:
+
+  Events naturally cluster into phases. A tag like:
+  - "phase": "handshake" — Hello, Welcome, SyncOffer, SyncAccept during initial connect
+  - "phase": "dynamic_layer" — NewDynamicLayer, LayerPermit, LayerConsent
+  - "phase": "steady_state" — regular SyncOffer/Accept during ongoing operation
+
+  This would let you filter grep '"phase": "dynamic_layer"' to see just the channel creation
+  flow.
+
+  ---
+  8. Pending Authorizations State
+
+  When AuthorizeLayerSubscriber arrives before the layer exists, it goes to
+  pending_layer_authorizations. But there's no event showing this. Later when the layer is
+  created and pending authorizations are applied, there is an applied_pending event — but if the
+   layer never gets created, the pending authorization silently vanishes.
+
+  Where to add: scribe/src/actor.rs — in the AuthorizeLayerSubscriber handler
+
+  {
+    "type": "layer_auth",
+    "action": "stored_pending",
+    "layer": "channels/.../project-x/messages",
+    "did": "did:key:z6Mkn3...",
+    "pending_count": 1,
+    "instance": "bob"
+  }
+
+  ---
+  Summary: Priority Order
+  Priority: P0
+  Event: permission_check (write denied)
+  Why: Would have found the root cause in 30 seconds
+  ────────────────────────────────────────
+  Priority: P0
+  Event: apply_update (outcome)
+  Why: Immediately shows rejected updates
+  ────────────────────────────────────────
+  Priority: P1
+  Event: Layer name in message_trace
+  Why: Correlates protocol messages to specific layers
+  ────────────────────────────────────────
+  Priority: P1
+  Event: peer_identity mapping
+  Why: Saves 5 minutes per debugging session
+  ────────────────────────────────────────
+  Priority: P2
+  Event: subscriber_state snapshot
+  Why: Shows full auth picture at subscription time
+  ────────────────────────────────────────
+  Priority: P2
+  Event: broadcast_decision (skips)
+  Why: Shows why data doesn't reach a subscriber
+  ────────────────────────────────────────
+  Priority: P3
+  Event: short_did / layer_short tags
+  Why: Readability for manual scanning
+  ────────────────────────────────────────
+  Priority: P3
+  Event: seq monotonic counter
+  Why: Disambiguates same-millisecond events
+  ────────────────────────────────────────
+  Priority: P3
+  Event: phase grouping tag
+  Why: Makes grep filtering more natural
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+New Observability Events
+
+  1. permission_check — emitted for every can_write() decision, shows which path granted/denied
+  and why
+  2. apply_update — emitted for every handle_apply_update() result, shows applied/rejected with
+  reason these were added but please check and confirm and update the plan accordingly
+
+---
+
+[Request interrupted by user for tool use]

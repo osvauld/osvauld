@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "b496a0e09a5e",
+  "session_id": "7f050c83-7981-4df5-829c-f29ad0843ba9",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-13T09:35:45.602883821Z",
+  "branch": "feature/coordinator-refactor",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "docs/OBSERVABILITY.md",
+    "e2e_tests/test_chat.py",
+    "e2e_tests/test_custom_channel.py",
+    "kunki/src/main.rs",
+    "sample_apps/osvauld-demos/group-chat/app.lua",
+    "scribe/src/actor.rs",
+    "scribe/src/layer_unit/dynamic.rs",
+    "scribe/src/state.rs",
+    "scribe/src/sync/apply.rs",
+    "scribe/src/sync/subscription.rs",
+    "scripts/osvauld/scenario.py",
+    "sthalam/src/control_server.rs",
+    "sthalam/src/main.rs",
+    "sthalam/src/setup.rs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "c63fe2f1-e73f-4ca3-97a3-cc0df4c80120",
+  "token_usage": {
+    "input_tokens": 4231,
+    "cache_creation_tokens": 368458,
+    "cache_read_tokens": 15648238,
+    "output_tokens": 39564,
+    "api_call_count": 156
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-13T09:35:44.917105414Z",
+    "agent_lines": 2439,
+    "human_added": 10160,
+    "human_modified": 52,
+    "human_removed": 0,
+    "total_committed": 12651,
+    "agent_percentage": 19.279108370879772
+  }
+}

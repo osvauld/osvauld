@@ -3,13 +3,16 @@
   "checkpoint_id": "b496a0e09a5e",
   "strategy": "manual-commit",
   "branch": "feature/coordinator-refactor",
-  "checkpoints_count": 3,
+  "checkpoints_count": 8,
   "files_touched": [
     "courier/src/peer_actor/consent.rs",
+    "docs/OBSERVABILITY.md",
+    "e2e_tests/test_chat.py",
     "e2e_tests/test_custom_channel.py",
     "gurkha/src/decision/layer.rs",
     "gurkha/src/decision/mod.rs",
     "gurkha/src/lib.rs",
+    "kunki/src/main.rs",
     "sample_apps/osvauld-demos/group-chat/app.lua",
     "sample_apps/osvauld-demos/group-chat/channels.lua",
     "sample_apps/osvauld-demos/group-chat/dms.lua",
@@ -26,7 +29,11 @@
     "scribe/src/sync/broadcast.rs",
     "scribe/src/sync/reconcile.rs",
     "scribe/src/sync/subscription.rs",
-    "scribe/src/test_fixtures.rs"
+    "scribe/src/test_fixtures.rs",
+    "scripts/osvauld/scenario.py",
+    "sthalam/src/control_server.rs",
+    "sthalam/src/main.rs",
+    "sthalam/src/setup.rs"
   ],
   "sessions": [
     {
@@ -42,13 +49,20 @@
       "context": "/b4/96a0e09a5e/1/context.md",
       "content_hash": "/b4/96a0e09a5e/1/content_hash.txt",
       "prompt": "/b4/96a0e09a5e/1/prompt.txt"
+    },
+    {
+      "metadata": "/b4/96a0e09a5e/2/metadata.json",
+      "transcript": "/b4/96a0e09a5e/2/full.jsonl",
+      "context": "/b4/96a0e09a5e/2/context.md",
+      "content_hash": "/b4/96a0e09a5e/2/content_hash.txt",
+      "prompt": "/b4/96a0e09a5e/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 11210,
-    "cache_creation_tokens": 946069,
-    "cache_read_tokens": 26692797,
-    "output_tokens": 82949,
-    "api_call_count": 243
+    "input_tokens": 15441,
+    "cache_creation_tokens": 1314527,
+    "cache_read_tokens": 42341035,
+    "output_tokens": 122513,
+    "api_call_count": 399
   }
 }
