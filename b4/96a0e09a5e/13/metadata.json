@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "b496a0e09a5e",
+  "session_id": "7ba29771-bed6-4f1d-8b15-e6902b1a1fe1",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-15T13:00:17.706609231Z",
+  "branch": "feature/coordinator-refactor",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "butler/src/lib.rs",
+    "butler/src/merge.rs",
+    "courier/src/peer_actor/sync/protocol.rs",
+    "gurkha/src/decision/layer.rs",
+    "gurkha/src/decision/mod.rs",
+    "gurkha/src/lib.rs",
+    "gurkha/src/parser/integration_tests.rs",
+    "gurkha/src/parser/mod.rs",
+    "gurkha/test_permits/shop.json",
+    "sample_apps/group-chat/page.lua",
+    "sample_apps/osvauld-demos/page.lua",
+    "scribe/src/actor.rs",
+    "scribe/src/layer_unit/dynamic.rs",
+    "scribe/src/permit.rs",
+    "scribe/src/sync/apply.rs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 8703,
+    "cache_creation_tokens": 248063,
+    "cache_read_tokens": 11930882,
+    "output_tokens": 37883,
+    "api_call_count": 104
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-15T13:00:17.091767072Z",
+    "agent_lines": 674,
+    "human_added": 10025,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 10699,
+    "agent_percentage": 6.299654173287222
+  }
+}

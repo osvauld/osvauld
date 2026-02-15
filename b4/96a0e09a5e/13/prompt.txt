@@ -1,0 +1,413 @@
+Implement the following plan:
+
+# Phase 2: GrantType::Role → GrantType::Open + flatten role_permissions
+
+## Context
+
+Phase 1 (complete) replaced `authorized_dids: HashSet<String>` with rich per-subscriber state on LayerUnit. Authorization is now checked at broadcast time using `LayerSubscriber.capabilities`, not an eagerly-populated set.
+
+Phase 2 eliminates the **role-based dynamic layer grant model**. Currently, `GrantType::Role` with `role_permissions: HashMap<String, LayerConfig>` requires:
+- Extracting `relationship()` from each peer's permit
+- Matching that role string against `schema.role_permissions` keys
+- Different peers getting different capabilities based on their role label
+
+In practice, **every role gets the same permissions** (`sync: true, write: true`). The `role_permissions` map is pure duplication. Replacing `Role` with `Open` means: all connected peers get the same `permissions` — no role matching needed.
+
+## What changes
+
+### A. Gurkha type changes (`gurkha/src/parser/mod.rs`)
+
+1. **`GrantType` enum**: Rename `Role` → `Open`, keep `Explicit`
+   - Serde: `"open"` / `"explicit"` (lowercase)
+   - Also accept `"role"` as alias for `Open` during deserialization (backward compat)
+
+2. **`DynamicLayerSchema`**: Remove `role_permissions`, make `permissions` non-optional
+   - Before: `role_permissions: HashMap<String, LayerConfig>` + `permissions: Option<LayerConfig>`
+   - After: `permissions: LayerConfig` (always present, used for both Open and Explicit)
+
+3. **`DelegationTemplate.to_facts()`**: Serialize `permissions` directly, no `role_permissions`
+
+4. **`Permit::parse_delegation_template()`**: Read `permissions` field
+
+### B. Gurkha decision changes (`gurkha/src/decision/layer.rs`)
+
+1. **`matches_dynamic_schema_for_role()`** → **`matches_dynamic_schema()`**
+   - Remove `role` parameter
+   - Check `schema.permissions` directly (no role lookup)
+
+2. Update exports in `gurkha/src/decision/mod.rs` and `gurkha/src/lib.rs`
+
+### C. Scribe changes
+
+1. **`scribe/src/layer_unit/dynamic.rs`**:
+   - `authority_config_from_template()`: Both Open and Explicit use `schema.permissions.clone()`. Remove Role branch.
+   - `prepare_layer_permits()`: Change `connected_peers` from `&[(String, String)]` (did, role) to `&[String]` (just DIDs). Open → issue to all peers. Explicit → authority-driven only.
+   - `issue_creator_layer_authority_permits()`: Use `schema.permissions` directly, remove role extraction.
+   - Update tests.
+
+2. **`scribe/src/permit.rs`**:
+   - `can_write()` path 4: Call renamed `matches_dynamic_schema()` (no role param).
+   - Remove `get_peer_role()` helper entirely.
+
+3. **`scribe/src/actor.rs`** line 89: Replace `relationship()` with `token_type()` in log.
+
+4. **`scribe/src/sync/apply.rs`**: Remove role extraction in `emit_dynamic_layer_permits` and `fanout_sync_meta_from_authority`. Pass just DIDs.
+
+### D. Courier changes (`courier/src/peer_actor/sync/protocol.rs`)
+
+Lines ~142-151: Remove role extraction. For Open schemas, all peers with page access are recipients. For Explicit, use authorized_peers.
+
+### E. Butler changes
+
+- `butler/src/merge.rs` line ~243: Replace `relationship()` viewer detection with `!is_owner() && !is_host()`.
+- `butler/src/lib.rs` line ~322: Replace `relationship()` with `token_type()` or remove role from permit prep.
+
+### F. permit_template.json updates (all sample_apps)
+
+Replace `"grant": "role"` + `"role_permissions": {...}` with `"grant": "open"` + `"permissions": { "sync": true, "write": true }`. Same in nested `issue_on` and `consent_template`.
+
+### G. page.lua updates (all sample_apps)
+
+Remove `role()` definitions and per-role capability tables. Use flat capability tables. Remove `for_role` from apps. (page.lua is NOT parsed by the system — this is for documentation consistency.)
+
+### H. Gurkha test fixtures
+
+Update `gurkha/test_permits/*.json` files. Update tests in `gurkha/src/parser/tests.rs` and `gurkha/src/decision/layer.rs`.
+
+## File-by-file change order (compile after each group)
+
+**Group 1: Gurkha types + decision**
+1. `gurkha/src/parser/mod.rs` — GrantType, DynamicLayerSchema, DelegationTemplate, PermitFacts
+2. `gurkha/src/decision/layer.rs` — Rename function, remove role param
+3. `gurkha/src/decision/mod.rs` + `gurkha/src/lib.rs` — Update re-exports
+4. `gurkha/test_permits/*.json` — Update test permit files
+5. `gurkha/src/parser/tests.rs` — Update tests
+6. `gurkha/src/decision/layer.rs` tests — Update
+
+**Group 2: Scribe consumers**
+7. `scribe/src/permit.rs` — Remove get_peer_role, update can_write path 4
+8. `scribe/src/layer_unit/dynamic.rs` — authority_config, prepare_layer_permits, tests
+9. `scribe/src/actor.rs` — Replace relationship() in log
+10. `scribe/src/sync/apply.rs` — Remove role extraction
+
+**Group 3: Courier + Butler**
+11. `courier/src/peer_actor/sync/protocol.rs` — Remove role-based filtering
+12. `butler/src/merge.rs` — Replace relationship() check
+13. `butler/src/lib.rs` — Replace relationship() usage
+
+**Group 4: Templates + page definitions**
+14. `sample_apps/osvauld-demos/permit_template.json`
+15. `sample_apps/group-chat/permit_template.json` (if exists)
+16. `sample_apps/my-shop/permit_template.json`
+17. `sample_apps/*/page.lua` files
+
+## Verification
+
+```bash
+# After Group 1
+cargo build -p gurkha && cargo test -p gurkha
+
+# After Group 2
+cargo build -p scribe && cargo test -p scribe
+
+# After Group 3
+cargo build -p courier -p butler
+
+# After all groups
+cargo test -p integration_tests -- layer_sync --nocapture
+```
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/150b5a07-332a-4d7e-a937-a15c328de4c1.jsonl
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+not dynamic schema types we still have some logic where "owner" and things like that are in the code right.
+
+---
+
+its fine for now. whats next?
+
+---
+
+yes lets run the integration tests now.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. The user provided a detailed plan for "Phase 2: GrantType::Role → GrantType::Open + flatten role_permissions" and asked me to implement it.
+
+2. I created task tracking items for 4 groups + verification.
+
+3. **Group 1: Gurkha types + decision changes**
+   - Read all relevant files: parser/mod.rs, decision/layer.rs, decision/mod.rs, lib.rs, test_permits/*.json, parser/tests.rs, test_fixtures.rs, parser/integration_tests.rs
+   - Changes made:
+     - `GrantType::Role` → `GrantType::Open` with `#[serde(alias = "role")]` for backward compat
+     - `DynamicLayerSchema`: Removed `role_permissions: HashMap<String, LayerConfig>`, made `permissions: LayerConfig` (non-optional with `#[serde(default)]`)
+     - Added `Default` derive to `LayerConfig`
+     - Renamed `matches_dynamic_schema_for_role()` → `matches_dynamic_schema()`, removed `role` parameter
+     - Updated `matches_creator_schema()` to use non-optional `schema.permissions`
+     - Updated re-exports in decision/mod.rs and lib.rs
+     - Updated shop.json test fixture (admin role_permissions → open permissions)
+     - Updated integration test `test_dynamic_layer_schemas_accessor` (permissions.is_some() → permissions.sync)
+     - Updated decision/layer.rs tests
+     - Updated various comments from "role-based distribution" to "open distribution"
+   - Build: `cargo build -p gurkha` ✓, `cargo test -p gurkha` ✓ (60 tests)
+
+4. **Group 2: Scribe consumer changes**
+   - Changes made:
+     - `scribe/src/permit.rs`: Removed `get_peer_role()` helper, updated `can_write()` path 4 to call `matches_dynamic_schema()` without role param
+     - `scribe/src/layer_unit/dynamic.rs`: 
+       - `authority_config_from_template()`: Changed from `(schema, role) -> Option<LayerConfig>` to `(schema) -> LayerConfig`
+       - `prepare_layer_permits()`: Changed `connected_peers` from `&[(String, String)]` to `&[String]`
+       - `issue_creator_layer_authority_permits()`: Removed role extraction, uses `schema.permissions` directly
+       - `handle_add_layer_access()`: Simplified permissions extraction (no Option unwrap needed)
+       - Updated all 3 tests
+     - `scribe/src/actor.rs`: `relationship()` → `token_type()` in log
+     - `scribe/src/sync/apply.rs`: Renamed `collect_connected_peers_with_roles()` → `collect_connected_peer_dids()`, returns `Vec<String>` instead of `Vec<(String, String)>`
+   - Build: `cargo build -p scribe` ✓, `cargo test -p scribe` ✓ (29 tests)
+
+5. **Group 3: Courier + Butler changes**
+   - Changes made:
+     - `courier/src/peer_actor/sync/protocol.rs`: Replaced role-based filtering in `fanout_sync_meta_from_authority()` Ok(None) branch with open distribution (all page users). Removed dead `authority_schema_for_layer()` function.
+     - `butler/src/merge.rs`: Replaced `relationship()` viewer detection with `!is_owner() && !is_host()`, fixed debug log reference to removed variable
+     - `butler/src/lib.rs`: Replaced `relationship()` with `token_type()` for user_role
+   - Build: `cargo build -p courier -p butler` ✓
+
+6. **Group 4: Templates + page definitions**
+   - Used Python script to transform all permit_template.json files: role→open, role_permissions→permissions
+   - Updated osvauld-demos/page.lua and group-chat/page.lua: removed role() definitions, for_role attributes, flattened layer capabilities
+   - Full workspace build: ✓, all 100 tests passing
+
+7. **User interruption**: User said "we should allowd dynamic schema these strings as enums and not strings." Then clarified: "not dynamic schema types we still have some logic where 'owner' and things like that are in the code right."
+
+8. I searched for remaining role string usage in production code. Found:
+   - `scribe/src/permit.rs:50` - debug log (logging only)
+   - `scribe/src/sync/apply.rs:577` - `get_peer_role()` for Lua validation
+   - User said "its fine for now"
+
+9. User asked "whats next?" - I summarized everything complete.
+
+10. User asked to run integration tests: `cargo test -p integration_tests -- layer_sync --nocapture`
+
+11. **Integration test results**: 6 passed, 2 failed:
+    - `test_viewer_writes_to_dynamic_channel` - FAILED (Timeout waiting for key 'msg2')
+    - `test_dynamic_channel_late_joiner` - FAILED (Timeout waiting for key 'msg1')
+    
+    Both failures are timeouts related to dynamic channel message sync. These are likely related to the changes we made - specifically the `fanout_sync_meta_from_authority()` change in courier or the `prepare_layer_permits()` change in scribe.
+
+The user then asked for a summary, which is what I'm doing now.
+
+Let me be precise about the failing tests and what's happening. The test `test_viewer_writes_to_dynamic_channel` times out waiting for 'msg2' in a dynamic channel layer. The test `test_dynamic_channel_late_joiner` times out waiting for 'msg1'. These suggest that the dynamic layer permit distribution isn't working correctly for these scenarios.
+
+The key change that likely caused this is in `courier/src/peer_actor/sync/protocol.rs` where I replaced the role-based filtering with open distribution. But I need to look at this more carefully - the issue might also be in how `prepare_layer_permits` now handles the `Open` grant type vs the old `Role` grant type.
+
+Summary:
+1. Primary Request and Intent:
+   The user asked me to implement "Phase 2: GrantType::Role → GrantType::Open + flatten role_permissions" — a refactor that eliminates the role-based dynamic layer grant model across the osvauld codebase. The plan replaces `GrantType::Role` with `GrantType::Open` (all connected peers get the same permissions) and removes `role_permissions: HashMap<String, LayerConfig>` in favor of a flat `permissions: LayerConfig` field. The user provided a detailed plan with file-by-file changes organized in 4 groups plus verification.
+
+2. Key Technical Concepts:
+   - **GrantType enum**: Renamed `Role` → `Open` with `#[serde(alias = "role")]` for backward JSON compat
+   - **DynamicLayerSchema**: Removed `role_permissions` HashMap, made `permissions` non-optional (`LayerConfig` with `Default` derive)
+   - **matches_dynamic_schema()**: Renamed from `matches_dynamic_schema_for_role()`, no longer takes a `role` parameter
+   - **prepare_layer_permits()**: Changed from `&[(String, String)]` (did, role) to `&[String]` (just DIDs)
+   - **Open distribution**: In courier's `fanout_sync_meta_from_authority()`, the `Ok(None)` branch (no explicit authorized_peers) now adds ALL users with page access, instead of role-matching
+   - **authority_config_from_template()**: Simplified from `(schema, role) -> Option<LayerConfig>` to `(schema) -> LayerConfig`
+   - **Viewer detection**: Butler's merge.rs now uses `!is_owner() && !is_host()` instead of `relationship() == "node_viewer"`
+
+3. Files and Code Sections:
+
+   - **`gurkha/src/parser/mod.rs`**
+     - Core type definitions for the permit system
+     - Added `Default` derive to `LayerConfig`
+     - Changed `GrantType::Role` → `GrantType::Open` with serde alias:
+       ```rust
+       #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+       #[serde(rename_all = "lowercase")]
+       pub enum GrantType {
+           #[default]
+           #[serde(alias = "role")]
+           Open,
+           Explicit,
+       }
+       ```
+     - Changed `DynamicLayerSchema` — removed `role_permissions`, made `permissions` non-optional:
+       ```rust
+       pub struct DynamicLayerSchema {
+           #[serde(rename = "type", default)]
+           pub layer_type: String,
+           #[serde(default)]
+           pub grant: GrantType,
+           #[serde(default)]
+           pub permissions: LayerConfig,
+       }
+       ```
+     - Updated comments: "role-based distribution" → "open distribution"
+
+   - **`gurkha/src/decision/layer.rs`**
+     - Layer authorization decision logic
+     - Renamed `matches_dynamic_schema_for_role()` → `matches_dynamic_schema()`, removed `role` param:
+       ```rust
+       pub fn matches_dynamic_schema(
+           permit: &crate::parser::Permit,
+           layer_name: &str,
+           page_id: &str,
+           operation: &str,
+       ) -> bool {
+           // ... checks schema.permissions directly, no role lookup
+       }
+       ```
+     - Updated `matches_creator_schema()`: `schema.permissions.as_ref().cloned().unwrap_or(...)` → `schema.permissions.clone()`
+     - Updated tests: `test_matches_dynamic_schema_explicit_grant` and `test_matches_dynamic_schema_open_grant`
+
+   - **`gurkha/src/decision/mod.rs`** and **`gurkha/src/lib.rs`**
+     - Updated re-exports: `matches_dynamic_schema_for_role` → `matches_dynamic_schema`
+
+   - **`gurkha/test_permits/shop.json`**
+     - Admin entry changed from `"grant": "role", "role_permissions": { "admin": { "sync": true, "write": false } }` to `"grant": "open", "permissions": { "sync": true, "write": false }`
+
+   - **`gurkha/src/parser/integration_tests.rs`**
+     - Changed `schema.permissions.is_some()` → `schema.permissions.sync` (since permissions is no longer Option)
+
+   - **`scribe/src/permit.rs`**
+     - Removed `get_peer_role()` helper entirely (was ~20 lines, extracted role from subscriber info or stored permit)
+     - Updated `can_write()` path 4 to use `matches_dynamic_schema()` without role:
+       ```rust
+       if let Some(ref our_permit) = state.our_permit {
+           if gurkha::matches_dynamic_schema(
+               our_permit, layer_name, &state.page_id, "write",
+           ) { ... }
+       }
+       ```
+
+   - **`scribe/src/layer_unit/dynamic.rs`**
+     - Simplified `authority_config_from_template()`:
+       ```rust
+       fn authority_config_from_template(
+           schema: &gurkha::DynamicLayerSchema,
+       ) -> gurkha::LayerConfig {
+           let mut config = schema.permissions.clone();
+           if config.layer_type.is_none() && !schema.layer_type.is_empty() {
+               config.layer_type = Some(schema.layer_type.clone());
+           }
+           config
+       }
+       ```
+     - Simplified `issue_creator_layer_authority_permits()`: removed role extraction, computes config once and clones for each target
+     - Changed `prepare_layer_permits()` signature: `connected_peers: &[String]` instead of `&[(String, String)]`. Open branch issues to all peers, Explicit branch uses authority-driven only.
+     - Updated `handle_add_layer_access()`: `schema.permissions.clone()` instead of `.ok_or_else()`
+     - Updated 3 tests: `test_prepare_layer_permits_role_based` → `test_prepare_layer_permits_open`, updated `test_prepare_layer_permits_explicit`, renamed `test_creator_authority_issuance_uses_schema_role_permissions` → `test_creator_authority_issuance_uses_schema_permissions`
+
+   - **`scribe/src/actor.rs`**
+     - Line 89: `relationship()` → `token_type()` in log
+
+   - **`scribe/src/sync/apply.rs`**
+     - Renamed `collect_connected_peers_with_roles()` → `collect_connected_peer_dids()`, returns `Vec<String>`:
+       ```rust
+       fn collect_connected_peer_dids(state: &ScribeState) -> Vec<String> {
+           let mut peers = Vec::new();
+           if let Ok(subs) = state.subscribers.read() {
+               for ((did, _device_id), _info) in subs.iter() {
+                   if !peers.contains(did) {
+                       peers.push(did.clone());
+                   }
+               }
+           }
+           peers
+       }
+       ```
+
+   - **`courier/src/peer_actor/sync/protocol.rs`**
+     - Replaced role-based filtering in `fanout_sync_meta_from_authority()` `Ok(None)` branch:
+       ```rust
+       Ok(None) => {
+           // Open distribution: all peers with page access are recipients.
+           let all_users = match state.butler.store().list_authorized_users_for_page(page_id) {
+               Ok(users) => users,
+               Err(e) => { warn!(...); return; }
+           };
+           for user_did in all_users {
+               if user_did != our_did {
+                   recipients.insert(user_did);
+               }
+           }
+       }
+       ```
+     - Removed dead `authority_schema_for_layer()` function (~40 lines)
+
+   - **`butler/src/merge.rs`**
+     - Replaced `let relationship = our_permit.relationship(); let is_viewer = relationship.map(|r| r == "node_viewer" || r == "viewer_node").unwrap_or(false);` with `let is_viewer = !our_permit.is_owner() && !our_permit.is_host();`
+     - Fixed debug log: `"Generating oplog_vv for relationship: {:?}", relationship` → `"Generating oplog_vv for owner/host"`
+
+   - **`butler/src/lib.rs`**
+     - Line 322: `ctx.permit().relationship().unwrap_or("owner")` → `ctx.permit().token_type().unwrap_or("owner")`
+
+   - **`sample_apps/osvauld-demos/permit_template.json`**, **`sample_apps/group-chat/permit_template.json`**, **`sample_apps/my-shop/permit_template.json`**
+     - Python script transformed all `"grant": "role"` → `"grant": "open"` and `"role_permissions": { ... }` → `"permissions": { ... }` (flattened to first role's permissions)
+
+   - **`sample_apps/osvauld-demos/page.lua`** and **`sample_apps/group-chat/page.lua`**
+     - Removed `role()` definitions, per-role capability tables in `layer()`, and `for_role` from `app()` definitions
+
+4. Errors and fixes:
+   - **Type errors after removing `role_permissions` and making `permissions` non-optional**: Expected cascade of compile errors in scribe, courier, butler. Fixed by updating all consumers.
+   - **`butler/src/merge.rs` reference to removed `relationship` variable**: The debug log on line 249 still referenced the deleted `relationship` variable. Fixed by changing the log message to a static string.
+   - **`schema.permissions.is_some()` in integration test**: Since `permissions` is no longer `Option`, changed to `schema.permissions.sync` assertion.
+   - **`schema.permissions.clone().ok_or_else(...)` in `handle_add_layer_access`**: Since `permissions` is no longer `Option`, simplified to `schema.permissions.clone()`.
+   - **Integration test failures**: 2 of 8 `layer_sync` tests fail with timeouts:
+     - `test_viewer_writes_to_dynamic_channel` — Timeout waiting for key 'msg2'
+     - `test_dynamic_channel_late_joiner` — Timeout waiting for key 'msg1'
+     - These have NOT been fixed yet.
+
+5. Problem Solving:
+   - All unit tests pass (60 gurkha + 29 scribe + 11 butler = 100 tests)
+   - Full workspace build compiles clean
+   - 2 integration tests fail: `test_viewer_writes_to_dynamic_channel` and `test_dynamic_channel_late_joiner`. Both timeout waiting for dynamic channel messages to sync. The likely cause is the change to `fanout_sync_meta_from_authority()` in courier and/or `prepare_layer_permits()` in scribe — the new Open grant path may not be correctly issuing/distributing permits in these specific scenarios.
+
+6. All user messages:
+   - "Implement the following plan: # Phase 2: GrantType::Role → GrantType::Open + flatten role_permissions [detailed plan]"
+   - "we should allowd dynamic schema these strings as enums and not strings." (interruption during work)
+   - "not dynamic schema types we still have some logic where 'owner' and things like that are in the code right."
+   - "its fine for now. whats next?"
+   - "yes lets run the integration tests now."
+
+7. Pending Tasks:
+   - **Fix the 2 failing integration tests**: `test_viewer_writes_to_dynamic_channel` and `test_dynamic_channel_late_joiner` — both timeout on dynamic channel message sync
+   - Investigate root cause: likely in the courier `fanout_sync_meta_from_authority()` open distribution path or scribe `prepare_layer_permits()` Open grant handling
+
+8. Current Work:
+   Just ran `cargo test -p integration_tests -- layer_sync --nocapture` and got results: 6 passed, 2 failed. The failing tests are:
+   - `test_viewer_writes_to_dynamic_channel` — "Timeout waiting for key 'msg2' in layer 'channels/did:key:.../project-z/messages'"
+   - `test_dynamic_channel_late_joiner` — "Timeout waiting for key 'msg1' in layer 'channels/did:key:.../late-join/messages'"
+
+9. Optional Next Step:
+   Debug the 2 failing integration tests. The user explicitly asked "yes lets run the integration tests now" and the results showed 2 failures. Need to:
+   1. Read the failing test code in `integration_tests/src/tests/layer_sync.rs` to understand what these tests expect
+   2. Investigate whether the `fanout_sync_meta_from_authority()` change in courier or the `prepare_layer_permits()` Open grant path in scribe is the root cause
+   3. The failures are timeouts on dynamic channel message sync between peers, suggesting permit distribution or sync-meta fanout isn't reaching the right recipients
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/7ba29771-bed6-4f1d-8b15-e6902b1a1fe1.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+[Request interrupted by user]
+
+---
+
+so these tests were failing before as well, that is why we started this endevor of full refactor, dynamic layer permits management, discovery and sync. where are we with that.
+
+---
+
+lets move to the next phase please.
+
+---
+
+[Request interrupted by user for tool use]

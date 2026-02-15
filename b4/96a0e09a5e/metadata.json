@@ -9,6 +9,7 @@
     "app_test/src/runner.rs",
     "app_test/tests/test_group_chat.rs",
     "butler/src/lib.rs",
+    "butler/src/merge.rs",
     "butler/src/refresh.rs",
     "butler/src/services/page_service.rs",
     "butler/src/services/publish_service.rs",
@@ -32,6 +33,9 @@
     "gurkha/src/decision/layer.rs",
     "gurkha/src/decision/mod.rs",
     "gurkha/src/lib.rs",
+    "gurkha/src/parser/integration_tests.rs",
+    "gurkha/src/parser/mod.rs",
+    "gurkha/test_permits/shop.json",
     "integration_tests/src/fixtures.rs",
     "integration_tests/src/peer.rs",
     "integration_tests/src/scenario.rs",
@@ -176,13 +180,20 @@
       "context": "/b4/96a0e09a5e/12/context.md",
       "content_hash": "/b4/96a0e09a5e/12/content_hash.txt",
       "prompt": "/b4/96a0e09a5e/12/prompt.txt"
+    },
+    {
+      "metadata": "/b4/96a0e09a5e/13/metadata.json",
+      "transcript": "/b4/96a0e09a5e/13/full.jsonl",
+      "context": "/b4/96a0e09a5e/13/context.md",
+      "content_hash": "/b4/96a0e09a5e/13/content_hash.txt",
+      "prompt": "/b4/96a0e09a5e/13/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 38209,
-    "cache_creation_tokens": 5227684,
-    "cache_read_tokens": 202248571,
-    "output_tokens": 574241,
-    "api_call_count": 1876
+    "input_tokens": 46912,
+    "cache_creation_tokens": 5475747,
+    "cache_read_tokens": 214179453,
+    "output_tokens": 612124,
+    "api_call_count": 1980
   }
 }
