@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "b496a0e09a5e",
+  "session_id": "2c3b9c50-a062-4c8e-bad6-eeae7fa14bcd",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-15T13:00:13.04934122Z",
+  "branch": "feature/coordinator-refactor",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "butler/src/services/page_service.rs",
+    "butler/src/services/publish_service.rs",
+    "courier/src/coordinator/mod.rs",
+    "courier/src/lib.rs",
+    "courier/src/message.rs",
+    "courier/src/peer_actor/consent.rs",
+    "courier/src/peer_actor/mod.rs",
+    "courier/src/peer_actor/publish.rs",
+    "courier/src/peer_actor/sync/protocol.rs",
+    "integration_tests/src/peer.rs",
+    "integration_tests/src/scenario.rs",
+    "integration_tests/src/tests/layer_sync.rs",
+    "scribe/src/actor.rs",
+    "scribe/src/layer_unit/dynamic.rs",
+    "scribe/src/message.rs",
+    "scribe/src/operations.rs",
+    "scribe/src/permit.rs",
+    "scribe/src/state.rs",
+    "scribe/src/sync/apply.rs",
+    "scribe/src/sync/subscription.rs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "ff889bae-d8d9-4417-acad-bd40ae555b12",
+  "token_usage": {
+    "input_tokens": 1506,
+    "cache_creation_tokens": 706766,
+    "cache_read_tokens": 31069636,
+    "output_tokens": 83170,
+    "api_call_count": 271
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-15T13:00:12.101257972Z",
+    "agent_lines": 623,
+    "human_added": 9408,
+    "human_modified": 334,
+    "human_removed": 0,
+    "total_committed": 10365,
+    "agent_percentage": 6.010612638687892
+  }
+}

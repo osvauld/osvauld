@@ -1,0 +1,1291 @@
+Implement the following plan:
+
+# Phase 3: Unified Layer Sync Protocol
+
+## Context
+
+**Phases 1-2 complete**: LayerUnit has rich per-subscriber state with capabilities (Phase 1), and `GrantType::Role` has been replaced with `GrantType::Open` (Phase 2). All 100 unit tests pass. 6/8 integration tests pass.
+
+**Two tests still failing** (pre-existing, not regressions):
+- `test_viewer_writes_to_dynamic_channel` — viewer writes msg2, node/owner never receive it
+- `test_dynamic_channel_late_joiner` — viewer joins after channel exists, never discovers msg1
+
+**Root cause**: Timing race between separate `LayerPermit` and `SyncOffer` messages. Currently:
+1. Node sends `LayerPermitMsg` (permit only, no data) to viewer
+2. Node's Scribe broadcasts `SyncOffer` (data only, no permit) to viewer
+3. These arrive independently and race:
+   - If `LayerPermit` arrives before data → `AuthorizeLayerSubscriber` fires but LayerUnit doesn't exist yet → **silently dropped**
+   - If data arrives before `LayerPermit` → layer created but node not authorized as subscriber on viewer's Scribe → **viewer writes never reach node**
+4. Late joiners: no mechanism to send LayerSync for pre-existing dynamic layers on connection
+
+**Fix**: Bundle data + permit in a single `LayerSync` message. Viewer processes both atomically — creates layer, stores permit, authorizes subscriber, sends consent. No race.
+
+## Design: LayerSync + LayerConsent
+
+### New wire messages
+
+```
+LayerSync  (0x0600):  request_id, page_id, layer_name, layer_type, data, state_vector, ephemeral_public, permit
+LayerConsent (0x0601): request_id, page_id, layer_name, consent_permit
+```
+
+### Remove (after migration)
+```
+LayerPermitMsg       (0x0205) → replaced by LayerSync
+LayerConsentGrantMsg (0x0502) → replaced by LayerConsent
+LayerConsentAckMsg   (0x0503) → no separate ack needed
+```
+
+### Keep unchanged
+```
+SyncOffer/SyncAccept/SyncAck — Ongoing 3-step delta sync
+SyncReset/SyncSnapshot — Resync fallback
+SyncConsentGrant/SyncConsentAck — Space/page level consent (handshake)
+```
+
+### Flow: Dynamic layer (open grant)
+
+```
+Owner                     Node                         Viewer
+  │                         │                              │
+  │ SyncOffer (data +       │                              │
+  │   authority_permit)     │                              │
+  ├────────────────────────>│                              │
+  │                         │ detect dynamic schema        │
+  │                         │ issue layer permits          │
+  │                         │ export layer snapshot        │
+  │                         │                              │
+  │                         │ LayerSync (data + permit)    │
+  │                         ├─────────────────────────────>│
+  │                         │                              │ decrypt data
+  │                         │                              │ store permit
+  │                         │                              │ apply to Scribe (creates layer)
+  │                         │                              │ authorize node as subscriber
+  │                         │                              │
+  │                         │        LayerConsent          │
+  │                         │<─────────────────────────────┤
+  │                         │ store consent                │
+  │                         │ authorize viewer on Scribe   │
+  │                         │                              │
+  [Ongoing: SyncOffer/SyncAccept/SyncAck for incremental delta sync]
+```
+
+### Flow: Late joiner
+
+```
+1. Viewer connects, handshake completes
+2. Node subscribes viewer to page → Scribe.handle_subscribe()
+3. Scribe.issue_pending_layer_permits() detects existing dynamic layers
+4. Emits SyncEvent::LayerAccessChanged for each
+5. Coordinator → PeerActor → export snapshot → send LayerSync
+6. Viewer processes LayerSync atomically (same as above)
+```
+
+### Flow: Viewer write-back (fixed)
+
+```
+After LayerSync + LayerConsent exchange:
+  - Node IS a subscriber on viewer's dynamic LayerUnit ← set during LayerSync processing
+  - Viewer IS a subscriber on node's dynamic LayerUnit ← set during LayerConsent processing
+
+1. Viewer writes locally → Loro observer → broadcast_update()
+2. Node subscriber receives BroadcastPayload → PeerActor → SyncOffer to node
+3. Node applies → broadcasts to owner (existing SyncOffer flow)
+```
+
+## File-by-file changes
+
+### Group 1: Wire messages + PeerMessage
+
+**`courier/src/message.rs`**
+- Add `LayerSyncMsg` struct (request_id, page_id, layer_name, layer_type, data, state_vector, ephemeral_public, permit)
+- Add `LayerConsentMsg` struct (request_id, page_id, layer_name, consent_permit)
+- Add `Message::LayerSync(LayerSyncMsg)` and `Message::LayerConsent(LayerConsentMsg)` variants
+- Add tags: `TAG_LAYER_SYNC = 0x0600`, `TAG_LAYER_CONSENT = 0x0601`
+- Add serialize/deserialize in `to_bytes()`/`from_bytes()`
+- Remove `LayerPermitMsg`, `LayerConsentGrantMsg`, `LayerConsentAckMsg` variants + tags + structs
+
+**`courier/src/peer_actor/mod.rs`**
+- Replace `PeerMessage::SendLayerPermit { page_id, layer_name, permit }` with `PeerMessage::SendLayerSync { page_id, layer_name, permit }`
+- Update dispatch: `SendLayerSync` → `self.send_layer_sync()`
+- Update wire dispatch: `Message::LayerSync` → `self.on_layer_sync()`, `Message::LayerConsent` → `self.on_layer_consent()`
+- Remove `Message::LayerPermit`, `Message::LayerConsentGrant`, `Message::LayerConsentAck` dispatch arms
+
+### Group 2: Scribe support
+
+**`scribe/src/message.rs` (ScribeMessage)**
+- Add `ExportLayerSnapshot { layer_name: String, reply: oneshot::Sender<Result<(Vec<u8>, Vec<u8>)>> }` — returns (data, state_vector)
+
+**`scribe/src/actor.rs`**
+- Handle `ScribeMessage::ExportLayerSnapshot`: look up LayerUnit, export snapshot + version_vector, send via reply
+
+### Group 3: PeerActor send-side (node mode)
+
+**`courier/src/peer_actor/consent.rs`**
+- Replace `send_layer_permit()` with `send_layer_sync()`:
+  1. Get Scribe ref from `page_subscriptions`
+  2. Send `ScribeMessage::ExportLayerSnapshot` to get (data, state_vector)
+  3. Generate ECDH ephemeral keypair, encrypt data
+  4. Send `LayerSyncMsg { request_id, page_id, layer_name, layer_type, data, state_vector, ephemeral_public, permit }`
+
+**`courier/src/coordinator/mod.rs`**
+- In `on_distribute_layer_permits()`: change `PeerMessage::SendLayerPermit` → `PeerMessage::SendLayerSync`
+- Update log messages
+
+### Group 4: PeerActor receive-side (viewer mode)
+
+**`courier/src/peer_actor/consent.rs`**
+- Replace `on_layer_permit()` with `on_layer_sync()`:
+  1. Require user mode + auth
+  2. Decrypt data (ECDH with ephemeral_public + our encryption key)
+  3. Store permit in butler
+  4. Send `ScribeMessage::ApplyUpdateWithResult` to local Scribe (creates layer if needed)
+  5. Wait for apply result
+  6. Send `ScribeMessage::AuthorizeLayerSubscriber` (node → viewer's LayerUnit, guaranteed to succeed since layer now exists)
+  7. Call `issue_layer_consent()` → send `LayerConsentMsg`
+
+- Replace `on_layer_consent_grant()` with `on_layer_consent()`:
+  1. Parse consent permit, extract viewer DID
+  2. Store consent in butler
+  3. Send `AuthorizeLayerSubscriber` (viewer → node's LayerUnit)
+  4. No separate ack needed
+
+- Update `issue_layer_consent()`: send `Message::LayerConsent(LayerConsentMsg)` instead of `Message::LayerConsentGrant(LayerConsentGrantMsg)`
+
+- Remove `on_layer_consent_ack()` (no longer needed, consent completes the flow)
+
+### Group 5: Subscription late-joiner fix
+
+**`scribe/src/sync/subscription.rs` → `issue_pending_layer_permits()`**
+- Remove lines 318-324 that add subscriber to LayerUnit during subscription
+  - Subscriber will be added when LayerConsent arrives (after viewer processes LayerSync)
+- Keep SyncEvent::LayerAccessChanged emission (Coordinator distributes via SendLayerSync)
+- This ensures late joiners get LayerSync with data + permit atomically
+
+### Group 6: Cleanup
+
+**`courier/src/peer_actor/consent.rs`**
+- Remove `send_layer_permit()` function entirely
+- Remove `on_layer_permit()` function entirely
+- Remove `on_layer_consent_grant()` function entirely
+- Remove `on_layer_consent_ack()` function entirely
+
+**`courier/src/message.rs`**
+- Remove `LayerPermitMsg`, `LayerConsentGrantMsg`, `LayerConsentAckMsg` structs
+- Remove their tags and roundtrip tests
+
+## Compile order
+
+```bash
+# Group 1-2: Types compile first
+cargo build -p scribe -p courier
+
+# After Group 3-4: Full build
+cargo build -p courier
+
+# After all groups:
+cargo test -p courier -p scribe
+cargo test -p integration_tests -- layer_sync --nocapture
+```
+
+## Verification
+
+All 8 `layer_sync` integration tests should pass:
+- `test_static_channel_syncs_owner_to_viewer` ✓ (unchanged)
+- `test_static_channel_syncs_owner_to_node` ✓ (unchanged)
+- `test_dynamic_channel_owner_creates_and_syncs` ✓ (unchanged)
+- `test_dynamic_channel_with_late_subscriber` ✓ (unchanged)
+- `test_custom_channel_static` ✓ (unchanged)
+- `test_custom_channel_dynamic` ✓ (unchanged)
+- `test_viewer_writes_to_dynamic_channel` ← **should now pass** (LayerSync eliminates race)
+- `test_dynamic_channel_late_joiner` ← **should now pass** (SendLayerSync on subscription)
+
+Key verification points:
+1. Viewer writes to dynamic channel → data reaches node → data reaches owner
+2. Late-joining viewer discovers pre-existing dynamic layers via LayerSync
+3. Static channels continue working (unaffected by changes)
+4. Existing 3-step sync protocol (SyncOffer/Accept/Ack) unchanged
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/7ba29771-bed6-4f1d-8b15-e6902b1a1fe1.jsonl
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+the sync meta should be binded into the new refactor, we had sync meta as an after thought. lets think about that as well.the build succeeds.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me carefully analyze the entire conversation chronologically:
+
+1. The user provided a detailed plan for "Phase 3: Unified Layer Sync Protocol" which involves:
+   - Replacing separate LayerPermit + SyncOffer messages with a unified LayerSync message
+   - Adding LayerConsent to replace LayerConsentGrant + LayerConsentAck
+   - Fixing timing races between permit delivery and data delivery
+   - Fixing late-joiner discovery of pre-existing dynamic layers
+   - Fixing viewer write-back to dynamic channels
+
+2. I created 5 tasks and started implementing the plan group by group.
+
+3. Group 1 (Wire messages + PeerMessage): 
+   - Modified courier/src/message.rs: removed old tags, structs, enum variants; added new LayerSyncMsg, LayerConsentMsg
+   - Modified courier/src/lib.rs: updated re-exports
+   - Modified courier/src/peer_actor/mod.rs: replaced SendLayerPermit with SendLayerSync, updated protocol dispatch
+   - Modified courier/src/coordinator/mod.rs: updated on_distribute_layer_permits to use SendLayerSync
+
+4. Group 2 (Scribe ExportLayerSnapshot):
+   - Added ExportLayerSnapshot variant to scribe/src/message.rs
+   - Added handler in scribe/src/actor.rs
+
+5. Group 3-4 (PeerActor send/receive):
+   - Rewrote consent.rs: send_layer_sync (export snapshot, encrypt, send), on_layer_sync (decrypt, store permit, apply, authorize, consent), on_layer_consent (store consent, authorize viewer), removed on_layer_consent_ack
+
+6. Group 5 (Subscription late-joiner fix):
+   - Removed premature subscriber addition in issue_pending_layer_permits in scribe/src/sync/subscription.rs
+
+7. The user sent several messages during implementation:
+   - "so we must also consider the layer discovery __sync meta to be a protocol level event and not an app level event as well."
+   - "the sync meta should be binded into the new refactor, we had sync meta as an after thought. lets think about that as well."
+   - "test_viewer_writes_to_dynamic_channel this tests still fails, refer our original plan in the docs please. we also want this to be protocol level message."
+   - "we also need to make our original dms in group chat and make that work. it still does not work tho."
+
+8. I explored the __sync_meta mechanism thoroughly via a subagent.
+
+9. I read the full PLAN_LAYER_ARCHITECTURE.md document.
+
+10. I read the apply.rs file to understand the dynamic layer creation flow.
+
+11. The build succeeds but tests still fail. The user confirmed "the build succeeds."
+
+Key issues the user is raising:
+- test_viewer_writes_to_dynamic_channel still fails despite the LayerSync changes
+- __sync_meta should be a protocol-level message, not piggybacked on SyncOffer
+- DMs in group chat don't work
+- The user wants me to refer to the original plan in docs/PLAN_LAYER_ARCHITECTURE.md
+
+The user's messages suggest they want a deeper integration where:
+1. __sync_meta discovery becomes part of the LayerSync protocol (not a CRDT-based layer synced via SyncOffer)
+2. The test failures need to be fixed
+3. DMs need to work
+
+Current state: I was reading apply.rs to trace why the test still fails, and had just finished reading the PLAN_LAYER_ARCHITECTURE.md. The conversation was interrupted before I could diagnose the actual test failure or respond to the user's broader concerns about __sync_meta and DMs.
+
+Let me now compile the full details of all file changes and code snippets.
+
+Summary:
+1. Primary Request and Intent:
+   The user asked me to implement "Phase 3: Unified Layer Sync Protocol" from a detailed plan. The core goal is to replace separate `LayerPermit` and `SyncOffer` messages with a unified `LayerSync` message that bundles layer data + permit atomically, eliminating a timing race condition. This should fix two failing integration tests: `test_viewer_writes_to_dynamic_channel` and `test_dynamic_channel_late_joiner`.
+
+   During implementation, the user expanded the scope with additional requests:
+   - Make `__sync_meta` layer discovery a **protocol-level message** (like LayerSync) instead of being piggybacked on SyncOffer as a CRDT layer
+   - Make DMs in group chat work (they currently don't)
+   - Refer to the original plan document at `docs/PLAN_LAYER_ARCHITECTURE.md` for the intended architecture
+
+2. Key Technical Concepts:
+   - **LayerSync protocol**: Bundles layer data + permit in a single wire message (eliminates race between separate LayerPermit and SyncOffer)
+   - **LayerConsent**: Viewer → Node response after processing LayerSync, replaces LayerConsentGrant + LayerConsentAck
+   - **ECDH encryption**: `herald::encrypt_for_transfer()` / `herald::decrypt_from_transfer()` for transit encryption of layer data
+   - **ExportLayerSnapshot**: New ScribeMessage to export snapshot + state_vector from a LayerUnit for bundling into LayerSync
+   - **Actor model**: ractor-based actors (Scribe, PeerActor, Coordinator) communicate via message passing
+   - **Dynamic layer schemas**: `open` (everyone gets permit) vs `explicit` (only granted DIDs) grant types
+   - **__sync_meta layers**: Protocol-reserved pairwise CRDT layers (`__sync_meta/{did}`) used for layer discovery — currently piggybacked on SyncOffer, user wants this to become a protocol-level message
+   - **Late-joiner fix**: `issue_pending_layer_permits()` emits `SyncEvent::LayerAccessChanged` → Coordinator sends `SendLayerSync` (subscriber NOT added to LayerUnit prematurely — added only after LayerConsent arrives)
+   - **Bidirectional authorization**: After LayerSync+LayerConsent exchange, node is subscriber on viewer's Scribe AND viewer is subscriber on node's Scribe
+
+3. Files and Code Sections:
+
+   - **`courier/src/message.rs`** — Wire protocol message definitions
+     - Removed tags: `LAYER_PERMIT (0x0205)`, `LAYER_CONSENT_GRANT (0x0502)`, `LAYER_CONSENT_ACK (0x0503)`
+     - Added tags: `LAYER_SYNC (0x0600)`, `LAYER_CONSENT (0x0601)`
+     - Removed structs: `LayerPermitMsg`, `LayerConsentGrantMsg`, `LayerConsentAckMsg`
+     - Added structs:
+     ```rust
+     #[derive(Debug, Clone, Serialize, Deserialize)]
+     pub struct LayerSyncMsg {
+         pub request_id: String,
+         pub page_id: String,
+         pub layer_name: String,
+         pub layer_type: LayerType,
+         pub data: Vec<u8>,
+         pub state_vector: Vec<u8>,
+         pub ephemeral_public: [u8; 32],
+         pub permit: String,
+     }
+
+     #[derive(Debug, Clone, Serialize, Deserialize)]
+     pub struct LayerConsentMsg {
+         pub request_id: String,
+         pub page_id: String,
+         pub layer_name: String,
+         pub consent_permit: String,
+     }
+     ```
+     - Updated Message enum: `LayerSync(LayerSyncMsg)`, `LayerConsent(LayerConsentMsg)` replacing 3 old variants
+     - Updated `name()`, `context()`, `to_bytes()`, `from_bytes()` / `dispatch_message()`
+     - Updated roundtrip tests to use new types
+
+   - **`courier/src/lib.rs`** — Re-exports
+     - Changed `LayerPermitMsg, LayerConsentGrantMsg, LayerConsentAckMsg` → `LayerSyncMsg, LayerConsentMsg`
+
+   - **`courier/src/peer_actor/mod.rs`** — PeerActor message handling
+     - Replaced `PeerMessage::SendLayerPermit` with `PeerMessage::SendLayerSync`
+     - Updated dispatch: `SendLayerSync` → `self.send_layer_sync()`
+     - Updated protocol dispatch: `Message::LayerSync` → `self.on_layer_sync()`, `Message::LayerConsent` → `self.on_layer_consent()`
+
+   - **`courier/src/coordinator/mod.rs`** — Coordinator dispatch
+     - Updated `on_distribute_layer_permits()` to cast `PeerMessage::SendLayerSync` instead of `PeerMessage::SendLayerPermit`
+
+   - **`scribe/src/message.rs`** — ScribeMessage enum
+     - Added new variant:
+     ```rust
+     ExportLayerSnapshot {
+         layer_name: String,
+         reply: tokio::sync::oneshot::Sender<std::result::Result<(Vec<u8>, Vec<u8>), String>>,
+     },
+     ```
+
+   - **`scribe/src/actor.rs`** — Scribe actor handler
+     - Added handler for ExportLayerSnapshot:
+     ```rust
+     ScribeMessage::ExportLayerSnapshot { layer_name, reply } => {
+         let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+         let result = if let Some(unit) = state.units.get(&layer_name) {
+             let snapshot = unit.layer().export_snapshot();
+             let state_vector = unit.layer().version_vector();
+             Ok((snapshot, state_vector))
+         } else {
+             Err(format!("Layer '{}' not found", layer_name))
+         };
+         let _ = reply.send(result);
+     }
+     ```
+
+   - **`courier/src/peer_actor/consent.rs`** — Layer sync + consent handlers (MAJOR rewrite)
+     - Added imports: `debug`, `ScribeMessage`
+     - Replaced `send_layer_permit()` with `send_layer_sync()` — exports snapshot from Scribe via `ExportLayerSnapshot`, encrypts with `herald::encrypt_for_transfer()`, sends `LayerSyncMsg`
+     - Replaced `on_layer_permit()` with `on_layer_sync()` — decrypts data, stores permit, applies to Scribe via `ApplyUpdateWithResult`, authorizes node as subscriber via `AuthorizeLayerSubscriber`, issues consent back
+     - Replaced `on_layer_consent_grant()` with `on_layer_consent()` — stores consent in butler, authorizes viewer on node's Scribe via `AuthorizeLayerSubscriber`, no separate ack
+     - Removed `on_layer_consent_ack()` entirely
+     - Updated `issue_layer_consent()` to send `Message::LayerConsent(LayerConsentMsg)` instead of `Message::LayerConsentGrant(LayerConsentGrantMsg)`
+
+   - **`scribe/src/sync/subscription.rs`** — Subscription late-joiner fix
+     - In `issue_pending_layer_permits()`: removed premature subscriber addition (lines 318-325 that added subscriber to LayerUnit during subscription). Added comment explaining subscriber will be added when LayerConsent arrives.
+     - Removed unused `broadcast_tx` variable that was only used for the removed subscriber addition
+
+   - **`docs/PLAN_LAYER_ARCHITECTURE.md`** — Full architecture plan document (read for reference)
+     - Describes the full vision: layer-centric authorization, per-layer permits, unified LayerSync protocol, DMs via explicit grants, removal of __sync_meta in favor of protocol-level messages
+
+   - **`scribe/src/sync/apply.rs`** — Apply update handling (read for diagnosis)
+     - `emit_dynamic_layer_permits()` at line 456: Node-side detection of new dynamic layers, issues permits, emits `SyncEvent::NewDynamicLayer`
+     - `create_layer_from_peer()` at line 337: Creates new layer, adds existing subscribers, sets up observer
+     - Important: At line 503-515, `emit_dynamic_layer_permits` adds permit recipients as subscribers on the LayerUnit — this might be causing issues since with the new protocol, subscribers should only be added after LayerConsent
+
+   - **`integration_tests/src/tests/layer_sync.rs`** — Failing test (read for diagnosis)
+     - `test_viewer_writes_to_dynamic_channel` (line 350): Owner creates dynamic channel, writes msg1, viewer receives msg1, viewer writes msg2, expects node and owner to receive msg2
+
+   - **`__sync_meta` mechanism** — Explored thoroughly via subagent
+     - Created in `butler/src/services/page_service.rs` during page creation
+     - Viewer bootstrap in `courier/src/peer_actor/publish.rs` sends sync_meta as SyncOffer
+     - Node discovers missing layers via `request_missing_layers_from_sync_meta()` in `courier/src/peer_actor/sync/protocol.rs`
+     - Fanout via `fanout_sync_meta_from_authority()` in protocol.rs
+     - Special pairwise access control in `scribe/src/sync/subscription.rs`
+
+4. Errors and Fixes:
+   - Compile errors from removing old types: Fixed by updating all references (enum variants, tags, structs, match arms, tests) across message.rs, lib.rs, mod.rs, coordinator/mod.rs
+   - Unused variable warnings (`state_vector`, `request_id`, `layer_type` in `on_layer_sync`): Fixed by prefixing with underscores
+   - Unused import warnings (`debug`, `ScribeMessage`): These were actually needed after the full rewrite, the warnings were transient during editing
+   - Build succeeded after all changes: User confirmed "the build succeeds"
+
+5. Problem Solving:
+   - **Solved**: Wire protocol message migration (LayerPermit → LayerSync, LayerConsentGrant → LayerConsent)
+   - **Solved**: Scribe ExportLayerSnapshot support for bundling data with permits
+   - **Solved**: PeerActor send/receive for new protocol
+   - **Solved**: Late-joiner premature subscriber addition removal
+   - **Ongoing**: `test_viewer_writes_to_dynamic_channel` still fails — I was tracing through the flow to find why
+   - **Ongoing**: `__sync_meta` needs to become protocol-level (not CRDT-based SyncOffer piggybacking)
+   - **Ongoing**: DMs in group chat don't work
+   - **Potential issue identified**: In `scribe/src/sync/apply.rs` line 503-515, `emit_dynamic_layer_permits()` still eagerly adds permit recipients as subscribers to the LayerUnit. With the new protocol, this is problematic because the subscriber should only be added after LayerConsent arrives. This could be a source of the remaining test failure — the node adds the viewer as subscriber on the dynamic LayerUnit, but the viewer hasn't processed LayerSync yet, so the node's broadcast goes to a viewer that hasn't consented/authorized yet.
+
+6. All User Messages:
+   - Initial message: "Implement the following plan: [detailed Phase 3 plan with 6 groups of file-by-file changes]"
+   - "so we must also consider the layer discovery __sync meta to be a protocol level event and not an app level event as well."
+   - "the sync meta should be binded into the new refactor, we had sync meta as an after thought. lets think about that as well."
+   - "test_viewer_writes_to_dynamic_channel this tests still fails, refer our original plan in the docs please. we also want this to be protocol level message."
+   - "we also need to make our original dms in group chat and make that work. it still does not work tho."
+   - (After I tried to run cargo build): "the build succeeds." (user rejected the full build tool call but confirmed it succeeds)
+
+7. Pending Tasks:
+   - **Fix `test_viewer_writes_to_dynamic_channel`**: The test still fails. Need to trace through the full flow and fix remaining issues. Likely issue: `emit_dynamic_layer_permits()` in apply.rs still eagerly adds subscribers to the dynamic LayerUnit before LayerConsent arrives.
+   - **Make `__sync_meta` a protocol-level message**: User explicitly wants sync_meta discovery to use the LayerSync protocol message rather than being a CRDT layer synced via SyncOffer. This is a significant architectural change.
+   - **Make DMs work in group chat**: The `explicit` grant type for DMs (`dms/{id}/messages`) needs to work end-to-end.
+   - **Fix `test_dynamic_channel_late_joiner`**: Also expected to pass with the LayerSync changes.
+
+8. Current Work:
+   I was in the middle of diagnosing why `test_viewer_writes_to_dynamic_channel` still fails after the LayerSync protocol implementation. I had just finished reading:
+   - The full `docs/PLAN_LAYER_ARCHITECTURE.md` plan document
+   - `scribe/src/sync/apply.rs` to understand the dynamic layer creation flow and `emit_dynamic_layer_permits()`
+   - `integration_tests/src/tests/layer_sync.rs` to understand the test flow
+   
+   I identified a potential issue: `emit_dynamic_layer_permits()` in apply.rs (lines 503-515) still eagerly adds permit recipients as subscribers to the dynamic LayerUnit on the node side. With the new protocol where subscribers should only be added after LayerConsent arrives, this premature addition may cause the node's Loro observer to try broadcasting to a viewer that hasn't completed the LayerSync handshake yet.
+
+   The user's broader feedback is that `__sync_meta` should be refactored into a protocol-level message (using LayerSync) rather than the current approach of piggybacking on SyncOffer as a CRDT layer. This aligns with Part 5 of the PLAN_LAYER_ARCHITECTURE.md which envisions LayerSync as the unified mechanism for all layer establishment.
+
+9. Optional Next Step:
+   The most immediate task based on the user's latest messages is to fix `test_viewer_writes_to_dynamic_channel`. The likely fix involves:
+   1. Removing the eager subscriber addition in `emit_dynamic_layer_permits()` in `scribe/src/sync/apply.rs` (lines 503-515) — similar to the fix already applied in `issue_pending_layer_permits()` in subscription.rs
+   2. Running the integration test to verify the fix
+   
+   After that, the user wants `__sync_meta` to become a protocol-level message and DMs to work. User quotes:
+   - "test_viewer_writes_to_dynamic_channel this tests still fails, refer our original plan in the docs please. we also want this to be protocol level message."
+   - "we also need to make our original dms in group chat and make that work. it still does not work tho."
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/2c3b9c50-a062-4c8e-bad6-eeae7fa14bcd.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+[Request interrupted by user]
+
+---
+
+no, the fix would affect this anyways, lets first make sync meta more of a protocol layer thing, its used for layer discovery, we may later have another layer for permit upgrade disovery. so how can we make it more natural and be a first class citizen of the protocol.
+
+---
+
+so how does this work lets say for group chat i am creating a channel b/w alice carol, bob should not be aware of it. this should not be an active push, this should be just the layer written if the node is online it goes to it, otherwise when node connects this information gets passed. how would this happen in this scenairo.
+
+---
+
+yes lets do this.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me analyze the conversation chronologically:
+
+1. **Context from previous session**: The user had been implementing "Phase 3: Unified Layer Sync Protocol" which involved:
+   - Replacing separate `LayerPermit` + `SyncOffer` messages with unified `LayerSync` message
+   - Adding `LayerConsent` to replace `LayerConsentGrant` + `LayerConsentAck`
+   - Groups 1-5 of the plan were completed (wire messages, Scribe ExportLayerSnapshot, PeerActor send/receive, subscription late-joiner fix)
+   - Build succeeded but `test_viewer_writes_to_dynamic_channel` still failed
+   - User had requested: make `__sync_meta` a protocol-level message, make DMs work, fix the test
+
+2. **Current session start**: The conversation resumed with context about the previous work. I was about to diagnose the test failure when the user redirected.
+
+3. **User's first message**: "no, the fix would affect this anyways, lets first make sync meta more of a protocol layer thing, its used for layer discovery, we may later have another layer for permit upgrade discovery. so how can we make it more natural and be a first class citizen of the protocol."
+
+4. **My response**: I explored the __sync_meta mechanism thoroughly via a subagent and read the PLAN_LAYER_ARCHITECTURE.md. I proposed removing __sync_meta entirely and replacing with "layer-is-the-signal" approach where:
+   - Auto-subscribe sync_target to new layers
+   - Layer data itself IS the discovery signal
+   - LayerSync handles node→viewer delivery
+
+5. **User's second message**: "so how does this work lets say for group chat i am creating a channel b/w alice carol, bob should not be aware of it. this should not be an active push, this should be just the layer written if the node is online it goes to it, otherwise when node connects this information gets passed. how would this happen in this scenario."
+
+6. **My response**: I traced through the explicit grant DM scenario, showing both online and offline flows, explaining how the layer data traveling to the node IS the discovery, and how `add_subscriber_to_layers()` handles offline reconnection.
+
+7. **User's third message**: "yes lets do this."
+
+8. **Implementation**: I systematically removed __sync_meta from all crates:
+   - Butler: page_service.rs, publish_service.rs
+   - Scribe: state.rs, operations.rs, permit.rs, subscription.rs, apply.rs, dynamic.rs
+   - Courier: publish.rs, sync/protocol.rs
+   - Added `auto_subscribe_sync_target()` in operations.rs
+
+9. **Build and test results**: Build succeeded, all 29 unit tests pass.
+
+10. **User's latest message**: "now we also need test where node is offline and we make a layer and it gets synced correctly."
+
+11. **My response**: I started reading the integration test file to understand how to write the offline sync test, but was then asked for the summary.
+
+Key files modified:
+- butler/src/services/page_service.rs
+- butler/src/services/publish_service.rs
+- scribe/src/state.rs
+- scribe/src/operations.rs
+- scribe/src/permit.rs
+- scribe/src/sync/subscription.rs
+- scribe/src/sync/apply.rs
+- scribe/src/layer_unit/dynamic.rs
+- courier/src/peer_actor/publish.rs
+- courier/src/peer_actor/sync/protocol.rs
+
+Key files from previous session (Phase 3 LayerSync protocol):
+- courier/src/message.rs
+- courier/src/lib.rs
+- courier/src/peer_actor/mod.rs
+- courier/src/coordinator/mod.rs
+- scribe/src/message.rs
+- scribe/src/actor.rs
+- courier/src/peer_actor/consent.rs
+
+Errors encountered:
+- Unused imports: json_to_loro_value, BTreeSet, Layer
+- Unused variables: parsed_owner_permit, sync_target
+- Unused mut: layer_names parameters
+- References to removed methods: track_new_sync_layer_in_meta, fanout_sync_meta_from_authority, is_sync_meta_layer, request_missing_layers_from_sync_meta, bootstrap_and_send_sync_meta_for_page
+- All fixed during implementation
+
+The user's pending request is to write a test for node-offline dynamic layer creation + sync.
+
+Summary:
+1. Primary Request and Intent:
+   The user's overarching goal is implementing a unified layer sync protocol (Phase 3 from docs/PLAN_LAYER_ARCHITECTURE.md). This session focused on two major pieces:
+   
+   **A. Remove `__sync_meta` CRDT layers, replace with protocol-native layer discovery** — The user explicitly asked to "make sync meta more of a protocol layer thing" because it's "used for layer discovery" and was "an afterthought." The user wants layer discovery to be passive ("this should not be an active push, this should be just the layer written") and work both online and offline. The user confirmed with "yes lets do this."
+   
+   **B. Write integration test for node-offline dynamic layer creation** — The user's latest request: "now we also need test where node is offline and we make a layer and it gets synced correctly."
+
+   **Previous session context (completed)**: Phase 3 Groups 1-5 were implemented — unified LayerSync/LayerConsent wire messages replacing separate LayerPermit/LayerConsentGrant/LayerConsentAck, Scribe ExportLayerSnapshot support, PeerActor send/receive handlers, and subscription late-joiner fix.
+   
+   **Still pending from earlier**: `test_viewer_writes_to_dynamic_channel` and `test_dynamic_channel_late_joiner` integration tests still fail. The user redirected from fixing these to the __sync_meta removal, saying "the fix would affect this anyways." Also DMs in group chat need to work.
+
+2. Key Technical Concepts:
+   - **LayerSync protocol**: Bundles layer data + permit in single wire message (0x0600), eliminates race between separate LayerPermit and SyncOffer
+   - **LayerConsent**: Viewer→Node response after processing LayerSync (0x0601), replaces LayerConsentGrant + LayerConsentAck
+   - **Sync-target auto-subscription**: New mechanism replacing __sync_meta — when a new syncable layer is created, the sync_target (node) is auto-added as subscriber on the LayerUnit. CRDT observer broadcasts then carry data to node naturally.
+   - **"Layer-is-the-signal"**: Layer data itself IS the discovery mechanism. No separate manifest/catalog needed.
+   - **Dynamic layer schemas**: `open` (everyone gets permit) vs `explicit` (only granted DIDs) grant types
+   - **emit_dynamic_layer_permits()** in apply.rs: Node-side detection of new dynamic layers via schema matching, issues permits, emits SyncEvent::NewDynamicLayer
+   - **issue_pending_layer_permits()** in subscription.rs: Handles late-joiner discovery of existing dynamic layers
+   - **ECDH encryption**: `herald::encrypt_for_transfer()` / `herald::decrypt_from_transfer()` for transit encryption
+   - **Actor model**: ractor-based actors (Scribe, PeerActor, Coordinator) communicate via message passing
+   - **ExportLayerSnapshot**: ScribeMessage added in Phase 3 to export snapshot + state_vector from LayerUnit
+
+3. Files and Code Sections:
+
+   - **`scribe/src/operations.rs`** — Core of the __sync_meta replacement. Replaced `track_new_sync_layer_in_meta()` with `auto_subscribe_sync_target()`.
+     ```rust
+     /// Helper to ensure a layer exists, returns true if layer was newly created.
+     ///
+     /// **Sync-target auto-subscription**: When a new syncable layer is created and we have
+     /// a sync_target (owner/viewer mode), the sync_target is auto-added as subscriber.
+     /// This ensures new dynamic layers propagate to the node via the normal CRDT observer
+     /// broadcast path — no separate __sync_meta discovery needed.
+     fn ensure_layer_exists(state: &mut ScribeState, layer_name: &str) -> bool {
+         let is_new = !state.units.contains_key(layer_name);
+         if is_new {
+             let mut unit = LayerUnit::new_empty();
+             unit.set_local_only(!state.should_sync_layer(layer_name));
+             state.units.insert(layer_name.to_string(), unit);
+     
+             // Auto-subscribe sync_target to new syncable layers
+             auto_subscribe_sync_target(state, layer_name);
+     
+             debug!(layer = %layer_name, "Created new layer");
+         }
+     
+         is_new
+     }
+     
+     /// Auto-subscribe the sync_target to a newly created syncable layer.
+     ///
+     /// **Context**: Owner/viewer creates a new layer. The sync_target (node) needs to
+     /// receive data for it. By adding them as subscriber, the Loro observer broadcasts
+     /// will include them, and the PeerActor sends SyncOffer to the node.
+     fn auto_subscribe_sync_target(state: &ScribeState, layer_name: &str) {
+         if !state.should_sync_layer(layer_name) {
+             return;
+         }
+     
+         let sync_target_did = match state.sync_config.as_ref() {
+             Some(cfg) => match cfg.sync_target.as_deref() {
+                 Some(did) => did.to_string(),
+                 None => return,
+             },
+             None => return,
+         };
+     
+         let broadcast_tx = state.subscribers.read().ok().and_then(|subs| {
+             subs.iter()
+                 .find(|((d, _), _)| d == &sync_target_did)
+                 .map(|(_, info)| info.broadcast_tx.clone())
+         });
+     
+         if let (Some(unit), Some(tx)) = (state.units.get(layer_name), broadcast_tx) {
+             let caps = crate::layer_unit::Capabilities { read: true, write: true, sync: true };
+             unit.add_subscriber(sync_target_did.clone(), caps, tx);
+             debug!(layer = %layer_name, target = %sync_target_did, "Auto-subscribed sync_target to new layer");
+         }
+     }
+     ```
+
+   - **`butler/src/services/page_service.rs`** — Removed __sync_meta layer creation during page creation
+     - Removed `__sync_meta/{owner_did}` layer push to layer_names (lines 49-53 old)
+     - Removed sync_bootstrap_layers computation and __sync_meta CRDT map population (lines 55-86 old)
+     - Removed `parsed_owner_permit` variable (was only needed for sync bootstrap)
+     - Changed `mut layer_names` to `layer_names` in both `create_page` and `create_private_page`
+     - Removed `json_to_loro_value` import
+
+   - **`butler/src/services/publish_service.rs`** — Removed __sync_meta filtering
+     - Removed `owner_sync_meta_layer` variable and `__sync_meta/` filtering in `prepare_page_for_publish` (lines 88-94 old)
+     - Removed `__sync_meta/` filtering in `prepare_page_for_viewer` (lines 312-315 old)
+
+   - **`scribe/src/state.rs`** — Removed __sync_meta state management
+     - Removed `is_protocol_sync_meta_layer()` function
+     - Removed `track_new_sync_layer_in_meta()` function (~35 lines)
+     - Removed `__sync_meta` special-case from `should_sync_layer()` (was returning true for all __sync_meta layers)
+     - Removed `json_to_loro_value` import
+
+   - **`scribe/src/permit.rs`** — Removed __sync_meta write permission
+     - Removed `__sync_meta/{did}` pairwise write permission check from `Permissions::can_write()` (lines 188-199 old)
+
+   - **`scribe/src/sync/subscription.rs`** — Removed pairwise access control
+     - Removed `__sync_meta/` pairwise access logic from `add_subscriber_to_layers()` (lines 138-147 old)
+     - Removed unused `sync_target` variable
+     - Removed `is_protocol_sync_meta` variable and its special-case in `send_initial_state_to_subscriber()` — now uses simpler `if data.is_empty() || state_vector.len() <= 1`
+
+   - **`scribe/src/sync/apply.rs`** — Updated comment on `emit_dynamic_layer_permits()` to reflect new discovery mechanism
+
+   - **`scribe/src/layer_unit/dynamic.rs`** — Removed `track_new_sync_layer_in_meta(&bare_path)` call from dynamic layer creation
+
+   - **`courier/src/peer_actor/publish.rs`** — Removed viewer sync-meta bootstrap
+     - Removed entire `bootstrap_and_send_sync_meta_for_page()` function (~150 lines) — was creating __sync_meta CRDT entries and sending SyncOffer for viewer bootstrap
+     - Removed the call to it in `on_permit_update()` for page_viewer tokens — replaced with comment about LayerSync protocol
+     - Removed `std::collections::BTreeSet` import
+
+   - **`courier/src/peer_actor/sync/protocol.rs`** — Removed sync-meta discovery functions
+     - Removed `is_sync_meta_layer()` function
+     - Removed `fanout_sync_meta_from_authority()` function (~75 lines) — was writing __sync_meta entries for all recipients and authorizing them on channel layers
+     - Removed `request_missing_layers_from_sync_meta()` function (~80 lines) — was reading sync-meta CRDT entries and sending SyncReset for missing layers
+     - Removed call to `fanout_sync_meta_from_authority()` from `on_sync_offer()` authority permit handling
+     - Removed call to `is_sync_meta_layer()`/`request_missing_layers_from_sync_meta()` from `on_sync_offer()` post-apply
+     - Removed same calls from `on_sync_snapshot()` post-apply
+     - Removed `std::collections::BTreeSet` import
+
+   - **Previous session files (Phase 3 LayerSync, already implemented)**:
+     - `courier/src/message.rs` — Added `LayerSyncMsg`/`LayerConsentMsg`, removed `LayerPermitMsg`/`LayerConsentGrantMsg`/`LayerConsentAckMsg`
+     - `courier/src/peer_actor/consent.rs` — Added `send_layer_sync()`, `on_layer_sync()`, `on_layer_consent()`, `issue_layer_consent()` using new message types
+     - `courier/src/peer_actor/mod.rs` — Updated PeerMessage enum and dispatch
+     - `courier/src/coordinator/mod.rs` — Updated `on_distribute_layer_permits()` to use `SendLayerSync`
+     - `scribe/src/message.rs` — Added `ExportLayerSnapshot` variant
+     - `scribe/src/actor.rs` — Added handler for `ExportLayerSnapshot`
+     - `scribe/src/sync/subscription.rs` — Removed premature subscriber addition in `issue_pending_layer_permits()`
+
+   - **`integration_tests/src/tests/layer_sync.rs`** — Read for understanding test structure. Contains 8 tests including `test_viewer_writes_to_dynamic_channel` (line 350) and `test_dynamic_channel_late_joiner` (line 449).
+
+   - **`docs/PLAN_LAYER_ARCHITECTURE.md`** — Full architecture plan document, read for reference. Describes the complete vision including per-layer permits, unified LayerSync protocol, DMs via explicit grants.
+
+4. Errors and fixes:
+   - **Unused import `json_to_loro_value`** in page_service.rs and state.rs: Removed the imports since they were only used by __sync_meta code.
+   - **Unused variable `parsed_owner_permit`** in page_service.rs: Removed the variable and its computation since it was only needed for sync bootstrap metadata.
+   - **Unused `mut` on `layer_names`** in both `create_page` and `create_private_page`: Changed to immutable since __sync_meta layer push was removed.
+   - **`track_new_sync_layer_in_meta` not found** in operations.rs and dynamic.rs: Replaced with `auto_subscribe_sync_target()` in operations.rs, removed call in dynamic.rs.
+   - **`fanout_sync_meta_from_authority` not found** in protocol.rs: Removed the call from `on_sync_offer()`.
+   - **`is_sync_meta_layer` not found** in protocol.rs: Removed all calls from `on_sync_offer()` and `on_sync_snapshot()`.
+   - **`request_missing_layers_from_sync_meta` not found** in protocol.rs: Removed all calls.
+   - **`bootstrap_and_send_sync_meta_for_page` not found** in publish.rs: Removed the function and its call.
+   - **Unused `sync_target` variable** in subscription.rs: Removed since the __sync_meta pairwise access logic that used it was deleted.
+   - **Unused `BTreeSet` import** in publish.rs and protocol.rs: Removed.
+
+5. Problem Solving:
+   - **Solved: __sync_meta removal** — Successfully removed the entire __sync_meta CRDT-based discovery mechanism (~400+ lines across 10 files) and replaced it with a single ~30-line `auto_subscribe_sync_target()` function. Build succeeds, all 29 unit tests pass.
+   - **Solved (previous session): Phase 3 LayerSync protocol** — Unified LayerSync/LayerConsent wire messages implemented, replacing 3 old message types.
+   - **Ongoing: Integration test failures** — `test_viewer_writes_to_dynamic_channel` and `test_dynamic_channel_late_joiner` still fail. A potential issue identified: `emit_dynamic_layer_permits()` in apply.rs (lines 503-515) eagerly adds permit recipients as subscribers to the dynamic LayerUnit on the node side. With the new protocol where subscribers should only be added after LayerConsent arrives, this premature addition may cause issues.
+   - **Ongoing: DMs in group chat** — User mentioned "we also need to make our original dms in group chat and make that work."
+
+6. All user messages:
+   - "no, the fix would affect this anyways, lets first make sync meta more of a protocol layer thing, its used for layer discovery, we may later have another layer for permit upgrade discovery. so how can we make it more natural and be a first class citizen of the protocol."
+   - "so how does this work lets say for group chat i am creating a channel b/w alice carol, bob should not be aware of it. this should not be an active push, this should be just the layer written if the node is online it goes to it, otherwise when node connects this information gets passed. how would this happen in this scenairo."
+   - "yes lets do this."
+   - "now we also need test where node is offline and we make a layer and it gets synced correctly."
+
+7. Pending Tasks:
+   - **Write integration test for node-offline dynamic layer creation + sync** (user's most recent explicit request)
+   - **Fix `test_viewer_writes_to_dynamic_channel`** — Still failing, likely related to premature subscriber addition in `emit_dynamic_layer_permits()` in apply.rs
+   - **Fix `test_dynamic_channel_late_joiner`** — Still failing
+   - **Make DMs work in group chat** — User requested this earlier
+   - **Potential issue in apply.rs lines 503-515**: `emit_dynamic_layer_permits()` eagerly adds permit recipients as subscribers — may need to be removed since with new protocol, subscribers should only be added after LayerConsent
+
+8. Current Work:
+   I had just completed the __sync_meta removal (build succeeds, 29 unit tests pass) and was starting to read the integration test file `integration_tests/src/tests/layer_sync.rs` to understand how to write a new test for the node-offline scenario. I read lines 440-519 showing `test_dynamic_channel_late_joiner` as reference for the test structure.
+
+   The user's latest message was: "now we also need test where node is offline and we make a layer and it gets synced correctly."
+
+   The Scenario builder API supports: `.app("group-chat").published().viewers(N).build()`, and tests use `ScribeMessage::CreateDynamicLayer`, `ScribeMessage::MapInsert`, and helper functions like `wait_for_layer_json_key()` and `wait_for_layer_data()`.
+
+9. Optional Next Step:
+   Write an integration test `test_dynamic_channel_node_offline_sync` in `integration_tests/src/tests/layer_sync.rs` that:
+   1. Creates owner + node + viewer scenario
+   2. Disconnects/stops the node
+   3. Owner creates a dynamic channel and writes data while node is offline
+   4. Reconnects the node
+   5. Verifies node receives the dynamic channel data
+   6. Verifies viewer also receives the data (via LayerSync from node)
+   
+   This directly addresses the user's quote: "now we also need test where node is offline and we make a layer and it gets synced correctly."
+   
+   Note: Need to first check if the Scenario builder supports disconnect/reconnect operations, or if this needs a different approach (e.g., delayed node start).
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/2c3b9c50-a062-4c8e-bad6-eeae7fa14bcd.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+[Request interrupted by user]
+
+---
+
+so for this and other tests where some are offline we i think we should mock it correctly, lets analyze the integration test infra and understand what we have and what we can do to correctly mock this.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. **Session context from previous conversation**: The user had been implementing "Phase 3: Unified Layer Sync Protocol" which replaced separate LayerPermit + SyncOffer messages with unified LayerSync/LayerConsent messages. They also removed `__sync_meta` CRDT layers and replaced with protocol-native layer discovery via `auto_subscribe_sync_target()`. Build succeeded, 29 unit tests passed.
+
+2. **User's first message in this session**: The conversation was continued from a previous context that ran out of space. The summary indicated the user wanted:
+   - Write integration test for node-offline dynamic layer creation + sync
+   - Fix `test_dynamic_channel_late_joiner` (failing)
+   - Fix `test_viewer_writes_to_dynamic_channel` (failing)
+   - Make DMs work in group chat
+
+3. **User's messages during work**:
+   - "we also have this one test_dynamic_channel_late_joiner this fails. we also need to have tests for dms. we dont currently test that this is the group chat layers with explicity did access."
+   - "this joining and leaving we need to simulate that in our integration tests."
+   - "currently only the late joiner test fails."
+   - "so for this and other tests where some are offline we i think we should mock it correctly, lets analyze the integration test infra and understand what we have and what we can do to correctly mock this."
+
+4. **My approach**: 
+   - First explored the integration test infrastructure (Scenario, Peer, fixtures)
+   - Explored the group-chat DM layers (explicit grant type)
+   - Read consent.rs for LayerSync flow understanding
+   - Deep-dived into the test infrastructure for disconnect/reconnect capabilities
+
+5. **Key findings about the late joiner bug**:
+   - `issue_pending_layer_permits()` only checks authority permits (for explicit grants)
+   - For open-grant dynamic layers, no per-viewer authority permits are issued
+   - `prepare_layer_permits()` for Open grants calls `issue_layer_permit()` directly (not authority permits)
+   - Late joiners get nothing because `list_layer_authority_permits_for_audience()` returns empty
+
+6. **Fixes implemented**:
+
+   a. **Late joiner fix** (subscription.rs): Added `issue_open_grant_dynamic_permits()` function that:
+      - Scans all existing layers (not just is_dynamic, since node-side layers aren't marked)
+      - Matches against open-grant dynamic schemas via `find_matching_dynamic_schema()`
+      - Issues permits directly with schema permissions
+      - Emits `SyncEvent::LayerAccessChanged` for distribution
+
+   b. **Dynamic marking fix** (operations.rs): In `ensure_layer_exists()`, added code to mark layers as `is_dynamic = true` when they match a dynamic schema (for node-side layers created via sync)
+
+   c. **Disconnect/reconnect** (peer.rs, scenario.rs): Added:
+      - `Peer::disconnect_from()` - injects `CoordinatorMessage::Disconnected` into both coordinators
+      - `Scenario::disconnect_owner_from_node()`
+      - `Scenario::reconnect_owner_to_node()` - uses stored reconnection permit
+      - `Scenario::disconnect_viewer_from_node()`
+      - `Scenario::reconnect_viewer_to_node()`
+
+   d. **New tests** (layer_sync.rs):
+      - `test_dynamic_channel_node_offline_sync` - owner creates layer while disconnected, reconnects, node gets data
+      - `test_dm_explicit_grant_syncs_to_viewer` - DM with explicit grant to viewer
+      - `test_dm_explicit_grant_isolation` - non-granted viewer can't see DM
+
+7. **Test results**:
+   - All 8 existing layer_sync tests pass (including previously failing late_joiner and viewer_writes)
+   - `test_dynamic_channel_node_offline_sync` passes
+   - DM tests (`test_dm_explicit_grant_syncs_to_viewer`, `test_dm_explicit_grant_isolation`) FAIL
+   - The DM test failure: "Timeout waiting for key 'dm1'" - the AddLayerAccess is called on the owner's Scribe, which logs success, but the viewer never receives the data
+
+8. **Current investigation**: I was looking at `build_scribe_args()` in `butler/src/lib.rs` to understand if the owner's Scribe has a `permit_issuer`. The issue seems to be that:
+   - The owner's Scribe may or may not have permit_issuer
+   - Even if AddLayerAccess works on owner side, the permit/LayerSync needs to go through the NODE to reach the viewer
+   - The owner doesn't have PeerActors for viewers - only the node does
+   - So AddLayerAccess on the owner's Scribe may issue the permit locally but can't distribute it to the viewer
+
+Let me trace the files modified and their key changes.
+
+Summary:
+1. Primary Request and Intent:
+   The user's overarching goal is implementing a unified layer sync protocol (Phase 3). This session focused on:
+   
+   **A. Fix `test_dynamic_channel_late_joiner`** - The user confirmed "currently only the late joiner test fails" and wanted this fixed. Root cause: `issue_pending_layer_permits()` only checked authority permits (explicit grants), but open-grant dynamic layers don't use authority permits, so late joiners got nothing.
+   
+   **B. Add disconnect/reconnect simulation to integration tests** - The user said "this joining and leaving we need to simulate that in our integration tests" and "so for this and other tests where some are offline we i think we should mock it correctly, lets analyze the integration test infra and understand what we have and what we can do to correctly mock this."
+   
+   **C. Write DM tests** - "we also need to have tests for dms. we dont currently test that this is the group chat layers with explicity did access."
+   
+   **D. Write node-offline test** - "now we also need test where node is offline and we make a layer and it gets synced correctly."
+   
+   **Previous session context (completed)**: Phase 3 Groups 1-5 (unified LayerSync/LayerConsent wire messages), `__sync_meta` removal replaced with `auto_subscribe_sync_target()`.
+
+2. Key Technical Concepts:
+   - **Open-grant vs Explicit-grant dynamic layers**: Open grant (`channels/{id}/messages`) gives all peers access; explicit grant (`dms/{id}/messages`) requires per-peer `AddLayerAccess` calls
+   - **Late joiner flow**: `handle_subscribe()` → `issue_pending_layer_permits()` → should detect both authority permits AND open-grant dynamic layers
+   - **`find_matching_dynamic_schema()`**: Matches a layer path against permit's `dynamic_layer_schemas` to determine schema/grant type
+   - **`is_dynamic` flag on LayerUnit**: Set on owner-side via `handle_create_dynamic_layer()` but NOT on node-side via `ensure_layer_exists()` — needed fixing
+   - **Mock disconnect**: Inject `CoordinatorMessage::Disconnected { node_id }` into both coordinators (pragmatic approach since `MockConnection::close()` doesn't trigger disconnect detection)
+   - **Reconnection**: Owner uses stored reconnection permit from Butler; viewers need fresh connection strings
+   - **LayerSync protocol**: Node bundles data + permit in single wire message (0x0600), viewer processes atomically
+   - **`PermitIssuer` trait**: Only available in node mode (ButlerPermitIssuer); owner's Scribe may or may not have it
+
+3. Files and Code Sections:
+
+   - **`scribe/src/sync/subscription.rs`** — Core fix for late joiner bug
+     - Added import: `use crate::layer_unit::{Capabilities, find_matching_dynamic_schema};`
+     - Added call to `issue_open_grant_dynamic_permits()` at end of `issue_pending_layer_permits()`
+     - Added new function `issue_open_grant_dynamic_permits()`:
+     ```rust
+     /// Issue permits for existing open-grant dynamic layers to a late-joining subscriber
+     #[instrument(skip_all, fields(page_id = %state.page_id, user_did = %user_did))]
+     async fn issue_open_grant_dynamic_permits(
+         state: &ScribeState,
+         user_did: &str,
+         issuer: &dyn crate::storage::PermitIssuer,
+         sync_event_tx: &mpsc::Sender<SyncEvent>,
+     ) {
+         let Some(ref our_permit) = state.our_permit else { return; };
+         if our_permit.dynamic_layer_schemas().is_empty() { return; }
+
+         // Collect all layer names — don't filter on is_dynamic() because layers created
+         // on the node via sync aren't marked as dynamic
+         let all_layers: Vec<String> = state.units.keys().cloned().collect();
+
+         for bare_name in all_layers {
+             let full_name = format!("{}/{}", state.page_id, bare_name);
+             let Some((_schema_key, schema, _creator_did)) =
+                 find_matching_dynamic_schema(our_permit, &bare_name, &state.page_id) else { continue; };
+             if schema.grant != gurkha::GrantType::Open { continue; }
+             let already_issued = match issuer.has_layer_access_permit(user_did, &full_name) {
+                 Ok(v) => v,
+                 Err(e) => { warn!(error = %e, layer = %full_name, "Failed to check existing open-grant permit"); continue; }
+             };
+             if already_issued { continue; }
+             let config = schema.permissions.clone();
+             match issuer.issue_layer_permit(user_did, &full_name, config, None) {
+                 Ok((token, _cid)) => {
+                     info!(layer = %full_name, user_did = %user_did, "Issued open-grant layer permit for late joiner");
+                     let event = SyncEvent::LayerAccessChanged {
+                         page_id: state.page_id.clone(),
+                         layer_name: full_name,
+                         permits: vec![(user_did.to_string(), token)],
+                     };
+                     state.emit_sync_event_capture(&event);
+                     if let Err(e) = sync_event_tx.send(event).await {
+                         warn!(error = %e, layer = %bare_name, "Failed to emit open-grant permit event");
+                     }
+                 }
+                 Err(e) => warn!(error = %e, layer = %full_name, "Failed to issue open-grant layer permit"),
+             }
+         }
+     }
+     ```
+
+   - **`scribe/src/operations.rs`** — Mark node-side layers as dynamic
+     - Added import: `use crate::layer_unit::{LayerUnit, find_matching_dynamic_schema};`
+     - Modified `ensure_layer_exists()` to detect dynamic layers via schema matching:
+     ```rust
+     fn ensure_layer_exists(state: &mut ScribeState, layer_name: &str) -> bool {
+         let is_new = !state.units.contains_key(layer_name);
+         if is_new {
+             let mut unit = LayerUnit::new_empty();
+             unit.set_local_only(!state.should_sync_layer(layer_name));
+             // Mark as dynamic if it matches a dynamic schema (node-side detection)
+             if let Some(ref permit) = state.our_permit {
+                 if find_matching_dynamic_schema(permit, layer_name, &state.page_id).is_some() {
+                     unit.is_dynamic = true;
+                 }
+             }
+             state.units.insert(layer_name.to_string(), unit);
+             auto_subscribe_sync_target(state, layer_name);
+             debug!(layer = %layer_name, "Created new layer");
+         }
+         is_new
+     }
+     ```
+
+   - **`integration_tests/src/peer.rs`** — Added disconnect method
+     ```rust
+     pub fn disconnect_from(&self, other: &Peer) -> Result<()> {
+         self.coordinator
+             .cast(CoordinatorMessage::Disconnected { node_id: other.node_id })
+             .map_err(|e| anyhow::anyhow!("Failed to inject disconnect: {:?}", e))?;
+         other
+             .coordinator
+             .cast(CoordinatorMessage::Disconnected { node_id: self.node_id })
+             .map_err(|e| anyhow::anyhow!("Failed to inject disconnect: {:?}", e))?;
+         info!("Mock disconnect: {} <-> {}", self.name, other.name);
+         Ok(())
+     }
+     ```
+
+   - **`integration_tests/src/scenario.rs`** — Added disconnect/reconnect methods
+     - `disconnect_owner_from_node()` — Injects Disconnected into both coordinators, waits 100ms for cleanup
+     - `reconnect_owner_to_node()` — Gets stored reconnection permit from Butler, creates fresh mock connection, handshakes with reconnection permit, waits for auth on both sides
+     - `disconnect_viewer_from_node()` — Same pattern as owner disconnect
+     - `reconnect_viewer_to_node()` — Gets fresh viewer link, connects, handshakes, requests space, waits for page
+
+   - **`integration_tests/src/tests/layer_sync.rs`** — Added 3 new tests
+     - `test_dynamic_channel_node_offline_sync` — Owner creates layer while disconnected, reconnects, node receives data. **PASSES**
+     - `test_dm_explicit_grant_syncs_to_viewer` — Owner creates DM layer (explicit grant), grants viewer access, viewer should receive data. **FAILS** (Timeout)
+     - `test_dm_explicit_grant_isolation` — Two viewers, only viewer0 granted access, viewer1 should NOT see data. **FAILS**
+
+   - **`butler/src/lib.rs`** — Read to understand `build_scribe_args()` and whether owner's Scribe has `permit_issuer`. Key finding: `permit_issuer` is set when both `signing_key` and `our_permit` are available (line 481).
+
+   - **`scribe/src/layer_unit/dynamic.rs`** — Read for understanding. Contains `handle_create_dynamic_layer()`, `prepare_layer_permits()`, `handle_add_layer_access()`, `find_matching_dynamic_schema()`. Key: `AddLayerAccess` requires `state.permit_issuer` and `can_manage_layer_access()` on the permit.
+
+   - **`courier/src/peer_actor/consent.rs`** — Read for LayerSync flow: `send_layer_sync()` (node→viewer), `on_layer_sync()` (viewer receives), `on_layer_consent()` (node receives consent back).
+
+   - **`courier/src/coordinator/mod.rs`** — Read for `on_disconnected()` cleanup flow and `on_distribute_layer_permits()` distribution.
+
+4. Errors and fixes:
+   - **Late joiner: `is_dynamic` flag not set on node-side layers**: Layers created on the node via sync (`ensure_layer_exists()`) were not marked `is_dynamic`, so filtering on `unit.is_dynamic()` missed them. Fixed by: (a) adding schema detection in `ensure_layer_exists()`, and (b) changing `issue_open_grant_dynamic_permits()` to scan ALL layers instead of filtering on `is_dynamic`.
+   
+   - **DM tests failing (CURRENT)**: `test_dm_explicit_grant_syncs_to_viewer` fails with "Timeout waiting for key 'dm1'". The `AddLayerAccess` call succeeds (logs show "Issued layer permit via AddLayerAccess" with `source=schema_permissions`), but the viewer never receives the data. The investigation was in progress — checking whether the owner's Scribe has a `permit_issuer` and whether the permit distribution reaches the viewer (the owner doesn't have PeerActors for viewers, only the node does).
+
+5. Problem Solving:
+   - **Solved: Late joiner test** — Root cause was that `issue_pending_layer_permits()` only checked authority permits. Open-grant layers don't use authority permits. Fixed by adding `issue_open_grant_dynamic_permits()` which scans existing layers against open-grant schemas and issues permits directly.
+   - **Solved: All 8 existing layer_sync tests now pass** — Including previously failing `test_viewer_writes_to_dynamic_channel` and `test_dynamic_channel_late_joiner`.
+   - **Solved: Node-offline test** — Disconnect/reconnect infrastructure works correctly.
+   - **Ongoing: DM tests fail** — `AddLayerAccess` appears to work on the owner's Scribe but the permit doesn't reach the viewer. Need to investigate the distribution path — likely the owner's Scribe issues the permit locally but has no way to send LayerSync to the viewer (only the node has PeerActors for viewers).
+
+6. All user messages:
+   - "we also have this one test_dynamic_channel_late_joiner this fails. we also need to have tests for dms. we dont currently test that this is the group chat layers with explicity did access."
+   - "this joining and leaving we need to simulate that in our integration tests."
+   - "currently only the late joiner test fails."
+   - "so for this and other tests where some are offline we i think we should mock it correctly, lets analyze the integration test infra and understand what we have and what we can do to correctly mock this."
+
+7. Pending Tasks:
+   - **Fix DM integration tests** — `test_dm_explicit_grant_syncs_to_viewer` and `test_dm_explicit_grant_isolation` both fail. The issue is likely that `AddLayerAccess` on the owner's Scribe can't distribute permits to viewers (only the node has viewer PeerActors). May need to rethink the test to either: (a) send AddLayerAccess via the node, or (b) have the owner's AddLayerAccess proxy through the node somehow.
+   - Task list status: #10 (late joiner fix) completed, #11 (disconnect/reconnect) completed, #12 (DM tests) in_progress, #13 (node-offline test) in_progress (test passes but task not marked complete)
+
+8. Current Work:
+   I was investigating why the DM integration tests fail. The last action was reading `butler/src/lib.rs` at the `build_scribe_args()` function to understand if the owner's Scribe has a `permit_issuer`. The `permit_issuer` is created when both `signing_key` and `our_permit` are available (line 481). The log output shows "Issued layer permit via AddLayerAccess" with `source=schema_permissions`, meaning the AddLayerAccess succeeded on the owner's Scribe. However, the viewer never receives the data — timing out after 10 seconds.
+
+   The likely root cause: Even though AddLayerAccess succeeds on the owner's Scribe and emits `SyncEvent::LayerAccessChanged`, the owner's Coordinator receives this event and calls `on_distribute_layer_permits()`. This tries to find a PeerActor for the viewer DID — but the owner doesn't have one (viewers connect to the NODE, not the owner). So the permit gets stored locally but never distributed.
+
+9. Optional Next Step:
+   Fix the DM test by understanding how `AddLayerAccess` should flow through the system. The key question: should `AddLayerAccess` be called on the owner's Scribe (which then needs to sync the intent to the node), or should the test call it differently? Looking at the real app flow in `dms.lua`, the owner calls `scribe:add_layer_access()` locally, and the authority permit intent syncs to the node as CRDT data. The node then detects the authority permit and issues actual layer permits. This means `AddLayerAccess` on the owner creates an authority permit that syncs to the node, and the node's `issue_pending_layer_permits()` or `emit_dynamic_layer_permits()` handles the actual permit issuance. I need to trace this flow more carefully in the code — specifically how authority permits created by the owner propagate to the node's PermitIssuer storage.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/2c3b9c50-a062-4c8e-bad6-eeae7fa14bcd.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+[Request interrupted by user]
+
+---
+
+wait this would follow the same dynamic channel way right, how could this be different except that its not role based but explicit dids, the delivery mechanism to all the peers would be the same right?
+
+---
+
+these layers can be created by other peers not just the "owner", one who published.
+
+---
+
+no it would not be exact but this would be for authorized dids.
+
+---
+
+[Request interrupted by user]
+
+---
+
+wait the authorized dids would be on the permits right. and signed by "creator"
+
+---
+
+atleast the one node has, thats the source of truth right.
+
+---
+
+this and dynamic layer are doing very identitcal things with except the processing on the node right. that too has similar steps.
+
+---
+
+no it should not be implicit this should be explicit, here also creater just write data locally, sync off er let it go, when it request the layer we will send the data with the this permit, and with the help of permit identify the type on node side and forward accordingly? critically analyze this.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation:
+
+1. **Session start**: This is a continuation from a previous conversation that ran out of context. The previous session implemented Phase 3 of the Unified Layer Sync Protocol (LayerSync/LayerConsent wire messages, `__sync_meta` removal, `auto_subscribe_sync_target()`). The summary indicates several tasks were in progress:
+   - Fix `test_dynamic_channel_late_joiner` (completed in previous session)
+   - Fix `test_viewer_writes_to_dynamic_channel` (completed in previous session)
+   - Write node-offline dynamic layer sync test (completed)
+   - Write DM integration tests (in progress, failing)
+   - Implement forwarding mechanism for explicit grants (in progress)
+
+2. **Initial investigation**: I read multiple files to understand the DM test failure:
+   - `scribe/src/layer_unit/dynamic.rs` - Contains `handle_add_layer_access()`, `handle_create_dynamic_layer()`, `prepare_layer_permits()`, `find_matching_dynamic_schema()`
+   - `courier/src/coordinator/mod.rs` - Contains `on_distribute_layer_permits()` which distributes permits to PeerActors
+   - `butler/src/lib.rs` - Contains `build_scribe_args()` showing `permit_issuer` is available in both node and user mode
+   - `scribe/src/sync/subscription.rs` - Contains `issue_pending_layer_permits()` and `issue_open_grant_dynamic_permits()`
+   - `scribe/src/operations.rs` - Contains `ensure_layer_exists()` with dynamic marking fix
+   - `integration_tests/src/peer.rs` - Contains sync event forwarding loop
+   - `integration_tests/src/tests/layer_sync.rs` - Contains the DM tests
+   - `sample_apps/osvauld-demos/permit_template.json` - Shows both owner and node permits have `manage_layer_access: true` and `dms/{id}/messages` explicit grant schema
+   - `courier/src/peer_actor/consent.rs` - Contains `send_layer_sync()`, `on_layer_sync()`, `on_layer_consent()`
+   - `scribe/src/sync/apply.rs` - Contains `emit_dynamic_layer_permits()` showing how node detects new dynamic layers
+
+3. **Root cause identified**: The DM test (`test_dm_explicit_grant_syncs_to_viewer`) fails because:
+   - Owner's Scribe calls `handle_add_layer_access()` → issues permit → emits `LayerAccessChanged`
+   - Owner's Coordinator receives `DistributeLayerPermits` → tries to find PeerActor for viewer
+   - Owner has NO PeerActor for the viewer (viewers connect to the NODE, not the owner)
+   - Permit stored in owner's butler, never distributed
+
+4. **User feedback - critical design decisions**:
+   - User: "these layers can be created by other peers not just the 'owner', one who published." → Any peer can create DM layers, not just the page owner.
+   - User: "no it would not be exact but this would be for authorized dids." → The validation should be based on `manage_layer_access` capability, not namespace checks.
+   - User: "atleast the one node has, thats the source of truth right." → The node's permit is the source of truth. The node already has the schema with permissions.
+   - User: "so cant we use the one that was already there for dynamic layer? why all new messages?" → Minimize new types. Reuse existing plumbing.
+   - User: "how does the dynamic layer intent sent to the node that is also created locally and sent right." → Dynamic layer creation works by writing data locally → SyncOffer → node detects. No special create message.
+   - User: "no it should not be implicit this should be explicit, here also creater just write data locally, sync off er let it go, when it request the layer we will send the data with the this permit, and with the help of permit identify the type on node side and forward accordingly? critically analyze this." → The DATA flows through normal SyncOffer. The grant is explicit. The node uses the schema grant type to decide distribution.
+   - User: "this and dynamic layer are doing very identitcal things with except the processing on the node right. that too has similar steps." → Both open and explicit grants use the same pipeline. Only difference is the node's filter for who gets permits.
+
+5. **Evolution of implementation approach**:
+   - Initially I was adding many new types: `SyncEvent::ForwardLayerAccess`, `CoordinatorMessage::ForwardLayerAccess`, `PeerMessage::ForwardLayerAccess`, `LayerAccessForwardMsg` wire message, and modifying `handle_add_layer_access()` to detect non-node mode
+   - User pushed back on the complexity
+   - Final approach: Keep `handle_add_layer_access()` as-is (issues permit, emits `LayerAccessChanged`). Modify `on_distribute_layer_permits()` in Coordinator to forward to node when it can't find PeerActor for recipient. Only add `LayerAccessForwardMsg` wire message + `PeerMessage::ForwardLayerAccess`.
+
+6. **Changes made so far** (some need reverting):
+   - `courier/src/message.rs`: Added `LAYER_ACCESS_FORWARD` tag (0x0602), `LayerAccessForwardMsg` struct, `Message::LayerAccessForward` variant with full serialization plumbing — KEEP
+   - `scribe/src/message.rs`: Added then REVERTED `SyncEvent::ForwardLayerAccess` — REVERTED
+   - `scribe/src/layer_unit/dynamic.rs`: Modified then REVERTED `handle_add_layer_access()` — REVERTED back to original (with minor doc comment update)
+   - `scribe/src/state.rs`: Fixed match arms for `SyncEvent` — still has the `ForwardLayerAccess` wildcard arm that needs to be removed since the variant was reverted
+   - `courier/src/coordinator/mod.rs`: Added `CoordinatorMessage::ForwardLayerAccess` variant + dispatch + handler — NEEDS REVERT (Coordinator should handle forwarding inside `on_distribute_layer_permits()` instead)
+   - `courier/src/peer_actor/mod.rs`: Added `PeerMessage::ForwardLayerAccess` variant + dispatch — KEEP, but handler `send_layer_access_forward` not yet implemented
+   - `courier/src/peer_actor/mod.rs`: Added wire message dispatch for `Message::LayerAccessForward` → `on_layer_access_forward` — handler not yet implemented
+   - `integration_tests/src/peer.rs`: NOT YET UPDATED for the sync event forwarding
+
+7. **What still needs to be done**:
+   - Revert `CoordinatorMessage::ForwardLayerAccess` — instead modify `on_distribute_layer_permits()` to forward
+   - Revert `SyncEvent::ForwardLayerAccess` wildcard in state.rs (already reverted the SyncEvent variant itself)
+   - Implement `send_layer_access_forward()` in `consent.rs`
+   - Implement `on_layer_access_forward()` in `consent.rs`
+   - Modify `on_distribute_layer_permits()` to forward to node when recipient PeerActor not found
+   - Make sure all compilation errors are resolved
+   - Fix DM integration tests
+
+8. **Current compilation errors**:
+   - `mod.rs`: `on_layer_access_forward` method not found on PeerActor
+   - `mod.rs`: `send_layer_access_forward` method not found on PeerActor
+   - `state.rs`: May still reference `ForwardLayerAccess` variant that was removed
+   - Various match exhaustiveness errors from the new variants
+
+Let me now trace what files currently have changes and what state they're in:
+
+**`courier/src/message.rs`** — Has `LayerAccessForwardMsg` struct, tag, and full Message enum plumbing. This is CORRECT and should be kept.
+
+**`scribe/src/message.rs`** — `SyncEvent::ForwardLayerAccess` was REVERTED. Should be clean now.
+
+**`scribe/src/layer_unit/dynamic.rs`** — `handle_add_layer_access()` was REVERTED to original behavior (issues permit, emits `LayerAccessChanged`). The doc comment was slightly updated. Should be clean now.
+
+**`scribe/src/state.rs`** — Still has the wildcard match for `SyncEvent::ForwardLayerAccess` which no longer exists. NEEDS FIX.
+
+**`courier/src/coordinator/mod.rs`** — Has `CoordinatorMessage::ForwardLayerAccess` + dispatch + `on_forward_layer_access()` handler. The user wants this approach changed — instead of a separate CoordinatorMessage, modify `on_distribute_layer_permits()` to detect when it can't find a PeerActor and forward to node. NEEDS REWORK.
+
+**`courier/src/peer_actor/mod.rs`** — Has `PeerMessage::ForwardLayerAccess` variant + dispatch for both PeerMessage and protocol message. But the methods (`send_layer_access_forward`, `on_layer_access_forward`) are NOT implemented yet. NEEDS IMPLEMENTATION.
+
+**`courier/src/peer_actor/consent.rs`** — No changes yet. Needs `send_layer_access_forward()` and `on_layer_access_forward()` implementations.
+
+**`integration_tests/src/peer.rs`** — No changes yet. Doesn't need changes if we use `on_distribute_layer_permits()` forwarding (since the existing `LayerAccessChanged` event goes through existing `DistributeLayerPermits` path).
+
+Summary:
+1. Primary Request and Intent:
+   The user wants to implement DM (explicit-grant) layer support in the osvauld P2P platform. Specifically:
+   - Make `add_layer_access()` work end-to-end: creator → node → viewer
+   - Use the SAME pipeline as open-grant dynamic channels (SyncOffer for data, LayerSync for distribution)
+   - The ONLY difference from open-grant channels is the node sends permits to specific authorized DIDs instead of everyone
+   - Minimize new types — reuse existing plumbing wherever possible
+   - Fix the failing DM integration tests (`test_dm_explicit_grant_syncs_to_viewer`, `test_dm_explicit_grant_isolation`)
+   
+   The user explicitly pushed back multiple times on over-engineering:
+   - "so cant we use the one that was already there for dynamic layer? why all new messages?"
+   - "this and dynamic layer are doing very identical things with except the processing on the node right"
+   - The user wants ONE new wire message for the grant intent, with everything else reusing existing plumbing
+
+2. Key Technical Concepts:
+   - **Open vs Explicit grant types**: Open grants give all peers access; Explicit grants require per-DID authorization
+   - **Node as source of truth**: The node's permit has the schema with permissions and `manage_layer_access: true`. It issues all access permits.
+   - **Dynamic layer detection**: Node detects new layers from incoming SyncOffer data (no special create message). `emit_dynamic_layer_permits()` → `prepare_layer_permits()` handles permit issuance.
+   - **Forwarding pattern**: When `on_distribute_layer_permits()` can't find a PeerActor for the recipient (because viewers connect to the node, not the creator), it should forward the intent to the node via `PeerMessage::ForwardLayerAccess` → `LayerAccessForwardMsg` wire message.
+   - **Node-side processing**: Node receives `LayerAccessForward`, calls `ScribeMessage::AddLayerAccess` on its own Scribe → Scribe issues permit using schema permissions → emits `LayerAccessChanged` → Coordinator distributes via `SendLayerSync` (existing pipeline).
+   - **Any peer can create DM layers**: Not just the page owner. The `manage_layer_access` capability in the permit determines authorization.
+   - **SyncConfig.sync_target**: Non-node peers have a sync_target (the node DID). Nodes have `sync_target = None`.
+
+3. Files and Code Sections:
+
+   - **`courier/src/message.rs`** — Wire message definitions
+     - Added `LAYER_ACCESS_FORWARD` tag (0x0602), `LayerAccessForwardMsg` struct, `Message::LayerAccessForward` variant
+     - Full serialization plumbing (name, context, to_bytes, from_bytes) added
+     - These changes are CORRECT and should be kept
+     ```rust
+     // In tags module:
+     pub const LAYER_ACCESS_FORWARD: u16 = 0x0602;
+     
+     // Struct:
+     /// Forward layer access grant to node (Peer → Node)
+     #[derive(Debug, Clone, Serialize, Deserialize)]
+     pub struct LayerAccessForwardMsg {
+         pub page_id: String,
+         pub layer_name: String,
+         pub viewer_did: String,
+     }
+     
+     // Message enum variant:
+     LayerAccessForward(LayerAccessForwardMsg),
+     ```
+
+   - **`scribe/src/layer_unit/dynamic.rs`** — `handle_add_layer_access()` 
+     - Was modified to detect non-node mode and emit `ForwardLayerAccess`, then REVERTED
+     - Now back to original behavior: validates, issues permit, emits `LayerAccessChanged`
+     - Doc comment updated to note that Coordinator handles forwarding
+     ```rust
+     /// Handle AddLayerAccess message
+     ///
+     /// **Context**: Lua app calls scribe:add_layer_access(layer_name, did)
+     /// **We do**: Validate capability, issue permit, emit LayerAccessChanged for distribution.
+     /// **Non-node peers**: Coordinator forwards to node when it can't find viewer's PeerActor.
+     pub async fn handle_add_layer_access(
+         state: &ScribeState,
+         layer_name: &str,
+         did: &str,
+     ) -> Result<(), String> {
+         // ... validates manage_layer_access, finds schema, checks explicit grant ...
+         // ... issues permit via permit_issuer ...
+         // ... adds subscriber to LayerUnit ...
+         // ... emits SyncEvent::LayerAccessChanged ...
+     }
+     ```
+
+   - **`scribe/src/message.rs`** — SyncEvent enum
+     - `SyncEvent::ForwardLayerAccess` was added then REVERTED
+     - Current state: only has `EnsureSync`, `NewDynamicLayer`, `LayerAccessChanged`
+
+   - **`scribe/src/state.rs`** — Capture system match arms
+     - Was modified to handle `ForwardLayerAccess` in match arms
+     - The `SyncEvent::ForwardLayerAccess` variant was reverted but **state.rs match arm may still reference it** — NEEDS FIX
+     - Changed `SyncEvent::EnsureSync { .. }` catch-all to `SyncEvent::EnsureSync { .. } | SyncEvent::ForwardLayerAccess { .. }` — this last part needs to be removed
+
+   - **`courier/src/coordinator/mod.rs`** — Coordinator message handling
+     - Added `CoordinatorMessage::ForwardLayerAccess` variant + dispatch + `on_forward_layer_access()` handler — NEEDS REWORK
+     - The user wants this removed; instead `on_distribute_layer_permits()` should handle forwarding internally
+     - `on_distribute_layer_permits()` currently at line 607-672: stores permit in butler, finds PeerActor for recipient, sends `SendLayerSync`
+     - When PeerActor not found, currently just logs "Peer not connected, layer permit stored for reconnect" — this is where forwarding should be added
+
+   - **`courier/src/peer_actor/mod.rs`** — PeerActor messages and dispatch
+     - Added `PeerMessage::ForwardLayerAccess` variant — KEEP
+     - Added dispatch: `PeerMessage::ForwardLayerAccess` → `self.send_layer_access_forward()` — KEEP (method not implemented yet)
+     - Added protocol dispatch: `Message::LayerAccessForward(m)` → `self.on_layer_access_forward()` — KEEP (method not implemented yet)
+     ```rust
+     // PeerMessage variant:
+     ForwardLayerAccess {
+         page_id: String,
+         layer_name: String,
+         viewer_did: String,
+     },
+     ```
+
+   - **`courier/src/peer_actor/consent.rs`** — Layer sync handlers
+     - NO changes yet. Needs `send_layer_access_forward()` and `on_layer_access_forward()` implementations
+     - `send_layer_access_forward()`: sends `LayerAccessForwardMsg` wire message to node
+     - `on_layer_access_forward()`: node receives, validates sender has `manage_layer_access`, calls `ScribeMessage::AddLayerAccess` on node's Scribe
+
+   - **`courier/src/handle.rs`** — CourierHandle + CourierRunner
+     - Contains `distribute_layer_permits()` method that wraps `CoordinatorMessage::DistributeLayerPermits`
+     - No changes needed
+
+   - **`integration_tests/src/peer.rs`** — Test peer infrastructure
+     - Contains sync event forwarder (lines 80-97) that maps `SyncEvent` variants to `CoordinatorMessage`
+     - No changes needed if using `on_distribute_layer_permits()` forwarding approach (existing `LayerAccessChanged` → `DistributeLayerPermits` path works)
+
+   - **`integration_tests/src/tests/layer_sync.rs`** — Integration tests
+     - `test_dm_explicit_grant_syncs_to_viewer` (line 593): owner creates DM, grants viewer access, viewer should receive data — FAILS with timeout
+     - `test_dm_explicit_grant_isolation` (line 689): two viewers, only viewer0 granted, viewer1 should NOT see — FAILS
+     - Both tests call `AddLayerAccess` on the OWNER's Scribe, which issues the permit but can't distribute
+
+   - **`sample_apps/osvauld-demos/permit_template.json`** — Permit definitions
+     - Both owner and node permits have `manage_layer_access: true`
+     - Both have `dynamic_layer_schemas` with `dms/{id}/messages` explicit grant schema
+     - Node's permit is the source of truth for issuing access permits
+
+   - **`scribe/src/sync/apply.rs`** — `emit_dynamic_layer_permits()`
+     - Called when node detects new layer from incoming sync
+     - Uses `prepare_layer_permits()` which for Explicit grants looks for authority permits
+     - For explicit grants without authority permits, returns 0 permits (correct behavior — wait for explicit grant)
+
+   - **`scribe/src/operations.rs`** — `ensure_layer_exists()`
+     - Modified in previous session to mark layers as `is_dynamic` via schema detection
+     - Added `auto_subscribe_sync_target()` call for new layers
+
+   - **`scribe/src/sync/subscription.rs`** — `issue_pending_layer_permits()` + `issue_open_grant_dynamic_permits()`
+     - Fixed in previous session for late joiner support
+     - Handles open-grant dynamic layers for late-joining subscribers
+
+4. Errors and fixes:
+   - **DM test timeout**: `test_dm_explicit_grant_syncs_to_viewer` fails with "Timeout waiting for key 'dm1'" — Root cause: owner's Coordinator can't find PeerActor for viewer (viewers connect to node, not owner). Fix: implement forwarding in Coordinator.
+   - **Over-engineering pushback**: User repeatedly told me to minimize new types and reuse existing plumbing. I initially added `SyncEvent::ForwardLayerAccess`, `CoordinatorMessage::ForwardLayerAccess`, modified `handle_add_layer_access()` with non-node detection — all of which the user pushed back on. Reverted most changes.
+   - **Compilation errors**: Multiple exhaustiveness errors from adding new enum variants (`Message::LayerAccessForward`, `PeerMessage::ForwardLayerAccess`, `CoordinatorMessage::ForwardLayerAccess`, `SyncEvent::ForwardLayerAccess`). Fixed by adding match arms in all dispatch locations.
+   - **`state.rs` stale match arm**: After reverting `SyncEvent::ForwardLayerAccess`, the match arm in `state.rs` line 390 still references `SyncEvent::ForwardLayerAccess { .. }` — NEEDS FIX.
+   - **Missing method implementations**: `send_layer_access_forward()` and `on_layer_access_forward()` on PeerActor not implemented yet — causes compilation errors.
+
+5. Problem Solving:
+   - **Solved (previous session)**: Late joiner test, viewer writes to dynamic channel, node-offline sync, disconnect/reconnect infrastructure
+   - **In progress**: DM explicit grant forwarding mechanism. The architectural approach has been clarified through discussion with the user. The implementation needs to be simplified:
+     1. Remove `CoordinatorMessage::ForwardLayerAccess` — handle forwarding inside `on_distribute_layer_permits()`
+     2. Fix `state.rs` stale match arm
+     3. Implement `send_layer_access_forward()` and `on_layer_access_forward()` in consent.rs
+     4. The `on_layer_access_forward()` handler on the node side calls `ScribeMessage::AddLayerAccess` on the node's Scribe, which issues the permit and distributes via the existing `LayerAccessChanged` → `DistributeLayerPermits` → `SendLayerSync` pipeline
+
+6. All user messages:
+   - "wait this would follow the same dynamic channel way right, how could this be different except that its not role based but explicit dids, the delivery mechanism to all the peers would be the same right?"
+   - "these layers can be created by other peers not just the 'owner', one who published."
+   - "no it would not be exact but this would be for authorized dids."
+   - "atleast the one node has, thats the source of truth right."
+   - "okay couldnt this use the same plumbing but on node there is a difference of sending to authorized dids only similar to dynamic layers?"
+   - "so cant we use the one that was already there for dynamic layer? why all new messages?"
+   - "how does the dynamic layer intent sent to the node that is also created locally and sent right."
+   - "no it should not be implicit this should be explicit, here also creater just write data locally, sync off er let it go, when it request the layer we will send the data with the this permit, and with the help of permit identify the type on node side and forward accordingly? critically analyze this."
+   - "this and dynamic layer are doing very identitcal things with except the processing on the node right. that too has similar steps."
+
+7. Pending Tasks:
+   - **Task #14** (in_progress): Implement LayerAccessForward — peer → node forwarding for explicit grants
+   - **Task #12** (in_progress): Write DM integration tests (explicit grant dynamic layers) — tests exist but fail
+   - Fix compilation errors from partially-applied changes
+   - Revert `CoordinatorMessage::ForwardLayerAccess` — use `on_distribute_layer_permits()` forwarding instead
+   - Fix `state.rs` stale `ForwardLayerAccess` match arm
+   - Implement `send_layer_access_forward()` in `consent.rs`
+   - Implement `on_layer_access_forward()` in `consent.rs`
+   - Run and verify DM integration tests pass
+
+8. Current Work:
+   I was in the middle of implementing the `LayerAccessForward` mechanism. After several rounds of user feedback, the approach was simplified to:
+   
+   **Keep**: `LayerAccessForwardMsg` wire message (0x0602), `Message::LayerAccessForward` variant (in `courier/src/message.rs`), `PeerMessage::ForwardLayerAccess` variant (in `courier/src/peer_actor/mod.rs`)
+   
+   **Revert/Rework**: 
+   - Remove `CoordinatorMessage::ForwardLayerAccess` — instead modify `on_distribute_layer_permits()` to forward when PeerActor not found
+   - Fix `state.rs` stale match arm referencing removed `SyncEvent::ForwardLayerAccess`
+   - `handle_add_layer_access()` already reverted to original behavior
+   
+   **Still needs implementation**:
+   - `send_layer_access_forward()` in `courier/src/peer_actor/consent.rs`
+   - `on_layer_access_forward()` in `courier/src/peer_actor/consent.rs`
+   - Modification to `on_distribute_layer_permits()` in `courier/src/coordinator/mod.rs`
+
+9. Optional Next Step:
+   Complete the minimal implementation:
+   1. Revert `CoordinatorMessage::ForwardLayerAccess` from coordinator/mod.rs and instead modify `on_distribute_layer_permits()` to forward to node when recipient PeerActor not found
+   2. Fix `state.rs` stale match arm  
+   3. Implement `send_layer_access_forward()` and `on_layer_access_forward()` in consent.rs
+   4. Build and fix compilation errors
+   5. Run DM integration tests
+   
+   The user's most recent message was: "this and dynamic layer are doing very identical things with except the processing on the node right. that too has similar steps." — confirming the approach should reuse existing plumbing with minimal new code.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/2c3b9c50-a062-4c8e-bad6-eeae7fa14bcd.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
