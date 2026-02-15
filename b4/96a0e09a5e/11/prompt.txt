@@ -1,0 +1,62 @@
+Implement the following plan:
+
+# Plan: Isolate App Panics from Sthalam Shell
+
+## Context
+
+When a Lua app sends malformed data to the Slint interpreter (e.g., wrong field names for a struct), the interpreter panics on the main thread. Since all Slint app windows share the main event loop via timer callbacks, this panic kills the entire process — crashing the shell and all other running apps. The goal is to catch these panics per-app so only the offending app dies.
+
+## Approach: `catch_unwind` around timer bodies
+
+Wrap the entire per-app timer callback body in `std::panic::catch_unwind(AssertUnwindSafe(...))`. On panic: log the error, hide the app window, shut down the Lua thread, and set a "crashed" flag to make future timer ticks no-ops.
+
+## Changes
+
+### 1. `renderer_slint/src/lib.rs` — Add `extract_panic_message()` helper
+
+```rust
+fn extract_panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic".to_string()
+    }
+}
+```
+
+### 2. `renderer_slint/src/lib.rs` — `launch_slint_app()` timer (line 565)
+
+Add a `crashed: Rc<Cell<bool>>` flag. Wrap the entire timer body in `catch_unwind(AssertUnwindSafe(...))`. On panic:
+- Extract app name from `running` state
+- Log with `tracing::error!`
+- Hide the window via `slint_instance().hide()`
+- Send `LuaCommand::Shutdown` to Lua thread
+- Take (discard) the `RunningSlintApp` via `.take()`
+- Set `crashed = true` so future ticks are no-ops
+- Update `AppStatus` to "crashed" if available
+
+**Why `AssertUnwindSafe`**: After a panic, we `.take()` the entire app state and discard it — we never access potentially-corrupted state. This makes `AssertUnwindSafe` sound.
+
+**Why wrap the whole body** (not just `process_ui_mutations`): After a panic, any `Rc<RefCell<...>>` state is potentially poisoned. Continuing to process queries or page updates with corrupted state is unsafe.
+
+### 3. `sthalam/src/main.rs` — Collector timer (line 418)
+
+Wrap the `launch_slint_app()` call in `catch_unwind(AssertUnwindSafe(...))`. This protects against panics during Slint compilation or initial callback setup. On panic: log the error, skip the app (don't add to `app_timers`).
+
+## Files to Modify
+
+| File | What |
+|------|------|
+| `renderer_slint/src/lib.rs` | Add helper, wrap `launch_slint_app()` timer in catch_unwind |
+| `sthalam/src/main.rs` | Wrap collector timer's `launch_slint_app()` call in catch_unwind |
+
+## Verification
+
+1. `cargo build -p renderer_slint -p sthalam` — compiles without errors
+2. Reproduce the original crash scenario: run the group-chat app with a deliberately wrong field name (e.g., revert `is_selected` → `selected` in app.lua). Click the "+" next to Direct Messages. The app window should close but the shell should stay alive.
+3. Run existing integration tests: `cargo test -p renderer_slint`
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.REDACTED.jsonl

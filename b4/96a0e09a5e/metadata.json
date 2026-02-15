@@ -3,7 +3,7 @@
   "checkpoint_id": "b496a0e09a5e",
   "strategy": "manual-commit",
   "branch": "feature/coordinator-refactor",
-  "checkpoints_count": 20,
+  "checkpoints_count": 21,
   "files_touched": [
     "app_test/src/multi_peer.rs",
     "app_test/src/runner.rs",
@@ -39,6 +39,7 @@
     "kunki/src/main.rs",
     "lua_runtime/src/mock_scribe.rs",
     "lua_runtime/src/runtime.rs",
+    "renderer_slint/src/lib.rs",
     "sample_apps/group-chat/app.lua",
     "sample_apps/group-chat/app.slint",
     "sample_apps/group-chat/channels.lua",
@@ -161,13 +162,20 @@
       "context": "/b4/96a0e09a5e/10/context.md",
       "content_hash": "/b4/96a0e09a5e/10/content_hash.txt",
       "prompt": "/b4/96a0e09a5e/10/prompt.txt"
+    },
+    {
+      "metadata": "/b4/96a0e09a5e/11/metadata.json",
+      "transcript": "/b4/96a0e09a5e/11/full.jsonl",
+      "context": "/b4/96a0e09a5e/11/context.md",
+      "content_hash": "/b4/96a0e09a5e/11/content_hash.txt",
+      "prompt": "/b4/96a0e09a5e/11/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 38029,
-    "cache_creation_tokens": 4983149,
-    "cache_read_tokens": 198681964,
-    "output_tokens": 551106,
-    "api_call_count": 1826
+    "input_tokens": 38043,
+    "cache_creation_tokens": 5026821,
+    "cache_read_tokens": 199271308,
+    "output_tokens": 557588,
+    "api_call_count": 1838
   }
 }
