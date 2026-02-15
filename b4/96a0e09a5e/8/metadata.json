@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "b496a0e09a5e",
+  "session_id": "2292db0c-9045-4f70-949f-1869f36ae08c",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-15T13:00:11.507078987Z",
+  "branch": "feature/coordinator-refactor",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "courier/src/peer_actor/sync/protocol.rs",
+    "integration_tests/src/tests/layer_sync.rs",
+    "scribe/src/actor.rs",
+    "scribe/src/loro_observer.rs"
+  ],
+  "agent": "Claude Code",
+  "token_usage": {
+    "input_tokens": 136,
+    "cache_creation_tokens": 392346,
+    "cache_read_tokens": 11952615,
+    "output_tokens": 52161,
+    "api_call_count": 114
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-15T13:00:10.23044852Z",
+    "agent_lines": 778,
+    "human_added": 9921,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 10699,
+    "agent_percentage": 7.271707636227685
+  }
+}
