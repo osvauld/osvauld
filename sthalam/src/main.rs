@@ -417,19 +417,43 @@ fn main() {
             std::time::Duration::from_millis(100),
             move || {
                 while let Ok((prepared, scribe_ref)) = app_ready_rx.try_recv() {
+                    let app_name_for_log = prepared.app_name.clone();
                     tracing::info!(
                         page_id = %prepared.page_id,
-                        app_name = %prepared.app_name,
+                        app_name = %app_name_for_log,
                         "Launching app window"
                     );
 
-                    if let Some(launched) = renderer_slint::launch_slint_app(
-                        prepared,
-                        scribe_ref,
-                        butler.clone(),
-                        tokio_handle.clone(),
-                        app_status.clone(),
-                    ) {
+                    let launch_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        renderer_slint::launch_slint_app(
+                            prepared,
+                            scribe_ref,
+                            butler.clone(),
+                            tokio_handle.clone(),
+                            app_status.clone(),
+                        )
+                    }));
+
+                    let launched = match launch_result {
+                        Ok(opt) => opt,
+                        Err(panic_payload) => {
+                            let msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                                s.to_string()
+                            } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                                s.clone()
+                            } else {
+                                "unknown panic".to_string()
+                            };
+                            tracing::error!(
+                                app = %app_name_for_log,
+                                panic = %msg,
+                                "App panicked during launch — skipping"
+                            );
+                            None
+                        }
+                    };
+
+                    if let Some(launched) = launched {
                         // Connect debug eval bridge if debug server is active
                         if let Some(ref server) = debug_server {
                             let lua_tx = launched.lua_tx.clone();

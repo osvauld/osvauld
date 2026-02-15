@@ -66,11 +66,10 @@ pub mod tags {
     // Consent (0x05xx)
     pub const SYNC_CONSENT_GRANT: u16 = 0x0500;
     pub const SYNC_CONSENT_ACK: u16 = 0x0501;
-    pub const LAYER_CONSENT_GRANT: u16 = 0x0502;
-    pub const LAYER_CONSENT_ACK: u16 = 0x0503;
 
-    // Layer Permits (extends Publishing 0x02xx)
-    pub const LAYER_PERMIT: u16 = 0x0205;
+    // Layer Subscribe (0x07xx) — pull-based layer discovery via __sync_meta
+    pub const LAYER_SUBSCRIBE: u16 = 0x0700;
+    pub const LAYER_SUBSCRIBE_ACK: u16 = 0x0701;
 
     // Errors (0xFFxx)
     pub const ERROR: u16 = 0xFF00;
@@ -285,38 +284,34 @@ pub struct SyncConsentAckMsg {
     pub space_id: String,
 }
 
-/// Layer permit for a dynamic layer (Node → Viewer)
+/// Subscriber → Responder: request to subscribe to a discovered layer (pull model)
 ///
-/// **Context**: Node detected a new dynamic layer, issues per-layer UCAN permits
-/// **Viewer receives**: Stores alongside page permit, then issues layer consent
+/// **Context**: Subscriber discovered a new layer in their __sync_meta, requests data + permit.
+/// **consent_permit**: Subscriber's consent for the responder to sync this layer (proof: page permit)
+/// **Responder does**: Store consent, validate, issue permit, export snapshot, respond.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LayerPermitMsg {
-    pub request_id: String,
-    pub page_id: String,
-    pub layer_name: String,
-    pub permit: String,
-}
-
-/// Viewer consents to sync a specific dynamic layer (Viewer → Node)
-///
-/// **Context**: Viewer received LayerPermit, now consents to receive sync
-/// **Node stores**: Layer consent to authorize future sync for this layer
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LayerConsentGrantMsg {
+pub struct LayerSubscribeMsg {
     pub request_id: String,
     pub page_id: String,
     pub layer_name: String,
     pub consent_permit: String,
 }
 
-/// Node acknowledges viewer's layer consent (Node → Viewer)
+/// Node → Peer: subscription accepted with initial data + permit
 ///
-/// **Context**: Node stored viewer's layer consent, sync can now start
+/// **Context**: Node processed LayerSubscribe, bundling data + permit atomically.
+/// **Peer does**: Decrypt data, store permit, apply to Scribe, authorize node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LayerConsentAckMsg {
+pub struct LayerSubscribeAckMsg {
     pub request_id: String,
     pub page_id: String,
     pub layer_name: String,
+    pub accepted: bool,
+    pub reason: Option<String>,
+    pub data: Vec<u8>,
+    pub state_vector: Vec<u8>,
+    pub ephemeral_public: [u8; 32],
+    pub layer_permit: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -375,10 +370,9 @@ pub enum Message {
     SyncConsentGrant(SyncConsentGrantMsg),
     SyncConsentAck(SyncConsentAckMsg),
 
-    // Layer Permits + Consent
-    LayerPermit(LayerPermitMsg),
-    LayerConsentGrant(LayerConsentGrantMsg),
-    LayerConsentAck(LayerConsentAckMsg),
+    // Layer Subscribe (pull-based via __sync_meta)
+    LayerSubscribe(LayerSubscribeMsg),
+    LayerSubscribeAck(LayerSubscribeAckMsg),
 
     // Errors
     Error(ErrorMsg),
@@ -415,9 +409,8 @@ impl Message {
             Message::SpaceRequestError(_) => "SpaceRequestError",
             Message::SyncConsentGrant(_) => "SyncConsentGrant",
             Message::SyncConsentAck(_) => "SyncConsentAck",
-            Message::LayerPermit(_) => "LayerPermit",
-            Message::LayerConsentGrant(_) => "LayerConsentGrant",
-            Message::LayerConsentAck(_) => "LayerConsentAck",
+            Message::LayerSubscribe(_) => "LayerSubscribe",
+            Message::LayerSubscribeAck(_) => "LayerSubscribeAck",
             Message::Error(_) => "Error",
         }
     }
@@ -430,9 +423,8 @@ impl Message {
             Message::SyncAck(m) => (Some(&m.page_id), Some(&m.layer_name)),
             Message::SyncReset(m) => (Some(&m.page_id), Some(&m.layer_name)),
             Message::SyncSnapshot(m) => (Some(&m.page_id), Some(&m.layer_name)),
-            Message::LayerPermit(m) => (Some(&m.page_id), Some(&m.layer_name)),
-            Message::LayerConsentGrant(m) => (Some(&m.page_id), Some(&m.layer_name)),
-            Message::LayerConsentAck(m) => (Some(&m.page_id), Some(&m.layer_name)),
+            Message::LayerSubscribe(m) => (Some(&m.page_id), Some(&m.layer_name)),
+            Message::LayerSubscribeAck(m) => (Some(&m.page_id), Some(&m.layer_name)),
             _ => (None, None),
         }
     }
@@ -467,9 +459,8 @@ impl Message {
             Message::SpaceRequestError(m) => encode_tagged(tags::SPACE_REQUEST_ERROR, m),
             Message::SyncConsentGrant(m) => encode_tagged(tags::SYNC_CONSENT_GRANT, m),
             Message::SyncConsentAck(m) => encode_tagged(tags::SYNC_CONSENT_ACK, m),
-            Message::LayerPermit(m) => encode_tagged(tags::LAYER_PERMIT, m),
-            Message::LayerConsentGrant(m) => encode_tagged(tags::LAYER_CONSENT_GRANT, m),
-            Message::LayerConsentAck(m) => encode_tagged(tags::LAYER_CONSENT_ACK, m),
+            Message::LayerSubscribe(m) => encode_tagged(tags::LAYER_SUBSCRIBE, m),
+            Message::LayerSubscribeAck(m) => encode_tagged(tags::LAYER_SUBSCRIBE_ACK, m),
             Message::Error(m) => encode_tagged(tags::ERROR, m),
         }
     }
@@ -536,9 +527,8 @@ fn dispatch_message(tag: u16, payload: &[u8]) -> Result<Message, bincode::Error>
         tags::SPACE_REQUEST_ERROR => Ok(Message::SpaceRequestError(bincode::deserialize(payload)?)),
         tags::SYNC_CONSENT_GRANT => Ok(Message::SyncConsentGrant(bincode::deserialize(payload)?)),
         tags::SYNC_CONSENT_ACK => Ok(Message::SyncConsentAck(bincode::deserialize(payload)?)),
-        tags::LAYER_PERMIT => Ok(Message::LayerPermit(bincode::deserialize(payload)?)),
-        tags::LAYER_CONSENT_GRANT => Ok(Message::LayerConsentGrant(bincode::deserialize(payload)?)),
-        tags::LAYER_CONSENT_ACK => Ok(Message::LayerConsentAck(bincode::deserialize(payload)?)),
+        tags::LAYER_SUBSCRIBE => Ok(Message::LayerSubscribe(bincode::deserialize(payload)?)),
+        tags::LAYER_SUBSCRIBE_ACK => Ok(Message::LayerSubscribeAck(bincode::deserialize(payload)?)),
         tags::ERROR => Ok(Message::Error(bincode::deserialize(payload)?)),
         _ => Err(bincode::Error::from(bincode::ErrorKind::Custom(format!(
             "Unknown message tag: 0x{:04X}",
@@ -771,87 +761,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_tagged_roundtrip_layer_permit() {
-        let msg = Message::LayerPermit(LayerPermitMsg {
-            request_id: "req-1".to_string(),
-            page_id: "page-1".to_string(),
-            layer_name: "page-1/channels/did:key:alice/general/messages".to_string(),
-            permit: "layer-permit-token".to_string(),
-        });
-
-        let bytes = msg.to_bytes().unwrap();
-        assert_eq!(u16::from_be_bytes([bytes[0], bytes[1]]), tags::LAYER_PERMIT);
-
-        let deserialized = Message::from_bytes(&bytes).unwrap();
-        match deserialized {
-            Message::LayerPermit(m) => {
-                assert_eq!(m.page_id, "page-1");
-                assert_eq!(
-                    m.layer_name,
-                    "page-1/channels/did:key:alice/general/messages"
-                );
-                assert_eq!(m.permit, "layer-permit-token");
-            }
-            _ => panic!("Wrong message type"),
-        }
-    }
-
-    #[test]
-    fn test_tagged_roundtrip_layer_consent_grant() {
-        let msg = Message::LayerConsentGrant(LayerConsentGrantMsg {
-            request_id: "req-2".to_string(),
-            page_id: "page-1".to_string(),
-            layer_name: "page-1/channels/did:key:alice/general/messages".to_string(),
-            consent_permit: "consent-token".to_string(),
-        });
-
-        let bytes = msg.to_bytes().unwrap();
-        assert_eq!(
-            u16::from_be_bytes([bytes[0], bytes[1]]),
-            tags::LAYER_CONSENT_GRANT
-        );
-
-        let deserialized = Message::from_bytes(&bytes).unwrap();
-        match deserialized {
-            Message::LayerConsentGrant(m) => {
-                assert_eq!(m.page_id, "page-1");
-                assert_eq!(
-                    m.layer_name,
-                    "page-1/channels/did:key:alice/general/messages"
-                );
-                assert_eq!(m.consent_permit, "consent-token");
-            }
-            _ => panic!("Wrong message type"),
-        }
-    }
-
-    #[test]
-    fn test_tagged_roundtrip_layer_consent_ack() {
-        let msg = Message::LayerConsentAck(LayerConsentAckMsg {
-            request_id: "req-3".to_string(),
-            page_id: "page-1".to_string(),
-            layer_name: "page-1/channels/did:key:alice/general/messages".to_string(),
-        });
-
-        let bytes = msg.to_bytes().unwrap();
-        assert_eq!(
-            u16::from_be_bytes([bytes[0], bytes[1]]),
-            tags::LAYER_CONSENT_ACK
-        );
-
-        let deserialized = Message::from_bytes(&bytes).unwrap();
-        match deserialized {
-            Message::LayerConsentAck(m) => {
-                assert_eq!(m.page_id, "page-1");
-                assert_eq!(
-                    m.layer_name,
-                    "page-1/channels/did:key:alice/general/messages"
-                );
-            }
-            _ => panic!("Wrong message type"),
-        }
-    }
 
     #[test]
     fn test_unknown_tag_returns_error() {

@@ -1,0 +1,418 @@
+// Message bubble — sender, text, timestamp, reactions, thread indicator
+
+import { Theme } from "theme.slint";
+
+export struct Reaction {
+    emoji: string,
+    count: int,
+    has_mine: bool,
+}
+
+export struct Message {
+    id: string,
+    sender: string,
+    sender_short: string,
+    text: string,
+    timestamp: string,
+    is_mine: bool,
+    deleted: bool,
+    edited: bool,
+    reply_to: string,
+    reply_preview: string,
+    thread_parent_id: string,
+    thread_reply_count: int,
+    reactions: [Reaction],
+    has_attachment: bool,
+    attachment_name: string,
+}
+
+// Reaction chip — emoji + count, highlighted if mine
+component ReactionChip inherits Rectangle {
+    in property<Reaction> reaction;
+    in property<string> msg_id;
+    callback clicked();
+
+    height: 24px;
+    min-width: 40px;
+    background: reaction.has_mine ? Theme.reaction-mine : Theme.reaction-bg;
+    border-radius: 12px;
+    border-width: reaction.has_mine ? 1px : 0;
+    border-color: Theme.accent;
+
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 3px;
+
+        Text {
+            text: reaction.emoji;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: reaction.count;
+            font-size: 11px;
+            color: reaction.has_mine ? Theme.text-bright : Theme.text-secondary;
+            vertical-alignment: center;
+        }
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Full message bubble
+export component MessageBubble inherits Rectangle {
+    in property<Message> msg;
+    in property<bool> show_context_menu: false;
+    callback on_action(string);
+
+    background: bubble-touch.has-hover ? Theme.bg-message-hover : transparent;
+    min-height: 40px;
+
+    bubble-touch := TouchArea {
+        // Hover for action buttons
+    }
+
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        spacing: 8px;
+
+        // Avatar
+        Rectangle {
+            width: 36px;
+            height: 36px;
+            background: msg.is_mine ? Theme.accent : #6b5b95;
+            border-radius: 4px;
+
+            Text {
+                text: msg.sender_short;
+                font-size: 12px;
+                font-weight: 700;
+                color: white;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        // Message content
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 2px;
+
+            // Sender + timestamp row
+            HorizontalLayout {
+                spacing: 8px;
+                height: 20px;
+
+                Text {
+                    text: msg.sender;
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: Theme.text-bright;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: msg.timestamp;
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+
+                if msg.edited: Text {
+                    text: "(edited)";
+                    font-size: 11px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Reply preview
+            if msg.reply_to != "": Rectangle {
+                height: 28px;
+                background: Theme.bg-hover;
+                border-radius: 4px;
+                border-width: 0;
+
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+
+                    Rectangle {
+                        width: 2px;
+                        background: Theme.accent;
+                        border-radius: 1px;
+                    }
+
+                    Text {
+                        text: " " + msg.reply_preview;
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+
+            // Attachment indicator
+            if msg.has_attachment: HorizontalLayout {
+                spacing: 4px;
+                height: 24px;
+
+                Rectangle {
+                    width: 16px;
+                    height: 16px;
+                    background: Theme.bg-hover;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "F";
+                        font-size: 10px;
+                        color: Theme.accent;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Text {
+                    text: msg.attachment_name;
+                    font-size: 13px;
+                    color: Theme.accent;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Message text
+            Text {
+                text: msg.deleted ? "This message was deleted." : msg.text;
+                font-size: 14px;
+                color: msg.deleted ? Theme.text-secondary : Theme.text-primary;
+                font-italic: msg.deleted;
+                wrap: word-wrap;
+            }
+
+            // Reactions row
+            if msg.reactions.length > 0: HorizontalLayout {
+                spacing: 4px;
+                padding-top: 4px;
+
+                for reaction in msg.reactions: ReactionChip {
+                    reaction: reaction;
+                    msg_id: msg.id;
+                    clicked => { root.on_action("toggle_reaction:" + msg.id + ":" + reaction.emoji); }
+                }
+
+                // Add reaction button
+                Rectangle {
+                    width: 28px;
+                    height: 24px;
+                    background: add-react-touch.has-hover ? Theme.reaction-bg : transparent;
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: add-react-touch.has-hover ? Theme.border-light : transparent;
+
+                    Text {
+                        text: "+";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    add-react-touch := TouchArea {
+                        clicked => { root.on_action("add_reaction:" + msg.id); }
+                    }
+                }
+            }
+
+            // Thread indicator
+            if msg.thread_reply_count > 0: Rectangle {
+                height: 24px;
+
+                HorizontalLayout {
+                    spacing: 4px;
+
+                    thread-touch := TouchArea {
+                        clicked => { root.on_action("open_thread:" + msg.id); }
+                    }
+
+                    Text {
+                        text: msg.thread_reply_count + (msg.thread_reply_count == 1 ? " reply" : " replies");
+                        font-size: 12px;
+                        color: Theme.accent;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // Action buttons (visible on hover)
+        if bubble-touch.has-hover && !msg.deleted: HorizontalLayout {
+            spacing: 2px;
+            width: 100px;
+
+            // React
+            Rectangle {
+                width: 28px;
+                height: 28px;
+                background: react-act-touch.has-hover ? Theme.bg-hover : transparent;
+                border-radius: 4px;
+
+                Text {
+                    text: ":)";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                react-act-touch := TouchArea {
+                    clicked => { root.on_action("add_reaction:" + msg.id); }
+                }
+            }
+
+            // Thread
+            Rectangle {
+                width: 28px;
+                height: 28px;
+                background: thread-act-touch.has-hover ? Theme.bg-hover : transparent;
+                border-radius: 4px;
+
+                Text {
+                    text: "T";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                thread-act-touch := TouchArea {
+                    clicked => { root.on_action("open_thread:" + msg.id); }
+                }
+            }
+
+            // More (context menu)
+            Rectangle {
+                width: 28px;
+                height: 28px;
+                background: more-act-touch.has-hover ? Theme.bg-hover : transparent;
+                border-radius: 4px;
+
+                Text {
+                    text: "...";
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: Theme.text-secondary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                more-act-touch := TouchArea {
+                    clicked => { root.on_action("toggle_menu:" + msg.id); }
+                }
+            }
+        }
+    }
+
+    // Context menu overlay
+    if root.show_context_menu: Rectangle {
+        x: parent.width - 220px;
+        y: 0;
+        width: 200px;
+        height: ctx-layout.preferred-height + 8px;
+        background: Theme.bg-workspace;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Theme.border;
+        drop-shadow-color: #00000060;
+        drop-shadow-blur: 12px;
+        drop-shadow-offset-y: 4px;
+
+        ctx-layout := VerticalLayout {
+            padding: 4px;
+            spacing: 0;
+
+            // Reply
+            Rectangle {
+                height: 34px;
+                background: ctx-reply-touch.has-hover ? Theme.bg-hover : transparent;
+                border-radius: 4px;
+
+                HorizontalLayout {
+                    padding-left: 12px;
+                    spacing: 8px;
+
+                    Text { text: "Reply"; font-size: 13px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+
+                ctx-reply-touch := TouchArea {
+                    clicked => { root.on_action("context_menu:reply"); }
+                }
+            }
+
+            // Thread
+            Rectangle {
+                height: 34px;
+                background: ctx-thread-touch.has-hover ? Theme.bg-hover : transparent;
+                border-radius: 4px;
+
+                HorizontalLayout {
+                    padding-left: 12px;
+                    spacing: 8px;
+
+                    Text { text: "Reply in thread"; font-size: 13px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+
+                ctx-thread-touch := TouchArea {
+                    clicked => { root.on_action("context_menu:thread"); }
+                }
+            }
+
+            // Edit (own messages only)
+            if msg.is_mine: Rectangle {
+                height: 34px;
+                background: ctx-edit-touch.has-hover ? Theme.bg-hover : transparent;
+                border-radius: 4px;
+
+                HorizontalLayout {
+                    padding-left: 12px;
+                    spacing: 8px;
+
+                    Text { text: "Edit message"; font-size: 13px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+
+                ctx-edit-touch := TouchArea {
+                    clicked => { root.on_action("edit_message:" + msg.id); }
+                }
+            }
+
+            // Separator
+            Rectangle { height: 1px; background: Theme.border; }
+
+            // Delete (own messages only)
+            if msg.is_mine: Rectangle {
+                height: 34px;
+                background: ctx-del-touch.has-hover ? #e74c4c20 : transparent;
+                border-radius: 4px;
+
+                HorizontalLayout {
+                    padding-left: 12px;
+                    spacing: 8px;
+
+                    Text { text: "Delete message"; font-size: 13px; color: Theme.red-danger; vertical-alignment: center; }
+                }
+
+                ctx-del-touch := TouchArea {
+                    clicked => { root.on_action("delete_message:" + msg.id); }
+                }
+            }
+        }
+    }
+}

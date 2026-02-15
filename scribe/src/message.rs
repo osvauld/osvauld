@@ -178,25 +178,15 @@ pub enum SyncEvent {
     /// Ensure this user is synced (connected + subscribed to active Scribes)
     EnsureSync { user_did: String },
 
-    /// Node detected a new dynamic layer — permits already created by layer_unit
+    /// Subscribe to dynamic layers discovered in a creator's __sync_meta
     ///
-    /// **Context**: Scribe detected a dynamic layer (via schema match) and used
-    /// PermitIssuer to create ready-to-send permits. Coordinator just distributes.
-    NewDynamicLayer {
+    /// **Context**: Node detected new entries in creator's __sync_meta via apply.
+    /// Coordinator should route to the PeerActor connected to creator_did
+    /// and send LayerSubscribe for each layer.
+    SubscribeLayers {
         page_id: String,
-        layer_name: String,
-        /// Ready-to-send permits: (recipient_did, layer_permit_token)
-        permits: Vec<(String, String)>,
-    },
-
-    /// Layer access changed — new permits need distribution
-    ///
-    /// **Context**: Scribe added a participant and issued permits for connected peers
-    LayerAccessChanged {
-        page_id: String,
-        layer_name: String,
-        /// Ready-to-send permits: (recipient_did, layer_permit_token)
-        permits: Vec<(String, String)>,
+        creator_did: String,
+        layers: Vec<String>,
     },
 }
 
@@ -529,16 +519,19 @@ pub enum ScribeMessage {
         schema_key: String,
         /// User-chosen ID that fills the {id} in the schema, e.g. "general"
         layer_id: String,
+        /// Optional list of authorized peers (for explicit-grant layers like DMs)
+        /// None = open/role-based, Some = only listed DIDs get access
+        authorized_peers: Option<Vec<String>>,
         reply: tokio::sync::oneshot::Sender<std::result::Result<String, String>>,
     },
 
-    /// Issue access for a DID to an explicit dynamic layer
+    /// Issue access for DIDs to an explicit dynamic layer
     ///
-    /// **Context**: Lua calls scribe:add_layer_access(layer_name, did)
-    /// **We do**: Check manage_layer_access capability, require authority permit, issue permit if subscribed
+    /// **Context**: Lua calls scribe:add_layer_access(layer_name, dids)
+    /// **We do**: Merge new DIDs into self-permit's authorized_peers, re-trigger sync
     AddLayerAccess {
         layer_name: String,
-        did: String,
+        dids: Vec<String>,
         reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
     },
 
@@ -552,6 +545,15 @@ pub enum ScribeMessage {
         reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
     },
 
+    /// Export a layer's snapshot + state vector (for LayerSync bundling)
+    ///
+    /// **Context**: PeerActor needs snapshot data to bundle with layer permit
+    /// **We do**: Export snapshot and version vector from LayerUnit, reply via oneshot
+    ExportLayerSnapshot {
+        layer_name: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(Vec<u8>, Vec<u8>), String>>,
+    },
+
     /// Authorize a subscriber DID for a specific layer
     ///
     /// **Context**: Viewer received LayerPermit from node. Authorize the node
@@ -559,6 +561,53 @@ pub enum ScribeMessage {
     AuthorizeLayerSubscriber {
         layer_name: String,
         subscriber_did: String,
+    },
+
+    /// Get unsynced layer entries from our __sync_meta (peer-side)
+    ///
+    /// **Context**: PeerActor detects __sync_meta update, queries for unsynced entries
+    /// **We do**: Read our __sync_meta layer, return entries with synced == false
+    GetUnsyncedSyncMeta {
+        reply: tokio::sync::oneshot::Sender<Vec<String>>,
+    },
+
+    /// Handle LayerSubscribe request (node-side)
+    ///
+    /// **Context**: Peer sends LayerSubscribe after discovering layer in __sync_meta
+    /// **We do**: Validate, issue permit via PermitIssuer, export snapshot, add subscriber
+    /// **Returns**: (snapshot_data, state_vector, layer_permit_token)
+    HandleLayerSubscribe {
+        layer_name: String,
+        peer_did: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(Vec<u8>, Vec<u8>, String), String>>,
+    },
+
+    /// Mark a __sync_meta entry as synced (peer-side)
+    ///
+    /// **Context**: Peer received LayerSubscribeAck, marks entry as synced
+    MarkSyncMetaSynced {
+        layer_name: String,
+    },
+
+    /// Node received authority from creator. Store + fan out to authorized users.
+    ///
+    /// **Context**: Node's PeerActor received LayerSubscribeAck with layer_authority.
+    /// **We do**: Store authority, apply layer data, fan out to authorized peers' __sync_meta.
+    StoreLayerAuthority {
+        layer_name: String,
+        creator_did: String,
+        authority_token: String,
+        layer_data: Vec<u8>,
+        state_vector: Vec<u8>,
+    },
+
+    /// Fan out a layer entry to authorized users' __sync_meta
+    ///
+    /// **Context**: Node stored authority, now needs to notify authorized peers.
+    /// **authorized_peers**: None = all subscribers, Some = specific DIDs only.
+    FanOutLayerToUsers {
+        layer_name: String,
+        authorized_peers: Option<Vec<String>>,
     },
 
     /// Shutdown the actor

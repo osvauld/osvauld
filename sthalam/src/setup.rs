@@ -61,26 +61,15 @@ pub async fn init_p2p(
                         tracing::info!(user_did = %user_did, "Forwarded EnsureSync to Coordinator");
                     }
                 }
-                SyncEvent::NewDynamicLayer { page_id, layer_name, permits } => {
+                SyncEvent::SubscribeLayers { page_id, creator_did, layers } => {
                     tracing::info!(
                         page_id = %page_id,
-                        layer = %layer_name,
-                        permit_count = permits.len(),
-                        "Received NewDynamicLayer from Scribe, forwarding to Coordinator"
+                        creator_did = %creator_did,
+                        count = layers.len(),
+                        "Received SubscribeLayers from Scribe, forwarding to Coordinator"
                     );
-                    if let Err(e) = handle_for_sync.distribute_layer_permits(&page_id, &layer_name, permits) {
-                        tracing::warn!(error = %e, "Failed to distribute layer permits");
-                    }
-                }
-                SyncEvent::LayerAccessChanged { page_id, layer_name, permits } => {
-                    tracing::info!(
-                        page_id = %page_id,
-                        layer = %layer_name,
-                        permit_count = permits.len(),
-                        "Received LayerAccessChanged from Scribe, forwarding to Coordinator"
-                    );
-                    if let Err(e) = handle_for_sync.distribute_layer_permits(&page_id, &layer_name, permits) {
-                        tracing::warn!(error = %e, "Failed to distribute layer permits for access change");
+                    if let Err(e) = handle_for_sync.subscribe_layers(&page_id, &creator_did, layers) {
+                        tracing::warn!(error = %e, "Failed to forward SubscribeLayers");
                     }
                 }
             }

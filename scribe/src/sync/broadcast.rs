@@ -1,20 +1,15 @@
 //! Broadcast handling for Scribe actor
-//!
-//! Handles layer update broadcasting to subscribers and page update emission.
 
 use tokio::sync::mpsc;
-use tracing::{info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 use crate::message::{BroadcastPayload, PageUpdate};
 use crate::state::ScribeState;
 
-// Layer Broadcasting
-
-/// Broadcast layer update to all eligible subscribers
+/// Broadcast layer update to all layer subscribers (excludes sender)
 ///
-/// **Context**: Layer has been updated, notify all subscribers
-/// **We do**: Send incremental or full snapshot to each subscriber
-/// **Cleanup**: Remove subscribers whose channels are closed (disconnected)
+/// Uses LayerUnit's per-subscriber state for authorization, version vectors,
+/// and broadcast channels. Disconnected subscribers are removed from the unit.
 #[instrument(skip_all, fields(page_id = %state.page_id, layer = %layer_name))]
 pub async fn broadcast_update(
     state: &mut ScribeState,
@@ -26,32 +21,26 @@ pub async fn broadcast_update(
     };
 
     let current_vector = unit.layer().version_vector();
-    let layer = unit.layer().clone(); // Clone for use inside subscriber lock
+    let layer = unit.layer().clone();
+    let sender_did = from_peer.map(|(did, _)| did.as_str());
 
-    // Read authorized_dids once before the subscriber loop
-    let authorized = unit.authorized_dids().read().unwrap_or_else(|e| e.into_inner()).clone();
+    let mut to_remove: Vec<String> = Vec::new();
 
-    // Track subscribers to remove (channel closed = peer disconnected)
-    let mut to_remove: Vec<(String, String)> = Vec::new();
-
-    if let Ok(mut subs) = state.subscribers.write() {
-        for ((user_did, device_id), info) in subs.iter_mut() {
+    if let Ok(mut layer_subs) = unit.subscribers().write() {
+        for (did, sub) in layer_subs.iter_mut() {
             // Skip sender
-            if from_peer == Some(&(user_did.clone(), device_id.clone())) {
-                state.emit_broadcast_decision_capture(layer_name, user_did, "skip_sender");
+            if sender_did == Some(did.as_str()) {
+                state.emit_broadcast_decision_capture(layer_name, did, "skip_sender");
                 continue;
             }
 
-            // Check authorization via LayerUnit
-            if !authorized.contains(user_did) {
-                state.emit_broadcast_decision_capture(layer_name, user_did, "not_authorized");
+            if !sub.capabilities.read {
+                state.emit_broadcast_decision_capture(layer_name, did, "no_read_capability");
                 continue;
             }
 
-            // Incremental export: use subscriber's last known vector
-            // Falls back to full snapshot for first sync (no vector cached)
-            let update = if let Some(their_vector) = info.vectors.get(layer_name) {
-                layer.export_updates(their_vector)
+            let update = if !sub.version_vector.is_empty() {
+                layer.export_updates(&sub.version_vector)
                     .unwrap_or_else(|_| layer.export_snapshot())
             } else {
                 layer.export_snapshot()
@@ -65,33 +54,26 @@ pub async fn broadcast_update(
                 state_vector: current_vector.clone(),
             };
 
-            match info.broadcast_tx.try_send(payload) {
+            match sub.broadcast_tx.try_send(payload) {
                 Ok(()) => {
-                    // Update their vector on successful send
-                    info.vectors.insert(layer_name.to_string(), current_vector.clone());
+                    sub.version_vector = current_vector.clone();
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
-                    info!(user_did = %user_did, device_id = %device_id, "Subscriber disconnected, removing");
-                    to_remove.push((user_did.clone(), device_id.clone()));
+                    info!(user_did = %did, "Layer subscriber disconnected, removing");
+                    to_remove.push(did.clone());
                 }
                 Err(mpsc::error::TrySendError::Full(_)) => {
-                    warn!(user_did = %user_did, "Broadcast channel full, update dropped");
+                    warn!(user_did = %did, "Broadcast channel full, update dropped");
                 }
             }
         }
 
-        // Remove disconnected subscribers
-        for key in to_remove {
-            if let Some(info) = subs.remove(&key) {
-                if let Err(e) = state.vector_storage.save_vectors(&key.0, &key.1, &info.vectors) {
-                    warn!(error = %e, user_did = %key.0, device_id = %key.1, "Failed to save peer vector on disconnect");
-                }
-                info!(user_did = %key.0, device_id = %key.1, "Cleaned up disconnected subscriber");
-            }
+        for did in &to_remove {
+            layer_subs.remove(did);
+            debug!(user_did = %did, layer = %layer_name, "Removed disconnected layer subscriber");
         }
     }
 
-    // Emit EnsureSync for any sync targets not currently subscribed
     super::reconcile::emit_sync_events_for_missing_targets(state);
 }
 
@@ -101,8 +83,14 @@ pub async fn broadcast_update(
 ///
 /// **Context**: A new layer was created (from peer sync or local creation)
 /// **We do**: Send PageUpdate::LayerChanged with created=true to unified subscribers
+/// **Filters**: Protocol layers (__sync_meta:*) are not sent to Lua/UI subscribers
 #[instrument(skip(state), fields(page_id = %state.page_id, layer = %layer_name))]
 pub fn notify_layer_discovered(state: &ScribeState, layer_name: &str) {
+    // Filter protocol layers from Lua/UI notifications
+    if crate::sync::sync_meta::is_protocol_layer(layer_name) {
+        debug!(layer = %layer_name, "Skipping notify_layer_discovered for protocol layer");
+        return;
+    }
     let full_data = state.units.get(layer_name)
         .map(|unit| unit.layer().get_content(layer_name))
         .unwrap_or(serde_json::Value::Null);

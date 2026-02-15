@@ -17,6 +17,7 @@ pub mod subscription;
 pub mod apply;
 pub mod broadcast;
 pub mod reconcile;
+pub mod sync_meta;
 
 // Re-exports for backward compatibility
 

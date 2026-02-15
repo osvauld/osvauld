@@ -1,0 +1,152 @@
+// Emoji picker overlay
+
+import { Theme } from "theme.slint";
+
+export component EmojiPicker inherits Rectangle {
+    callback on_pick(string);
+    callback on_close();
+
+    height: 220px;
+    background: Theme.bg-workspace;
+    border-width: 1px;
+    border-color: Theme.border;
+    border-radius: 8px;
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+
+        // Header
+        HorizontalLayout {
+            Text {
+                text: "Emoji";
+                font-size: 14px;
+                font-weight: 600;
+                color: Theme.text-bright;
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            Rectangle {
+                width: 24px;
+                height: 24px;
+                background: close-touch.has-hover ? Theme.bg-hover : transparent;
+                border-radius: 4px;
+
+                Text {
+                    text: "x";
+                    font-size: 14px;
+                    color: Theme.text-secondary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                close-touch := TouchArea {
+                    clicked => { root.on_close(); }
+                }
+            }
+        }
+
+        // Row 1 — faces & hands
+        HorizontalLayout {
+            spacing: 2px;
+
+            for emoji in [
+                { name: "Smile", char: "\u{1f600}" },
+                { name: "Laugh", char: "\u{1f602}" },
+                { name: "Heart", char: "\u{2764}\u{fe0f}" },
+                { name: "Thumbs", char: "\u{1f44d}" },
+                { name: "Fire", char: "\u{1f525}" },
+                { name: "Party", char: "\u{1f389}" },
+                { name: "Rocket", char: "\u{1f680}" },
+                { name: "Star", char: "\u{2b50}" },
+                { name: "Check", char: "\u{2705}" },
+                { name: "Wave", char: "\u{1f44b}" },
+            ]: Rectangle {
+                width: 36px;
+                height: 36px;
+                background: ea1.has-hover ? Theme.bg-hover : transparent;
+                border-radius: 6px;
+
+                Text {
+                    text: emoji.char;
+                    font-size: 20px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                ea1 := TouchArea {
+                    clicked => { root.on_pick(emoji.name); }
+                }
+            }
+        }
+
+        // Row 2 — more faces
+        HorizontalLayout {
+            spacing: 2px;
+
+            for emoji in [
+                { name: "Eyes", char: "\u{1f440}" },
+                { name: "Think", char: "\u{1f914}" },
+                { name: "Clap", char: "\u{1f44f}" },
+                { name: "100", char: "\u{1f4af}" },
+                { name: "Sad", char: "\u{1f622}" },
+                { name: "Angry", char: "\u{1f620}" },
+                { name: "Cool", char: "\u{1f60e}" },
+                { name: "Wink", char: "\u{1f609}" },
+                { name: "LOL", char: "\u{1f923}" },
+                { name: "Love", char: "\u{1f60d}" },
+            ]: Rectangle {
+                width: 36px;
+                height: 36px;
+                background: ea2.has-hover ? Theme.bg-hover : transparent;
+                border-radius: 6px;
+
+                Text {
+                    text: emoji.char;
+                    font-size: 20px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                ea2 := TouchArea {
+                    clicked => { root.on_pick(emoji.name); }
+                }
+            }
+        }
+
+        // Row 3 — objects
+        HorizontalLayout {
+            spacing: 2px;
+
+            for emoji in [
+                { name: "Sparkles", char: "\u{2728}" },
+                { name: "Pray", char: "\u{1f64f}" },
+                { name: "Muscle", char: "\u{1f4aa}" },
+                { name: "Tada", char: "\u{1f38a}" },
+                { name: "Crown", char: "\u{1f451}" },
+                { name: "Gem", char: "\u{1f48e}" },
+                { name: "Lightning", char: "\u{26a1}" },
+                { name: "Trophy", char: "\u{1f3c6}" },
+                { name: "Brain", char: "\u{1f9e0}" },
+                { name: "Ghost", char: "\u{1f47b}" },
+            ]: Rectangle {
+                width: 36px;
+                height: 36px;
+                background: ea3.has-hover ? Theme.bg-hover : transparent;
+                border-radius: 6px;
+
+                Text {
+                    text: emoji.char;
+                    font-size: 20px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                ea3 := TouchArea {
+                    clicked => { root.on_pick(emoji.name); }
+                }
+            }
+        }
+    }
+}

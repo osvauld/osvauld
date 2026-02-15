@@ -88,12 +88,12 @@ pub trait ScribeHandle: Send + Sync {
     ///
     /// **Context**: Lua app calls `scribe:create_layer("channels/{id}/messages", "general")`
     /// **Returns**: Full layer name (e.g., "{page_id}/channels/{our_did}/general/messages")
-    fn create_layer(&self, schema_key: &str, layer_id: &str) -> Result<String, String>;
+    fn create_layer(&self, schema_key: &str, layer_id: &str, authorized_peers: Option<Vec<String>>) -> Result<String, String>;
 
     // -- Layer access --
 
-    /// Add a DID as participant to an explicit dynamic layer
-    fn add_layer_access(&self, layer_name: &str, did: &str) -> Result<(), String>;
+    /// Add DIDs as participants to an explicit dynamic layer
+    fn add_layer_access(&self, layer_name: &str, dids: &[String]) -> Result<(), String>;
 
     /// Remove a DID from an explicit dynamic layer
     fn remove_layer_access(&self, layer_name: &str, did: &str) -> Result<(), String>;
@@ -339,24 +339,25 @@ impl ScribeHandle for ActorScribeHandle {
         rpc(rx)
     }
 
-    fn create_layer(&self, schema_key: &str, layer_id: &str) -> Result<String, String> {
+    fn create_layer(&self, schema_key: &str, layer_id: &str, authorized_peers: Option<Vec<String>>) -> Result<String, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::CreateDynamicLayer {
                 schema_key: schema_key.to_string(),
                 layer_id: layer_id.to_string(),
+                authorized_peers,
                 reply: tx,
             })
             .map_err(|e| format!("Failed to create dynamic layer: {}", e))?;
         rpc(rx)
     }
 
-    fn add_layer_access(&self, layer_name: &str, did: &str) -> Result<(), String> {
+    fn add_layer_access(&self, layer_name: &str, dids: &[String]) -> Result<(), String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::AddLayerAccess {
                 layer_name: layer_name.to_string(),
-                did: did.to_string(),
+                dids: dids.to_vec(),
                 reply: tx,
             })
             .map_err(|e| format!("Failed to add layer access: {}", e))?;

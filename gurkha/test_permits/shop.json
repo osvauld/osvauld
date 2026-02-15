@@ -32,7 +32,7 @@
       "{page_id}/orders/customer1": { "sync": true, "write": false }
     },
     "dynamic_layer_schemas": {
-      "orders/{id}": { "type": "map", "grant": "role", "role_permissions": { "admin": { "sync": true, "write": false } } }
+      "orders/{id}": { "type": "map", "grant": "open", "permissions": { "sync": true, "write": false } }
     }
   }
 }

@@ -215,6 +215,20 @@ impl CourierHandle {
             .map_err(|e| format!("Failed to send EnsureSync: {:?}", e))
     }
 
+    /// Subscribe to dynamic layers on a creator peer
+    ///
+    /// **Context**: Scribe detected new entries in creator's __sync_meta, needs to send
+    /// LayerSubscribe to the creator to get authority.
+    pub fn subscribe_layers(&self, page_id: &str, creator_did: &str, layers: Vec<String>) -> Result<(), String> {
+        self.coordinator
+            .cast(IrohCoordinatorMessage::SubscribeLayers {
+                page_id: page_id.to_string(),
+                creator_did: creator_did.to_string(),
+                layers,
+            })
+            .map_err(|e| format!("Failed to send SubscribeLayers: {:?}", e))
+    }
+
     /// Broadcast datagram to all authenticated peers
     ///
     /// **Context**: Send ephemeral data (cursor, typing) to all connected users
@@ -236,25 +250,6 @@ impl CourierHandle {
                 page_id: page_id.to_string(),
             })
             .map_err(|e| format!("Failed to notify page opened: {:?}", e))
-    }
-
-    /// Distribute layer permits for a new dynamic layer (forward to Coordinator)
-    ///
-    /// **Context**: Scribe emitted NewDynamicLayer — forward to Coordinator for distribution
-    /// **Coordinator will**: Store permits in butler, send LayerPermitMsg to connected peers
-    pub fn distribute_layer_permits(
-        &self,
-        page_id: &str,
-        layer_name: &str,
-        permits: Vec<(String, String)>,
-    ) -> Result<(), String> {
-        self.coordinator
-            .cast(IrohCoordinatorMessage::DistributeLayerPermits {
-                page_id: page_id.to_string(),
-                layer_name: layer_name.to_string(),
-                permits,
-            })
-            .map_err(|e| format!("Failed to send DistributeLayerPermits: {:?}", e))
     }
 
     /// Distribute updated page permits to peers (forward to Coordinator)

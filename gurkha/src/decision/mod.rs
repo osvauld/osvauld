@@ -57,4 +57,4 @@ pub use consent::{
 };
 
 // Re-export layer authorization
-pub use layer::{can_access_layer, can_access_with_layer_permits, matches_creator_schema, matches_dynamic_schema_for_role};
+pub use layer::{can_access_layer, can_access_with_layer_permits, matches_creator_schema, matches_dynamic_schema};

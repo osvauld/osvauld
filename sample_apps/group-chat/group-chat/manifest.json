@@ -1,0 +1,14 @@
+{
+    "name": "Group Chat",
+    "version": "2.0.0",
+    "description": "Slack-like group chat with channels, threads, and reactions",
+    "entry_ui": "app.slint",
+    "entry_logic": "app.lua",
+    "renderer": "slint",
+    "models": [
+        "messages",
+        "channels",
+        "online_users",
+        "thread_messages"
+    ]
+}

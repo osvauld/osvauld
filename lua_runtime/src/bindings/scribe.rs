@@ -165,8 +165,20 @@ impl UserData for ScribeBindings {
         // ```lua
         // scribe:add_layer_access("page1/dms/did:key:alice/dm1/messages", "did:key:bob")
         // ```
-        methods.add_method("add_layer_access", |_, this, (layer_name, did): (String, String)| {
-            this.scribe.add_layer_access(&layer_name, &did)
+        methods.add_method("add_layer_access", |_, this, (layer_name, dids): (String, mlua::Value)| {
+            // Accept either a single DID string or a table of DIDs
+            let dids_vec: Vec<String> = match dids {
+                mlua::Value::String(s) => vec![s.to_str().map_err(|e| LuaError::RuntimeError(e.to_string()))?.to_string()],
+                mlua::Value::Table(t) => {
+                    let mut v = Vec::new();
+                    for pair in t.sequence_values::<String>() {
+                        v.push(pair.map_err(|e| LuaError::RuntimeError(e.to_string()))?);
+                    }
+                    v
+                }
+                _ => return Err(LuaError::RuntimeError("Expected string or table of DIDs".to_string())),
+            };
+            this.scribe.add_layer_access(&layer_name, &dids_vec)
                 .map_err(|e| LuaError::RuntimeError(format!("Failed to add layer access: {}", e)))?;
             Ok(())
         });
@@ -185,8 +197,30 @@ impl UserData for ScribeBindings {
             Ok(())
         });
 
-        methods.add_method("create_layer", |lua, this, (schema_key, layer_id): (String, String)| {
-            let layer_name = this.scribe.create_layer(&schema_key, &layer_id)
+        methods.add_method("create_layer", |lua, this, args: mlua::MultiValue| {
+            let mut args_iter = args.into_iter();
+            let schema_key: String = match args_iter.next() {
+                Some(mlua::Value::String(s)) => s.to_str().map_err(|e| LuaError::RuntimeError(e.to_string()))?.to_string(),
+                _ => return Err(LuaError::RuntimeError("Expected schema_key string as first argument".to_string())),
+            };
+            let layer_id: String = match args_iter.next() {
+                Some(mlua::Value::String(s)) => s.to_str().map_err(|e| LuaError::RuntimeError(e.to_string()))?.to_string(),
+                _ => return Err(LuaError::RuntimeError("Expected layer_id string as second argument".to_string())),
+            };
+            // Optional third argument: authorized_peers table
+            let authorized_peers: Option<Vec<String>> = match args_iter.next() {
+                Some(mlua::Value::Table(t)) => {
+                    let mut v = Vec::new();
+                    for pair in t.sequence_values::<String>() {
+                        v.push(pair.map_err(|e| LuaError::RuntimeError(e.to_string()))?);
+                    }
+                    Some(v)
+                }
+                Some(mlua::Value::Nil) | None => None,
+                _ => return Err(LuaError::RuntimeError("Expected table or nil for authorized_peers".to_string())),
+            };
+
+            let layer_name = this.scribe.create_layer(&schema_key, &layer_id, authorized_peers)
                 .map_err(|e| LuaError::RuntimeError(format!("Failed to create dynamic layer: {}", e)))?;
 
             let result = lua.create_table()?;

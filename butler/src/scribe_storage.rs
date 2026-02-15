@@ -121,6 +121,34 @@ impl PermitIssuer for ButlerPermitIssuer {
 
         Ok((token, cid))
     }
+
+    /// Store authority permit received from a creator (node-side).
+    ///
+    /// **Context**: Node received LayerSubscribeAck from creator with authority permit.
+    /// Reuses the LAYER_AUTHORITY_PERMITS table keyed by creator_did as audience.
+    #[instrument(skip_all, fields(creator_did = %creator_did, layer_name = %layer_name, version = version))]
+    fn store_authority_permit(
+        &self,
+        creator_did: &str,
+        layer_name: &str,
+        authority_token: &str,
+        version: u64,
+    ) -> Result<()> {
+        self.store
+            .store_layer_authority_permit(&self.page_id, layer_name, creator_did, version, authority_token)
+            .map_err(|e| ScribeError::Other(format!("Store error: {}", e)))
+    }
+
+    /// Get stored authority for a layer (any audience — for node checking authorization).
+    ///
+    /// **Context**: Node needs to check if any creator has stored authority for this layer.
+    /// Scans all authority permits for the page to find a match by layer_name suffix.
+    #[instrument(skip_all, fields(layer_name = %layer_name))]
+    fn get_authority_for_layer(&self, layer_name: &str) -> Result<Option<(String, u64, String)>> {
+        self.store
+            .get_authority_for_layer(&self.page_id, layer_name)
+            .map_err(|e| ScribeError::Other(format!("Store error: {}", e)))
+    }
 }
 
 // Layer Storage Implementation

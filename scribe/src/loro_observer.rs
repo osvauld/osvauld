@@ -325,11 +325,10 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
     // Clone for the async task
     let layer_for_task = layer_clone.clone();
     let layer_name_for_task = layer_name.to_string();
-    let subscribers_for_task = state.subscribers.clone();
     let page_id_for_task = state.page_id.clone();
     let page_update_subscribers_for_task = state.page_update_subscribers.clone();
-    // Capture authorized_dids Arc for broadcast filtering
-    let authorized_dids_for_task = state.units.get(layer_name).unwrap().authorized_dids().clone();
+    // Capture LayerUnit's subscriber map for broadcast filtering and sending
+    let layer_subscribers_for_task = state.units.get(layer_name).unwrap().subscribers().clone();
     // Clone capture_tx for the observer task
     let capture_tx_for_task = state.capture_tx.clone();
 
@@ -378,16 +377,19 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
                     let _ = capture_tx.send(json);
                 }
             }
-            if let Ok(subs) = page_update_subscribers_for_task.read() {
-                for tx in subs.iter() {
-                    let _ = tx.try_send(page_update.clone());
-                }
-                if !subs.is_empty() {
-                    debug!(
-                        layer_name = %layer_name_for_task,
-                        subscriber_count = subs.len(),
-                        "Sent PageUpdate::LayerChanged"
-                    );
+            // Filter protocol layers from Lua/UI callbacks
+            if !crate::sync::sync_meta::is_protocol_layer(&layer_name_for_task) {
+                if let Ok(subs) = page_update_subscribers_for_task.read() {
+                    for tx in subs.iter() {
+                        let _ = tx.try_send(page_update.clone());
+                    }
+                    if !subs.is_empty() {
+                        debug!(
+                            layer_name = %layer_name_for_task,
+                            subscriber_count = subs.len(),
+                            "Sent PageUpdate::LayerChanged"
+                        );
+                    }
                 }
             }
 
@@ -440,20 +442,20 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
                 continue;
             }
 
-            // Broadcast incremental updates to peer subscribers
-            // Uses per-subscriber export_updates(their_vector) instead of full snapshot
+            // Broadcast incremental updates to layer subscribers
+            // Uses per-subscriber version_vector for incremental export
             let current_vector = layer_for_task.version_vector();
 
-            if let Ok(subs) = subscribers_for_task.read() {
-                debug!(
+            if let Ok(layer_subs) = layer_subscribers_for_task.read() {
+                info!(
                     page_id = %page_id_for_task,
                     layer_name = %layer_name_for_task,
-                    subscriber_count = subs.len(),
-                    "Observer broadcasting to subscribers"
+                    subscriber_count = layer_subs.len(),
+                    "Observer broadcasting local write to layer subscribers"
                 );
-                let authorized = authorized_dids_for_task.read().unwrap_or_else(|e| e.into_inner());
-                for ((user_did, device_id), info) in subs.iter() {
-                    if !authorized.contains(user_did) {
+                for (did, sub) in layer_subs.iter() {
+                    // Check read capability (replaces authorized_dids check)
+                    if !sub.capabilities.read {
                         if let Some(ref ctx) = capture_tx_for_task {
                             let ts = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
@@ -464,9 +466,9 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
                                 "ts": ts,
                                 "page_id": &page_id_for_task,
                                 "layer": &layer_name_for_task,
-                                "peer_did": user_did,
+                                "peer_did": did,
                                 "decision": "skip",
-                                "reason": "not_authorized",
+                                "reason": "no_read_capability",
                             }).to_string());
                         }
                         continue;
@@ -474,8 +476,8 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
 
                     // Incremental export: use subscriber's last known vector
                     // Falls back to full snapshot for first sync (no vector cached)
-                    let update = if let Some(their_vector) = info.vectors.get(&*layer_name_for_task) {
-                        layer_for_task.export_updates(their_vector)
+                    let update = if !sub.version_vector.is_empty() {
+                        layer_for_task.export_updates(&sub.version_vector)
                             .unwrap_or_else(|_| layer_for_task.export_snapshot())
                     } else {
                         layer_for_task.export_snapshot()
@@ -490,20 +492,20 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
                         state_vector: current_vector.clone(),
                     };
 
-                    match info.broadcast_tx.try_send(payload) {
+                    match sub.broadcast_tx.try_send(payload) {
                         Ok(()) => {
                             debug!(
-                                user_did = %user_did,
+                                user_did = %did,
                                 layer_name = %layer_name_for_task,
                                 update_size = update_size,
-                                "Sent incremental broadcast to subscriber"
+                                "Sent incremental broadcast to layer subscriber"
                             );
                         }
                         Err(mpsc::error::TrySendError::Full(_)) => {
-                            warn!(user_did = %user_did, device_id = %device_id, "Peer broadcast channel full");
+                            warn!(user_did = %did, "Peer broadcast channel full");
                         }
                         Err(mpsc::error::TrySendError::Closed(_)) => {
-                            debug!(user_did = %user_did, "Peer broadcast channel closed");
+                            warn!(user_did = %did, layer_name = %layer_name_for_task, "Peer broadcast channel closed — receiver dropped");
                         }
                     }
                 }

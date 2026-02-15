@@ -39,7 +39,7 @@ pub use types::*;
 pub use parser::{Permit, DelegationTemplate, PermitError, PermitResult, LayerPatternConfig, PeerCapabilities, LayerConfig};
 pub use parser::{DynamicLayerSchema, GrantType};  // Dynamic layer types
 pub use parser::{expand_pattern, matches_wildcard, matches_schema_pattern, resolve_page_id_in_facts};  // Pattern/resolution utilities
-pub use decision::{TokenDecision, DelegationDecision, SyncContext, should_send_updates, can_receive_updates, can_access_layer, can_access_with_layer_permits, matches_dynamic_schema_for_role, extract_issue_template};
+pub use decision::{TokenDecision, DelegationDecision, SyncContext, should_send_updates, can_receive_updates, can_access_layer, can_access_with_layer_permits, matches_dynamic_schema, extract_issue_template};
 
 // Re-export stateless permit functions
 pub use service::{

@@ -367,6 +367,6 @@ impl<C: Connection> PeerActor<C> {
         });
 
         self.send_message(&msg, state).await;
-        debug!("Sent SyncOffer to peer {}", self.node_id);
+        info!("Sent SyncOffer for layer {} to peer {}", payload.layer_name, self.node_id);
     }
 }

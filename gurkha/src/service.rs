@@ -725,13 +725,13 @@ pub async fn issue_sync_page_consent(
 ///
 /// # Returns
 /// * `Ok((token, cid))` - The consent permit token and its CID
-#[instrument(skip(signing_key_bytes, layer_permit_token, consent_template), fields(page_id = %page_id, layer_name = %layer_name, token_type = "sync_layer_consent"))]
+#[instrument(skip(signing_key_bytes, page_permit_token, consent_template), fields(page_id = %page_id, layer_name = %layer_name, token_type = "sync_layer_consent"))]
 pub async fn issue_sync_layer_consent(
     signing_key_bytes: &[u8; 32],
     node_pubkey: &str,
     page_id: &str,
     layer_name: &str,
-    layer_permit_token: &str,
+    page_permit_token: &str,
     consent_template: &str,
 ) -> ServiceResult<(String, String)> {
     trace!("Issuing layer sync consent permit");
@@ -744,7 +744,7 @@ pub async fn issue_sync_layer_consent(
         node_pubkey,
         page_id,
         layer_name,
-        layer_permit_token,
+        page_permit_token,
         consent_template,
     )?;
 

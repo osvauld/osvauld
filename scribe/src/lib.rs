@@ -73,5 +73,5 @@ pub use state::{
     ScribeState, ScribeArgs, SyncConfig, SyncMode,
     SubscriberInfo, QuerySubscriberInfo,
 };
-pub use layer_unit::LayerUnit;
+pub use layer_unit::{LayerUnit, Capabilities, LayerConfig, LayerSubscriber};
 pub use permit::{PermitContext, Permissions, glob_match};

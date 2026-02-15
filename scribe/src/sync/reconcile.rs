@@ -10,57 +10,30 @@ use crate::state::{ScribeState, SyncMode};
 
 // Periodic Reconciliation
 
-/// Handle periodic reconciliation with all subscribed peers
-///
-/// **Context**: Timer-driven check for state divergence (every 30s)
-/// **We do**: For each layer, check if any subscriber is behind our vector
-/// **If diverged**: Re-broadcast update (triggers 3-step sync to catch them up)
+/// Periodic reconciliation — check if any layer subscriber is behind our vector
 #[instrument(skip(state), fields(page_id = %state.page_id))]
 pub async fn handle_reconcile_with_peers(state: &mut ScribeState) {
-    // Check if any subscribers exist (read lock)
-    let has_subscribers = state.subscribers.read()
-        .map(|s| !s.is_empty())
-        .unwrap_or(false);
-
-    if !has_subscribers {
-        return; // No subscribers to reconcile with
-    }
-
-    let sub_count = state.subscribers.read().map(|s| s.len()).unwrap_or(0);
-    debug!(subscriber_count = sub_count, layer_count = state.units.len(), "Starting periodic reconciliation");
-
-    // For each layer, check if any subscriber needs sync
     let layer_names: Vec<String> = state.units.keys().cloned().collect();
+
     for layer_name in layer_names {
-        let (our_vector, authorized) = match state.units.get(&layer_name) {
+        let needs_sync = match state.units.get(&layer_name) {
             Some(unit) => {
-                let vector = unit.layer().version_vector();
-                let auth = unit.authorized_dids().read()
-                    .map(|s| s.clone())
-                    .unwrap_or_default();
-                (vector, auth)
+                let our_vector = unit.layer().version_vector();
+                unit.subscribers().read()
+                    .map(|subs| {
+                        subs.values().any(|sub| {
+                            if !sub.capabilities.read { return false; }
+                            if sub.version_vector.is_empty() { return true; }
+                            sub.version_vector != our_vector
+                        })
+                    })
+                    .unwrap_or(false)
             }
             None => continue,
         };
 
-        // Check if any authorized subscriber has a different vector (may be behind)
-        let needs_sync = if let Ok(subs) = state.subscribers.read() {
-            subs.iter().any(|((user_did, _), info)| {
-                if !authorized.contains(user_did) {
-                    return false;
-                }
-
-                // Compare vectors - if different or missing, they may need sync
-                info.vectors.get(&layer_name)
-                    .map(|v| v != &our_vector)
-                    .unwrap_or(true) // No vector = never synced = needs sync
-            })
-        } else {
-            false
-        };
-
         if needs_sync {
-            debug!(layer_name = %layer_name, "Divergence detected during reconciliation, broadcasting");
+            debug!(layer_name = %layer_name, "Divergence detected, broadcasting");
             broadcast_update(state, &layer_name, None).await;
         }
     }
@@ -92,9 +65,7 @@ pub fn get_sync_targets(state: &ScribeState) -> Vec<String> {
     }
 }
 
-/// Check if a user is currently subscribed (by any device).
-///
-/// **Context**: Called during broadcast to filter already-subscribed users.
+/// Check if a user is connected (present in connections map)
 pub fn is_user_subscribed(state: &ScribeState, user_did: &str) -> bool {
     state.subscribers.read()
         .map(|subs| subs.keys().any(|(did, _device)| did == user_did))

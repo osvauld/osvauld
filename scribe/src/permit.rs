@@ -185,16 +185,23 @@ impl Permissions {
     pub fn can_write(state: &ScribeState, peer: &(String, String), layer_name: &str) -> bool {
         let peer_did = &peer.0;
 
-        // Protocol-reserved sync metadata is pairwise by DID namespace.
-        if let Some(layer_did) = layer_name.strip_prefix("__sync_meta/") {
-            if layer_did == peer_did {
-                state.emit_permission_check_capture(
-                    layer_name,
-                    peer_did,
-                    "allowed",
-                    "protocol_sync_meta_owner",
-                );
-                return true;
+        // 0. Protocol layers: __sync_meta:{peer_did} allows writes from the named peer
+        //
+        // **Context**: Each peer owns their __sync_meta layer and writes discovery entries.
+        // The node also writes status entries (locally, no remote check needed).
+        // When the peer sends SyncOffer for their own __sync_meta, we allow it.
+        if crate::sync::sync_meta::is_sync_meta_layer(layer_name) {
+            if let Some(meta_did) = crate::sync::sync_meta::extract_peer_did(layer_name) {
+                if meta_did == peer_did {
+                    debug!(user_did = %peer_did, layer = %layer_name, "Write allowed: peer owns this __sync_meta layer");
+                    state.emit_permission_check_capture(
+                        layer_name,
+                        peer_did,
+                        "allowed",
+                        "sync_meta_owner",
+                    );
+                    return true;
+                }
             }
         }
 
@@ -255,32 +262,29 @@ impl Permissions {
             }
         }
 
-        // 4. Node mode: check our permit's dynamic_layer_schemas with peer's role
+        // 4. Node mode: check our permit's dynamic_layer_schemas permissions
         //
         // **Context**: Dynamic layers (e.g. channels/did:key:alice/project-x/messages)
         // aren't in the peer's page permit (they contain another user's DID in the path).
-        // The node's own permit has dynamic_layer_schemas with role_permissions that grant
-        // write access to collaborators/owners. We check the schema + peer's role.
+        // The node's own permit has dynamic_layer_schemas with permissions that grant
+        // write access to all peers. We check the schema permissions directly.
         if let Some(ref our_permit) = state.our_permit {
-            let peer_role = Self::get_peer_role(state, peer_did);
-            if gurkha::matches_dynamic_schema_for_role(
+            if gurkha::matches_dynamic_schema(
                 our_permit,
                 layer_name,
                 &state.page_id,
-                &peer_role,
                 "write",
             ) {
                 debug!(
                     user_did = %peer_did,
                     layer = %layer_name,
-                    role = %peer_role,
-                    "Write allowed via dynamic_layer_schema role check"
+                    "Write allowed via dynamic_layer_schema check"
                 );
                 state.emit_permission_check_capture(
                     layer_name,
                     peer_did,
                     "allowed",
-                    "dynamic_schema_role",
+                    "dynamic_schema",
                 );
                 return true;
             }
@@ -288,33 +292,6 @@ impl Permissions {
 
         state.emit_permission_check_capture(layer_name, peer_did, "denied", "all_paths_failed");
         false
-    }
-
-    /// Get peer's role from subscriber info or stored permit
-    ///
-    /// **Context**: Used by can_write path 4 for dynamic schema role check
-    fn get_peer_role(state: &ScribeState, peer_did: &str) -> String {
-        // Check subscriber info first
-        if let Ok(subs) = state.subscribers.read() {
-            for ((did, _), info) in subs.iter() {
-                if did == peer_did {
-                    if let Some(role) = info.permit.relationship() {
-                        return role.to_string();
-                    }
-                }
-            }
-        }
-        // Fall back to stored permit
-        if let Some(ref resolver) = state.peer_resolver {
-            if let Some(permit_token) = resolver.load_user_permit(peer_did) {
-                if let Ok(permit) = gurkha::Permit::from_token(&permit_token) {
-                    if let Some(role) = permit.relationship() {
-                        return role.to_string();
-                    }
-                }
-            }
-        }
-        "peer".to_string()
     }
 
     /// Check if we (local user) can write to a layer

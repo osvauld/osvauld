@@ -49,7 +49,10 @@
             "orders/{id}": {
                 "type": "map",
                 "grant": "explicit",
-                "permissions": { "sync": true, "write": true }
+                "permissions": {
+                    "sync": true,
+                    "write": true
+                }
             }
         },
         "issue_on": {
@@ -91,7 +94,10 @@
                     "orders/{id}": {
                         "type": "map",
                         "grant": "explicit",
-                        "permissions": { "sync": true, "write": true }
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        }
                     }
                 },
                 "auth_capabilities": {
@@ -134,7 +140,10 @@
                             "orders/{id}": {
                                 "type": "map",
                                 "grant": "explicit",
-                                "permissions": { "sync": true, "write": true }
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                }
                             }
                         },
                         "auth_capabilities": {
@@ -177,7 +186,10 @@
                     "orders/{id}": {
                         "type": "map",
                         "grant": "explicit",
-                        "permissions": { "sync": true, "write": true }
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        }
                     }
                 },
                 "auth_capabilities": {
@@ -207,9 +219,10 @@
                 "dynamic_layer_schemas": {
                     "orders/{id}": {
                         "type": "map",
-                        "grant": "role",
-                        "role_permissions": {
-                            "admin": { "sync": true, "write": false }
+                        "grant": "open",
+                        "permissions": {
+                            "sync": true,
+                            "write": false
                         }
                     }
                 },
@@ -250,7 +263,10 @@
             "orders/{id}": {
                 "type": "map",
                 "grant": "explicit",
-                "permissions": { "sync": true, "write": true }
+                "permissions": {
+                    "sync": true,
+                    "write": true
+                }
             }
         },
         "auth_capabilities": {

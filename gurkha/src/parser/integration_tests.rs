@@ -394,8 +394,8 @@ fn test_dynamic_layer_schemas_accessor() {
     let schema = &schemas["orders/{id}"];
     assert_eq!(schema.grant, crate::parser::GrantType::Explicit);
     assert!(
-        schema.permissions.is_some(),
-        "Explicit grant should have permissions"
+        schema.permissions.sync,
+        "Explicit grant should have sync permissions"
     );
 }
 

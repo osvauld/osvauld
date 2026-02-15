@@ -86,7 +86,7 @@ impl Actor for Scribe {
                     let static_layers = permit.static_layers(&args.page_id, &args.our_did);
                     info!(
                         page_id = %args.page_id,
-                        role = %permit.relationship().unwrap_or("peer"),
+                        token_type = %permit.token_type().unwrap_or("peer"),
                         static_layer_count = static_layers.len(),
                         "Parsed our permit via gurkha::Permit"
                     );
@@ -155,7 +155,6 @@ impl Actor for Scribe {
             our_permit,
             our_did: args.our_did.clone(),
             node_script_shutdown: None,
-            pending_layer_authorizations: HashMap::new(),
         };
 
         // Pre-create static layers from permit (already extracted via PermitContext)
@@ -332,14 +331,42 @@ impl Actor for Scribe {
                 reply,
             } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let is_new = !state.units.contains_key(&layer_name);
+
+                // If the layer doesn't exist yet (sync_meta discovery → SyncReset),
+                // create it before replacing so observer + auth are set up.
+                if is_new {
+                    let mut unit = LayerUnit::new_empty();
+                    unit.set_local_only(!state.should_sync_layer(&layer_name));
+                    state.units.insert(layer_name.clone(), unit);
+                    info!(layer = %layer_name, "Created new layer for snapshot replacement");
+                }
+
                 // Replace layer entirely with authoritative snapshot (SyncReset recovery)
                 info!(layer = %layer_name, snapshot_len = snapshot.len(), "Replacing layer with authoritative snapshot");
                 let result = match Layer::from_snapshot(&snapshot) {
                     Ok(layer) => {
-                        let unit = state.units.entry(layer_name.clone()).or_insert_with(LayerUnit::new_empty);
-                        unit.replace_layer(layer);
-                        unit.mark_dirty();
+                        if let Some(unit) = state.units.get_mut(&layer_name) {
+                            unit.replace_layer(layer);
+                            unit.mark_dirty();
+                        }
                         info!(layer = %layer_name, "Layer replaced successfully");
+
+                        if is_new {
+                            // Add all connected subscribers to this new layer
+                            if let Ok(subs) = state.subscribers.read() {
+                                for ((did, _), info) in subs.iter() {
+                                    if let Some(unit) = state.units.get(&layer_name) {
+                                        let caps = crate::layer_unit::Capabilities { read: true, write: true, sync: true };
+                                        unit.add_subscriber(did.clone(), caps, info.broadcast_tx.clone());
+                                    }
+                                }
+                            }
+
+                            loro_observer::setup_layer_observer(state, &layer_name);
+                            sync::broadcast::notify_layer_discovered(state, &layer_name);
+                        }
+
                         Ok(())
                     }
                     Err(e) => {
@@ -366,6 +393,8 @@ impl Actor for Scribe {
                     debug!(layer = %layer_name, "Created new layer for Lua list");
                     // Set up Loro observer for new layer to enable sync broadcasts
                     loro_observer::setup_layer_observer(state, &layer_name);
+                    // Auto-subscribe sync_target to new syncable layers
+                    operations::auto_subscribe_sync_target(&state, &layer_name);
                     // Notify UI subscribers about the new layer
                     sync::notify_layer_discovered(state, &layer_name);
                 }
@@ -385,6 +414,8 @@ impl Actor for Scribe {
                     debug!(layer = %layer_name, "Created new layer for Lua map");
                     // Set up Loro observer for new layer to enable sync broadcasts
                     loro_observer::setup_layer_observer(state, &layer_name);
+                    // Auto-subscribe sync_target to new syncable layers
+                    operations::auto_subscribe_sync_target(&state, &layer_name);
                 }
                 // Just confirm the layer exists, don't return handle
                 let _ = reply.send(Ok(()));
@@ -466,10 +497,11 @@ impl Actor for Scribe {
 
             ScribeMessage::ListLayers { pattern, reply } => {
                 let pattern = normalize_layer_name(&pattern, &state.page_id);
-                // Match layer names against glob pattern
+                // Match layer names against glob pattern, excluding protocol layers
                 let matching: Vec<String> = state
                     .units
                     .keys()
+                    .filter(|name| !crate::sync::sync_meta::is_protocol_layer(name))
                     .filter(|name| glob_match(&pattern, name))
                     .cloned()
                     .collect();
@@ -620,20 +652,20 @@ impl Actor for Scribe {
                 }
             }
 
-            ScribeMessage::CreateDynamicLayer { schema_key, layer_id, reply } => {
+            ScribeMessage::CreateDynamicLayer { schema_key, layer_id, authorized_peers, reply } => {
                 let result = crate::layer_unit::handle_create_dynamic_layer(
-                    state, &schema_key, &layer_id,
+                    state, &schema_key, &layer_id, authorized_peers.as_deref(),
                 );
                 let _ = reply.send(result);
             }
 
-            ScribeMessage::AddLayerAccess { layer_name, did, reply } => {
-                let result = crate::layer_unit::handle_add_layer_access(state, &layer_name, &did).await;
+            ScribeMessage::AddLayerAccess { layer_name, dids, reply } => {
+                let result = crate::layer_unit::handle_add_layer_access(state, &layer_name, &dids);
                 if let Err(ref e) = result {
                     warn!(
                         page_id = %state.page_id,
                         layer = %layer_name,
-                        did = %did,
+                        dids = ?dids,
                         error = %e,
                         "AddLayerAccess failed"
                     );
@@ -646,43 +678,123 @@ impl Actor for Scribe {
                 let _ = reply.send(result);
             }
 
+            ScribeMessage::ExportLayerSnapshot { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result = if let Some(unit) = state.units.get(&layer_name) {
+                    let snapshot = unit.layer().export_snapshot();
+                    let state_vector = unit.layer().version_vector();
+                    Ok((snapshot, state_vector))
+                } else {
+                    Err(format!("Layer '{}' not found", layer_name))
+                };
+                let _ = reply.send(result);
+            }
+
             ScribeMessage::AuthorizeLayerSubscriber { layer_name, subscriber_did } => {
                 let bare = normalize_layer_name(&layer_name, &state.page_id);
                 if let Some(unit) = state.units.get(&bare) {
-                    unit.authorize_did(&subscriber_did);
-                    state.emit_layer_auth_capture(&bare, &subscriber_did, "authorized");
-                    info!(layer = %bare, did = %subscriber_did, "Authorized subscriber for layer");
+                    // Look up broadcast_tx from ScribeState.subscribers
+                    let broadcast_tx = state.subscribers.read().ok().and_then(|subs| {
+                        subs.iter()
+                            .find(|((d, _), _)| d == &subscriber_did)
+                            .map(|(_, info)| info.broadcast_tx.clone())
+                    });
+                    if let Some(tx) = broadcast_tx {
+                        let caps = crate::layer_unit::Capabilities { read: true, write: true, sync: true };
+                        unit.add_subscriber(subscriber_did.clone(), caps, tx);
+                        state.emit_layer_auth_capture(&bare, &subscriber_did, "subscriber_added");
+                        info!(layer = %bare, did = %subscriber_did, "Added subscriber for layer");
+                    } else {
+                        warn!(layer = %bare, did = %subscriber_did, "AuthorizeLayerSubscriber: DID not connected, skipping");
+                    }
                 } else {
-                    // Layer doesn't exist yet — store pending authorization
-                    state.pending_layer_authorizations
-                        .entry(bare.clone())
-                        .or_insert_with(Vec::new)
-                        .push(subscriber_did.clone());
-                    // Emit with pending_count showing queue size
-                    let pending_count = state.pending_layer_authorizations
-                        .get(&bare).map(|v| v.len()).unwrap_or(0);
-                    if let Some(ref tx) = state.capture_tx {
-                        let ts = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_millis())
-                            .unwrap_or(0);
-                        if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                            "type": "layer_auth",
-                            "ts": ts,
-                            "seq": state.capture_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-                            "page_id": &state.page_id,
-                            "layer": &bare,
-                            "layer_short": crate::state::layer_short(&bare),
-                            "did": &subscriber_did,
-                            "short_did": crate::state::short_did(&subscriber_did),
-                            "action": "pending",
-                            "pending_count": pending_count,
-                        })) {
-                            let _ = tx.send(json);
+                    info!(layer = %bare, did = %subscriber_did, "AuthorizeLayerSubscriber: layer not found, skipping");
+                }
+            }
+
+            ScribeMessage::GetUnsyncedSyncMeta { reply } => {
+                let entries = sync::sync_meta::read_unsynced_entries(state, &state.our_did.clone());
+                let _ = reply.send(entries);
+            }
+
+            ScribeMessage::HandleLayerSubscribe { layer_name, peer_did, reply } => {
+                let bare = crate::state::normalize_layer_name(&layer_name, &state.page_id);
+
+                // If layer doesn't exist but matches a dynamic schema, create it empty.
+                //
+                // **Context**: Timing race — __sync_meta broadcasts immediately (node is
+                // subscriber), but creator's dynamic layer data may not have synced yet.
+                // Peer discovers the entry in __sync_meta and sends LayerSubscribe before
+                // the layer exists on node. We create an empty layer; creator's data will
+                // arrive later via normal SyncOffer and broadcast to the now-subscribed peer.
+                if !state.units.contains_key(&bare) {
+                    if let Some(ref permit) = state.our_permit {
+                        if crate::layer_unit::find_matching_dynamic_schema(permit, &bare, &state.page_id).is_some() {
+                            info!(layer = %bare, "Creating empty dynamic layer for early LayerSubscribe");
+                            let mut unit = crate::layer_unit::LayerUnit::new_empty();
+                            unit.set_local_only(false);
+                            unit.is_dynamic = true;
+                            state.units.insert(bare.clone(), unit);
+                            crate::loro_observer::setup_layer_observer(state, &bare);
                         }
                     }
-                    info!(layer = %bare, did = %subscriber_did, pending_count = pending_count, "Stored pending layer authorization (layer not yet created)");
                 }
+
+                let result = (|| -> std::result::Result<(Vec<u8>, Vec<u8>, String), String> {
+                    let unit = state.units.get(&bare)
+                        .ok_or_else(|| format!("Layer '{}' not found", bare))?;
+
+                    // Issue permit via PermitIssuer
+                    let full_name = format!("{}/{}", state.page_id, bare);
+                    let permit_token = issue_layer_permit_for_subscribe(
+                        state, &peer_did, &bare, &full_name,
+                    )?;
+
+                    // Add peer as subscriber so they receive future broadcasts
+                    let mut subscriber_added = false;
+                    if let Ok(subs) = state.subscribers.read() {
+                        if let Some(sub_info) = subs.iter()
+                            .find(|((did, _), _)| did == &peer_did)
+                            .map(|(_, info)| info)
+                        {
+                            let caps = crate::layer_unit::Capabilities { read: true, write: true, sync: true };
+                            unit.add_subscriber(peer_did.clone(), caps, sub_info.broadcast_tx.clone());
+                            subscriber_added = true;
+                        }
+                    }
+
+                    state.emit_layer_subscribe_result_capture(
+                        &bare, &peer_did, "ok", None, subscriber_added,
+                    );
+
+                    let snapshot = unit.layer().export_snapshot();
+                    let state_vector = unit.layer().version_vector();
+                    Ok((snapshot, state_vector, permit_token))
+                })();
+
+                if let Err(ref e) = result {
+                    state.emit_layer_subscribe_result_capture(
+                        &bare, &peer_did, "err", Some(e), false,
+                    );
+                }
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::MarkSyncMetaSynced { layer_name } => {
+                let our_did = state.our_did.clone();
+                sync::sync_meta::mark_entry_synced(state, &our_did, &layer_name);
+            }
+
+            ScribeMessage::StoreLayerAuthority {
+                layer_name, creator_did, authority_token, layer_data, state_vector: _sv,
+            } => {
+                handle_store_layer_authority(
+                    state, &layer_name, &creator_did, &authority_token, &layer_data,
+                );
+            }
+
+            ScribeMessage::FanOutLayerToUsers { layer_name, authorized_peers } => {
+                handle_fan_out_layer_to_users(state, &layer_name, authorized_peers.as_deref());
             }
 
             ScribeMessage::Shutdown => {
@@ -934,6 +1046,248 @@ impl Scribe {
 
         debug!("Layer update from JSON complete, observer will broadcast");
         Ok(())
+    }
+}
+
+/// Issue a layer permit for a LayerSubscribe request
+///
+/// **Context**: Peer sent LayerSubscribe, we need to issue a permit.
+/// Permit-driven priority:
+/// 1. Self-permit check: I'm the creator → issue authority permit
+/// 2. Stored authority check: I'm the node → issue layer_permit
+/// 3. Static layer: defined in our permit → issue layer_permit
+fn issue_layer_permit_for_subscribe(
+    state: &ScribeState,
+    peer_did: &str,
+    bare_layer_name: &str,
+    full_layer_name: &str,
+) -> std::result::Result<String, String> {
+    let issuer = state.permit_issuer.as_ref()
+        .ok_or_else(|| {
+            state.emit_permit_issue_capture(full_layer_name, peer_did, "none", "err", Some("no permit issuer"));
+            "No permit issuer (not node mode)".to_string()
+        })?;
+
+    // 1. Self-permit check: I'm the creator
+    // If we have a self-permit for this layer, issue authority permit to requester (node)
+    match issuer.get_layer_authority_permit(&state.our_did, full_layer_name) {
+        Ok(Some((_version, self_authority_token))) => {
+            // Parse self-permit to get authorized_peers and config
+            if let Ok(self_permit) = gurkha::Permit::from_token(&self_authority_token) {
+                let authorized_peers = self_permit.get_fact("authorized_peers")
+                    .and_then(|v| {
+                        v.as_array().map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect::<Vec<_>>()
+                        })
+                    });
+                let config = self_permit.layers().get(full_layer_name)
+                    .or_else(|| self_permit.layers().get(bare_layer_name))
+                    .cloned()
+                    .unwrap_or(gurkha::LayerConfig { sync: true, write: true, layer_type: None });
+
+                match issuer.issue_layer_authority_permit(
+                    peer_did, full_layer_name, config, authorized_peers, _version + 1,
+                ) {
+                    Ok((token, _cid)) => {
+                        info!(layer = %full_layer_name, peer = %peer_did, "Issued authority permit (creator → node)");
+                        state.emit_permit_issue_capture(full_layer_name, peer_did, "self_permit", "ok", None);
+                        return Ok(token);
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to issue authority permit from self-permit");
+                        state.emit_permit_issue_capture(full_layer_name, peer_did, "self_permit", "err", Some(&e.to_string()));
+                    }
+                }
+            }
+        }
+        Ok(None) => {
+            state.emit_permit_issue_capture(full_layer_name, peer_did, "self_permit", "skip", Some("no self-permit found"));
+        }
+        Err(e) => {
+            warn!(error = %e, "Error looking up self-permit");
+            state.emit_permit_issue_capture(full_layer_name, peer_did, "self_permit", "err", Some(&e.to_string()));
+        }
+    }
+
+    // 2. Stored authority check: I'm the node with authority from a creator
+    match issuer.get_authority_for_layer(bare_layer_name) {
+        Ok(Some((_creator_did, _version, authority_token))) => {
+            // Parse authority to check authorized_peers
+            if let Ok(authority_permit) = gurkha::Permit::from_token(&authority_token) {
+                let authorized_peers = authority_permit.get_fact("authorized_peers");
+                let is_authorized = match authorized_peers {
+                    None => true, // No authorized_peers fact → open grant
+                    Some(serde_json::Value::Null) => true, // Explicit null → open grant
+                    Some(serde_json::Value::Array(arr)) => {
+                        arr.iter().any(|v| v.as_str() == Some(peer_did))
+                    }
+                    _ => false,
+                };
+
+                if is_authorized {
+                    let config = authority_permit.layers().get(full_layer_name)
+                        .or_else(|| authority_permit.layers().get(bare_layer_name))
+                        .cloned()
+                        .unwrap_or(gurkha::LayerConfig { sync: true, write: true, layer_type: None });
+
+                    let intent_cid = gurkha::crypto::get_permit_cid(&authority_token).ok();
+                    match issuer.issue_layer_permit(
+                        peer_did, full_layer_name, config, intent_cid.as_deref(),
+                    ) {
+                        Ok((token, _cid)) => {
+                            info!(layer = %full_layer_name, peer = %peer_did, "Issued layer permit from stored authority");
+                            state.emit_permit_issue_capture(full_layer_name, peer_did, "stored_authority", "ok", None);
+                            return Ok(token);
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "Failed to issue permit from stored authority");
+                            state.emit_permit_issue_capture(full_layer_name, peer_did, "stored_authority", "err", Some(&e.to_string()));
+                        }
+                    }
+                } else {
+                    warn!(layer = %full_layer_name, peer = %peer_did, "Peer not in authorized_peers list");
+                    state.emit_permit_issue_capture(full_layer_name, peer_did, "stored_authority", "err", Some("peer not in authorized_peers"));
+                }
+            }
+        }
+        Ok(None) => {
+            state.emit_permit_issue_capture(full_layer_name, peer_did, "stored_authority", "skip", Some("no authority found"));
+        }
+        Err(e) => {
+            warn!(error = %e, "Error looking up authority for layer");
+            state.emit_permit_issue_capture(full_layer_name, peer_did, "stored_authority", "err", Some(&e.to_string()));
+        }
+    }
+
+    // 3. Static layer from our own permit
+    if let Some(ref our_permit) = state.our_permit {
+        if let Some(config) = our_permit.layers().get(full_layer_name) {
+            match issuer.issue_layer_permit(peer_did, full_layer_name, config.clone(), None) {
+                Ok((token, _cid)) => {
+                    state.emit_permit_issue_capture(full_layer_name, peer_did, "static_layer", "ok", None);
+                    return Ok(token);
+                }
+                Err(e) => {
+                    warn!(error = %e, layer = %full_layer_name, "Failed to issue permit for static layer");
+                    state.emit_permit_issue_capture(full_layer_name, peer_did, "static_layer", "err", Some(&e.to_string()));
+                }
+            }
+        } else {
+            state.emit_permit_issue_capture(full_layer_name, peer_did, "static_layer", "skip", Some("layer not in our permit"));
+        }
+    }
+
+    state.emit_permit_issue_capture(full_layer_name, peer_did, "none", "err", Some("all paths exhausted"));
+    Err(format!("Cannot issue layer permit for {} to {}", full_layer_name, peer_did))
+}
+
+/// Handle StoreLayerAuthority message (node-side)
+///
+/// **Context**: Node received authority from creator via LayerSubscribeAck.
+/// **We do**: Store authority, apply layer data, fan out to authorized peers.
+fn handle_store_layer_authority(
+    state: &mut ScribeState,
+    layer_name: &str,
+    creator_did: &str,
+    authority_token: &str,
+    layer_data: &[u8],
+) {
+    let bare = crate::state::normalize_layer_name(layer_name, &state.page_id);
+
+    // 1. Store authority permit via PermitIssuer
+    if let Some(ref issuer) = state.permit_issuer {
+        if let Err(e) = issuer.store_authority_permit(creator_did, layer_name, authority_token, 1) {
+            error!(layer = %layer_name, error = %e, "Failed to store authority permit");
+            return;
+        }
+        info!(layer = %layer_name, creator = %creator_did, "Stored authority permit from creator");
+    }
+
+    // 2. Create LayerUnit if needed and apply layer data
+    if !state.units.contains_key(&bare) {
+        let mut unit = LayerUnit::new_empty();
+        unit.set_local_only(false);
+        unit.is_dynamic = true;
+        state.units.insert(bare.clone(), unit);
+        loro_observer::setup_layer_observer(state, &bare);
+        info!(layer = %bare, "Created dynamic layer from authority");
+    }
+
+    if !layer_data.is_empty() {
+        if let Some(unit) = state.units.get(&bare) {
+            if let Err(e) = unit.layer().apply(layer_data) {
+                warn!(layer = %bare, error = %e, "Failed to apply layer data from authority");
+            } else {
+                unit.layer().commit();
+                if let Some(unit) = state.units.get_mut(&bare) {
+                    unit.mark_dirty();
+                }
+            }
+        }
+    }
+
+    // 3. Parse authorized_peers from authority and fan out
+    if let Ok(authority_permit) = gurkha::Permit::from_token(authority_token) {
+        let authorized_peers = authority_permit.get_fact("authorized_peers")
+            .and_then(|v| match v {
+                serde_json::Value::Null => None,
+                serde_json::Value::Array(arr) => Some(
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect::<Vec<_>>()
+                ),
+                _ => None,
+            });
+
+        handle_fan_out_layer_to_users(state, &bare, authorized_peers.as_deref());
+    }
+
+    // 4. Mark creator's __sync_meta entry as synced
+    sync::sync_meta::mark_entry_synced(state, creator_did, &bare);
+}
+
+/// Fan out a layer entry to authorized users' __sync_meta
+///
+/// **Context**: Node needs to notify authorized peers about a new dynamic layer.
+/// **authorized_peers**: None = all subscribers, Some(list) = specific DIDs only.
+fn handle_fan_out_layer_to_users(
+    state: &mut ScribeState,
+    layer_name: &str,
+    authorized_peers: Option<&[String]>,
+) {
+    // Collect all subscriber DIDs
+    let all_peer_dids: Vec<String> = {
+        let mut dids = Vec::new();
+        if let Ok(subs) = state.subscribers.read() {
+            for ((did, _), _) in subs.iter() {
+                if !dids.contains(did) {
+                    dids.push(did.clone());
+                }
+            }
+        }
+        dids
+    };
+
+    let target_dids: Vec<&String> = match authorized_peers {
+        None => all_peer_dids.iter().collect(),
+        Some(list) => all_peer_dids.iter()
+            .filter(|did| list.iter().any(|d| d == *did))
+            .collect(),
+    };
+
+    for peer_did in target_dids {
+        let peer_entries = sync::sync_meta::read_sync_meta_entries(state, peer_did);
+        let already_has = peer_entries.iter().any(|e| e.layer_name == layer_name);
+        if !already_has {
+            sync::sync_meta::write_sync_meta_entry(state, peer_did, layer_name, false);
+            info!(
+                layer = %layer_name,
+                peer_did = %peer_did,
+                "Fan out: wrote dynamic entry to peer's __sync_meta"
+            );
+        }
     }
 }
 

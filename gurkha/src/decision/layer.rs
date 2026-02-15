@@ -77,20 +77,19 @@ pub fn can_access_with_layer_permits(
     false
 }
 
-/// Check if a layer matches a dynamic schema for a given role (node-side auth)
+/// Check if a layer matches a dynamic schema (node-side auth)
 ///
 /// **Context**: Node needs to authorize writes from peers to dynamic layers.
 /// The peer's page permit doesn't cover the dynamic layer (it has another user's DID in the path).
-/// Instead, the node checks its own permit's `dynamic_layer_schemas` + the peer's role.
+/// Instead, the node checks its own permit's `dynamic_layer_schemas` permissions.
 ///
-/// **Example**: Bob (collaborator) writes to `channels/did:key:alice/project-x/messages`.
-/// Node's permit has schema `channels/{id}/messages` with `role_permissions.collaborator.write = true`.
+/// **Example**: Bob writes to `channels/did:key:alice/project-x/messages`.
+/// Node's permit has schema `channels/{id}/messages` with `permissions.write = true`.
 /// The path structure matches the schema → write is allowed.
-pub fn matches_dynamic_schema_for_role(
+pub fn matches_dynamic_schema(
     permit: &crate::parser::Permit,
     layer_name: &str,
     page_id: &str,
-    role: &str,
     operation: &str,
 ) -> bool {
     let schemas = permit.dynamic_layer_schemas();
@@ -104,17 +103,8 @@ pub fn matches_dynamic_schema_for_role(
 
     for (schema_pattern, schema) in schemas {
         if matches_dynamic_path_any_did(bare_path, schema_pattern) {
-            // Check role_permissions (for role-granted schemas)
-            if let Some(perm) = schema.role_permissions.get(role) {
-                if check_operation(perm, operation) {
-                    return true;
-                }
-            }
-            // Check general permissions (for explicit grant schemas)
-            if let Some(ref config) = schema.permissions {
-                if check_operation(config, operation) {
-                    return true;
-                }
+            if check_operation(&schema.permissions, operation) {
+                return true;
             }
         }
     }
@@ -195,10 +185,7 @@ pub fn matches_creator_schema(
     // We need to check if the path matches the schema with DID inserted
     for (schema_pattern, schema) in schemas {
         if matches_dynamic_path(bare_path, schema_pattern, our_did) {
-            let config = schema.permissions.as_ref().cloned().unwrap_or(
-                crate::parser::LayerConfig { sync: true, write: true, layer_type: None }
-            );
-            if check_operation(&config, operation) {
+            if check_operation(&schema.permissions, operation) {
                 return true;
             }
         }
@@ -400,45 +387,40 @@ mod tests {
     }
 
     #[test]
-    fn test_matches_dynamic_schema_for_role_explicit_grant() {
-        // Shop owner has explicit grant: permissions apply regardless of role
+    fn test_matches_dynamic_schema_explicit_grant() {
+        // Shop owner has explicit grant: permissions apply to all peers
         let owner = test_fixtures::shop_owner("shop1", "did:key:owner");
 
-        // Any role can access via explicit permissions { sync: true, write: true }
-        assert!(matches_dynamic_schema_for_role(
-            &owner, "orders/did:key:customer/uuid-123", "shop1", "any_role", "write"
+        // Any peer can access via permissions { sync: true, write: true }
+        assert!(matches_dynamic_schema(
+            &owner, "orders/did:key:customer/uuid-123", "shop1", "write"
         ));
-        assert!(matches_dynamic_schema_for_role(
-            &owner, "orders/did:key:customer/uuid-123", "shop1", "any_role", "read"
+        assert!(matches_dynamic_schema(
+            &owner, "orders/did:key:customer/uuid-123", "shop1", "read"
         ));
 
         // Non-matching schema path → denied
-        assert!(!matches_dynamic_schema_for_role(
-            &owner, "invalid/did:key:customer/uuid-123", "shop1", "any_role", "write"
+        assert!(!matches_dynamic_schema(
+            &owner, "invalid/did:key:customer/uuid-123", "shop1", "write"
         ));
 
         // Works with page_id prefix stripped
-        assert!(matches_dynamic_schema_for_role(
-            &owner, "shop1/orders/did:key:customer/uuid-123", "shop1", "any_role", "write"
+        assert!(matches_dynamic_schema(
+            &owner, "shop1/orders/did:key:customer/uuid-123", "shop1", "write"
         ));
     }
 
     #[test]
-    fn test_matches_dynamic_schema_for_role_role_grant() {
-        // Admin has role-based grant: role_permissions { admin: { sync: true, write: false } }
+    fn test_matches_dynamic_schema_open_grant() {
+        // Admin has open grant: permissions { sync: true, write: false }
         let admin = test_fixtures::shop_admin("shop1", "did:key:admin");
 
-        // Admin role can read but not write
-        assert!(matches_dynamic_schema_for_role(
-            &admin, "orders/did:key:customer/uuid-123", "shop1", "admin", "read"
+        // All peers can read but not write (same permissions for everyone)
+        assert!(matches_dynamic_schema(
+            &admin, "orders/did:key:customer/uuid-123", "shop1", "read"
         ));
-        assert!(!matches_dynamic_schema_for_role(
-            &admin, "orders/did:key:customer/uuid-123", "shop1", "admin", "write"
-        ));
-
-        // Unknown role → denied (not in role_permissions, no fallback permissions)
-        assert!(!matches_dynamic_schema_for_role(
-            &admin, "orders/did:key:customer/uuid-123", "shop1", "unknown_role", "read"
+        assert!(!matches_dynamic_schema(
+            &admin, "orders/did:key:customer/uuid-123", "shop1", "write"
         ));
     }
 }

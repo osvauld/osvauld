@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use tokio::sync::{broadcast, mpsc};
 
-use domains::{json_to_loro_value, Layer, QueryDelta, QueryResult, QuerySpec};
+use domains::{Layer, QueryDelta, QueryResult, QuerySpec};
 
 use crate::layer_unit::LayerUnit;
 use crate::{
@@ -52,47 +52,6 @@ pub fn layer_short(name: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("/")
-}
-
-fn decode_permit_summary(token: &str, event_layer_name: &str) -> serde_json::Value {
-    let Ok(parsed) = gurkha::Permit::from_token(token) else {
-        return serde_json::json!({
-            "decode_ok": false,
-            "error": "invalid_token",
-        });
-    };
-
-    let audience = parsed.audience().unwrap_or_default();
-    let issuer = parsed.issuer().unwrap_or_default();
-    let token_type = parsed.token_type().unwrap_or_default();
-
-    let page_id = parsed.page_id().unwrap_or_default();
-    let page_prefix = format!("{}/", page_id);
-    let layer_cfg = parsed.layers().get(event_layer_name).or_else(|| {
-        let bare_layer = event_layer_name
-            .strip_prefix(&page_prefix)
-            .unwrap_or(event_layer_name);
-        parsed.layers().get(bare_layer)
-    });
-
-    let (sync, write) = if let Some(cfg) = layer_cfg {
-        (cfg.sync, cfg.write)
-    } else {
-        (false, false)
-    };
-
-    serde_json::json!({
-        "decode_ok": true,
-        "audience": audience,
-        "issuer": issuer,
-        "token_type": token_type,
-        "page_id": page_id,
-        "layer_name": event_layer_name,
-        "permissions": {
-            "sync": sync,
-            "write": write,
-        },
-    })
 }
 
 // Sync Configuration
@@ -161,10 +120,7 @@ pub struct SubscriberInfo {
 }
 
 impl SubscriberInfo {
-    /// Check if subscriber can receive updates for layer (two-tier)
-    ///
-    /// **Context**: Used at subscribe time to populate LayerUnit.authorized_dids
-    /// **Two-tier**: Checks page permit (static layers) then layer permits (dynamic layers)
+    /// Check if subscriber can receive updates for layer via page permit
     pub fn can_receive_layer(&self, layer_name: &str, page_id: &str) -> bool {
         // Block presence layer for peers who can't see others
         if (layer_name == "presence" || layer_name.ends_with("/presence")) && !self.can_see_others {
@@ -179,7 +135,6 @@ impl SubscriberInfo {
         {
             return false;
         }
-        // Check page permit only (layer permits are now handled via LayerUnit.authorized_dids)
         self.permit
             .can_read_layer(layer_name, page_id, &self.subscriber_did)
     }
@@ -271,10 +226,6 @@ pub struct ScribeState {
     /// **Usage**: Send () to shutdown the tick loop
     pub node_script_shutdown: Option<mpsc::Sender<()>>,
 
-    /// Pending layer authorizations for layers that don't exist yet
-    /// **Context**: AuthorizeLayerSubscriber received before create_layer_from_peer
-    /// **Usage**: Applied when the layer is created
-    pub pending_layer_authorizations: HashMap<String, Vec<String>>,
 }
 
 /// Arguments for spawning Scribe
@@ -317,13 +268,6 @@ pub struct ScribeArgs {
 }
 
 impl ScribeState {
-    /// Protocol-reserved sync metadata layer name.
-    ///
-    /// These layers are pairwise and handled by protocol rules, not permit templates.
-    fn is_protocol_sync_meta_layer(layer_name: &str) -> bool {
-        layer_name.starts_with("__sync_meta/")
-    }
-
     /// Get the next capture sequence number (monotonically increasing)
     fn next_capture_seq(&self) -> u64 {
         self.capture_seq.fetch_add(1, Ordering::Relaxed)
@@ -334,53 +278,10 @@ impl ScribeState {
     /// **Context**: Used to filter out local-only layers (sync: false) before broadcasting
     /// **Returns**: true if layer should sync, false if local-only
     pub fn should_sync_layer(&self, layer_name: &str) -> bool {
-        if Self::is_protocol_sync_meta_layer(layer_name) {
-            return true;
-        }
-
         self.our_permit
             .as_ref()
             .map(|permit| permit.should_sync_layer(layer_name, &self.page_id, &self.our_did))
             .unwrap_or(true) // No permit means sync everything
-    }
-
-    /// Track a newly created sync-enabled layer in our protocol sync metadata map.
-    ///
-    /// **Context**: Local layer creation (dynamic layer or first-write implicit layer).
-    /// **We store**: `__sync_meta/<our_did>[<layer_name>] = {synced: false, version: 1}`.
-    /// **Why**: Keep pairwise sync metadata current so node receives layer bootstrap state.
-    pub fn track_new_sync_layer_in_meta(&mut self, layer_name: &str) {
-        if !self.should_sync_layer(layer_name) || Self::is_protocol_sync_meta_layer(layer_name) {
-            return;
-        }
-
-        let sync_meta_layer = format!("__sync_meta/{}", self.our_did);
-        let created_sync_meta_layer = if !self.units.contains_key(&sync_meta_layer) {
-            let mut unit = LayerUnit::new_empty();
-            unit.set_local_only(false);
-            self.units.insert(sync_meta_layer.clone(), unit);
-            true
-        } else {
-            false
-        };
-
-        if let Some(unit) = self.units.get_mut(&sync_meta_layer) {
-            let map = unit.layer().loro().get_map(sync_meta_layer.as_str());
-            if map
-                .insert(
-                    layer_name,
-                    json_to_loro_value(&serde_json::json!({"synced": false, "version": 1})),
-                )
-                .is_ok()
-            {
-                unit.layer().commit();
-                unit.mark_dirty();
-            }
-        }
-
-        if created_sync_meta_layer {
-            crate::loro_observer::setup_layer_observer(self, &sync_meta_layer);
-        }
     }
 
     /// Check if we can write to a layer
@@ -411,41 +312,7 @@ impl ScribeState {
             }
 
             match event {
-                SyncEvent::NewDynamicLayer {
-                    page_id,
-                    layer_name,
-                    permits,
-                }
-                | SyncEvent::LayerAccessChanged {
-                    page_id,
-                    layer_name,
-                    permits,
-                } => {
-                    let source = match event {
-                        SyncEvent::NewDynamicLayer { .. } => "new_dynamic_layer",
-                        SyncEvent::LayerAccessChanged { .. } => "layer_access_changed",
-                        SyncEvent::EnsureSync { .. } => "ensure_sync",
-                    };
-
-                    for (audience_did, token) in permits {
-                        let permit_summary = decode_permit_summary(token, layer_name);
-                        if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                            "type": "permit_generated",
-                            "ts": ts,
-                            "seq": self.next_capture_seq(),
-                            "page_id": page_id,
-                            "layer": layer_name,
-                            "layer_short": layer_short(layer_name),
-                            "audience": audience_did,
-                            "short_did": short_did(audience_did),
-                            "source": source,
-                            "permit": permit_summary,
-                        })) {
-                            let _ = tx.send(json);
-                        }
-                    }
-                }
-                SyncEvent::EnsureSync { .. } => {}
+                SyncEvent::EnsureSync { .. } | SyncEvent::SubscribeLayers { .. } => {}
             }
         }
     }
@@ -591,6 +458,74 @@ impl ScribeState {
                 "total_layers": total_layers,
                 "can_see_others": can_see_others,
                 "is_visible": is_visible,
+            })) {
+                let _ = tx.send(json);
+            }
+        }
+    }
+
+    /// Emit a layer subscribe result to the capture channel
+    ///
+    /// **Context**: Called after HandleLayerSubscribe completes, for observability
+    pub fn emit_layer_subscribe_result_capture(
+        &self,
+        layer: &str,
+        peer_did: &str,
+        result: &str,
+        error: Option<&str>,
+        subscriber_added: bool,
+    ) {
+        if let Some(ref tx) = self.capture_tx {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            if let Ok(json) = serde_json::to_string(&serde_json::json!({
+                "type": "layer_subscribe_result",
+                "ts": ts,
+                "seq": self.next_capture_seq(),
+                "page_id": &self.page_id,
+                "layer": layer,
+                "layer_short": layer_short(layer),
+                "peer_did": peer_did,
+                "short_did": short_did(peer_did),
+                "result": result,
+                "error": error,
+                "subscriber_added": subscriber_added,
+            })) {
+                let _ = tx.send(json);
+            }
+        }
+    }
+
+    /// Emit a permit issue decision to the capture channel
+    ///
+    /// **Context**: Called from issue_layer_permit_for_subscribe at each decision point
+    pub fn emit_permit_issue_capture(
+        &self,
+        layer: &str,
+        peer_did: &str,
+        path: &str,
+        result: &str,
+        reason: Option<&str>,
+    ) {
+        if let Some(ref tx) = self.capture_tx {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            if let Ok(json) = serde_json::to_string(&serde_json::json!({
+                "type": "permit_issue_decision",
+                "ts": ts,
+                "seq": self.next_capture_seq(),
+                "page_id": &self.page_id,
+                "layer": layer,
+                "layer_short": layer_short(layer),
+                "peer_did": peer_did,
+                "short_did": short_did(peer_did),
+                "path": path,
+                "result": result,
+                "reason": reason,
             })) {
                 let _ = tx.send(json);
             }

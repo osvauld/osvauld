@@ -319,7 +319,7 @@ impl Butler {
             .and_then(|permit| {
                 PermitContext::from_token(&permit, page_id, "")
                     .ok()
-                    .map(|ctx| ctx.permit().relationship().unwrap_or("owner").to_string())
+                    .map(|ctx| ctx.permit().token_type().unwrap_or("owner").to_string())
             })
             .unwrap_or_else(|| "owner".to_string());
 

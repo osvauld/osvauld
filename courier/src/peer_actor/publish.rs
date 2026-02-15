@@ -12,7 +12,6 @@
 //! 2. Node generates aud:* viewer permit -> sends GetShareableLinkResponse
 
 use tracing::{debug, error, info, warn, instrument};
-use std::collections::BTreeSet;
 
 use crate::message::*;
 
@@ -25,162 +24,6 @@ use super::guards::{
 use super::{PeerActor, PeerActorState};
 
 impl<C: Connection> PeerActor<C> {
-
-    /// Bootstrap and explicitly send protocol sync metadata for a page.
-    ///
-    /// **Context**: Viewer receives page permit during add_website flow.
-    /// **We create**: `__sync_meta/<viewer_did>` entries for sync-enabled layers.
-    /// **We send**: Explicit SyncOffer to node using same sync protocol transport.
-    #[instrument(skip(self, state, permit), fields(page_id = %page_id))]
-    async fn bootstrap_and_send_sync_meta_for_page(
-        &self,
-        page_id: &str,
-        permit: &gurkha::Permit,
-        state: &mut PeerActorState<C>,
-    ) {
-        let our_did = match state.butler.user_info().await {
-            Ok(info) => info.did,
-            Err(e) => {
-                warn!(page_id = %page_id, error = %e, "Cannot bootstrap sync-meta: failed to read user info");
-                return;
-            }
-        };
-
-        let sync_meta_layer = format!("__sync_meta/{}", our_did);
-        let page_prefix = format!("{}/", page_id);
-        let mut sync_layers = BTreeSet::new();
-
-        for (layer_name, config) in permit.layers() {
-            if !config.sync {
-                continue;
-            }
-
-            if layer_name.starts_with("__sync_meta/") {
-                continue;
-            }
-
-            let normalized = layer_name
-                .strip_prefix(&page_prefix)
-                .unwrap_or(layer_name)
-                .to_string();
-
-            if !normalized.is_empty() {
-                sync_layers.insert(normalized);
-            }
-        }
-
-        let scribe = match state.butler.open_page(page_id).await {
-            Ok(s) => s,
-            Err(e) => {
-                warn!(page_id = %page_id, error = %e, "Cannot bootstrap sync-meta: failed to open page");
-                return;
-            }
-        };
-
-        let (ensure_tx, ensure_rx) = tokio::sync::oneshot::channel();
-        if let Err(e) = scribe.cast(butler::ScribeMessage::EnsureLoroMap {
-            layer_name: sync_meta_layer.clone(),
-            reply: ensure_tx,
-        }) {
-            warn!(page_id = %page_id, error = %e, "Cannot bootstrap sync-meta: EnsureLoroMap cast failed");
-            return;
-        }
-
-        match ensure_rx.await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => {
-                warn!(page_id = %page_id, error = %e, "Cannot bootstrap sync-meta: EnsureLoroMap failed");
-                return;
-            }
-            Err(_) => {
-                warn!(page_id = %page_id, "Cannot bootstrap sync-meta: EnsureLoroMap channel closed");
-                return;
-            }
-        }
-
-        for layer_name in &sync_layers {
-            if let Err(e) = scribe.cast(butler::ScribeMessage::MapInsert {
-                layer_name: sync_meta_layer.clone(),
-                path: String::new(),
-                key: layer_name.clone(),
-                value: serde_json::json!({"synced": true, "version": 1}),
-            }) {
-                warn!(page_id = %page_id, layer = %layer_name, error = %e, "Cannot bootstrap sync-meta: MapInsert failed");
-                return;
-            }
-        }
-
-        let (snapshot_tx, snapshot_rx) = tokio::sync::oneshot::channel();
-        if let Err(e) = scribe.cast(butler::ScribeMessage::GetSnapshot {
-            layer_name: sync_meta_layer.clone(),
-            reply: snapshot_tx,
-        }) {
-            warn!(page_id = %page_id, error = %e, "Cannot bootstrap sync-meta: GetSnapshot cast failed");
-            return;
-        }
-
-        let snapshot = match snapshot_rx.await {
-            Ok(Some(data)) => data,
-            Ok(None) => {
-                warn!(page_id = %page_id, "Cannot bootstrap sync-meta: layer missing after write");
-                return;
-            }
-            Err(_) => {
-                warn!(page_id = %page_id, "Cannot bootstrap sync-meta: GetSnapshot channel closed");
-                return;
-            }
-        };
-
-        let (vector_tx, vector_rx) = tokio::sync::oneshot::channel();
-        if let Err(e) = scribe.cast(butler::ScribeMessage::GetStateVector {
-            layer_name: sync_meta_layer.clone(),
-            reply: vector_tx.into(),
-        }) {
-            warn!(page_id = %page_id, error = %e, "Cannot bootstrap sync-meta: GetStateVector cast failed");
-            return;
-        }
-
-        let state_vector = match vector_rx.await {
-            Ok(Ok(v)) => v,
-            Ok(Err(e)) => {
-                warn!(page_id = %page_id, error = %e, "Cannot bootstrap sync-meta: GetStateVector failed");
-                return;
-            }
-            Err(_) => {
-                warn!(page_id = %page_id, "Cannot bootstrap sync-meta: GetStateVector channel closed");
-                return;
-            }
-        };
-
-        let peer_encryption_key = match state.peer_encryption_key {
-            Some(key) => key,
-            None => {
-                warn!(page_id = %page_id, "Cannot bootstrap sync-meta: peer encryption key not set");
-                return;
-            }
-        };
-
-        let (ephemeral_public, encrypted_data) = match herald::encrypt_for_transfer(&peer_encryption_key, &snapshot) {
-            Ok(data) => data,
-            Err(e) => {
-                warn!(page_id = %page_id, error = %e, "Cannot bootstrap sync-meta: encrypt_for_transfer failed");
-                return;
-            }
-        };
-
-        let msg = Message::SyncOffer(SyncOfferMsg {
-            page_id: page_id.to_string(),
-            layer_type: LayerType::from_layer_name(&sync_meta_layer),
-            layer_name: sync_meta_layer.clone(),
-            data: encrypted_data,
-            state_vector,
-            ephemeral_public,
-            authority_permit: None,
-        });
-
-        self.send_message(&msg, state).await;
-        info!(page_id = %page_id, layer = %sync_meta_layer, entries = sync_layers.len(), "Bootstrapped and sent protocol sync-meta layer");
-    }
 
     /// Initiate publishing a space to the connected node (User mode)
     ///
@@ -709,10 +552,8 @@ impl<C: Connection> PeerActor<C> {
                     error!("Failed to set page permit on PageData: {}", e);
                 }
 
-                // Viewer bootstrap: create and explicitly send protocol sync metadata.
-                if parsed.token_type() == Some("page_viewer") {
-                    self.bootstrap_and_send_sync_meta_for_page(page_id, &parsed, state).await;
-                }
+                // Layer discovery for viewer happens via LayerSync protocol:
+                // Node detects dynamic layers and sends LayerSync with data + permit.
             }
         }
     }

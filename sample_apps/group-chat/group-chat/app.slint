@@ -1,0 +1,688 @@
+// Slack-like Group Chat — 3-column layout with channels, threads, reactions
+
+import { Theme } from "theme.slint";
+import { Sidebar, Channel, OnlineUser, DirectMessage, MemberPickerItem } from "sidebar.slint";
+import { MessageBubble, Message, Reaction } from "message_bubble.slint";
+import { Composer } from "composer.slint";
+import { ThreadPanel } from "thread_panel.slint";
+import { EmojiPicker } from "emoji_picker.slint";
+
+export { Message, Reaction, Channel, OnlineUser, DirectMessage, MemberPickerItem }
+
+export global AppAPI {
+    // Channels
+    in-out property<[Channel]> channels: [];
+    in-out property<string> active_channel: "general";
+    in-out property<string> active_channel_topic: "";
+
+    // Messages (filtered to active channel, top-level only)
+    in-out property<[Message]> messages: [];
+
+    // Thread panel
+    in-out property<bool> thread_open: false;
+    in-out property<[Message]> thread_messages: [];
+    in-out property<Message> thread_parent;
+    in-out property<string> thread_draft: "";
+
+    // Online users
+    in-out property<[OnlineUser]> online_users: [];
+
+    // Composer state
+    in-out property<string> draft_text: "";
+    in-out property<string> typing_text: "";
+    in-out property<bool> show_emoji_picker: false;
+
+    // Reply state
+    in-out property<string> replying_to_id: "";
+    in-out property<string> replying_to_text: "";
+
+    // Context menu
+    in-out property<string> selected_message_id: "";
+
+    // Autoscroll
+    in-out property<bool> auto_scroll: true;
+
+    // Create channel modal
+    in-out property<bool> show_create_channel: false;
+    in-out property<string> new_channel_name: "";
+
+    // Direct Messages
+    in-out property<[DirectMessage]> dms: [];
+    in-out property<string> active_dm: "";
+    in-out property<string> active_dm_name: "";
+    in-out property<string> view_mode: "channels";  // "channels" or "dms"
+
+    // Create private channel modal
+    in-out property<bool> show_create_private_channel: false;
+    in-out property<string> new_private_channel_name: "";
+    in-out property<[MemberPickerItem]> member_picker: [];
+
+    // Sidebar collapse state
+    in-out property<bool> channels_collapsed: false;
+    in-out property<bool> dms_collapsed: false;
+    in-out property<bool> online_collapsed: false;
+
+    // User profile
+    in-out property<string> my_display_name: "";
+    in-out property<bool> my_online: true;
+
+    // Standard callbacks
+    callback on_click(string);
+    callback on_submit();
+    callback on_text_input(string);
+    callback pick-asset-file(string);
+}
+
+export component App inherits Rectangle {
+    background: Theme.bg-channel;
+
+    // Column widths
+    property<length> sidebar-w: 220px;
+    property<length> thread-w: AppAPI.thread_open ? 350px : 0px;
+    property<length> main-x: sidebar-w;
+    property<length> main-w: root.width - sidebar-w - thread-w;
+
+    // Middle column region heights
+    property<length> header-h: 50px;
+    property<length> composer-h: AppAPI.replying_to_id != "" ? 93px : 57px;
+    property<length> emoji-h: AppAPI.show_emoji_picker ? 220px : 0px;
+    property<length> flickable-h: root.height - header-h - composer-h - emoji-h;
+
+    // ── Column 1: Sidebar ──
+    Sidebar {
+        x: 0;
+        y: 0;
+        width: root.sidebar-w;
+        height: root.height;
+        channels: AppAPI.channels;
+        dms: AppAPI.dms;
+        online_users: AppAPI.online_users;
+        my_name: AppAPI.my_display_name;
+        my_online: AppAPI.my_online;
+        channels_collapsed: AppAPI.channels_collapsed;
+        dms_collapsed: AppAPI.dms_collapsed;
+        online_collapsed: AppAPI.online_collapsed;
+        channel_clicked(id) => { AppAPI.on_click("switch_channel:" + id); }
+        create_channel_clicked => { AppAPI.on_click("create_channel"); }
+        dm_clicked(id) => { AppAPI.on_click("switch_dm:" + id); }
+        create_private_channel_clicked => { AppAPI.on_click("create_private_channel"); }
+        start_dm_clicked(did, name) => { AppAPI.on_click("start_dm:" + did + ":" + name); }
+        toggle_channels_collapsed => { AppAPI.on_click("toggle_channels"); }
+        toggle_dms_collapsed => { AppAPI.on_click("toggle_dms"); }
+        toggle_online_collapsed => { AppAPI.on_click("toggle_online"); }
+    }
+
+    // ── Column 2: Main chat ──
+
+    // Channel header
+    Rectangle {
+        x: root.main-x;
+        y: 0;
+        width: root.main-w;
+        height: root.header-h;
+        background: Theme.bg-channel;
+
+        HorizontalLayout {
+            padding: 12px;
+            padding-left: 16px;
+            spacing: 8px;
+
+            Text {
+                text: AppAPI.view_mode == "dms"
+                    ? "@ " + AppAPI.active_dm_name
+                    : "# " + AppAPI.active_channel;
+                font-size: 16px;
+                font-weight: 700;
+                color: Theme.text-bright;
+                vertical-alignment: center;
+            }
+
+            if AppAPI.view_mode == "channels" && AppAPI.active_channel_topic != "": Rectangle {
+                width: 1px;
+                height: 20px;
+                background: Theme.border;
+                y: (parent.height - self.height) / 2;
+            }
+
+            if AppAPI.view_mode == "channels" && AppAPI.active_channel_topic != "": Text {
+                text: AppAPI.active_channel_topic;
+                font-size: 13px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            // Autoscroll toggle
+            Rectangle {
+                width: 70px;
+                height: 26px;
+                background: autoscroll-touch.has-hover ? Theme.bg-hover : transparent;
+                border-radius: 4px;
+                border-width: 1px;
+                border-color: AppAPI.auto_scroll ? Theme.accent : Theme.border;
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    spacing: 4px;
+
+                    Text {
+                        text: AppAPI.auto_scroll ? "v" : " ";
+                        font-size: 10px;
+                        color: AppAPI.auto_scroll ? Theme.accent : Theme.text-secondary;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: "Auto";
+                        font-size: 11px;
+                        color: AppAPI.auto_scroll ? Theme.accent : Theme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+
+                autoscroll-touch := TouchArea {
+                    clicked => { AppAPI.on_click("toggle_autoscroll"); }
+                }
+            }
+        }
+
+        // Bottom border
+        Rectangle {
+            y: parent.height - 1px;
+            height: 1px;
+            background: Theme.border;
+        }
+    }
+
+    // Messages area (Flickable with computed height)
+    Flickable {
+        x: root.main-x;
+        y: root.header-h;
+        width: root.main-w;
+        height: root.flickable-h;
+        viewport-height: messages-layout.preferred-height;
+
+        property<length> scroll-target: min(0px, self.height - self.viewport-height);
+
+        init => {
+            self.viewport-y = self.scroll-target;
+        }
+
+        property<int> msg-count: AppAPI.messages.length;
+        changed msg-count => {
+            if AppAPI.auto_scroll {
+                self.viewport-y = self.scroll-target;
+            }
+        }
+
+        messages-layout := VerticalLayout {
+            spacing: 0;
+            padding-top: 8px;
+            padding-bottom: 8px;
+
+            // Empty state
+            if AppAPI.messages.length == 0: Rectangle {
+                height: 200px;
+
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 8px;
+
+                    Text {
+                        text: AppAPI.view_mode == "dms"
+                            ? "@ " + AppAPI.active_dm_name
+                            : "# " + AppAPI.active_channel;
+                        font-size: 22px;
+                        font-weight: 700;
+                        color: Theme.text-bright;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: AppAPI.view_mode == "dms"
+                            ? "This is the start of your conversation"
+                            : "This is the start of #" + AppAPI.active_channel;
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+
+            // Message list
+            for msg in AppAPI.messages: MessageBubble {
+                msg: msg;
+                show_context_menu: AppAPI.selected_message_id == msg.id;
+                on_action(action) => { AppAPI.on_click(action); }
+            }
+
+            // Typing indicator
+            if AppAPI.typing_text != "": Rectangle {
+                height: 28px;
+
+                HorizontalLayout {
+                    padding-left: 62px;
+                    spacing: 4px;
+
+                    Text {
+                        text: AppAPI.typing_text;
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // Emoji picker (above composer)
+    if AppAPI.show_emoji_picker: EmojiPicker {
+        x: root.main-x;
+        y: root.height - root.composer-h - root.emoji-h;
+        width: root.main-w;
+        on_pick(name) => { AppAPI.on_click("emoji:" + name); }
+        on_close => { AppAPI.on_click("emoji_picker:close"); }
+    }
+
+    // Composer (pinned to bottom)
+    Composer {
+        x: root.main-x;
+        y: root.height - root.composer-h;
+        width: root.main-w;
+        draft_text <=> AppAPI.draft_text;
+        has_reply: AppAPI.replying_to_id != "";
+        replying_to_text: AppAPI.replying_to_text;
+        on_submit => { AppAPI.on_submit(); }
+        on_text_input(text) => { AppAPI.on_text_input(text); }
+        on_emoji_toggle => { AppAPI.on_click("emoji_picker:toggle"); }
+        on_attach => { AppAPI.on_click("attach_file"); }
+        on_cancel_reply => { AppAPI.on_click("cancel_reply"); }
+    }
+
+    // ── Column 3: Thread panel ──
+    if AppAPI.thread_open: ThreadPanel {
+        x: root.width - 350px;
+        y: 0;
+        width: 350px;
+        height: root.height;
+        parent_msg: AppAPI.thread_parent;
+        replies: AppAPI.thread_messages;
+        channel_name: AppAPI.active_channel;
+        thread_draft <=> AppAPI.thread_draft;
+        on_close => { AppAPI.on_click("close_thread"); }
+        on_submit => { AppAPI.on_click("thread_submit"); }
+        on_text_input(text) => { AppAPI.on_text_input(text); }
+        on_action(action) => { AppAPI.on_click(action); }
+    }
+
+    // ── Create Channel Modal (overlay on top of everything) ──
+    if AppAPI.show_create_channel: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #000000aa;
+
+        // Dismiss on backdrop click
+        TouchArea {
+            clicked => { AppAPI.on_click("cancel_create_channel"); }
+        }
+
+        // Modal card
+        Rectangle {
+            x: (parent.width - 400px) / 2;
+            y: (parent.height - 200px) / 2;
+            width: 400px;
+            height: 200px;
+            background: Theme.bg-workspace;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-color: #00000080;
+            drop-shadow-blur: 24px;
+            drop-shadow-offset-y: 8px;
+
+            // Block clicks from reaching backdrop
+            TouchArea {}
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+
+                Text {
+                    text: "Create a channel";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.text-bright;
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+
+                    Text {
+                        text: "Channel name";
+                        font-size: 13px;
+                        color: Theme.text-secondary;
+                    }
+
+                    Rectangle {
+                        height: 36px;
+                        background: Theme.bg-input;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: Theme.border-light;
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 4px;
+
+                            Text {
+                                text: "#";
+                                font-size: 14px;
+                                color: Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+
+                            channel-name-input := TextInput {
+                                text <=> AppAPI.new_channel_name;
+                                font-size: 14px;
+                                color: Theme.text-primary;
+                                vertical-alignment: center;
+
+                                accepted => { AppAPI.on_click("confirm_create_channel"); }
+                            }
+                        }
+
+                        if AppAPI.new_channel_name == "": Text {
+                            text: "e.g. project-updates";
+                            font-size: 14px;
+                            color: Theme.text-secondary;
+                            x: 30px;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    // Cancel button
+                    Rectangle {
+                        width: 80px;
+                        height: 32px;
+                        background: cancel-btn.has-hover ? Theme.bg-hover : transparent;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        Text {
+                            text: "Cancel";
+                            font-size: 13px;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        cancel-btn := TouchArea {
+                            clicked => { AppAPI.on_click("cancel_create_channel"); }
+                        }
+                    }
+
+                    // Create button
+                    Rectangle {
+                        width: 80px;
+                        height: 32px;
+                        background: AppAPI.new_channel_name != "" ?
+                            (create-btn.has-hover ? #1d8d4e : Theme.green-online) : Theme.bg-hover;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "Create";
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: AppAPI.new_channel_name != "" ? white : Theme.text-secondary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        create-btn := TouchArea {
+                            clicked => {
+                                if AppAPI.new_channel_name != "" {
+                                    AppAPI.on_click("confirm_create_channel");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Create Private Channel Modal ──
+    if AppAPI.show_create_private_channel: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #000000aa;
+
+        TouchArea {
+            clicked => { AppAPI.on_click("cancel_create_private_channel"); }
+        }
+
+        Rectangle {
+            x: (parent.width - 420px) / 2;
+            y: (parent.height - 400px) / 2;
+            width: 420px;
+            height: 400px;
+            background: Theme.bg-workspace;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-color: #00000080;
+            drop-shadow-blur: 24px;
+            drop-shadow-offset-y: 8px;
+
+            TouchArea {}
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 12px;
+
+                Text {
+                    text: "Create a private channel";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.text-bright;
+                }
+
+                // Channel name input
+                VerticalLayout {
+                    spacing: 6px;
+
+                    Text {
+                        text: "Channel name";
+                        font-size: 13px;
+                        color: Theme.text-secondary;
+                    }
+
+                    Rectangle {
+                        height: 36px;
+                        background: Theme.bg-input;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: Theme.border-light;
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+
+                            private-ch-name-input := TextInput {
+                                text <=> AppAPI.new_private_channel_name;
+                                font-size: 14px;
+                                color: Theme.text-primary;
+                                vertical-alignment: center;
+
+                                accepted => { AppAPI.on_click("confirm_create_private_channel"); }
+                            }
+                        }
+
+                        if AppAPI.new_private_channel_name == "": Text {
+                            text: "e.g. secret-project";
+                            font-size: 14px;
+                            color: Theme.text-secondary;
+                            x: 12px;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Member picker
+                VerticalLayout {
+                    spacing: 6px;
+                    vertical-stretch: 1;
+
+                    Text {
+                        text: "Add members";
+                        font-size: 13px;
+                        color: Theme.text-secondary;
+                    }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                        background: Theme.bg-input;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: Theme.border-light;
+                        clip: true;
+
+                        Flickable {
+                            viewport-height: member-list.preferred-height;
+
+                            member-list := VerticalLayout {
+                                padding: 4px;
+                                spacing: 2px;
+
+                                for member in AppAPI.member_picker: Rectangle {
+                                    height: 32px;
+                                    background: member-touch.has-hover ? Theme.bg-hover : transparent;
+                                    border-radius: 4px;
+
+                                    member-touch := TouchArea {
+                                        clicked => {
+                                            AppAPI.on_click("toggle_member:" + member.did + ":" + member.name);
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        padding-left: 10px;
+                                        padding-right: 10px;
+                                        spacing: 8px;
+
+                                        // Checkbox
+                                        Rectangle {
+                                            width: 16px;
+                                            height: 16px;
+                                            background: member.is_selected ? Theme.green-online : transparent;
+                                            border-radius: 3px;
+                                            border-width: 1px;
+                                            border-color: member.is_selected ? Theme.green-online : Theme.text-secondary;
+                                            y: (parent.height - self.height) / 2;
+
+                                            if member.is_selected: Text {
+                                                text: "✓";
+                                                font-size: 11px;
+                                                color: white;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        Text {
+                                            text: member.name;
+                                            font-size: 13px;
+                                            color: Theme.text-primary;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                    }
+                                }
+
+                                if AppAPI.member_picker.length == 0: Rectangle {
+                                    height: 60px;
+
+                                    Text {
+                                        text: "No other users online";
+                                        font-size: 13px;
+                                        color: Theme.text-secondary;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    Rectangle {
+                        width: 80px;
+                        height: 32px;
+                        background: pc-cancel-btn.has-hover ? Theme.bg-hover : transparent;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        Text {
+                            text: "Cancel";
+                            font-size: 13px;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        pc-cancel-btn := TouchArea {
+                            clicked => { AppAPI.on_click("cancel_create_private_channel"); }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 80px;
+                        height: 32px;
+                        background: AppAPI.new_private_channel_name != "" ?
+                            (pc-create-btn.has-hover ? #1d8d4e : Theme.green-online) : Theme.bg-hover;
+                        border-radius: 4px;
+
+                        Text {
+                            text: "Create";
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: AppAPI.new_private_channel_name != "" ? white : Theme.text-secondary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        pc-create-btn := TouchArea {
+                            clicked => {
+                                if AppAPI.new_private_channel_name != "" {
+                                    AppAPI.on_click("confirm_create_private_channel");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

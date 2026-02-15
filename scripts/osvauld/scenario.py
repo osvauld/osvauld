@@ -942,6 +942,15 @@ class AppTestScenario:
                     page_id = viewer_page_ids[peer_name]
                     app_name = pconfig["app"]
 
+                # Wait for app layer to sync (viewers need this)
+                if pconfig["role"] == "viewer":
+                    if not self._wait_for_app_sync(
+                        client, page_id, app_name, peer_name, timeout=10.0
+                    ):
+                        raise RuntimeError(
+                            f"{peer_name} failed to sync app '{app_name}' within 10s"
+                        )
+
                 self._open_app_ready(client, page_id, app_name, timeout=5.0)
                 return peer_name
 
@@ -1082,6 +1091,47 @@ class AppTestScenario:
             time.sleep(0.1)
 
         return None
+
+    def _wait_for_app_sync(self, client, page_id, app_name, peer_name, timeout=10.0):
+        """Wait for app layer to sync from node.
+
+        App layers arrive via SyncOffer after space/page metadata.
+        This waits for the app to appear in list_apps().
+
+        Args:
+            client: ControlClient for the peer
+            page_id: Page ID to check
+            app_name: App name to wait for
+            peer_name: Peer name for logging
+            timeout: Max seconds to wait (default: 10.0)
+
+        Returns:
+            True if app synced, False if timeout
+        """
+        start = time.time()
+        last_print = start
+
+        while time.time() - start < timeout:
+            try:
+                apps = client.list_apps(page_id)
+                app_names = [a.get("name") for a in apps]
+                if app_name in app_names:
+                    elapsed = time.time() - start
+                    print(f"  {peer_name} app '{app_name}' synced in {elapsed:.1f}s")
+                    return True
+            except Exception:
+                pass
+
+            # Progress logging every 2s
+            if time.time() - start - last_print >= 2.0:
+                print(
+                    f"  {peer_name}: waiting for app '{app_name}'... ({time.time() - start:.1f}s)"
+                )
+                last_print = time.time() - start
+
+            time.sleep(0.1)
+
+        return False
 
     def _wait_for_node_auth(self, owner_client, node_client, timeout=10.0):
         """Wait for owner to authenticate with node after connect_to_node.

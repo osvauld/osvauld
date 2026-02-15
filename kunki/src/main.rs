@@ -364,26 +364,15 @@ async fn handle_start(
                         tracing::info!(user_did = %user_did, "Node forwarded EnsureSync to Coordinator");
                     }
                 }
-                butler::SyncEvent::NewDynamicLayer { page_id, layer_name, permits } => {
+                butler::SyncEvent::SubscribeLayers { page_id, creator_did, layers } => {
                     tracing::info!(
                         page_id = %page_id,
-                        layer = %layer_name,
-                        permit_count = permits.len(),
-                        "Node received NewDynamicLayer from Scribe"
+                        creator_did = %creator_did,
+                        count = layers.len(),
+                        "Node received SubscribeLayers from Scribe, forwarding to Coordinator"
                     );
-                    if let Err(e) = handle_for_sync.distribute_layer_permits(&page_id, &layer_name, permits) {
-                        tracing::warn!(error = %e, "Failed to distribute layer permits");
-                    }
-                }
-                butler::SyncEvent::LayerAccessChanged { page_id, layer_name, permits } => {
-                    tracing::info!(
-                        page_id = %page_id,
-                        layer = %layer_name,
-                        permit_count = permits.len(),
-                        "Node received LayerAccessChanged from Scribe"
-                    );
-                    if let Err(e) = handle_for_sync.distribute_layer_permits(&page_id, &layer_name, permits) {
-                        tracing::warn!(error = %e, "Failed to distribute layer permits for access change");
+                    if let Err(e) = handle_for_sync.subscribe_layers(&page_id, &creator_did, layers) {
+                        tracing::warn!(error = %e, "Failed to forward SubscribeLayers");
                     }
                 }
             }

@@ -89,16 +89,6 @@
                 "sync": true,
                 "write": true
             },
-            "{page_id}/presence": {
-                "type": "map",
-                "sync": true,
-                "write": true
-            },
-            "{page_id}/read_positions": {
-                "type": "map",
-                "sync": true,
-                "write": true
-            },
             "{page_id}/channels/general/messages": {
                 "type": "map",
                 "sync": true,
@@ -118,25 +108,34 @@
         "dynamic_layer_schemas": {
             "channels/{id}/messages": {
                 "type": "map",
-                "grant": "role",
-                "role_permissions": {
-                    "owner": { "sync": true, "write": true },
-                    "collaborator": { "sync": true, "write": true },
-                    "viewer": { "sync": true, "write": true },
-                    "node": { "sync": true, "write": true }
+                "grant": "open",
+                "permissions": {
+                    "sync": true,
+                    "write": true
                 }
             },
             "dms/{id}/messages": {
                 "type": "map",
                 "grant": "explicit",
-                "permissions": { "sync": true, "write": true }
+                "permissions": {
+                    "sync": true,
+                    "write": true
+                }
             }
         },
         "presence": {
             "visible": true,
             "can_see_others": true
         },
-        "ephemeral_funcs": ["typing", "player", "bullet", "enemies", "score", "stage", "restart_request"],
+        "ephemeral_funcs": [
+            "typing",
+            "player",
+            "bullet",
+            "enemies",
+            "score",
+            "stage",
+            "restart_request"
+        ],
         "issue_on": {
             "layer_authority": {
                 "token_type": "layer_authority",
@@ -153,18 +152,19 @@
                 "dynamic_layer_schemas": {
                     "channels/{id}/messages": {
                         "type": "map",
-                        "grant": "role",
-                        "role_permissions": {
-                            "owner": { "sync": true, "write": true },
-                            "collaborator": { "sync": true, "write": true },
-                            "viewer": { "sync": true, "write": true },
-                            "node": { "sync": true, "write": true }
+                        "grant": "open",
+                        "permissions": {
+                            "sync": true,
+                            "write": true
                         }
                     },
                     "dms/{id}/messages": {
                         "type": "map",
                         "grant": "explicit",
-                        "permissions": { "sync": true, "write": true }
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        }
                     }
                 },
                 "auth_capabilities": {
@@ -175,7 +175,15 @@
                     "visible": true,
                     "can_see_others": true
                 },
-                "ephemeral_funcs": ["typing", "player", "bullet", "enemies", "score", "stage", "restart_request"],
+                "ephemeral_funcs": [
+                    "typing",
+                    "player",
+                    "bullet",
+                    "enemies",
+                    "score",
+                    "stage",
+                    "restart_request"
+                ],
                 "relationship": "layer_authority"
             },
             "node": {
@@ -266,16 +274,6 @@
                         "sync": true,
                         "write": false
                     },
-                    "{page_id}/presence": {
-                        "type": "map",
-                        "sync": true,
-                        "write": true
-                    },
-                    "{page_id}/read_positions": {
-                        "type": "map",
-                        "sync": true,
-                        "write": true
-                    },
                     "{page_id}/channels/general/messages": {
                         "type": "map",
                         "sync": true,
@@ -295,18 +293,19 @@
                 "dynamic_layer_schemas": {
                     "channels/{id}/messages": {
                         "type": "map",
-                        "grant": "role",
-                        "role_permissions": {
-                            "owner": { "sync": true, "write": true },
-                            "collaborator": { "sync": true, "write": true },
-                            "viewer": { "sync": true, "write": true },
-                            "node": { "sync": true, "write": true }
+                        "grant": "open",
+                        "permissions": {
+                            "sync": true,
+                            "write": true
                         }
                     },
                     "dms/{id}/messages": {
                         "type": "map",
                         "grant": "explicit",
-                        "permissions": { "sync": true, "write": true }
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        }
                     }
                 },
                 "auth_capabilities": {
@@ -332,18 +331,19 @@
                         "dynamic_layer_schemas": {
                             "channels/{id}/messages": {
                                 "type": "map",
-                                "grant": "role",
-                                "role_permissions": {
-                                    "owner": { "sync": true, "write": true },
-                                    "collaborator": { "sync": true, "write": true },
-                                    "viewer": { "sync": true, "write": true },
-                                    "node": { "sync": true, "write": true }
+                                "grant": "open",
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
                                 }
                             },
                             "dms/{id}/messages": {
                                 "type": "map",
                                 "grant": "explicit",
-                                "permissions": { "sync": true, "write": true }
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                }
                             }
                         },
                         "auth_capabilities": {
@@ -354,7 +354,15 @@
                             "visible": true,
                             "can_see_others": true
                         },
-                        "ephemeral_funcs": ["typing", "player", "bullet", "enemies", "score", "stage", "restart_request"],
+                        "ephemeral_funcs": [
+                            "typing",
+                            "player",
+                            "bullet",
+                            "enemies",
+                            "score",
+                            "stage",
+                            "restart_request"
+                        ],
                         "relationship": "layer_authority"
                     },
                     "viewer": {
@@ -445,16 +453,6 @@
                                 "sync": true,
                                 "write": false
                             },
-                            "{page_id}/presence": {
-                                "type": "map",
-                                "sync": true,
-                                "write": true
-                            },
-                            "{page_id}/read_positions": {
-                                "type": "map",
-                                "sync": true,
-                                "write": true
-                            },
                             "{page_id}/channels/general/messages": {
                                 "type": "map",
                                 "sync": true,
@@ -474,18 +472,19 @@
                         "dynamic_layer_schemas": {
                             "channels/{id}/messages": {
                                 "type": "map",
-                                "grant": "role",
-                                "role_permissions": {
-                                    "owner": { "sync": true, "write": true },
-                                    "collaborator": { "sync": true, "write": true },
-                                    "viewer": { "sync": true, "write": true },
-                                    "node": { "sync": true, "write": true }
+                                "grant": "open",
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
                                 }
                             },
                             "dms/{id}/messages": {
                                 "type": "map",
                                 "grant": "explicit",
-                                "permissions": { "sync": true, "write": true }
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                }
                             }
                         },
                         "auth_capabilities": {
@@ -496,7 +495,15 @@
                             "visible": true,
                             "can_see_others": true
                         },
-                        "ephemeral_funcs": ["typing", "player", "bullet", "enemies", "score", "stage", "restart_request"],
+                        "ephemeral_funcs": [
+                            "typing",
+                            "player",
+                            "bullet",
+                            "enemies",
+                            "score",
+                            "stage",
+                            "restart_request"
+                        ],
                         "issue_on": {
                             "layer_authority": {
                                 "token_type": "layer_authority",
@@ -513,18 +520,19 @@
                                 "dynamic_layer_schemas": {
                                     "channels/{id}/messages": {
                                         "type": "map",
-                                        "grant": "role",
-                                        "role_permissions": {
-                                            "owner": { "sync": true, "write": true },
-                                            "collaborator": { "sync": true, "write": true },
-                                            "viewer": { "sync": true, "write": true },
-                                            "node": { "sync": true, "write": true }
+                                        "grant": "open",
+                                        "permissions": {
+                                            "sync": true,
+                                            "write": true
                                         }
                                     },
                                     "dms/{id}/messages": {
                                         "type": "map",
                                         "grant": "explicit",
-                                        "permissions": { "sync": true, "write": true }
+                                        "permissions": {
+                                            "sync": true,
+                                            "write": true
+                                        }
                                     }
                                 },
                                 "auth_capabilities": {
@@ -535,7 +543,15 @@
                                     "visible": true,
                                     "can_see_others": true
                                 },
-                                "ephemeral_funcs": ["typing", "player", "bullet", "enemies", "score", "stage", "restart_request"],
+                                "ephemeral_funcs": [
+                                    "typing",
+                                    "player",
+                                    "bullet",
+                                    "enemies",
+                                    "score",
+                                    "stage",
+                                    "restart_request"
+                                ],
                                 "relationship": "layer_authority"
                             }
                         },
@@ -596,16 +612,6 @@
                         "sync": true,
                         "write": true
                     },
-                    "{page_id}/presence": {
-                        "type": "map",
-                        "sync": true,
-                        "write": true
-                    },
-                    "{page_id}/read_positions": {
-                        "type": "map",
-                        "sync": true,
-                        "write": true
-                    },
                     "{page_id}/channels/general/messages": {
                         "type": "map",
                         "sync": true,
@@ -625,18 +631,19 @@
                 "dynamic_layer_schemas": {
                     "channels/{id}/messages": {
                         "type": "map",
-                        "grant": "role",
-                        "role_permissions": {
-                            "owner": { "sync": true, "write": true },
-                            "collaborator": { "sync": true, "write": true },
-                            "viewer": { "sync": true, "write": true },
-                            "node": { "sync": true, "write": true }
+                        "grant": "open",
+                        "permissions": {
+                            "sync": true,
+                            "write": true
                         }
                     },
                     "dms/{id}/messages": {
                         "type": "map",
                         "grant": "explicit",
-                        "permissions": { "sync": true, "write": true }
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        }
                     }
                 },
                 "auth_capabilities": {
@@ -647,7 +654,15 @@
                     "visible": true,
                     "can_see_others": true
                 },
-                "ephemeral_funcs": ["typing", "player", "bullet", "enemies", "score", "stage", "restart_request"],
+                "ephemeral_funcs": [
+                    "typing",
+                    "player",
+                    "bullet",
+                    "enemies",
+                    "score",
+                    "stage",
+                    "restart_request"
+                ],
                 "issue_on": {
                     "layer_authority": {
                         "token_type": "layer_authority",
@@ -664,18 +679,19 @@
                         "dynamic_layer_schemas": {
                             "channels/{id}/messages": {
                                 "type": "map",
-                                "grant": "role",
-                                "role_permissions": {
-                                    "owner": { "sync": true, "write": true },
-                                    "collaborator": { "sync": true, "write": true },
-                                    "viewer": { "sync": true, "write": true },
-                                    "node": { "sync": true, "write": true }
+                                "grant": "open",
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
                                 }
                             },
                             "dms/{id}/messages": {
                                 "type": "map",
                                 "grant": "explicit",
-                                "permissions": { "sync": true, "write": true }
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                }
                             }
                         },
                         "auth_capabilities": {
@@ -686,7 +702,15 @@
                             "visible": true,
                             "can_see_others": true
                         },
-                        "ephemeral_funcs": ["typing", "player", "bullet", "enemies", "score", "stage", "restart_request"],
+                        "ephemeral_funcs": [
+                            "typing",
+                            "player",
+                            "bullet",
+                            "enemies",
+                            "score",
+                            "stage",
+                            "restart_request"
+                        ],
                         "relationship": "layer_authority"
                     }
                 },
@@ -754,14 +778,6 @@
                 "sync": true,
                 "write": false
             },
-            "{page_id}/presence": {
-                "sync": true,
-                "write": true
-            },
-            "{page_id}/read_positions": {
-                "sync": true,
-                "write": true
-            },
             "{page_id}/channels/general/messages": {
                 "sync": true,
                 "write": true
@@ -778,18 +794,19 @@
         "dynamic_layer_schemas": {
             "channels/{id}/messages": {
                 "type": "map",
-                "grant": "role",
-                "role_permissions": {
-                    "owner": { "sync": true, "write": true },
-                    "collaborator": { "sync": true, "write": true },
-                    "viewer": { "sync": true, "write": true },
-                    "node": { "sync": true, "write": true }
+                "grant": "open",
+                "permissions": {
+                    "sync": true,
+                    "write": true
                 }
             },
             "dms/{id}/messages": {
                 "type": "map",
                 "grant": "explicit",
-                "permissions": { "sync": true, "write": true }
+                "permissions": {
+                    "sync": true,
+                    "write": true
+                }
             }
         },
         "auth_capabilities": {
@@ -800,7 +817,15 @@
             "visible": true,
             "can_see_others": true
         },
-        "ephemeral_funcs": ["typing", "player", "bullet", "enemies", "score", "stage", "restart_request"],
+        "ephemeral_funcs": [
+            "typing",
+            "player",
+            "bullet",
+            "enemies",
+            "score",
+            "stage",
+            "restart_request"
+        ],
         "relationship": "sync_consent"
     }
 }

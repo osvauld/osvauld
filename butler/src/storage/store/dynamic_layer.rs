@@ -337,6 +337,50 @@ impl RedbStore {
 
         Ok(permits)
     }
+    /// Get stored authority for a layer regardless of audience (creator).
+    ///
+    /// **Context**: Node needs to find ANY stored authority for a given layer.
+    /// Scans all authority permits for the page. Key format: `{page_id}/{audience}/{layer_name}`.
+    /// **Returns**: (creator_did, version, authority_token) if found.
+    #[instrument(skip_all)]
+    pub fn get_authority_for_layer(
+        &self,
+        page_id: &str,
+        layer_name: &str,
+    ) -> Result<Option<(String, u64, String)>> {
+        let page_prefix = format!("{}/", page_id);
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(LAYER_AUTHORITY_PERMITS)?;
+
+        for result in table.range(page_prefix.as_str()..)? {
+            let (key, value) = result?;
+            let key_str = key.value();
+
+            if !key_str.starts_with(&page_prefix) {
+                break;
+            }
+
+            // Key format: {page_id}/{audience}/{layer_name}
+            // We need to find entries where the suffix after {page_id}/{audience}/ matches layer_name
+            let rest = &key_str[page_prefix.len()..];
+            // rest = {audience}/{layer_name}
+            // Find the first '/' after audience (audience is a DID, contains colons but no slashes until the layer_name part)
+            // Actually DIDs don't contain '/' but layer_name can have '/'.
+            // The audience is always a DID like "did:key:..." which doesn't contain '/'.
+            // So the first '/' separates audience from layer_name.
+            if let Some(slash_pos) = rest.find('/') {
+                let audience = &rest[..slash_pos];
+                let stored_layer = &rest[slash_pos + 1..];
+                if stored_layer == layer_name {
+                    let record = serde_json::from_slice::<LayerAuthorityRecord>(value.value())
+                        .map_err(|e| crate::error::ButlerError::Serialization(e.to_string()))?;
+                    return Ok(Some((audience.to_string(), record.version, record.permit)));
+                }
+            }
+        }
+
+        Ok(None)
+    }
 }
 
 #[cfg(test)]

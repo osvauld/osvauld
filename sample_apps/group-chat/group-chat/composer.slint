@@ -1,0 +1,183 @@
+// Composer — attachment button, emoji button, text input, send button
+
+import { Theme } from "theme.slint";
+
+export component Composer inherits Rectangle {
+    in-out property<string> draft_text: "";
+    in property<string> replying_to_text: "";
+    in property<bool> has_reply: false;
+    callback on_submit();
+    callback on_text_input(string);
+    callback on_emoji_toggle();
+    callback on_attach();
+    callback on_cancel_reply();
+
+    background: Theme.bg-channel;
+
+    VerticalLayout {
+        spacing: 0;
+
+        // Reply indicator
+        if root.has_reply: Rectangle {
+            height: 36px;
+            background: Theme.bg-workspace;
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 8px;
+
+                Rectangle {
+                    width: 2px;
+                    background: Theme.accent;
+                    border-radius: 1px;
+                }
+
+                Text {
+                    text: "Replying to: " + root.replying_to_text;
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+
+                Rectangle {
+                    width: 20px;
+                    height: 20px;
+                    background: cancel-reply-touch.has-hover ? Theme.bg-hover : transparent;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "x";
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    cancel-reply-touch := TouchArea {
+                        clicked => { root.on_cancel_reply(); }
+                    }
+                }
+            }
+        }
+
+        // Separator
+        Rectangle {
+            height: 1px;
+            background: Theme.border;
+        }
+
+        // Input row
+        Rectangle {
+            height: 56px;
+
+            HorizontalLayout {
+                padding: 8px;
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 6px;
+
+                // Attachment button
+                Rectangle {
+                    width: 36px;
+                    height: 36px;
+                    background: attach-touch.has-hover ? Theme.bg-hover : transparent;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "+";
+                        font-size: 20px;
+                        font-weight: 700;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    attach-touch := TouchArea {
+                        clicked => { root.on_attach(); }
+                    }
+                }
+
+                // Text input
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 36px;
+                    background: Theme.bg-input;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: Theme.border;
+
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+
+                        input := TextInput {
+                            text <=> root.draft_text;
+                            font-size: 14px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+
+                            edited => { root.on_text_input(self.text); }
+                            accepted => { root.on_submit(); }
+                        }
+                    }
+
+                    if root.draft_text == "": Text {
+                        text: "Message...";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        x: 12px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Emoji button
+                Rectangle {
+                    width: 36px;
+                    height: 36px;
+                    background: emoji-touch.has-hover ? Theme.bg-hover : transparent;
+                    border-radius: 4px;
+
+                    Text {
+                        text: ":)";
+                        font-size: 16px;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    emoji-touch := TouchArea {
+                        clicked => { root.on_emoji_toggle(); }
+                    }
+                }
+
+                // Send button
+                Rectangle {
+                    width: 36px;
+                    height: 36px;
+                    background: root.draft_text != "" ? Theme.accent : Theme.bg-hover;
+                    border-radius: 4px;
+
+                    Text {
+                        text: ">";
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: root.draft_text != "" ? white : Theme.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => {
+                            if root.draft_text != "" {
+                                root.on_submit();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

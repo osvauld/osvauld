@@ -31,6 +31,7 @@ mod publish;
 mod sync;
 mod consent;
 mod assets;
+mod subscribe;
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -112,6 +113,15 @@ pub enum PeerMessage {
         page_template: String,
     },
 
+    /// Internal: Subscribe to dynamic layers on a peer
+    ///
+    /// **Context**: Scribe detected new dynamic layers via __sync_meta, need to subscribe
+    /// **We do**: Issue consent permits, send LayerSubscribe for each layer
+    SubscribeLayers {
+        page_id: String,
+        layers: Vec<String>,
+    },
+
     /// Internal: Refresh subscriptions to active Scribes
     ///
     /// **Context**: Page opened after connection established
@@ -124,16 +134,6 @@ pub enum PeerMessage {
     /// **We do**: Deserialize, route to Scribe via page_subscriptions
     Datagram {
         data: Vec<u8>,
-    },
-
-    /// Internal: Send a layer permit to this peer (Node mode)
-    ///
-    /// **Context**: Coordinator received NewDynamicLayer event with ready permits
-    /// **We do**: Send LayerPermitMsg to peer
-    SendLayerPermit {
-        page_id: String,
-        layer_name: String,
-        permit: String,
     },
 
     /// Internal: Send updated page permit to this peer (Node mode)
@@ -708,6 +708,10 @@ impl<C: Connection> Actor for PeerActor<C> {
                 self.issue_sync_consent(&space_id, &space_template, &page_template, state).await;
             }
 
+            PeerMessage::SubscribeLayers { page_id, layers } => {
+                self.subscribe_to_layers(&page_id, &layers, state).await;
+            }
+
             PeerMessage::RefreshSubscriptions => {
                 info!(node_id = %self.node_id, "RefreshSubscriptions received");
                 // First check health of existing subscriptions (resubscribe if dead)
@@ -718,10 +722,6 @@ impl<C: Connection> Actor for PeerActor<C> {
 
             PeerMessage::Datagram { data } => {
                 self.handle_datagram(&data, state).await;
-            }
-
-            PeerMessage::SendLayerPermit { page_id, layer_name, permit } => {
-                self.send_layer_permit(&page_id, &layer_name, &permit, state).await;
             }
 
             PeerMessage::SendPermitUpdate { page_id, permit } => {
@@ -932,17 +932,18 @@ impl<C: Connection> PeerActor<C> {
                 self.on_sync_consent_ack(&m.request_id, &m.space_id, state).await;
             }
 
-            // Layer permit + consent messages
-            Message::LayerPermit(m) => {
-                self.on_layer_permit(&m.request_id, &m.page_id, &m.layer_name, &m.permit, state).await;
+            // Layer Subscribe (pull-based via __sync_meta)
+            Message::LayerSubscribe(m) => {
+                self.on_layer_subscribe(&m.request_id, &m.page_id, &m.layer_name, &m.consent_permit, state).await;
             }
 
-            Message::LayerConsentGrant(m) => {
-                self.on_layer_consent_grant(&m.request_id, &m.page_id, &m.layer_name, &m.consent_permit, state).await;
-            }
-
-            Message::LayerConsentAck(m) => {
-                self.on_layer_consent_ack(&m.request_id, &m.page_id, &m.layer_name, state).await;
+            Message::LayerSubscribeAck(m) => {
+                self.on_layer_subscribe_ack(
+                    &m.request_id, &m.page_id, &m.layer_name,
+                    m.accepted, m.reason.as_deref(),
+                    &m.data, &m.state_vector, &m.ephemeral_public,
+                    &m.layer_permit, state,
+                ).await;
             }
 
             // Asset sync messages

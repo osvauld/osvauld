@@ -240,14 +240,13 @@ impl MergeService {
         use gurkha::parser::Permit;
 
         let our_permit = Permit::from_token(our_permit_token)?;
-        let relationship = our_permit.relationship();
-        let is_viewer = relationship.map(|r| r == "node_viewer" || r == "viewer_node").unwrap_or(false);
+        let is_viewer = !our_permit.is_owner() && !our_permit.is_host();
 
         let state_vector = if is_viewer {
             debug!("📊 Generating state_frontiers for viewer relationship");
             Self::state_frontiers(doc)
         } else {
-            debug!("📊 Generating oplog_vv for relationship: {:?}", relationship);
+            debug!("📊 Generating oplog_vv for owner/host");
             Self::oplog_vv(doc)
         };
 

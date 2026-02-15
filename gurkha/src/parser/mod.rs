@@ -88,7 +88,7 @@ pub enum PermitError {
 /// Parse and validate `authorized_peers` fact value.
 ///
 /// Semantics:
-/// - missing or null => role-based distribution (`None`)
+/// - missing or null => open distribution (`None`)
 /// - array of DIDs   => explicit recipients (`Some(Vec<String>)`)
 pub fn parse_authorized_peers_fact(
     value: Option<&serde_json::Value>,
@@ -109,7 +109,7 @@ pub fn parse_authorized_peers_fact(
 
     if arr.is_empty() {
         return Err(PermitError::ValidationFailed(
-            "authorized_peers must be null for role-based distribution or a non-empty DID list"
+            "authorized_peers must be null for open distribution or a non-empty DID list"
                 .to_string(),
         ));
     }
@@ -213,14 +213,14 @@ pub struct DelegationTemplate {
     pub dynamic_layer_schemas: HashMap<String, DynamicLayerSchema>,
     /// Explicit layer recipients for layer authority issuance.
     ///
-    /// Omitted => role-based distribution
+    /// Omitted => open distribution (all peers)
     /// [did...] => explicit distribution
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authorized_peers: Option<Vec<String>>,
 }
 
 /// Configuration for a fixed (non-pattern) layer
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LayerConfig {
     /// Whether to sync this layer
     #[serde(default)]
@@ -242,24 +242,22 @@ pub struct DynamicLayerSchema {
     /// Layer type: "map", "list", "text"
     #[serde(rename = "type", default)]
     pub layer_type: String,
-    /// Grant type: "role" (all peers) or "explicit" (named participants)
+    /// Grant type: "open" (all peers) or "explicit" (named participants)
     #[serde(default)]
     pub grant: GrantType,
-    /// Permissions per role (for role-granted schemas)
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub role_permissions: HashMap<String, LayerConfig>,
-    /// Permissions for explicit grants
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub permissions: Option<LayerConfig>,
+    /// Permissions for all peers (both Open and Explicit grants)
+    #[serde(default)]
+    pub permissions: LayerConfig,
 }
 
 /// How a dynamic layer is granted to peers
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum GrantType {
-    /// Granted to all peers of matching roles
+    /// Granted to all connected peers with page access
     #[default]
-    Role,
+    #[serde(alias = "role")]
+    Open,
     /// Granted only to explicitly named participants
     Explicit,
 }
@@ -475,7 +473,7 @@ impl DelegationTemplate {
         }
 
         // Add authorized_peers for layer authority templates.
-        // Missing/None means role-based distribution.
+        // Missing/None means open distribution (all peers).
         if self.token_type == "layer_authority" {
             if let Some(peers) = &self.authorized_peers {
                 let values = peers
@@ -961,7 +959,7 @@ impl Permit {
     /// Parse validated `authorized_peers` fact.
     ///
     /// Returns:
-    /// - `Ok(None)` for role-based mode (missing/null)
+    /// - `Ok(None)` for open distribution (missing/null)
     /// - `Ok(Some(vec))` for explicit recipients
     pub fn authorized_peers(&self) -> PermitResult<Option<Vec<String>>> {
         parse_authorized_peers_fact(self.facts.get("authorized_peers"))

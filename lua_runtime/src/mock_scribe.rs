@@ -391,14 +391,14 @@ impl ScribeHandle for MockScribeHandle {
         self.state.lock().unwrap().subscriber_count
     }
 
-    fn create_layer(&self, schema_key: &str, layer_id: &str) -> Result<String, String> {
+    fn create_layer(&self, schema_key: &str, layer_id: &str, _authorized_peers: Option<Vec<String>>) -> Result<String, String> {
         // Mock: generate a simple layer name from schema_key and layer_id
         // In production, Scribe generates the full path with DID
         let layer_name = format!("mock-page/{}/{}", schema_key.replace("{id}", layer_id), layer_id);
         Ok(layer_name)
     }
 
-    fn add_layer_access(&self, _layer_name: &str, _did: &str) -> Result<(), String> {
+    fn add_layer_access(&self, _layer_name: &str, _dids: &[String]) -> Result<(), String> {
         Ok(())
     }
 

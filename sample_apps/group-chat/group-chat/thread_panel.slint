@@ -1,0 +1,157 @@
+// Thread panel — header, parent message, reply list, composer
+
+import { Theme } from "theme.slint";
+import { Message, Reaction, MessageBubble } from "message_bubble.slint";
+import { Composer } from "composer.slint";
+
+export component ThreadPanel inherits Rectangle {
+    in property<Message> parent_msg;
+    in property<[Message]> replies;
+    in property<string> channel_name: "";
+    in-out property<string> thread_draft: "";
+    callback on_close();
+    callback on_submit();
+    callback on_text_input(string);
+    callback on_action(string);
+
+    width: 350px;
+    background: Theme.bg-channel;
+
+    // Left border
+    Rectangle {
+        x: 0;
+        width: 1px;
+        height: 100%;
+        background: Theme.border;
+    }
+
+    VerticalLayout {
+        padding: 0;
+        spacing: 0;
+
+        // Header
+        Rectangle {
+            height: 50px;
+            background: Theme.bg-channel;
+
+            HorizontalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 2px;
+
+                    Text {
+                        text: "Thread";
+                        font-size: 15px;
+                        font-weight: 700;
+                        color: Theme.text-bright;
+                    }
+
+                    Text {
+                        text: "#" + root.channel_name;
+                        font-size: 12px;
+                        color: Theme.text-secondary;
+                    }
+                }
+
+                // Close button
+                Rectangle {
+                    width: 28px;
+                    height: 28px;
+                    background: close-touch.has-hover ? Theme.bg-hover : transparent;
+                    border-radius: 4px;
+
+                    Text {
+                        text: "x";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    close-touch := TouchArea {
+                        clicked => { root.on_close(); }
+                    }
+                }
+            }
+
+            // Bottom border
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.border;
+            }
+        }
+
+        // Parent message + replies
+        Flickable {
+            vertical-stretch: 1;
+            viewport-height: thread-content.preferred-height;
+
+            property<int> reply-count: root.replies.length;
+            changed reply-count => {
+                self.viewport-y = min(0px, self.height - self.viewport-height);
+            }
+
+            thread-content := VerticalLayout {
+                spacing: 0;
+
+                // Parent message
+                MessageBubble {
+                    msg: root.parent_msg;
+                    on_action(action) => { root.on_action(action); }
+                }
+
+                // Separator with reply count
+                Rectangle {
+                    height: 30px;
+
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        spacing: 8px;
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 1px;
+                            background: Theme.border;
+                            y: (parent.height - self.height) / 2;
+                        }
+
+                        Text {
+                            text: root.replies.length + (root.replies.length == 1 ? " reply" : " replies");
+                            font-size: 12px;
+                            color: Theme.text-secondary;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 1px;
+                            background: Theme.border;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+                }
+
+                // Replies
+                for reply in root.replies: MessageBubble {
+                    msg: reply;
+                    on_action(action) => { root.on_action(action); }
+                }
+            }
+        }
+
+        // Thread composer
+        Composer {
+            draft_text <=> root.thread_draft;
+            on_submit => { root.on_submit(); }
+            on_text_input(text) => { root.on_text_input(text); }
+            on_emoji_toggle => { root.on_action("emoji_picker:toggle"); }
+            on_attach => { root.on_action("attach_file"); }
+            on_cancel_reply => { }
+        }
+    }
+}

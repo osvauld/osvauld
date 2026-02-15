@@ -83,15 +83,8 @@ impl Peer {
                     butler::SyncEvent::EnsureSync { user_did } => {
                         let _ = coord.cast(CoordinatorMessage::EnsureSync { user_did });
                     }
-                    butler::SyncEvent::NewDynamicLayer { page_id, layer_name, permits } => {
-                        let _ = coord.cast(CoordinatorMessage::DistributeLayerPermits {
-                            page_id, layer_name, permits,
-                        });
-                    }
-                    butler::SyncEvent::LayerAccessChanged { page_id, layer_name, permits } => {
-                        let _ = coord.cast(CoordinatorMessage::DistributeLayerPermits {
-                            page_id, layer_name, permits,
-                        });
+                    butler::SyncEvent::SubscribeLayers { page_id, creator_did, layers } => {
+                        let _ = coord.cast(CoordinatorMessage::SubscribeLayers { page_id, creator_did, layers });
                     }
                 }
             }
@@ -165,6 +158,25 @@ impl Peer {
             .await
             .map_err(|_| anyhow::anyhow!("Timeout waiting for event"))?
             .ok_or_else(|| anyhow::anyhow!("Event channel closed"))
+    }
+
+    /// Simulate disconnect from another peer
+    ///
+    /// **Context**: Injects `CoordinatorMessage::Disconnected` into both coordinators.
+    /// This triggers PeerActor cleanup, Scribe unsubscription, and event emission.
+    /// Butler state (permits, pages, layers) persists for reconnection.
+    pub fn disconnect_from(&self, other: &Peer) -> Result<()> {
+        self.coordinator
+            .cast(CoordinatorMessage::Disconnected { node_id: other.node_id })
+            .map_err(|e| anyhow::anyhow!("Failed to inject disconnect: {:?}", e))?;
+
+        other
+            .coordinator
+            .cast(CoordinatorMessage::Disconnected { node_id: self.node_id })
+            .map_err(|e| anyhow::anyhow!("Failed to inject disconnect: {:?}", e))?;
+
+        info!("Mock disconnect: {} <-> {}", self.name, other.name);
+        Ok(())
     }
 
     /// Shutdown the peer

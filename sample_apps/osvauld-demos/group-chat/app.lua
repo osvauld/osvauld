@@ -58,8 +58,8 @@ function on_init()
         transform = function(entry)
             if not entry or not entry.did then return nil end
             return {
-                did = entry.did:sub(-8),
-                full_did = entry.did,
+                did = entry.did,
+                did_short = entry.did:sub(-8),
                 name = entry.name or entry.did:sub(-8),
                 is_online = entry.status == "online",
             }
@@ -132,24 +132,20 @@ local function get_active_messages_layer()
     end
 end
 
--- Build member picker model from all users in presence layer + selection state
+-- Build member picker model from presence (online users)
 local function refresh_member_picker()
-    local presence = scribe:map(page_id .. "/presence")
-    local keys = presence:keys()
+    local users = presence.get_online_users()
     local picker = {}
-    for _, did in ipairs(keys) do
-        if did ~= my_did then
-            local entry = presence:get(did)
-            if entry then
-                table.insert(picker, {
-                    did = did,
-                    name = entry.name or did:sub(-8),
-                    is_selected = selected_member_dids[did] ~= nil,
-                })
-            end
+    for _, u in ipairs(users) do
+        if u.did ~= my_did then
+            local selected = selected_member_dids[u.did] ~= nil
+            table.insert(picker, {
+                did = u.did,
+                name = u.name or u.did:sub(-8),
+                selected = selected,
+            })
         end
     end
-    table.sort(picker, function(a, b) return a.name < b.name end)
     ui:set("member_picker", picker)
 end
 
@@ -530,14 +526,9 @@ function on_layer_discovered(layer_name)
     if dms.on_layer_discovered(layer_name) then return end
 end
 
--- Layer change callback for non-bound layers (read_positions, etc.)
--- Bound layers (messages, presence) are handled by the binding system automatically.
+-- Layer change callback for non-bound layers.
+-- Bound layers (messages) are handled by the binding system automatically.
 function on_loro_change(layer_name)
-    if layer_name:match("read_positions") then
-        channels.refresh_channel_list()
-        return
-    end
-
     -- Active DM messages changed
     if view_mode == "dms" then
         local dm_path = dms.get_active_layer_path()

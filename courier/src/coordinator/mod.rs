@@ -99,14 +99,14 @@ pub enum CoordinatorMessage<C: Connection> {
     /// Scribe requested sync with a user
     EnsureSync { user_did: String },
 
-    /// Distribute layer permits for a new dynamic layer (Node mode)
+    /// Subscribe to dynamic layers on a creator peer
     ///
-    /// **Context**: Scribe detected a new dynamic layer, permits already created
-    /// **We do**: Store permits in butler, send LayerPermitMsg to each recipient's PeerActor
-    DistributeLayerPermits {
+    /// **Context**: Node's Scribe detected new entries in creator's __sync_meta.
+    /// Route to PeerActor connected to creator_did, send LayerSubscribe for each layer.
+    SubscribeLayers {
         page_id: String,
-        layer_name: String,
-        permits: Vec<(String, String)>,  // (recipient_did, layer_permit_token)
+        creator_did: String,
+        layers: Vec<String>,
     },
 
     /// Distribute updated page permits to peers (Node mode)
@@ -324,8 +324,8 @@ impl<C: Connection> Actor for Coordinator<C> {
                 self.on_ensure_sync(myself.clone(), user_did, state).await;
             }
 
-            CoordinatorMessage::DistributeLayerPermits { page_id, layer_name, permits } => {
-                self.on_distribute_layer_permits(&page_id, &layer_name, &permits, state).await;
+            CoordinatorMessage::SubscribeLayers { page_id, creator_did, layers } => {
+                self.on_subscribe_layers(&page_id, &creator_did, layers, state).await;
             }
 
             CoordinatorMessage::DistributePagePermitUpdates { page_id, permits } => {
@@ -588,6 +588,37 @@ impl<C: Connection> Coordinator<C> {
         });
     }
 
+    /// Handle SubscribeLayers - send LayerSubscribe to creator's PeerActor
+    ///
+    /// **Context**: Node's Scribe detected new dynamic layers in creator's __sync_meta.
+    /// Route to PeerActor connected to creator_did, which sends LayerSubscribe for each layer.
+    #[instrument(skip_all, fields(page_id = %page_id, creator_did = %creator_did, layer_count = layers.len()))]
+    async fn on_subscribe_layers(
+        &self,
+        page_id: &str,
+        creator_did: &str,
+        layers: Vec<String>,
+        state: &mut CoordinatorState<C>,
+    ) {
+        info!(page_id = %page_id, creator_did = %creator_did, "SubscribeLayers: looking for peer actor");
+
+        if let Some(peer_actor) = self.get_peer_actor_for_user(creator_did, state) {
+            // PeerActor handles consent issuance + LayerSubscribe sending
+            let _ = peer_actor.cast(PeerMessage::SubscribeLayers {
+                page_id: page_id.to_string(),
+                layers: layers.clone(),
+            });
+            info!(
+                page_id = %page_id,
+                creator_did = %creator_did,
+                count = layers.len(),
+                "Sent LayerSubscribe messages to creator's PeerActor"
+            );
+        } else {
+            warn!(creator_did = %creator_did, "SubscribeLayers: creator not connected");
+        }
+    }
+
     /// Find peer actor for a user by DID
     fn get_peer_actor_for_user<'a>(
         &self,
@@ -597,64 +628,6 @@ impl<C: Connection> Coordinator<C> {
         state.authenticated_peers()
             .find(|(_, entry)| entry.auth.as_ref().map(|a| a.did.as_str()) == Some(user_did))
             .map(|(_, entry)| &entry.actor)
-    }
-
-    /// Distribute layer permits for a new dynamic layer (Node mode)
-    ///
-    /// **Context**: Scribe detected new dynamic layer, permits already created by layer_unit
-    /// **We do**: Store each permit in butler, send LayerPermitMsg to each recipient's PeerActor
-    #[instrument(skip_all, fields(page_id = %page_id, layer = %layer_name, permit_count = permits.len()))]
-    async fn on_distribute_layer_permits(
-        &self,
-        page_id: &str,
-        layer_name: &str,
-        permits: &[(String, String)],
-        state: &mut CoordinatorState<C>,
-    ) {
-        info!(
-            "Distributing {} layer permits for page={} layer={}",
-            permits.len(), page_id, layer_name
-        );
-
-        for (recipient_did, permit_token) in permits {
-            // Store layer permit in butler
-            if let Err(e) = state.butler.permits().store_layer_permit(
-                page_id,
-                recipient_did,
-                layer_name,
-                permit_token,
-            ) {
-                warn!(
-                    recipient = %recipient_did,
-                    error = %e,
-                    "Failed to store layer permit"
-                );
-                continue;
-            }
-
-            // Find PeerActor for this recipient and send
-            if let Some(actor) = state.get_peer_actor_for_did(recipient_did) {
-                if let Err(e) = actor.cast(PeerMessage::SendLayerPermit {
-                    page_id: page_id.to_string(),
-                    layer_name: layer_name.to_string(),
-                    permit: permit_token.clone(),
-                }) {
-                    warn!(
-                        recipient = %recipient_did,
-                        error = %e,
-                        "Failed to send LayerPermit to PeerActor"
-                    );
-                } else {
-                    info!(recipient = %recipient_did, "Sent LayerPermit to PeerActor");
-                }
-            } else {
-                // Peer not connected — permit stored, will be sent on reconnect
-                debug!(
-                    recipient = %recipient_did,
-                    "Peer not connected, layer permit stored for reconnect"
-                );
-            }
-        }
     }
 
     /// Distribute updated page permits after reissue (Node mode)

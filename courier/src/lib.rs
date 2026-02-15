@@ -59,7 +59,6 @@ pub use message::{
     GetShareableLinkRequestMsg, GetShareableLinkResponseMsg,
     AssetPrepareMsg, AssetReadyMsg, AssetAckMsg,
     SyncConsentGrantMsg, SyncConsentAckMsg,
-    LayerPermitMsg, LayerConsentGrantMsg, LayerConsentAckMsg,
     ErrorMsg,
 };
 pub use state::PeerState;

@@ -85,14 +85,7 @@ pub async fn prepare_page_for_publish(
     let encrypted_layers = store.get_all_layers(page_id)?;
     let mut decrypted_layers = Vec::new();
 
-    let owner_sync_meta_layer = format!("__sync_meta/{}", owner_did);
-
     for (layer_name, encrypted_bytes) in encrypted_layers {
-        // Protocol-reserved sync metadata is pairwise per owner<->node.
-        if layer_name.starts_with("__sync_meta/") && layer_name != owner_sync_meta_layer {
-            continue;
-        }
-
         // Skip local_only layers (e.g., user_content_doc)
         if local_only_layers.iter().any(|l| l == &layer_name) {
             // Skip local_only layers (e.g., user_content_doc) - not synced to node
@@ -309,11 +302,6 @@ pub async fn prepare_page_for_viewer(
     let mut decrypted_layers = Vec::new();
 
     for (layer_name, encrypted_bytes) in encrypted_layers {
-        // Protocol-reserved sync metadata is pairwise and must not be sent to viewers.
-        if layer_name.starts_with("__sync_meta/") {
-            continue;
-        }
-
         // Skip local_only layers (e.g., user_content_doc) - not synced to viewer
         if local_only_layers.iter().any(|l| l == &layer_name) {
             tracing::debug!("Filtering out local_only layer '{}'", layer_name);

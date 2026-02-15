@@ -23,10 +23,11 @@ use butler::{Butler, PageUpdate, ScribeMessage};
 use slint::ComponentHandle;
 use lua_runtime::{LuaCommand, LuaRuntime, LuaRuntimeConfig, ActorScribeHandle, ScribeHandle, UiMutation, UiQuery};
 use ractor::ActorRef;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -559,10 +560,17 @@ pub fn launch_slint_app(
     let ready_rx: Rc<RefCell<Option<std::sync::mpsc::Receiver<(PreparedPage, ActorRef<ScribeMessage>)>>>> =
         Rc::new(RefCell::new(None));
     let pending_geometry: Rc<RefCell<Option<WindowGeometry>>> = Rc::new(RefCell::new(None));
+    let crashed: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
     // Self-managing timer - processes all events for this window
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(100), move || {
+        // If this app has crashed, do nothing — the window is gone
+        if crashed.get() {
+            return;
+        }
+
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
         // Check for ready apps (restart/tab-switch completion)
         if let Some(ref rx) = *ready_rx.borrow() {
             while let Ok((mut new_prepared, new_scribe)) = rx.try_recv() {
@@ -726,6 +734,35 @@ pub fn launch_slint_app(
 
         // Process UI queries (Slint -> Lua)
         running_app.slint_runtime.process_ui_queries();
+        })); // end catch_unwind
+
+        if let Err(panic_payload) = result {
+            let msg = extract_panic_message(&panic_payload);
+
+            // Extract app name before we discard the state
+            let app_name = running.borrow().as_ref()
+                .map(|r| r.app_name.clone())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            tracing::error!(app = %app_name, panic = %msg, "App panicked — closing window");
+
+            // Best-effort cleanup: hide window and shut down Lua thread
+            if let Some(app) = running.borrow_mut().take() {
+                let _ = app.slint_runtime.slint_instance().hide();
+                let _ = app.lua_tx.try_send(LuaCommand::Shutdown);
+            }
+
+            // Mark crashed so future timer ticks are no-ops
+            crashed.set(true);
+
+            // Update AppStatus if available
+            if let Some(ref status) = app_status {
+                if let Ok(mut s) = status.try_write() {
+                    s.status = "crashed".to_string();
+                    s.error = Some(format!("App panicked: {}", msg));
+                }
+            }
+        }
     });
 
     Some(LaunchedApp {
@@ -1090,6 +1127,17 @@ pub async fn validate_slint_files(page_dir: &std::path::Path) -> Result<(), Stri
 }
 
 // Internal Helpers
+
+/// Extract a human-readable message from a panic payload
+fn extract_panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic".to_string()
+    }
+}
 
 /// Capture window geometry for in-place reload
 fn capture_window_geometry(app: &RunningSlintApp) -> WindowGeometry {

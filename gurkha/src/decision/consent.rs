@@ -140,24 +140,24 @@ pub fn decide_sync_page_consent(
 
 /// Decide what should be in a layer sync consent permit
 ///
-/// **Context**: Viewer received a LayerPermit for a dynamic layer, now consents to sync.
-/// This is the dynamic layer equivalent of page consent.
+/// **Context**: Subscriber wants to subscribe to a dynamic layer, issues consent.
+/// Sent inside LayerSubscribe to authorize the responder to sync this layer.
 ///
-/// **Issued by**: Viewer
-/// **Audience**: Node (the specific node DID)
-/// **Proof**: The LayerPermit token (establishes delegation chain)
+/// **Issued by**: Subscriber (user or node)
+/// **Audience**: Responder (node or creator)
+/// **Proof**: Page permit (establishes delegation chain — subscriber doesn't have layer permit yet)
 ///
 /// Layer consent permits have:
-/// - Specific node pubkey as audience
+/// - Specific responder pubkey as audience
 /// - Facts expressing consent to receive updates for a specific layer
 /// - The layer name identifying which dynamic layer
-/// - Proof chain to the layer permit
+/// - Proof chain to the page permit
 pub fn decide_sync_layer_consent(
     viewer_verifying_key: &VerifyingKey,
     node_pubkey: &str,
     page_id: &str,
     layer_name: &str,
-    layer_permit_token: &str,
+    page_permit_token: &str,
     template_json: &str,
 ) -> DecisionResult<TokenDecision> {
     let viewer_pub_key_b64 = general_purpose::STANDARD.encode(viewer_verifying_key.as_bytes());
@@ -189,10 +189,10 @@ pub fn decide_sync_layer_consent(
         decision.add_fact("auth_capabilities".into(), auth_caps.clone());
     }
 
-    // Calculate CID of the layer permit and add to proof chain
-    let proof_cid = crate::crypto::get_permit_cid(layer_permit_token)?;
+    // Calculate CID of the page permit and add to proof chain
+    let proof_cid = crate::crypto::get_permit_cid(page_permit_token)?;
     decision.proofs.push(proof_cid.clone());
-    decision.proof_tokens.insert(proof_cid, layer_permit_token.to_string());
+    decision.proof_tokens.insert(proof_cid, page_permit_token.to_string());
 
     trace!("Layer sync consent decision created for page {} layer {} -> node {}", page_id, layer_name, node_pubkey);
     Ok(decision)

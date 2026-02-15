@@ -420,6 +420,118 @@ impl Scenario {
         self.wait_for_page(self.node(), page_id).await
     }
 
+    /// Disconnect owner from node (simulates network drop)
+    ///
+    /// **Context**: Both Coordinators receive Disconnected, PeerActors are cleaned up,
+    /// Scribe subscriptions are removed. Butler state persists for reconnection.
+    pub async fn disconnect_owner_from_node(&mut self) -> Result<()> {
+        let owner = self.owner.as_ref().expect("Scenario has no owner");
+        let node = self.node.as_ref().expect("Scenario has no node");
+        owner.disconnect_from(node)?;
+        // Allow cleanup to propagate
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        Ok(())
+    }
+
+    /// Reconnect owner to node after disconnect
+    ///
+    /// **Context**: Creates fresh MockConnection pair, re-injects into both Coordinators,
+    /// initiates handshake with stored reconnection permit. Butler state (permits, pages,
+    /// layers, owner info) persisted across the disconnect.
+    pub async fn reconnect_owner_to_node(&mut self) -> Result<()> {
+        let node = self.node.as_ref().expect("Scenario has no node");
+        let owner = self.owner.as_ref().expect("Scenario has no owner");
+
+        // Get reconnection permit from Butler (stored during first connection)
+        let node_id_str = node.node_id.to_string();
+        let sovereign = owner.butler.nodes().get(&node_id_str)?
+            .ok_or_else(|| anyhow::anyhow!("No sovereign node record for reconnection"))?;
+        let reconnect_permit = sovereign.permit
+            .ok_or_else(|| anyhow::anyhow!("No reconnection permit stored"))?;
+
+        // Create fresh mock connection
+        owner.connect_to(node)?;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // Handshake with reconnection permit
+        owner.handshake(node.node_id, reconnect_permit)?;
+
+        // Wait for both sides to authenticate
+        let owner = self.owner.as_mut().unwrap();
+        owner.wait_authenticated(MOCK_TIMEOUT).await?;
+        let node = self.node.as_mut().unwrap();
+        node.wait_authenticated(MOCK_TIMEOUT).await?;
+
+        info!("Owner <-> Node reconnected and authenticated");
+        Ok(())
+    }
+
+    /// Disconnect a viewer from node
+    pub async fn disconnect_viewer_from_node(&mut self, index: usize) -> Result<()> {
+        let node = self.node.as_ref().expect("Scenario has no node");
+        let viewer = &self.viewers[index];
+        viewer.disconnect_from(node)?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        Ok(())
+    }
+
+    /// Reconnect a viewer to node after disconnect
+    ///
+    /// **Context**: Viewer needs a fresh connection string (node issues new permit each time).
+    /// After reconnect, viewer requests space again to re-establish subscriptions.
+    pub async fn reconnect_viewer_to_node(&mut self, index: usize, page_id: &str) -> Result<()> {
+        use butler::ConnectionStringExt;
+
+        let space_id = self.space_info.as_ref()
+            .map(|s| s.space_id.clone())
+            .ok_or_else(|| anyhow::anyhow!("No space_info for viewer reconnection"))?;
+
+        // Get fresh viewer link
+        let conn_string = self.get_viewer_link(&space_id).await?;
+
+        let node = self.node.as_ref().expect("Scenario has no node");
+        let viewer = &self.viewers[index];
+
+        let conn = viewer.butler.nodes()
+            .parse_connection_string(&conn_string)
+            .map_err(|e| anyhow::anyhow!("parse_connection_string failed: {}", e))?;
+        let permit = conn.permit.clone();
+        let space_id = conn.space_id()
+            .map_err(|e| anyhow::anyhow!("space_id from permit failed: {}", e))?;
+
+        // Fresh connection + handshake
+        viewer.connect_to(node)?;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        viewer.handshake(node.node_id, permit.clone())?;
+
+        let viewer = self.viewer_mut(index);
+        viewer.wait_authenticated(MOCK_TIMEOUT).await?;
+
+        // Request space to re-establish subscriptions
+        let viewer = &self.viewers[index];
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        viewer.coordinator
+            .cast(CoordinatorMessage::GetPeerActor {
+                node_id: self.node.as_ref().unwrap().node_id,
+                response: tx,
+            })
+            .map_err(|e| anyhow::anyhow!("GetPeerActor failed: {:?}", e))?;
+
+        let peer_actor = rx.await
+            .map_err(|_| anyhow::anyhow!("GetPeerActor channel closed"))?
+            .ok_or_else(|| anyhow::anyhow!("No PeerActor for node on viewer"))?;
+
+        peer_actor
+            .cast(PeerMessage::RequestSpace { space_id, viewer_permit: permit })
+            .map_err(|e| anyhow::anyhow!("RequestSpace failed: {:?}", e))?;
+
+        // Wait for page data
+        self.wait_for_page(&self.viewers[index], page_id).await?;
+        info!("Viewer {} reconnected and has page {}", index, page_id);
+
+        Ok(())
+    }
+
     /// Shutdown all peers
     pub async fn shutdown(&mut self) {
         if let Some(owner) = &self.owner {

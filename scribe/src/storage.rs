@@ -140,6 +140,25 @@ pub trait PermitIssuer: Send + Sync {
         authorized_peers: Option<Vec<String>>,
         version: u64,
     ) -> Result<(String, String)>;
+
+    /// Store an authority permit received from a creator (node-side).
+    ///
+    /// **Context**: Node received LayerSubscribeAck with layer_authority from creator.
+    /// Stores it so node can later issue layer_permits to users.
+    fn store_authority_permit(
+        &self,
+        creator_did: &str,
+        layer_name: &str,
+        authority_token: &str,
+        version: u64,
+    ) -> Result<()>;
+
+    /// Get stored authority for a layer (any audience — for node checking authorization).
+    ///
+    /// **Context**: Node received LayerSubscribe from user, needs to check if authority
+    /// exists for this layer and whether user is authorized.
+    /// **Returns**: (creator_did, version, authority_token) if found.
+    fn get_authority_for_layer(&self, layer_name: &str) -> Result<Option<(String, u64, String)>>;
 }
 
 // Type Aliases for Convenience
@@ -252,5 +271,19 @@ impl PermitIssuer for NullPermitIssuer {
         _version: u64,
     ) -> Result<(String, String)> {
         Ok(("test-authority-token".into(), "test-authority-cid".into()))
+    }
+
+    fn store_authority_permit(
+        &self,
+        _creator_did: &str,
+        _layer_name: &str,
+        _authority_token: &str,
+        _version: u64,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    fn get_authority_for_layer(&self, _layer_name: &str) -> Result<Option<(String, u64, String)>> {
+        Ok(None)
     }
 }
