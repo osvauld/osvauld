@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "b496a0e09a5e",
+  "session_id": "7876beae-237f-4938-926e-87161808e73e",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-15T13:00:16.521096977Z",
+  "branch": "feature/coordinator-refactor",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "e2e_tests/test_custom_channel.py"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "7c2c890b-8c80-49f4-925b-30f9ca7fb77b",
+  "token_usage": {
+    "input_tokens": 166,
+    "cache_creation_tokens": 200863,
+    "cache_read_tokens": 2977263,
+    "output_tokens": 16653,
+    "api_call_count": 38
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-15T13:00:16.402637749Z",
+    "agent_lines": 238,
+    "human_added": 10457,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 10697,
+    "agent_percentage": 2.2249228755725903
+  }
+}

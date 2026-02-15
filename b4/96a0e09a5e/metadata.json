@@ -3,7 +3,7 @@
   "checkpoint_id": "b496a0e09a5e",
   "strategy": "manual-commit",
   "branch": "feature/coordinator-refactor",
-  "checkpoints_count": 21,
+  "checkpoints_count": 22,
   "files_touched": [
     "app_test/src/multi_peer.rs",
     "app_test/src/runner.rs",
@@ -169,13 +169,20 @@
       "context": "/b4/96a0e09a5e/11/context.md",
       "content_hash": "/b4/96a0e09a5e/11/content_hash.txt",
       "prompt": "/b4/96a0e09a5e/11/prompt.txt"
+    },
+    {
+      "metadata": "/b4/96a0e09a5e/12/metadata.json",
+      "transcript": "/b4/96a0e09a5e/12/full.jsonl",
+      "context": "/b4/96a0e09a5e/12/context.md",
+      "content_hash": "/b4/96a0e09a5e/12/content_hash.txt",
+      "prompt": "/b4/96a0e09a5e/12/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 38043,
-    "cache_creation_tokens": 5026821,
-    "cache_read_tokens": 199271308,
-    "output_tokens": 557588,
-    "api_call_count": 1838
+    "input_tokens": 38209,
+    "cache_creation_tokens": 5227684,
+    "cache_read_tokens": 202248571,
+    "output_tokens": 574241,
+    "api_call_count": 1876
   }
 }
