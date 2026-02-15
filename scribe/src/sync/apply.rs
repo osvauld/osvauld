@@ -20,7 +20,7 @@ use super::broadcast::{broadcast_update, notify_layer_discovered};
 use crate::layer_unit::LayerUnit;
 use crate::loro_observer::{set_pending_update_source, clear_pending_update_source, setup_layer_observer};
 use crate::message::SyncEvent;
-use crate::permit::{Permissions, PermitContext};
+use crate::permit::Permissions;
 use crate::state::ScribeState;
 use crate::JsonOp;
 use crate::state::normalize_layer_name;
@@ -63,7 +63,7 @@ impl UpdateContext {
         from_peer: Option<(String, String)>,
     ) -> Self {
         let is_remote = from_peer.is_some();
-        let is_local_only = Permissions::is_local_only(layer_name);
+        let is_local_only = Permissions::is_local_only(state, layer_name);
         let is_new_layer = !state.units.contains_key(layer_name);
 
         // Determine peer role for validation
@@ -440,7 +440,7 @@ async fn handle_post_apply(
             } else {
                 info!(layer = %layer_name, "Saved app layer immediately for restart");
                 // Remove from dirty since we just saved it
-                unit.clear_dirty();
+                let _ = unit.take_dirty_snapshot();
             }
         }
     }
@@ -523,13 +523,13 @@ fn get_peer_role(state: &ScribeState, peer_did: &str) -> String {
         }
     }
 
-    // Node mode: look up peer's stored permit and extract role via PermitContext
+    // Node mode: look up peer's stored permit and extract role via gurkha::Permit
     if let Some(ref resolver) = state.peer_resolver {
         if let Some(permit_token) = resolver.load_user_permit(peer_did) {
-            let role = PermitContext::from_token(&permit_token, &state.page_id, peer_did)
-                .map(|ctx| ctx.permit().relationship().unwrap_or("peer").to_string())
+            let role = gurkha::Permit::from_token(&permit_token)
+                .map(|permit| permit.relationship().unwrap_or("peer").to_string())
                 .unwrap_or_else(|_| "peer".to_string());
-            debug!(peer_did = %peer_did, role = %role, "Got peer role from stored permit via PermitContext");
+            debug!(peer_did = %peer_did, role = %role, "Got peer role from stored permit via gurkha::Permit");
             return role;
         }
     }

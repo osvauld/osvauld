@@ -41,12 +41,10 @@ pub fn handle_query(state: &ScribeState, spec: &QuerySpec) -> Result<QueryResult
         None => Vec::new(),
     };
 
-    // Apply CEL filter if specified
-    let filtered_items = apply_filter(items, spec.filter.as_deref());
-    let total_count = filtered_items.len();
+    let total_count = items.len();
 
     // Apply sort
-    let sorted_items = apply_sort(&filtered_items, spec);
+    let sorted_items = apply_sort(&items, spec);
 
     // Apply pagination
     let offset = spec.offset;
@@ -108,70 +106,6 @@ pub async fn handle_subscribe_query(
     );
 }
 
-/// Notify query subscribers when a layer changes
-///
-/// **Context**: Layer was updated, check if any query results changed
-/// **We do**: Re-execute affected queries, send deltas for changed results
-#[instrument(skip(state), fields(page_id = %state.page_id))]
-pub async fn notify_query_subscribers(state: &mut ScribeState, layer_name: &str) {
-    // Find queries that depend on this layer
-    let affected_queries: Vec<String> = state.query_subscribers
-        .iter()
-        .filter(|(_, info)| info.spec.layer_name == layer_name)
-        .map(|(id, _)| id.clone())
-        .collect();
-
-    for query_id in affected_queries {
-        // Clone spec to avoid borrow issues
-        let spec = match state.query_subscribers.get(&query_id) {
-            Some(info) => info.spec.clone(),
-            None => continue,
-        };
-
-        // Re-execute query with cloned spec
-        let new_result = match handle_query(state, &spec) {
-            Ok(result) => result,
-            Err(e) => {
-                warn!(error = %e, query_id = %query_id, "Failed to re-execute query");
-                continue;
-            }
-        };
-
-        // Now get mutable reference to update info
-        if let Some(info) = state.query_subscribers.get_mut(&query_id) {
-            // Increment version
-            info.version += 1;
-
-            // For MVP, send full Reset delta
-            // TODO: Compute incremental diffs for Insert/Update/Remove
-            let delta = QueryDelta::reset(query_id.clone(), new_result.clone(), info.version);
-
-            match info.delta_tx.try_send(delta) {
-                Ok(()) => {
-                    info.last_result = Some(new_result);
-                }
-                Err(mpsc::error::TrySendError::Closed(_)) => {
-                    // Subscriber disconnected, will be cleaned up
-                    debug!(query_id = %query_id, "Query subscriber disconnected");
-                }
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    warn!(query_id = %query_id, "Query delta channel full");
-                }
-            }
-        }
-    }
-
-    // Clean up disconnected subscribers
-    state.query_subscribers.retain(|id, info| {
-        if info.delta_tx.is_closed() {
-            debug!(query_id = %id, "Removing disconnected query subscriber");
-            false
-        } else {
-            true
-        }
-    });
-}
-
 /// Build a JSON context from all layers for egui rendering
 ///
 /// **Context**: egui window needs all layer data for CEL evaluation
@@ -231,26 +165,6 @@ fn get_path_value(data: &serde_json::Value, path: &str) -> Option<serde_json::Va
     }
 
     Some(current.clone())
-}
-
-/// Apply filter to items
-///
-/// **Context**: Filter expression is evaluated against each item
-/// **Note**: CEL is being replaced by Rune runtime. Currently stubbed to return all items.
-fn apply_filter(items: Vec<serde_json::Value>, filter: Option<&str>) -> Vec<serde_json::Value> {
-    let Some(filter_expr) = filter else {
-        return items;
-    };
-
-    // Skip empty filter expressions
-    if filter_expr.trim().is_empty() {
-        return items;
-    }
-
-    // TODO: Replace with Rune-based filter evaluation
-    // For now, return all items (filter is a no-op)
-    debug!(filter = %filter_expr, "Filter stubbed - returning all items");
-    items
 }
 
 /// Apply sorting to items

@@ -103,6 +103,11 @@
                 "type": "map",
                 "sync": true,
                 "write": true
+            },
+            "{page_id}/presence": {
+                "type": "map",
+                "sync": true,
+                "write": true
             }
         },
         "dynamic_layer_schemas": {
@@ -288,6 +293,11 @@
                         "type": "map",
                         "sync": true,
                         "write": true
+                    },
+                    "{page_id}/presence": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
                     }
                 },
                 "dynamic_layer_schemas": {
@@ -467,6 +477,11 @@
                                 "type": "map",
                                 "sync": true,
                                 "write": true
+                            },
+                            "{page_id}/presence": {
+                                "type": "map",
+                                "sync": true,
+                                "write": true
                             }
                         },
                         "dynamic_layer_schemas": {
@@ -623,6 +638,11 @@
                         "write": true
                     },
                     "{page_id}/channels/dev/messages": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    },
+                    "{page_id}/presence": {
                         "type": "map",
                         "sync": true,
                         "write": true
@@ -787,6 +807,10 @@
                 "write": true
             },
             "{page_id}/channels/dev/messages": {
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/presence": {
                 "sync": true,
                 "write": true
             }

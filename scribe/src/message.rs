@@ -4,7 +4,6 @@
 //! (BroadcastPayload, PageUpdate, etc.)
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use ractor::RpcReplyPort;
 use serde::{Deserialize, Serialize};
@@ -69,9 +68,6 @@ pub enum LoroDelta {
     Map {
         updated: HashMap<String, Option<serde_json::Value>>,
     },
-
-    /// Text delta (for future rich text support)
-    Text { ops: Vec<TextOp> },
 }
 
 /// List delta operations (applied sequentially)
@@ -88,23 +84,6 @@ pub enum ListOp {
     Insert { values: Vec<serde_json::Value> },
 
     /// Delete N items at current position
-    Delete { count: usize },
-}
-
-/// Text delta operations (for rich text editing)
-///
-/// **Context**: Represents changes to a Loro text container
-/// **Note**: Deferred for now - will implement when we need rich text editing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "op")]
-pub enum TextOp {
-    /// Keep N characters unchanged
-    Retain { count: usize },
-
-    /// Insert text at current position
-    Insert { text: String },
-
-    /// Delete N characters at current position
     Delete { count: usize },
 }
 
@@ -535,16 +514,6 @@ pub enum ScribeMessage {
         reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
     },
 
-    /// Remove access for a DID from an explicit dynamic layer
-    ///
-    /// **Context**: Lua calls scribe:remove_layer_access(layer_name, did)
-    /// **We do**: Check manage_layer_access capability, reject metadata-era revoke path
-    RemoveLayerAccess {
-        layer_name: String,
-        did: String,
-        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
-    },
-
     /// Export a layer's snapshot + state vector (for LayerSync bundling)
     ///
     /// **Context**: PeerActor needs snapshot data to bundle with layer permit
@@ -579,15 +548,14 @@ pub enum ScribeMessage {
     HandleLayerSubscribe {
         layer_name: String,
         peer_did: String,
-        reply: tokio::sync::oneshot::Sender<std::result::Result<(Vec<u8>, Vec<u8>, String), String>>,
+        reply:
+            tokio::sync::oneshot::Sender<std::result::Result<(Vec<u8>, Vec<u8>, String), String>>,
     },
 
     /// Mark a __sync_meta entry as synced (peer-side)
     ///
     /// **Context**: Peer received LayerSubscribeAck, marks entry as synced
-    MarkSyncMetaSynced {
-        layer_name: String,
-    },
+    MarkSyncMetaSynced { layer_name: String },
 
     /// Node received authority from creator. Store + fan out to authorized users.
     ///
@@ -666,44 +634,10 @@ pub enum ScribeMessage {
         args: serde_json::Value,
     },
 
-    // Derivation Operations (via ScribeLuaRuntime)
-    /// Rebuild a derived layer from all source layers
-    ///
-    /// **Context**: Called on startup or manual rebuild request
-    /// **We do**: Clear derived layer, transform ALL entries from ALL matching sources
-    RebuildDerived {
-        target: String,
-        reply: tokio::sync::oneshot::Sender<std::result::Result<usize, String>>,
-    },
-
-    /// Rebuild all derived layers (on startup)
-    RebuildAllDerived {
-        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
-    },
-
-    /// Check if derivation is enabled on this Scribe
-    ///
-    /// **Context**: Lua bindings check before registering rules
-    IsDerivationEnabled {
-        reply: tokio::sync::oneshot::Sender<bool>,
-    },
-
     /// Create an empty derived layer
     ///
     /// **Context**: When registering a derivation rule, create target layer
     CreateDerivedLayer { target_layer: String },
-
-    // App Refresh Operations
-    /// Refresh app from filesystem (owner only)
-    ///
-    /// **Context**: Owner wants to reload app code from disk (development workflow)
-    /// **We do**: Read files from app_dir, update app layer, commit (triggers broadcast)
-    /// **Consumers**: UI Reload button, Debug socket command
-    RefreshApp {
-        app_name: String,
-        app_dir: PathBuf,
-        reply: tokio::sync::oneshot::Sender<std::result::Result<Vec<String>, String>>,
-    },
 
     /// Get app files from in-memory layer
     ///

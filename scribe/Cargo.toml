@@ -9,8 +9,6 @@ license = "MIT"
 # Domain models
 domains = { path = "../domains" }
 
-# Note: Lua validation moved to kunki/ValidationService (via lua_runtime crate)
-
 # Actor framework
 ractor = "0.14"
 

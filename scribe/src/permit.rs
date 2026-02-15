@@ -1,139 +1,14 @@
 //! Permit parsing and permission checking for Scribe actor
 //!
 //! Handles:
-//! - Layer access control (read/write permissions)
+//! - Layer access control (read/write permissions via gurkha::Permit)
 //! - Sync policy extraction and enforcement
 //! - Pattern-based permission rules
-//! - Static layer extraction for pre-creation
-//!
-//! ## Thin Wrapper Pattern
-//!
-//! The `PermitContext` struct is a thin wrapper around `gurkha::Permit` that adds
-//! page_id and our_did context for method calls. All actual logic delegates to gurkha.
+//! - Glob matching for layer names
 
-use tracing::{debug, instrument, trace};
+use tracing::{debug, trace};
 
 use crate::state::ScribeState;
-use crate::{Result, ScribeError};
-
-// PermitContext - Thin Wrapper around gurkha::Permit
-
-/// Thin wrapper around gurkha::Permit with page/DID context
-///
-/// **Context**: Provides convenient access to permit methods with pre-bound page_id and our_did.
-/// **Design**: Stores gurkha::Permit directly, delegates all logic to it.
-///
-/// **Usage**:
-/// ```ignore
-/// let ctx = PermitContext::from_token(permit, page_id, our_did)?;
-/// if ctx.can_write_layer("orders") { ... }
-/// if ctx.should_sync_layer("messages") { ... }
-/// ```
-#[derive(Debug, Clone)]
-pub struct PermitContext {
-    /// The parsed permit - source of truth for all access checks
-    permit: gurkha::Permit,
-    /// Page ID (for pattern expansion)
-    page_id: String,
-    /// Our DID (for pattern expansion with {aud})
-    our_did: String,
-}
-
-impl PermitContext {
-    /// Parse permit and create context with page/DID binding
-    #[instrument(skip(token))]
-    pub fn from_token(token: &str, page_id: &str, our_did: &str) -> Result<Self> {
-        let permit = gurkha::Permit::from_token(token)
-            .map_err(|e| ScribeError::PermitError(format!("Failed to parse permit: {:?}", e)))?;
-
-        debug!(
-            role = ?permit.relationship(),
-            is_owner = permit.is_owner(),
-            is_host = permit.is_host(),
-            layers = permit.layers().len(),
-            patterns = permit.layer_patterns().len(),
-            "PermitContext created (thin wrapper)"
-        );
-
-        Ok(Self {
-            permit,
-            page_id: page_id.to_string(),
-            our_did: our_did.to_string(),
-        })
-    }
-
-    /// Check if layer can be written to
-    /// Delegates to gurkha::Permit::can_write_layer()
-    pub fn can_write_layer(&self, layer_name: &str) -> bool {
-        self.permit
-            .can_write_layer(layer_name, &self.page_id, &self.our_did)
-    }
-
-    /// Check if layer can be read/synced
-    /// Delegates to gurkha::Permit::can_read_layer()
-    pub fn can_read_layer(&self, layer_name: &str) -> bool {
-        self.permit
-            .can_read_layer(layer_name, &self.page_id, &self.our_did)
-    }
-
-    /// Check if layer should sync (not local-only)
-    /// Delegates to gurkha::Permit::should_sync_layer()
-    pub fn should_sync_layer(&self, layer_name: &str) -> bool {
-        self.permit
-            .should_sync_layer(layer_name, &self.page_id, &self.our_did)
-    }
-
-    /// Check if layer should send full snapshot instead of incremental
-    pub fn should_send_full_snapshot(&self, layer_name: &str) -> bool {
-        self.permit
-            .sync_facts()
-            .send_full_snapshot
-            .contains(&layer_name.to_string())
-    }
-
-    /// Check if layer is local-only (never synced)
-    pub fn is_layer_local_only(&self, layer_name: &str) -> bool {
-        self.permit
-            .sync_facts()
-            .local_only
-            .contains(&layer_name.to_string())
-    }
-
-    /// Get the raw permit token
-    pub fn raw_token(&self) -> &str {
-        self.permit.raw_token()
-    }
-
-    /// Get page ID
-    pub fn page_id(&self) -> &str {
-        &self.page_id
-    }
-
-    /// Get our DID
-    pub fn our_did(&self) -> &str {
-        &self.our_did
-    }
-
-    /// Get the underlying permit for direct access
-    pub fn permit(&self) -> &gurkha::Permit {
-        &self.permit
-    }
-
-    /// Check if this is an owner permit
-    pub fn is_owner(&self) -> bool {
-        self.permit.is_owner()
-    }
-
-    /// Check if this is a host/node permit
-    pub fn is_host(&self) -> bool {
-        self.permit.is_host()
-    }
-
-    /// Get static layers (fully expanded, no wildcards) for pre-creation
-    pub fn static_layers(&self) -> Vec<String> {
-        self.permit.static_layers(&self.page_id, &self.our_did)
-    }
-}
 
 /// Simple glob pattern matching for layer names
 ///
@@ -163,11 +38,15 @@ pub struct Permissions;
 
 impl Permissions {
     /// Check if layer is local_only (never synced)
-    pub fn is_local_only(layer_name: &str) -> bool {
-        // Check all subscribers' policies - if ANY marks it local_only, treat as such
-        // Actually, local_only is typically a page-level setting, not per-peer
-        // For simplicity, we'll check the layer name
-        layer_name == "user_content_doc"
+    ///
+    /// **Context**: Uses the LayerUnit's permit-based local_only flag.
+    /// Falls back to false if layer doesn't exist yet (will be set on creation).
+    pub fn is_local_only(state: &ScribeState, layer_name: &str) -> bool {
+        state
+            .units
+            .get(layer_name)
+            .map(|unit| unit.is_local_only())
+            .unwrap_or(false)
     }
 
     /// Check if peer can write to layer
@@ -269,12 +148,7 @@ impl Permissions {
         // The node's own permit has dynamic_layer_schemas with permissions that grant
         // write access to all peers. We check the schema permissions directly.
         if let Some(ref our_permit) = state.our_permit {
-            if gurkha::matches_dynamic_schema(
-                our_permit,
-                layer_name,
-                &state.page_id,
-                "write",
-            ) {
+            if gurkha::matches_dynamic_schema(our_permit, layer_name, &state.page_id, "write") {
                 debug!(
                     user_did = %peer_did,
                     layer = %layer_name,

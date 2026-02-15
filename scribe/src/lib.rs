@@ -48,7 +48,7 @@ pub mod test_strategies;
 // Re-export common types
 pub use message::{
     BroadcastPayload, EphemeralBroadcast, EphemeralOutbound,
-    LoroDelta, ListOp, TextOp,
+    LoroDelta, ListOp,
     PageUpdate, PageUpdateTx, SyncEvent,
     ScribeMessage,
 };
@@ -74,4 +74,4 @@ pub use state::{
     SubscriberInfo, QuerySubscriberInfo,
 };
 pub use layer_unit::{LayerUnit, Capabilities, LayerConfig, LayerSubscriber};
-pub use permit::{PermitContext, Permissions, glob_match};
+pub use permit::{Permissions, glob_match};

@@ -15,16 +15,25 @@ use crate::control_server::UiCommand;
 pub fn process_ui_commands(shell: &Shell, ui_rx: &mut mpsc::Receiver<UiCommand>) {
     while let Ok(cmd) = ui_rx.try_recv() {
         match cmd {
-            UiCommand::DirectLogin { passphrase, response_tx } => {
+            UiCommand::DirectLogin {
+                passphrase,
+                response_tx,
+            } => {
                 shell.invoke_login(passphrase.as_str().into());
                 let screen = shell.get_current_screen().to_string();
                 if screen == "spaces" {
                     let _ = response_tx.send(Ok("Login successful".to_string()));
                 } else {
-                    let _ = response_tx.send(Err("Login may have failed - screen is still login".to_string()));
+                    let _ = response_tx.send(Err(
+                        "Login may have failed - screen is still login".to_string()
+                    ));
                 }
             }
-            UiCommand::SignUp { username, passphrase, response_tx } => {
+            UiCommand::SignUp {
+                username,
+                passphrase,
+                response_tx,
+            } => {
                 shell.invoke_sign_up(username.as_str().into(), passphrase.as_str().into());
                 let screen = shell.get_current_screen().to_string();
                 if screen == "spaces" {
@@ -32,17 +41,28 @@ pub fn process_ui_commands(shell: &Shell, ui_rx: &mut mpsc::Receiver<UiCommand>)
                 } else if screen == "login" {
                     let _ = response_tx.send(Ok("Signup successful - please login".to_string()));
                 } else {
-                    let _ = response_tx.send(Err(format!("Signup may have failed - screen is {}", screen)));
+                    let _ = response_tx.send(Err(format!(
+                        "Signup may have failed - screen is {}",
+                        screen
+                    )));
                 }
             }
-            UiCommand::OpenApp { page_id, app_name, response_tx } => {
+            UiCommand::OpenApp {
+                page_id,
+                app_name,
+                response_tx,
+            } => {
                 shell.set_current_page_id(page_id.as_str().into());
                 shell.set_current_screen("page-view".into());
                 shell.invoke_select_page(page_id.as_str().into());
                 shell.invoke_select_app(app_name.as_str().into());
                 let _ = response_tx.send(Ok(format!("App '{}' loading started", app_name)));
             }
-            UiCommand::CreateSpace { name, template_path, response_tx } => {
+            UiCommand::CreateSpace {
+                name,
+                template_path,
+                response_tx,
+            } => {
                 shell.invoke_create_space(name.as_str().into(), template_path.as_str().into());
 
                 let spaces = shell.get_spaces();
@@ -60,19 +80,24 @@ pub fn process_ui_commands(shell: &Shell, ui_rx: &mut mpsc::Receiver<UiCommand>)
                     }
                 }
             }
-            UiCommand::AddNode { connection_string, response_tx } => {
+            UiCommand::AddNode {
+                connection_string,
+                response_tx,
+            } => {
                 shell.invoke_add_node(connection_string.as_str().into());
                 let _ = response_tx.send(Ok("triggered".to_string()));
             }
-            UiCommand::AddWebsite { connection_string, response_tx } => {
+            UiCommand::AddWebsite {
+                connection_string,
+                response_tx,
+            } => {
                 shell.invoke_add_website(connection_string.as_str().into());
                 let _ = response_tx.send(Ok("triggered".to_string()));
             }
-            UiCommand::RefreshApp { app_name, app_dir, response_tx } => {
-                shell.invoke_refresh_app(app_name.as_str().into(), app_dir.as_str().into());
-                let _ = response_tx.send(Ok(vec!["refresh_triggered".to_string()]));
-            }
-            UiCommand::RefreshPage { page_dir, response_tx } => {
+            UiCommand::RefreshPage {
+                page_dir,
+                response_tx,
+            } => {
                 let result = handle_refresh_page(shell, &page_dir);
                 let _ = response_tx.send(result);
             }
@@ -113,7 +138,8 @@ fn handle_refresh_page(shell: &Shell, page_dir: &str) -> Result<Vec<String>, Str
         let manifest: serde_json::Value = serde_json::from_str(&manifest_content)
             .map_err(|e| format!("Invalid manifest: {}", e))?;
 
-        let app_name = manifest.get("name")
+        let app_name = manifest
+            .get("name")
             .and_then(|n| n.as_str())
             .ok_or_else(|| format!("manifest.json in {:?} missing 'name' field", path))?;
 
@@ -123,7 +149,9 @@ fn handle_refresh_page(shell: &Shell, page_dir: &str) -> Result<Vec<String>, Str
     }
 
     if refreshed_apps.is_empty() {
-        return Err("No apps found in page directory (subdirectories with manifest.json)".to_string());
+        return Err(
+            "No apps found in page directory (subdirectories with manifest.json)".to_string(),
+        );
     }
 
     Ok(refreshed_apps)

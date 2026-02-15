@@ -673,11 +673,6 @@ impl Actor for Scribe {
                 let _ = reply.send(result);
             }
 
-            ScribeMessage::RemoveLayerAccess { layer_name, did, reply } => {
-                let result = crate::layer_unit::handle_remove_layer_access(state, &layer_name, &did);
-                let _ = reply.send(result);
-            }
-
             ScribeMessage::ExportLayerSnapshot { layer_name, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let result = if let Some(unit) = state.units.get(&layer_name) {
@@ -927,22 +922,6 @@ impl Actor for Scribe {
 
             // Note: Ephemeral events now go through SubscribeToPageUpdates (PageUpdate::Ephemeral)
 
-            // Derivation operations (now handled by kunki/LuaRuntime externally)
-            ScribeMessage::RebuildDerived { target: _, reply } => {
-                // Derivation is now handled by kunki, not Scribe
-                let _ = reply.send(Err("Derivation is handled externally by kunki".to_string()));
-            }
-
-            ScribeMessage::RebuildAllDerived { reply } => {
-                // Derivation is now handled by kunki, not Scribe
-                let _ = reply.send(Err("Derivation is handled externally by kunki".to_string()));
-            }
-
-            ScribeMessage::IsDerivationEnabled { reply } => {
-                // Derivation is now external, Scribe always returns false
-                let _ = reply.send(false);
-            }
-
             ScribeMessage::CreateDerivedLayer { target_layer } => {
                 let target_layer = normalize_layer_name(&target_layer, &state.page_id);
                 // Create the derived layer (empty) so it exists for subscribers
@@ -976,11 +955,6 @@ impl Actor for Scribe {
                 let _ = reply.send(count);
             }
 
-            ScribeMessage::RefreshApp { app_name: _, app_dir: _, reply } => {
-                // RefreshApp requires filesystem access which is handled by butler's refresh service
-                // This stub returns an error - callers should use butler's refresh functionality instead
-                let _ = reply.send(Err("RefreshApp not supported in base Scribe - use butler's refresh service".to_string()));
-            }
         }
 
         Ok(())

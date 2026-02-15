@@ -23,7 +23,10 @@
 //! ### Ephemerals
 //! - `scribe:send(func, args)` - Send structured ephemeral (permission-validated)
 
-use mlua::{Error as LuaError, Function, Lua, Result as LuaResult, Table, UserData, UserDataMethods, Value as LuaValue};
+use mlua::{
+    Error as LuaError, Function, Lua, Result as LuaResult, Table, UserData, UserDataMethods,
+    Value as LuaValue,
+};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -100,7 +103,6 @@ impl ScribeBindings {
 
 impl UserData for ScribeBindings {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-
         // Get our DID
         //
         // Returns the DID (Decentralized Identifier) of the current user.
@@ -115,9 +117,7 @@ impl UserData for ScribeBindings {
         // Get our display name
         //
         // Returns the display name if available, or nil.
-        methods.add_method("my_name", |_, this, ()| {
-            Ok(this.our_name.clone())
-        });
+        methods.add_method("my_name", |_, this, ()| Ok(this.our_name.clone()));
 
         // Send structured ephemeral data
         //
@@ -131,10 +131,12 @@ impl UserData for ScribeBindings {
                 "args": json_args,
             });
 
-            let payload_bytes = serde_json::to_vec(&payload)
-                .map_err(|e| LuaError::RuntimeError(format!("Failed to serialize ephemeral: {}", e)))?;
+            let payload_bytes = serde_json::to_vec(&payload).map_err(|e| {
+                LuaError::RuntimeError(format!("Failed to serialize ephemeral: {}", e))
+            })?;
 
-            this.scribe.send_ephemeral(payload_bytes)
+            this.scribe
+                .send_ephemeral(payload_bytes)
                 .map_err(|e| LuaError::RuntimeError(format!("Failed to send ephemeral: {}", e)))?;
 
             Ok(())
@@ -165,23 +167,36 @@ impl UserData for ScribeBindings {
         // ```lua
         // scribe:add_layer_access("page1/dms/did:key:alice/dm1/messages", "did:key:bob")
         // ```
-        methods.add_method("add_layer_access", |_, this, (layer_name, dids): (String, mlua::Value)| {
-            // Accept either a single DID string or a table of DIDs
-            let dids_vec: Vec<String> = match dids {
-                mlua::Value::String(s) => vec![s.to_str().map_err(|e| LuaError::RuntimeError(e.to_string()))?.to_string()],
-                mlua::Value::Table(t) => {
-                    let mut v = Vec::new();
-                    for pair in t.sequence_values::<String>() {
-                        v.push(pair.map_err(|e| LuaError::RuntimeError(e.to_string()))?);
+        methods.add_method(
+            "add_layer_access",
+            |_, this, (layer_name, dids): (String, mlua::Value)| {
+                // Accept either a single DID string or a table of DIDs
+                let dids_vec: Vec<String> = match dids {
+                    mlua::Value::String(s) => vec![s
+                        .to_str()
+                        .map_err(|e| LuaError::RuntimeError(e.to_string()))?
+                        .to_string()],
+                    mlua::Value::Table(t) => {
+                        let mut v = Vec::new();
+                        for pair in t.sequence_values::<String>() {
+                            v.push(pair.map_err(|e| LuaError::RuntimeError(e.to_string()))?);
+                        }
+                        v
                     }
-                    v
-                }
-                _ => return Err(LuaError::RuntimeError("Expected string or table of DIDs".to_string())),
-            };
-            this.scribe.add_layer_access(&layer_name, &dids_vec)
-                .map_err(|e| LuaError::RuntimeError(format!("Failed to add layer access: {}", e)))?;
-            Ok(())
-        });
+                    _ => {
+                        return Err(LuaError::RuntimeError(
+                            "Expected string or table of DIDs".to_string(),
+                        ))
+                    }
+                };
+                this.scribe
+                    .add_layer_access(&layer_name, &dids_vec)
+                    .map_err(|e| {
+                        LuaError::RuntimeError(format!("Failed to add layer access: {}", e))
+                    })?;
+                Ok(())
+            },
+        );
 
         // Remove a DID from an explicit dynamic layer
         //
@@ -189,23 +204,29 @@ impl UserData for ScribeBindings {
         //
         // # Examples
         // ```lua
-        // scribe:remove_layer_access("page1/dms/did:key:alice/dm1/messages", "did:key:bob")
-        // ```
-        methods.add_method("remove_layer_access", |_, this, (layer_name, did): (String, String)| {
-            this.scribe.remove_layer_access(&layer_name, &did)
-                .map_err(|e| LuaError::RuntimeError(format!("Failed to remove layer access: {}", e)))?;
-            Ok(())
-        });
-
         methods.add_method("create_layer", |lua, this, args: mlua::MultiValue| {
             let mut args_iter = args.into_iter();
             let schema_key: String = match args_iter.next() {
-                Some(mlua::Value::String(s)) => s.to_str().map_err(|e| LuaError::RuntimeError(e.to_string()))?.to_string(),
-                _ => return Err(LuaError::RuntimeError("Expected schema_key string as first argument".to_string())),
+                Some(mlua::Value::String(s)) => s
+                    .to_str()
+                    .map_err(|e| LuaError::RuntimeError(e.to_string()))?
+                    .to_string(),
+                _ => {
+                    return Err(LuaError::RuntimeError(
+                        "Expected schema_key string as first argument".to_string(),
+                    ))
+                }
             };
             let layer_id: String = match args_iter.next() {
-                Some(mlua::Value::String(s)) => s.to_str().map_err(|e| LuaError::RuntimeError(e.to_string()))?.to_string(),
-                _ => return Err(LuaError::RuntimeError("Expected layer_id string as second argument".to_string())),
+                Some(mlua::Value::String(s)) => s
+                    .to_str()
+                    .map_err(|e| LuaError::RuntimeError(e.to_string()))?
+                    .to_string(),
+                _ => {
+                    return Err(LuaError::RuntimeError(
+                        "Expected layer_id string as second argument".to_string(),
+                    ))
+                }
             };
             // Optional third argument: authorized_peers table
             let authorized_peers: Option<Vec<String>> = match args_iter.next() {
@@ -217,11 +238,19 @@ impl UserData for ScribeBindings {
                     Some(v)
                 }
                 Some(mlua::Value::Nil) | None => None,
-                _ => return Err(LuaError::RuntimeError("Expected table or nil for authorized_peers".to_string())),
+                _ => {
+                    return Err(LuaError::RuntimeError(
+                        "Expected table or nil for authorized_peers".to_string(),
+                    ))
+                }
             };
 
-            let layer_name = this.scribe.create_layer(&schema_key, &layer_id, authorized_peers)
-                .map_err(|e| LuaError::RuntimeError(format!("Failed to create dynamic layer: {}", e)))?;
+            let layer_name = this
+                .scribe
+                .create_layer(&schema_key, &layer_id, authorized_peers)
+                .map_err(|e| {
+                    LuaError::RuntimeError(format!("Failed to create dynamic layer: {}", e))
+                })?;
 
             let result = lua.create_table()?;
             result.set("layer_name", layer_name)?;
@@ -233,7 +262,8 @@ impl UserData for ScribeBindings {
         // Returns a handle to the specified list layer, creating it if it doesn't exist.
         // The layer name can include the page_id, e.g., `scribe:list(page_id .. "/messages")`
         methods.add_method("list", |_, this, name: String| {
-            this.scribe.ensure_list(&name)
+            this.scribe
+                .ensure_list(&name)
                 .map_err(|e| LuaError::RuntimeError(e))?;
             Ok(LuaLoroList::new(this.scribe.clone(), name))
         });
@@ -242,7 +272,8 @@ impl UserData for ScribeBindings {
         //
         // Returns a handle to the specified map layer, creating it if it doesn't exist.
         methods.add_method("map", |_, this, name: String| {
-            this.scribe.ensure_map(&name)
+            this.scribe
+                .ensure_map(&name)
                 .map_err(|e| LuaError::RuntimeError(e))?;
             Ok(LuaLoroMap::new(this.scribe.clone(), name))
         });
@@ -252,7 +283,9 @@ impl UserData for ScribeBindings {
         // Returns a table of layer names matching the glob pattern.
         // Example: scribe:list_layers("*:orders") returns all order layers
         methods.add_method("list_layers", |lua, this, pattern: String| {
-            let names = this.scribe.list_layers(&pattern)
+            let names = this
+                .scribe
+                .list_layers(&pattern)
                 .map_err(|e| LuaError::RuntimeError(e))?;
 
             let table = lua.create_table()?;
@@ -325,7 +358,9 @@ impl UserData for ScribeBindings {
                         .ok()
                         .map(|f| lua.create_registry_value(f))
                         .transpose()
-                        .map_err(|e| LuaError::RuntimeError(format!("Failed to store transform: {}", e)))?;
+                        .map_err(|e| {
+                            LuaError::RuntimeError(format!("Failed to store transform: {}", e))
+                        })?;
 
                     let key = opts.get::<String>("key").ok();
                     let max_items = opts.get::<usize>("max_items").ok();
@@ -354,7 +389,9 @@ impl UserData for ScribeBindings {
                 // Perform initial sync
                 if is_wildcard {
                     // For wildcards, list matching layers and aggregate data
-                    let layer_names = this.scribe.list_layers(&expanded_pattern)
+                    let layer_names = this
+                        .scribe
+                        .list_layers(&expanded_pattern)
                         .map_err(|e| LuaError::RuntimeError(e))?;
 
                     let mut aggregated_data = Vec::new();
@@ -437,7 +474,9 @@ impl UserData for ScribeBindings {
 
                 // Fetch and sync new layer's data
                 if is_wildcard {
-                    let layer_names = this.scribe.list_layers(&expanded_pattern)
+                    let layer_names = this
+                        .scribe
+                        .list_layers(&expanded_pattern)
                         .map_err(|e| LuaError::RuntimeError(e))?;
 
                     let mut aggregated_data = Vec::new();
@@ -492,7 +531,9 @@ fn sync_binding_to_ui(
 
         // Send to UI (skip if data_to_ui_mutation returns None for empty/null data)
         if let Some(ref ui_tx) = this.ui_tx {
-            if let Some(mutation) = super::binding::data_to_ui_mutation(&this.page_id, ui_property, processed) {
+            if let Some(mutation) =
+                super::binding::data_to_ui_mutation(&this.page_id, ui_property, processed)
+            {
                 if let Err(e) = ui_tx.try_send(mutation) {
                     warn!(
                         ui_property = %ui_property,
@@ -511,4 +552,3 @@ fn sync_binding_to_ui(
 
     Ok(())
 }
-

@@ -31,8 +31,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use tracing::debug;
 
-use butler::{LoroDelta, ListOp};
 use crate::ui_types::{PropertyUpdate, UiMutation, VecModelOp};
+use butler::{ListOp, LoroDelta};
 
 /// Options for a binding (transform, key, max_items)
 ///
@@ -209,9 +209,8 @@ impl BindingManager {
         // Remove old layer mapping
         if old_is_wildcard {
             let old_prefix = old_expanded.trim_end_matches('*').to_string();
-            self.wildcard_patterns.retain(|(prefix, prop)| {
-                !(prefix == &old_prefix && prop == ui_property)
-            });
+            self.wildcard_patterns
+                .retain(|(prefix, prop)| !(prefix == &old_prefix && prop == ui_property));
         } else {
             if let Some(props) = self.layer_to_properties.get_mut(&old_expanded) {
                 props.retain(|p| p != ui_property);
@@ -233,7 +232,8 @@ impl BindingManager {
         // Add new layer mapping
         if new_is_wildcard {
             let prefix = new_expanded_pattern.trim_end_matches('*').to_string();
-            self.wildcard_patterns.push((prefix, ui_property.to_string()));
+            self.wildcard_patterns
+                .push((prefix, ui_property.to_string()));
         } else {
             self.layer_to_properties
                 .entry(new_expanded_pattern)
@@ -477,7 +477,8 @@ pub fn convert_delta_for_binding(
                         for (i, value) in values.iter().enumerate() {
                             let item = if let Some(ref transform_key) = binding.options.transform {
                                 // Transform single item
-                                match apply_transform_single(lua, transform_key, value, layer_name) {
+                                match apply_transform_single(lua, transform_key, value, layer_name)
+                                {
                                     Ok(Some(transformed)) => transformed,
                                     Ok(None) => continue, // nil = skip (filtered out by transform)
                                     Err(e) => {
@@ -591,8 +592,6 @@ pub fn convert_delta_for_binding(
             binding.model_len.set(model_len);
             result
         }
-        // Text deltas can't be converted to VecModelOps — fall back to Replace
-        LoroDelta::Text { .. } => Vec::new(),
     }
 }
 
@@ -654,16 +653,14 @@ pub fn data_to_ui_mutation(
     );
 
     match data {
-        serde_json::Value::Array(items) => {
-            Some(UiMutation {
-                app_id: app_id.to_string(),
-                properties: vec![],
-                model_ops: vec![VecModelOp::Replace {
-                    model_name: ui_property.to_string(),
-                    items,
-                }],
-            })
-        }
+        serde_json::Value::Array(items) => Some(UiMutation {
+            app_id: app_id.to_string(),
+            properties: vec![],
+            model_ops: vec![VecModelOp::Replace {
+                model_name: ui_property.to_string(),
+                items,
+            }],
+        }),
         serde_json::Value::Object(ref map) if map.is_empty() => {
             debug!(
                 ui_property = %ui_property,
@@ -678,16 +675,14 @@ pub fn data_to_ui_mutation(
             );
             None
         }
-        _ => {
-            Some(UiMutation {
-                app_id: app_id.to_string(),
-                properties: vec![PropertyUpdate {
-                    key: ui_property.to_string(),
-                    value: data,
-                }],
-                model_ops: vec![],
-            })
-        }
+        _ => Some(UiMutation {
+            app_id: app_id.to_string(),
+            properties: vec![PropertyUpdate {
+                key: ui_property.to_string(),
+                value: data,
+            }],
+            model_ops: vec![],
+        }),
     }
 }
 
@@ -774,9 +769,19 @@ mod tests {
         );
 
         // Old layer matches
-        assert_eq!(manager.get_bindings_for_layer("channels/general/messages").len(), 1);
+        assert_eq!(
+            manager
+                .get_bindings_for_layer("channels/general/messages")
+                .len(),
+            1
+        );
         // New layer doesn't match yet
-        assert_eq!(manager.get_bindings_for_layer("channels/random/messages").len(), 0);
+        assert_eq!(
+            manager
+                .get_bindings_for_layer("channels/random/messages")
+                .len(),
+            0
+        );
 
         let result = manager.rebind(
             "messages",
@@ -787,9 +792,19 @@ mod tests {
         assert!(result);
 
         // Old layer no longer matches
-        assert_eq!(manager.get_bindings_for_layer("channels/general/messages").len(), 0);
+        assert_eq!(
+            manager
+                .get_bindings_for_layer("channels/general/messages")
+                .len(),
+            0
+        );
         // New layer matches
-        assert_eq!(manager.get_bindings_for_layer("channels/random/messages").len(), 1);
+        assert_eq!(
+            manager
+                .get_bindings_for_layer("channels/random/messages")
+                .len(),
+            1
+        );
         assert_eq!(
             manager.get_binding("messages").unwrap().expanded_pattern,
             "channels/random/messages"
@@ -827,7 +842,12 @@ mod tests {
             false,
         );
         assert!(result);
-        assert_eq!(manager.get_bindings_for_layer("channels/general/messages").len(), 1);
+        assert_eq!(
+            manager
+                .get_bindings_for_layer("channels/general/messages")
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -838,7 +858,10 @@ mod tests {
             "channels/general/messages".to_string(),
             "channels/general/messages".to_string(),
             false,
-            BindingOptions { key: Some("id".to_string()), ..Default::default() },
+            BindingOptions {
+                key: Some("id".to_string()),
+                ..Default::default()
+            },
         );
 
         // Simulate populated cache

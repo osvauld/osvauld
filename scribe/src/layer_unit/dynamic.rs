@@ -5,8 +5,8 @@
 
 use tracing::{info, warn};
 
-use crate::state::ScribeState;
 use crate::loro_observer;
+use crate::state::ScribeState;
 
 use super::LayerUnit;
 
@@ -21,7 +21,9 @@ pub fn handle_create_dynamic_layer(
     layer_id: &str,
     authorized_peers: Option<&[String]>,
 ) -> Result<String, String> {
-    let permit = state.our_permit.as_ref()
+    let permit = state
+        .our_permit
+        .as_ref()
         .ok_or_else(|| "No permit available".to_string())?;
 
     // Validate schema exists in our permit's dynamic_layer_schemas
@@ -59,7 +61,11 @@ pub fn handle_create_dynamic_layer(
     if let Ok(subs) = state.subscribers.read() {
         for ((did, _), info) in subs.iter() {
             if let Some(unit) = state.units.get(&bare_path) {
-                let caps = super::Capabilities { read: true, write: true, sync: true };
+                let caps = super::Capabilities {
+                    read: true,
+                    write: true,
+                    sync: true,
+                };
                 unit.add_subscriber(did.clone(), caps, info.broadcast_tx.clone());
                 state.emit_layer_auth_capture(&bare_path, did, "subscriber_added_on_create");
             }
@@ -74,9 +80,8 @@ pub fn handle_create_dynamic_layer(
     if let Some(ref issuer) = state.permit_issuer {
         let config = schema.permissions.clone();
         let auth_peers = authorized_peers.map(|p| p.to_vec());
-        match issuer.issue_layer_authority_permit(
-            &state.our_did, &full_name, config, auth_peers, 1,
-        ) {
+        match issuer.issue_layer_authority_permit(&state.our_did, &full_name, config, auth_peers, 1)
+        {
             Ok((_token, _cid)) => {
                 info!(layer = %full_name, "Issued self-permit for dynamic layer");
             }
@@ -220,8 +225,8 @@ pub fn handle_add_layer_access(
     }
 
     // 2. Validate schema match + explicit grant
-    let (_schema_key, schema, _creator) = find_matching_dynamic_schema(permit, layer_name, &state.page_id)
-        .ok_or_else(|| {
+    let (_schema_key, schema, _creator) =
+        find_matching_dynamic_schema(permit, layer_name, &state.page_id).ok_or_else(|| {
             warn!(
                 page_id = %state.page_id,
                 layer = %layer_name,
@@ -235,9 +240,10 @@ pub fn handle_add_layer_access(
     }
 
     // 3. Get existing self-permit and merge new DIDs
-    let issuer = state.permit_issuer.as_ref().ok_or_else(|| {
-        "No permit issuer".to_string()
-    })?;
+    let issuer = state
+        .permit_issuer
+        .as_ref()
+        .ok_or_else(|| "No permit issuer".to_string())?;
 
     let full_name = if layer_name.starts_with(&state.page_id) {
         layer_name.to_string()
@@ -246,21 +252,27 @@ pub fn handle_add_layer_access(
     };
 
     // Read existing authorized_peers from self-permit
-    let (mut existing_peers, existing_version) = match issuer.get_layer_authority_permit(&state.our_did, &full_name) {
-        Ok(Some((version, token))) => {
-            if let Ok(p) = gurkha::Permit::from_token(&token) {
-                let peers = p.get_fact("authorized_peers")
-                    .and_then(|v| v.as_array().map(|arr| {
-                        arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>()
-                    }))
-                    .unwrap_or_default();
-                (peers, version)
-            } else {
-                (Vec::new(), version)
+    let (mut existing_peers, existing_version) =
+        match issuer.get_layer_authority_permit(&state.our_did, &full_name) {
+            Ok(Some((version, token))) => {
+                if let Ok(p) = gurkha::Permit::from_token(&token) {
+                    let peers = p
+                        .get_fact("authorized_peers")
+                        .and_then(|v| {
+                            v.as_array().map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect::<Vec<_>>()
+                            })
+                        })
+                        .unwrap_or_default();
+                    (peers, version)
+                } else {
+                    (Vec::new(), version)
+                }
             }
-        }
-        _ => (Vec::new(), 0),
-    };
+            _ => (Vec::new(), 0),
+        };
 
     // Merge new DIDs
     for did in dids {
@@ -271,9 +283,15 @@ pub fn handle_add_layer_access(
 
     // 4. Re-issue self-permit with updated authorized_peers (incremented version)
     let config = schema.permissions.clone();
-    issuer.issue_layer_authority_permit(
-        &state.our_did, &full_name, config, Some(existing_peers), existing_version + 1,
-    ).map_err(|e| format!("Failed to re-issue self-permit: {}", e))?;
+    issuer
+        .issue_layer_authority_permit(
+            &state.our_did,
+            &full_name,
+            config,
+            Some(existing_peers),
+            existing_version + 1,
+        )
+        .map_err(|e| format!("Failed to re-issue self-permit: {}", e))?;
 
     info!(
         page_id = %state.page_id,
@@ -295,25 +313,6 @@ pub fn handle_add_layer_access(
     }
 
     Ok(())
-}
-
-/// Handle RemoveLayerAccess message
-///
-/// **Context**: Lua app calls scribe:remove_layer_access(layer_name, did)
-/// **We do**: Validate capability, reject metadata-era revoke path
-pub fn handle_remove_layer_access(
-    state: &ScribeState,
-    layer_name: &str,
-    did: &str,
-) -> Result<(), String> {
-    let permit = state.our_permit.as_ref().ok_or("No permit")?;
-    if !permit.can_manage_layer_access() {
-        return Err("No manage_layer_access capability".into());
-    }
-
-    let _ = layer_name;
-    let _ = did;
-    Err("RemoveLayerAccess is deprecated; rotate/revoke layer authority permits instead".to_string())
 }
 
 #[cfg(test)]
@@ -342,20 +341,26 @@ mod tests {
         let permit = gurkha::test_fixtures::shop_owner("page1", "did:key:owner");
 
         // Match: orders/did:key:alice/uuid-123 — matches "orders/{id}" with DID inserted
-        let result = find_matching_dynamic_schema(&permit, "orders/did:key:alice/uuid-123", "page1");
+        let result =
+            find_matching_dynamic_schema(&permit, "orders/did:key:alice/uuid-123", "page1");
         assert!(result.is_some(), "Should match orders/{{id}} schema");
         let (schema_key, _schema, creator_did) = result.unwrap();
         assert_eq!(schema_key, "orders/{id}");
         assert_eq!(creator_did, "did:key:alice");
 
         // Match with page_id prefix
-        let result = find_matching_dynamic_schema(&permit, "page1/orders/did:key:bob/order1", "page1");
+        let result =
+            find_matching_dynamic_schema(&permit, "page1/orders/did:key:bob/order1", "page1");
         assert!(result.is_some());
         let (_, _, creator_did) = result.unwrap();
         assert_eq!(creator_did, "did:key:bob");
 
         // No match: wrong prefix
-        let result = find_matching_dynamic_schema(&permit, "channels/did:key:alice/general/messages", "page1");
+        let result = find_matching_dynamic_schema(
+            &permit,
+            "channels/did:key:alice/general/messages",
+            "page1",
+        );
         assert!(result.is_none(), "Should not match — no channels schema");
 
         // No match: no DID in path
@@ -366,5 +371,4 @@ mod tests {
         let result = find_matching_dynamic_schema(&permit, "orders", "page1");
         assert!(result.is_none(), "Should not match — too short");
     }
-
 }

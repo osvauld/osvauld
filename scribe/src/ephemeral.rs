@@ -45,12 +45,7 @@ pub fn route_remote_ephemeral(state: &mut ScribeState, from_did: &str, payload: 
             }
             false
         }
-        // Legacy message types
-        "peer_joined" | "peer_left" | "peer_count" | "online_peers" => {
-            debug!(page_id = %state.page_id, msg_type = %msg_type, "Ignoring legacy ephemeral message type");
-            true
-        }
-        _ => false
+        _ => false,
     }
 }
 
@@ -78,10 +73,13 @@ pub fn emit_to_page_subscribers(state: &ScribeState, update: PageUpdate) -> usiz
 
 /// Emit PeerSubscribed to local app subscribers
 pub fn emit_peer_subscribed(state: &ScribeState, user_did: &str) {
-    let sent = emit_to_page_subscribers(state, PageUpdate::PeerSubscribed {
-        did: user_did.to_string(),
-        username: None,
-    });
+    let sent = emit_to_page_subscribers(
+        state,
+        PageUpdate::PeerSubscribed {
+            did: user_did.to_string(),
+            username: None,
+        },
+    );
     if sent > 0 {
         info!(user_did = %user_did, "Emitted PeerSubscribed to {} subscribers", sent);
     }
@@ -89,9 +87,12 @@ pub fn emit_peer_subscribed(state: &ScribeState, user_did: &str) {
 
 /// Emit PeerUnsubscribed to local app subscribers
 pub fn emit_peer_unsubscribed(state: &ScribeState, user_did: &str) {
-    let sent = emit_to_page_subscribers(state, PageUpdate::PeerUnsubscribed {
-        did: user_did.to_string(),
-    });
+    let sent = emit_to_page_subscribers(
+        state,
+        PageUpdate::PeerUnsubscribed {
+            did: user_did.to_string(),
+        },
+    );
     if sent > 0 {
         info!(user_did = %user_did, "Emitted PeerUnsubscribed to {} subscribers", sent);
     }
@@ -99,11 +100,14 @@ pub fn emit_peer_unsubscribed(state: &ScribeState, user_did: &str) {
 
 /// Emit raw ephemeral to local app subscribers
 pub fn emit_raw_ephemeral(state: &ScribeState, user_did: &str, device_id: &str, payload: &[u8]) {
-    emit_to_page_subscribers(state, PageUpdate::Ephemeral {
-        user_did: user_did.to_string(),
-        device_id: device_id.to_string(),
-        payload: payload.to_vec(),
-    });
+    emit_to_page_subscribers(
+        state,
+        PageUpdate::Ephemeral {
+            user_did: user_did.to_string(),
+            device_id: device_id.to_string(),
+            payload: payload.to_vec(),
+        },
+    );
 }
 
 /// Emit structured ephemeral to local app subscribers
@@ -116,11 +120,14 @@ pub fn emit_structured_ephemeral(
     func: &str,
     args: &serde_json::Value,
 ) {
-    let sent = emit_to_page_subscribers(state, PageUpdate::StructuredEphemeral {
-        from_did: from_did.to_string(),
-        func: func.to_string(),
-        args: args.clone(),
-    });
+    let sent = emit_to_page_subscribers(
+        state,
+        PageUpdate::StructuredEphemeral {
+            from_did: from_did.to_string(),
+            func: func.to_string(),
+            args: args.clone(),
+        },
+    );
     debug!(
         page_id = %state.page_id,
         from_did = %from_did,
@@ -193,4 +200,3 @@ pub fn broadcast_ephemeral_to_subscribers(
         warn!(page_id = %state.page_id, "Failed to acquire subscribers lock for ephemeral broadcast");
     }
 }
-

@@ -345,63 +345,6 @@ fn main() {
         });
     }
 
-    // Refresh app callback
-
-    {
-        let butler = butler.clone();
-        let tokio_handle = tokio_handle.clone();
-
-        shell.on_refresh_app(move |app_name, app_dir| {
-            let app_name = app_name.to_string();
-            let app_dir = PathBuf::from(app_dir.to_string());
-            tracing::info!(app_name = %app_name, app_dir = %app_dir.display(), "Refresh app");
-
-            let butler = butler.clone();
-
-            tokio_handle.spawn(async move {
-                // Find page containing this app by searching Butler's spaces/pages
-                let page_id = find_page_for_app(&butler, &app_name);
-
-                if let Some(page_id) = page_id {
-                    match butler.open_page(&page_id).await {
-                        Ok(scribe_ref) => {
-                            let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-                            if let Err(e) = scribe_ref.cast(ScribeMessage::RefreshApp {
-                                app_name: app_name.clone(),
-                                app_dir,
-                                reply: reply_tx,
-                            }) {
-                                tracing::error!(error = %e, "Failed to send RefreshApp to Scribe");
-                                return;
-                            }
-
-                            match reply_rx.await {
-                                Ok(Ok(changed_files)) => {
-                                    tracing::info!(
-                                        app_name = %app_name,
-                                        changed_count = changed_files.len(),
-                                        "App refreshed"
-                                    );
-                                }
-                                Ok(Err(e)) => {
-                                    tracing::error!(error = %e, "RefreshApp failed");
-                                }
-                                Err(_) => {
-                                    tracing::error!("RefreshApp reply channel closed");
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!(error = %e, page_id = %page_id, "Failed to open page for refresh");
-                        }
-                    }
-                } else {
-                    tracing::warn!(app_name = %app_name, "Could not find page containing app");
-                }
-            });
-        });
-    }
-
     // Collector timer: poll app_ready channel, launch windows, connect debug eval
 
     let collector_timer = {
@@ -555,21 +498,6 @@ fn spawn_auto_reconnect(butler: Arc<Butler>, handle: CourierHandle) {
             }
         }
     });
-}
-
-/// Find the page that contains a given app by searching all spaces/pages
-fn find_page_for_app(butler: &Butler, app_name: &str) -> Option<String> {
-    let spaces = butler.spaces().list().ok()?;
-    for space in &spaces {
-        let pages = butler.pages().list(&space.id).ok()?;
-        for page in &pages {
-            let apps = butler.apps().list(&page.id).ok()?;
-            if apps.iter().any(|a| a == app_name) {
-                return Some(page.id.clone());
-            }
-        }
-    }
-    None
 }
 
 /// Launch a Raylib app (when manifest.renderer == "raylib")

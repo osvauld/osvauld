@@ -13,7 +13,6 @@ use tracing::{debug, info, instrument, warn};
 use base64::Engine;
 
 use crate::message::{BroadcastPayload, LoroDelta, ListOp, PageUpdate};
-use crate::permit::Permissions;
 use crate::state::ScribeState;
 use domains::JsonOp;
 
@@ -164,13 +163,6 @@ pub fn convert_loro_diff_to_delta(diff: &Diff) -> Option<LoroDelta> {
             Some(LoroDelta::Map { updated })
         }
 
-        Diff::Text(_text_delta) => {
-            // TODO: Implement text delta conversion when needed
-            // For now, return None and fall back to full data
-            debug!("Text delta conversion not yet implemented");
-            None
-        }
-
         _ => {
             debug!("Unsupported diff type: {:?}", diff);
             None
@@ -220,53 +212,6 @@ pub fn loro_value_to_json(value: &LoroValue) -> serde_json::Value {
             serde_json::Value::Null
         }
     }
-}
-
-// Loro Layer Handler
-
-/// Handle layer modified by Lua via direct FFI access
-///
-/// **Context**: Lua called push/set/etc on a LoroList/LoroMap
-/// **We do**: Check permission, commit transaction, let Loro observer handle notifications
-///
-/// **Note**: By the time this is called, the change is already in the Loro doc (via FFI).
-/// We can't reject it here, but we log a warning if permission would be denied.
-/// Future: Lua bindings should check can_local_write() before allowing the operation.
-#[instrument(skip_all, fields(page_id = %state.page_id, layer = %layer_name))]
-pub async fn handle_layer_modified_by_lua(state: &mut ScribeState, layer_name: String) {
-    debug!(layer_name = %layer_name, "Layer modified by Lua, committing transaction");
-
-    // Check if we have permission to write to this layer
-    // Note: Changes are already made via FFI, this is defense-in-depth logging
-    if !Permissions::can_local_write(state, &layer_name) {
-        warn!(
-            layer = %layer_name,
-            our_did = %state.our_did,
-            "Local write to layer without permission (changes already applied via FFI)"
-        );
-        // TODO: In future, Lua bindings should check permission before allowing write
-        // For now, we still commit to avoid leaving Loro in inconsistent state
-    }
-
-    // Commit the Loro transaction to trigger native observer
-    // This makes the observer fire immediately with delta information
-    if let Some(unit) = state.units.get(&layer_name) {
-        unit.layer().commit();
-    }
-
-    // Mark layer as dirty for periodic flush (every 10s)
-    if let Some(unit) = state.units.get_mut(&layer_name) {
-        unit.mark_dirty();
-    }
-
-    // NOTE: We don't manually notify observers here!
-    // The commit() above triggers Loro's native observer (setup in handle_subscribe_loro_changes)
-    // which will automatically:
-    // - Send LoroChangeEvent with delta to UI
-    // - Notify query subscribers
-    // - Broadcast to peers
-    //
-    // Dirty layer will be flushed to storage by periodic timer (every 10s)
 }
 
 // Startup Observer Setup

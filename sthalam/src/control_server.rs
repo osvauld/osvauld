@@ -48,11 +48,6 @@ pub enum UiCommand {
         connection_string: String,
         response_tx: oneshot::Sender<Result<String, String>>,
     },
-    RefreshApp {
-        app_name: String,
-        app_dir: String,
-        response_tx: oneshot::Sender<Result<Vec<String>, String>>,
-    },
     RefreshPage {
         page_dir: String,
         response_tx: oneshot::Sender<Result<Vec<String>, String>>,
@@ -312,30 +307,6 @@ impl CommandHandler for ShellHandler {
             "get_app_status" => {
                 let status = self.app_status.read().await.clone();
                 Some(Response::ok(id, serde_json::to_value(status).unwrap_or(serde_json::Value::Null)))
-            }
-
-            "refresh_app" => {
-                let app_name = get_param(&params, "app_name")?;
-                let app_dir = get_param(&params, "app_dir")?;
-                let ui_tx = self.ui_tx.read().await;
-                let Some(tx) = ui_tx.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "UI automation not available"));
-                };
-                let (response_tx, response_rx) = oneshot::channel();
-                if tx.send(UiCommand::RefreshApp { app_name: app_name.clone(), app_dir: app_dir.clone(), response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send refresh_app command"));
-                }
-                match response_rx.await {
-                    Ok(Ok(changed_files)) => Some(Response::ok(id, serde_json::json!({
-                        "success": true,
-                        "app_name": app_name,
-                        "app_dir": app_dir,
-                        "changed_files": changed_files,
-                        "changed_count": changed_files.len()
-                    }))),
-                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "RefreshApp command dropped")),
-                }
             }
 
             "refresh_page" => {

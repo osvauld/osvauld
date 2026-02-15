@@ -56,7 +56,7 @@ pub use scribe::{
     PeerResolver, PeerResolverRef,
     PermitIssuer, PermitIssuerRef, NullPermitIssuer,
     EphemeralBroadcast, EphemeralOutbound,
-    PermitContext, Permissions, glob_match,
+    Permissions, glob_match,
     SubscriberInfo, QuerySubscriberInfo, SyncMode,
     ScribeError,
     JsonOp,
@@ -317,9 +317,9 @@ impl Butler {
             .flatten()
             .and_then(|page| page.get_permit().cloned())
             .and_then(|permit| {
-                PermitContext::from_token(&permit, page_id, "")
+                gurkha::Permit::from_token(&permit)
                     .ok()
-                    .map(|ctx| ctx.permit().token_type().unwrap_or("owner").to_string())
+                    .map(|p| p.token_type().unwrap_or("owner").to_string())
             })
             .unwrap_or_else(|| "owner".to_string());
 

@@ -164,9 +164,9 @@ impl MockScribeState {
         let name = self.normalize(name);
         match self.layers.get(&name) {
             Some(MockLayer::List(items)) => Some(JsonValue::Array(items.clone())),
-            Some(MockLayer::Map(map)) => {
-                Some(JsonValue::Object(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()))
-            }
+            Some(MockLayer::Map(map)) => Some(JsonValue::Object(
+                map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            )),
             None => None,
         }
     }
@@ -240,7 +240,11 @@ impl ScribeHandle for MockScribeHandle {
         match state.layers.get_mut(&name) {
             Some(MockLayer::List(items)) => {
                 if index > items.len() {
-                    return Err(format!("Index {} out of bounds (len={})", index, items.len()));
+                    return Err(format!(
+                        "Index {} out of bounds (len={})",
+                        index,
+                        items.len()
+                    ));
                 }
                 items.insert(index, item);
                 state.notify_change(&name);
@@ -257,7 +261,11 @@ impl ScribeHandle for MockScribeHandle {
         match state.layers.get_mut(&name) {
             Some(MockLayer::List(items)) => {
                 if index >= items.len() {
-                    return Err(format!("Index {} out of bounds (len={})", index, items.len()));
+                    return Err(format!(
+                        "Index {} out of bounds (len={})",
+                        index,
+                        items.len()
+                    ));
                 }
                 items.remove(index);
                 state.notify_change(&name);
@@ -303,9 +311,7 @@ impl ScribeHandle for MockScribeHandle {
                 state.notify_change(&name);
                 Ok(())
             }
-            Some(MockLayer::List(_)) => {
-                Err(format!("Layer '{}' is a list, not a map", name))
-            }
+            Some(MockLayer::List(_)) => Err(format!("Layer '{}' is a list, not a map", name)),
             None => Err(format!("Layer '{}' does not exist", name)),
         }
     }
@@ -315,9 +321,7 @@ impl ScribeHandle for MockScribeHandle {
         let name = state.normalize(layer_name);
         match state.layers.get(&name) {
             Some(MockLayer::Map(map)) => Ok(map.get(key).cloned()),
-            Some(MockLayer::List(_)) => {
-                Err(format!("Layer '{}' is a list, not a map", name))
-            }
+            Some(MockLayer::List(_)) => Err(format!("Layer '{}' is a list, not a map", name)),
             None => Err(format!("Layer '{}' does not exist", name)),
         }
     }
@@ -331,9 +335,7 @@ impl ScribeHandle for MockScribeHandle {
                 state.notify_change(&name);
                 Ok(())
             }
-            Some(MockLayer::List(_)) => {
-                Err(format!("Layer '{}' is a list, not a map", name))
-            }
+            Some(MockLayer::List(_)) => Err(format!("Layer '{}' is a list, not a map", name)),
             None => Err(format!("Layer '{}' does not exist", name)),
         }
     }
@@ -343,9 +345,7 @@ impl ScribeHandle for MockScribeHandle {
         let name = state.normalize(layer_name);
         match state.layers.get(&name) {
             Some(MockLayer::Map(map)) => Ok(map.len()),
-            Some(MockLayer::List(_)) => {
-                Err(format!("Layer '{}' is a list, not a map", name))
-            }
+            Some(MockLayer::List(_)) => Err(format!("Layer '{}' is a list, not a map", name)),
             None => Err(format!("Layer '{}' does not exist", name)),
         }
     }
@@ -355,9 +355,7 @@ impl ScribeHandle for MockScribeHandle {
         let name = state.normalize(layer_name);
         match state.layers.get(&name) {
             Some(MockLayer::Map(map)) => Ok(map.keys().cloned().collect()),
-            Some(MockLayer::List(_)) => {
-                Err(format!("Layer '{}' is a list, not a map", name))
-            }
+            Some(MockLayer::List(_)) => Err(format!("Layer '{}' is a list, not a map", name)),
             None => Err(format!("Layer '{}' does not exist", name)),
         }
     }
@@ -391,18 +389,23 @@ impl ScribeHandle for MockScribeHandle {
         self.state.lock().unwrap().subscriber_count
     }
 
-    fn create_layer(&self, schema_key: &str, layer_id: &str, _authorized_peers: Option<Vec<String>>) -> Result<String, String> {
+    fn create_layer(
+        &self,
+        schema_key: &str,
+        layer_id: &str,
+        _authorized_peers: Option<Vec<String>>,
+    ) -> Result<String, String> {
         // Mock: generate a simple layer name from schema_key and layer_id
         // In production, Scribe generates the full path with DID
-        let layer_name = format!("mock-page/{}/{}", schema_key.replace("{id}", layer_id), layer_id);
+        let layer_name = format!(
+            "mock-page/{}/{}",
+            schema_key.replace("{id}", layer_id),
+            layer_id
+        );
         Ok(layer_name)
     }
 
     fn add_layer_access(&self, _layer_name: &str, _dids: &[String]) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn remove_layer_access(&self, _layer_name: &str, _did: &str) -> Result<(), String> {
         Ok(())
     }
 
@@ -614,7 +617,12 @@ mod tests {
         // Check notification arrived
         let cmd = rx.try_recv().unwrap();
         match cmd {
-            LuaCommand::LoroChanged { layer_name, full_data, ops, delta } => {
+            LuaCommand::LoroChanged {
+                layer_name,
+                full_data,
+                ops,
+                delta,
+            } => {
                 assert_eq!(layer_name, "messages");
                 assert!(ops.is_none());
                 assert!(delta.is_none());
@@ -632,7 +640,9 @@ mod tests {
         handle.ensure_map("my_map").unwrap();
 
         // List ops on map
-        assert!(handle.list_push("my_map", "", serde_json::json!(1)).is_err());
+        assert!(handle
+            .list_push("my_map", "", serde_json::json!(1))
+            .is_err());
         assert!(handle.list_get("my_map", 0).is_err());
 
         // Map ops on list
