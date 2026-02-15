@@ -1,0 +1,728 @@
+Implement the following plan:
+
+# Observability for Dynamic Layer Subscribe Flow
+
+## Context
+
+The dynamic channel E2E test (`e2e_tests/test_custom_channel.py`) fails: Alice's dynamic layer `project-x/messages` syncs to the node but never reaches Bob or Carol. Capture analysis shows:
+
+- Node receives `LayerSubscribe` from Bob/Carol, sends `LayerSubscribeAck` — but no `subscriber_added` events fire for them on the project-x layer
+- No `broadcast_decision` events for Bob/Carol when Alice's message arrives (they're not in the layer subscriber map)
+- The chain breaks at `HandleLayerSubscribe` → `issue_layer_permit_for_subscribe` (scribe/src/actor.rs:716-765), but there are **zero capture events** from this code path
+
+Additionally, the test analysis code has a field name bug: it checks `e.get("event")` but captures use `e.get("type")`, causing all event counts (broadcast_decision, layer_created, etc.) to show 0.
+
+## Changes
+
+### 1. Fix test analysis field name bug
+**File:** `e2e_tests/test_custom_channel.py`
+
+Change all `e.get("event")` to `e.get("type")` in the capture analysis sections (lines ~101-148 and ~216-248). This alone will surface existing broadcast_decision/layer_auth/permission_check events that are currently invisible.
+
+### 2. Add `layer_subscribe_result` capture to Scribe
+**File:** `scribe/src/state.rs`
+
+Add new `emit_layer_subscribe_result_capture` function following existing patterns (like `emit_layer_auth_capture`):
+```
+type: "layer_subscribe_result"
+fields: layer, peer_did, result (ok/err), error, subscriber_added (bool)
+```
+
+**File:** `scribe/src/actor.rs` (HandleLayerSubscribe handler, ~line 763)
+
+Call `emit_layer_subscribe_result_capture` after the closure returns, capturing:
+- Whether `issue_layer_permit_for_subscribe` succeeded or failed (and the error string)
+- Whether the peer was actually added to the layer's subscriber map
+
+### 3. Add `permit_issue_decision` capture to Scribe
+**File:** `scribe/src/state.rs`
+
+Add new `emit_permit_issue_capture` function:
+```
+type: "permit_issue_decision"
+fields: layer, peer_did, path (self_permit/stored_authority/static_layer/none), result (ok/err), reason
+```
+
+**File:** `scribe/src/actor.rs` (`issue_layer_permit_for_subscribe`, ~lines 1043-1147)
+
+Add capture calls at each decision point:
+- Path 1 (self-permit lookup): result of `get_layer_authority_permit`
+- Path 2 (stored authority): result of `get_authority_for_layer`, and the `is_authorized` check
+- Path 3 (static layer): result
+- Final Err fallback: capture with path="none"
+
+### 4. Add `layer_subscribe_protocol` capture to Courier
+**File:** `courier/src/peer_actor/subscribe.rs`
+
+In `on_layer_subscribe` (~line 227-239): After receiving Scribe reply, emit a capture event:
+```
+type: "layer_subscribe_protocol"
+fields: direction (incoming/outgoing), page_id, layer, peer_did, result (ok/err), error
+```
+
+In `on_layer_subscribe_ack` (~line 349-355): When ACK is rejected, emit a capture:
+```
+type: "layer_subscribe_protocol"
+fields: direction (ack_received), page_id, layer, accepted, reason
+```
+
+The courier capture uses `state.capture_tx` (same `broadcast::Sender<String>` pattern as message_trace in `peer_actor/mod.rs`).
+
+### 5. Update test analysis to show new events
+**File:** `e2e_tests/test_custom_channel.py`
+
+Add analysis sections for the new capture types:
+- `layer_subscribe_result` events (grouped by instance)
+- `permit_issue_decision` events (show path attempted and result)
+- `layer_subscribe_protocol` events (show accepted/rejected)
+
+## Files to modify
+
+| File | Change |
+|------|--------|
+| `e2e_tests/test_custom_channel.py` | Fix `event`→`type` bug, add new event analysis |
+| `scribe/src/state.rs` | Add `emit_layer_subscribe_result_capture`, `emit_permit_issue_capture` |
+| `scribe/src/actor.rs` | Call new captures in `HandleLayerSubscribe` and `issue_layer_permit_for_subscribe` |
+| `courier/src/peer_actor/subscribe.rs` | Add capture events in `on_layer_subscribe` and `on_layer_subscribe_ack` |
+
+## Verification
+
+1. `cargo build` — confirm compilation
+2. `python e2e_tests/test_custom_channel.py --keep` — run the test
+3. Check the merged capture JSONL for:
+   - `permit_issue_decision` events on kunki showing which path was tried and why it failed
+   - `layer_subscribe_result` events showing the Err from HandleLayerSubscribe
+   - `layer_subscribe_protocol` events showing whether ACKs were accepted or rejected
+   - Fixed broadcast_decision counts (should now show the skip_sender decisions)
+4. The new captures will reveal the exact root cause (likely a key mismatch between `store_authority_permit` bare name and `get_authority_for_layer` full name lookup)
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/6f113e01-af91-4f1a-97a2-a105156331f5.jsonl
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+python e2e_tests/test_custom_channel.py --keep
+
+============================================================
+  dynamic_channel
+============================================================
+  All instances ready
+
+  alice: signup, create space...
+  Space: 8cadc80c..., Page: 4e606354...
+  alice: connect to node...
+    Waiting for node authentication...
+    Node authenticated
+  alice: publish space to node...
+  Published and synced to node
+
+  Connecting viewers (parallel)...
+  carol synced in 0.0s
+  bob synced in 0.0s
+  All viewers connected and synced
+
+  Opening apps (parallel)...
+  bob app 'Group Chat' synced in 0.0s
+  carol app 'Group Chat' synced in 0.0s
+    carol app ready
+    alice app ready
+    bob app ready
+  All apps opened and ready
+
+  Building peer handles...
+
+  Ready! Peers: ['alice', 'bob', 'carol']
+============================================================
+
+
+=== Dynamic Channel E2E ===
+  Captures: /tmp/dynamic_channel/captures/
+
+[1] Alice creates channel 'project-x'...
+[2] Waiting 4s for sync to node + fanout...
+[3] Alice sends message in 'project-x'...
+[4] Waiting 3s for message sync...
+
+  Message counts in project-x:
+    Alice (owner):  1
+    Bob (viewer):   0
+    Carol (viewer): 0
+
+=== Capture Analysis ===
+  Total events: 136
+    alice: 34 events
+    bob: 13 events
+    carol: 13 events
+    kunki: 76 events
+
+--- Key events ---
+  layer_created (project-x): 0
+  NewDynamicLayer (project-x): 0
+  __sync_meta events: 81
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [bob] message_trace: __sync_meta:did:key:REDACTED
+    [carol] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [bob] message_trace: __sync_meta:did:key:REDACTED
+    [carol] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [bob] message_trace: __sync_meta:did:key:REDACTED
+    [carol] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [bob] message_trace: __sync_meta:did:key:REDACTED
+    [carol] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [bob] message_trace: __sync_meta:did:key:REDACTED
+    [bob] message_trace: __sync_meta:did:key:REDACTED
+    [carol] message_trace: __sync_meta:did:key:REDACTED
+    [carol] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [alice] message_trace: __sync_meta:did:key:REDACTED
+    [kunki] permission_check: __sync_meta:did:key:REDACTED
+    [kunki] apply_update: __sync_meta:did:key:REDACTED
+    [kunki] broadcast_decision: __sync_meta:did:key:REDACTED
+    [kunki] broadcast_decision: __sync_meta:did:key:REDACTED
+    [bob] permission_check: __sync_meta:did:key:REDACTED
+    [carol] permission_check: __sync_meta:did:key:REDACTED
+    [alice] permission_check: __sync_meta:did:key:REDACTED
+    [alice] apply_update: __sync_meta:did:key:REDACTED
+    [alice] broadcast_decision: __sync_meta:did:key:REDACTED
+    [bob] apply_update: __sync_meta:did:key:REDACTED
+    [bob] broadcast_decision: __sync_meta:did:key:REDACTED
+    [carol] apply_update: __sync_meta:did:key:REDACTED
+    [carol] broadcast_decision: __sync_meta:did:key:REDACTED
+    [alice] permission_check: __sync_meta:did:key:REDACTED
+    [alice] apply_update: __sync_meta:did:key:REDACTED
+    [kunki] permission_check: __sync_meta:did:key:REDACTED
+    [kunki] apply_update: __sync_meta:did:key:REDACTED
+    [kunki] broadcast_decision: __sync_meta:did:key:REDACTED
+    [kunki] permission_check: __sync_meta:did:key:REDACTED
+    [kunki] apply_update: __sync_meta:did:key:REDACTED
+    [kunki] broadcast_decision: __sync_meta:did:key:REDACTED
+    [kunki] permission_check: __sync_meta:did:key:REDACTED
+    [kunki] apply_update: __sync_meta:did:key:REDACTED
+    [kunki] broadcast_decision: __sync_meta:did:key:REDACTED
+    [kunki] permission_check: __sync_meta:did:key:REDACTED
+    [kunki] apply_update: __sync_meta:did:key:REDACTED
+    [kunki] broadcast_decision: __sync_meta:did:key:REDACTED
+  broadcast_decision events: 11
+    sent: 0, skipped: 11
+    Skipped breakdown:
+      __sync_meta:did:key:REDACTED | remote_handled_by_apply: 1
+      __sync_meta:did:key:REDACTED | skip_sender: 1
+      __sync_meta:did:key:REDACTED | remote_handled_by_apply: 1
+      __sync_meta:did:key:REDACTED | skip_sender: 1
+      __sync_meta:did:key:REDACTED | remote_handled_by_apply: 2
+      __sync_meta:did:key:REDACTED | skip_sender: 3
+      channels/did:key:REDACTED | remote_handled_by_apply: 1
+      channels/did:key:REDACTED | skip_sender: 1
+  LayerAccessChanged: 0
+  layer_discovered: 0
+  layer_subscribe_result: 3
+    [alice] layer=channels/.../project-x/messages peer=t34aMazjY1hL result=ok subscriber_added=True error=None
+    [kunki] layer=channels/.../project-x/messages peer=F8NuaEaKL5gD result=err subscriber_added=False error=Cannot issue layer permit for 4e606354-c331-412a-9cfc-10d94c1b45ba/channels/did:key:REDACTED to did:key:REDACTED
+    [kunki] layer=channels/.../project-x/messages peer=MCMnmQykhsJa result=err subscriber_added=False error=Cannot issue layer permit for 4e606354-c331-412a-9cfc-10d94c1b45ba/channels/did:key:REDACTED to did:key:REDACTED
+  permit_issue_decision: 9
+    [alice] layer=4e606354-c331-412a-9cfc-10d94c1b45ba/channels/.../project-x/messages peer=t34aMazjY1hL path=self_permit result=ok reason=None
+    [kunki] layer=4e606354-c331-412a-9cfc-10d94c1b45ba/channels/.../project-x/messages peer=F8NuaEaKL5gD path=self_permit result=skip reason=no self-permit found
+    [kunki] layer=4e606354-c331-412a-9cfc-10d94c1b45ba/channels/.../project-x/messages peer=F8NuaEaKL5gD path=stored_authority result=skip reason=no authority found
+    [kunki] layer=4e606354-c331-412a-9cfc-10d94c1b45ba/channels/.../project-x/messages peer=F8NuaEaKL5gD path=static_layer result=skip reason=layer not in our permit
+    [kunki] layer=4e606354-c331-412a-9cfc-10d94c1b45ba/channels/.../project-x/messages peer=F8NuaEaKL5gD path=none result=err reason=all paths exhausted
+    [kunki] layer=4e606354-c331-412a-9cfc-10d94c1b45ba/channels/.../project-x/messages peer=MCMnmQykhsJa path=self_permit result=skip reason=no self-permit found
+    [kunki] layer=4e606354-c331-412a-9cfc-10d94c1b45ba/channels/.../project-x/messages peer=MCMnmQykhsJa path=stored_authority result=skip reason=no authority found
+    [kunki] layer=4e606354-c331-412a-9cfc-10d94c1b45ba/channels/.../project-x/messages peer=MCMnmQykhsJa path=static_layer result=skip reason=layer not in our permit
+    [kunki] layer=4e606354-c331-412a-9cfc-10d94c1b45ba/channels/.../project-x/messages peer=MCMnmQykhsJa path=none result=err reason=all paths exhausted
+  layer_subscribe_protocol: 5
+    [alice] direction=incoming layer=channels/did:key:REDACTED peer=did:key:z6Mk result=ok error=None
+    [kunki] direction=incoming layer=channels/did:key:REDACTED peer=did:key:z6Mk result=err error=Cannot issue layer permit for 4e606354-c331-412a-9cfc-10d94c1b45ba/channels/did:key:REDACTED to did:key:REDACTED
+    [kunki] direction=incoming layer=channels/did:key:REDACTED peer=did:key:z6Mk result=err error=Cannot issue layer permit for 4e606354-c331-412a-9cfc-10d94c1b45ba/channels/did:key:REDACTED to did:key:REDACTED
+    [carol] direction=ack_rejected layer=channels/did:key:REDACTED peer=did:key:z6Mk result=err error=Cannot issue layer permit for 4e606354-c331-412a-9cfc-10d94c1b45ba/channels/did:key:REDACTED to did:key:REDACTED
+    [bob] direction=ack_rejected layer=channels/did:key:REDACTED peer=did:key:z6Mk result=err error=Cannot issue layer permit for 4e606354-c331-412a-9cfc-10d94c1b45ba/channels/did:key:REDACTED to did:key:REDACTED
+
+============================================================
+  FAIL: alice=1 bob=0 carol=0
+  Captures: /tmp/dynamic_channel/captures/dyn_channel_merged.jsonl
+============================================================
+
+
+=== Viewer Write to Dynamic Channel ===
+  Captures: /tmp/dynamic_channel/captures/
+
+[1] Bob switches to 'project-x' channel...
+    Bob active channel: project-x
+    Bob message count before write: 0
+[2] Bob sends message in 'project-x'...
+[3] Waiting 5s for bob's message to sync...
+
+  Message counts after bob's message:
+    Alice (owner):  1
+    Bob (viewer):   1
+    Carol (viewer): 0
+
+=== Viewer Write Capture Analysis ===
+  Total events: 2
+    bob: 2 events
+
+--- Broadcast decisions ---
+  Total: 0
+
+--- Sync protocol ---
+  Sync events: 0
+
+--- All bob events ---
+    page_update: layer= {'LayerChanged': {'created': False, 'delta': {'type': 'Map', 'updated': {'6990e002-7a84': {'attachment_hash': '', 'attachment_name': '', 'deleted': False, 'edited': False, 'id': '6990e002-7a84', 'reactions': [], 'reply_preview': '', 'reply_to': '', 'sender_did': 'did:key:REDACTED', 'sender_name': 'bob', 'text': 'hello from bob in project-x', 'thread_parent_id': '', 'thread_reply_count': 0, 'timestamp': 1771102210}}}, 'from_peer': None, 'full_data': {'6990e002-7a84': {'attachment_hash': '', 'attachment_name': '', 'deleted': False, 'edited': False, 'id': '6990e002-7a84', 'reactions': [], 'reply_preview': '', 'reply_to': '', 'sender_did': 'did:key:REDACTED', 'sender_name': 'bob', 'text': 'hello from bob in project-x', 'thread_parent_id': '', 'thread_reply_count': 0, 'timestamp': 1771102210}}, 'layer': 'channels/project-x/messages', 'ops': [{'key': '6990e002-7a84', 'op': 'set', 'path': 'cid:root-channels/project-x/messages:Map', 'value': {'attachment_hash': '', 'attachment_name': '', 'deleted': False, 'edited': False, 'id': '6990e002-7a84', 'reactions': [], 'reply_preview': '', 'reply_to': '', 'sender_did': 'did:key:REDACTED', 'sender_name': 'bob', 'text': 'hello from bob in project-x', 'thread_parent_id': '', 'thread_reply_count': 0, 'timestamp': 1771102210}}], 'state_vector': [1, 220, 185, 173, 242, 203, 141, 228, 149, 193, 1, 2]}}
+    page_update: layer= {'LayerChanged': {'created': False, 'delta': {'type': 'Map', 'updated': {'did:key:REDACTED': {'channels': {'project-x': 1771102210}}}}, 'from_peer': None, 'full_data': {'did:key:REDACTED': {'channels': {'project-x': 1771102210}}}, 'layer': 'read_positions', 'ops': [{'key': 'did:key:REDACTED', 'op': 'set', 'path': 'cid:root-read_positions:Map', 'value': {'channels': {'project-x': 1771102210}}}], 'state_vector': [1, 183, 198, 248, 191, 178, 131, 144, 148, 179, 1, 2]}}
+
+--- Node events with project-x ---
+
+--- __sync_meta events ---
+
+--- Layer subscribe results ---
+
+--- Permit issue decisions ---
+
+--- Layer subscribe protocol ---
+
+============================================================
+  FAIL: alice=1 bob=1 carol=0 (expected >= 2)
+  Captures: /tmp/dynamic_channel/captures/viewer_write_merged.jsonl
+============================================================
+
+============================================================
+  Session kept alive: tmux attach -t dynamic_channel
+============================================================
+
+  Sockets:
+    alice       : /tmp/dynamic_channel/alice/alice.sock
+    bob         : /tmp/dynamic_channel/bob/bob.sock
+    carol       : /tmp/dynamic_channel/carol/carol.sock check the captures and analyze and lets understand where it breaks.
+
+---
+
+how is the layer stored?
+
+---
+
+okay lets fix this.
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+test tests::layer_sync::test_dm_explicit_grant_isolation ... FAILED
+
+failures:
+
+---- tests::layer_sync::test_dm_explicit_grant_isolation stdout ----
+
+thread 'tests::layer_sync::test_dm_explicit_grant_isolation' (3647014) panicked at integration_tests/src/tests/layer_sync.rs:786:13:
+Viewer1 should NOT have access to DM data, but got: Object {"secret": Object {"id": String("secret"), "sender_did": String("did:key:owner"), "text": String("Only viewer0 should see this"), "timestamp": Number(1234567890)}}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace  so this integration test fails, so we need to enable presense for this to work. in group chat lets enable the presense, use the git in sample_apps/osvauld_demos/group_chat, there we had the presense enabled. we need to enable the presense to add users to add the private chat.
+
+---
+
+[Request interrupted by user]
+
+---
+
+so our dynamic layer one works the dm once use authorized dids the one dynamic channel test did not required this.
+
+---
+
+so to test the e2e test dm test, we need to enable to presense right.
+
+---
+
+can you check the group chat code we have on our group chat app. it does not have presense.
+
+---
+
+[Request interrupted by user]
+
+---
+
+so there is one more group chat right that is what we are using not in osvauld-demos.
+
+---
+
+no they still dont show any online except the user itself. this was working before. check the logs using tmuyx i see we have presense layer but its subscriber count is zero, it does not show the other peers as online now. check the git diff once more and make sure we havent missed anything.
+
+---
+
+its still not showin others as online can you attach to tmux and check the logs there?
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+still online has no users now as well you may check the online status using the socket.   alice       : /tmp/dm_channel/alice/alice.sock
+    bob         : /tmp/dm_channel/bob/bob.sock
+    carol       : /tmp/dm_channel/carol/carol.sock
+    node  use tmux to check the logs.
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me go through the conversation chronologically to capture all important details.
+
+1. The user asked me to implement an observability plan for the dynamic layer subscribe flow. The plan had 5 changes across multiple files.
+
+2. I implemented the plan:
+   - Fixed `e.get("event")` → `e.get("type")` bug in `e2e_tests/test_custom_channel.py`
+   - Added `emit_layer_subscribe_result_capture` and `emit_permit_issue_capture` functions to `scribe/src/state.rs`
+   - Added capture calls in `scribe/src/actor.rs` (HandleLayerSubscribe handler and `issue_layer_permit_for_subscribe`)
+   - Added `emit_layer_subscribe_protocol_capture` function and capture calls in `courier/src/peer_actor/subscribe.rs`
+   - Added new event analysis sections to the test file
+
+3. The user ran the test and it showed the captures working. The key finding was:
+   - kunki (node) tried all 3 paths for Bob/Carol and failed:
+     - self_permit: skip (no self-permit found)
+     - stored_authority: skip (no authority found) ← THE BUG
+     - static_layer: skip (layer not in our permit)
+   
+4. I traced the root cause: key mismatch between `store_authority_permit` (stores with bare layer name) and `get_authority_for_layer` (looks up with full page_id-prefixed name). Fixed by changing `get_authority_for_layer(full_layer_name)` to `get_authority_for_layer(bare_layer_name)` in actor.rs.
+
+5. The integration test `test_dm_explicit_grant_isolation` failed because it created a DM with `authorized_peers: None` (open grant). Before the fix, this accidentally worked because the node couldn't find the authority (key mismatch). Fixed by changing to `authorized_peers: Some(vec![viewer0_did.clone()])`.
+
+6. The user then asked about presence for DMs. I confirmed presence is needed for DM flow.
+
+7. The user said the group chat in `sample_apps/group-chat/` (not `osvauld-demos`) already has presence. I confirmed it does.
+
+8. The user said presence still doesn't show other users as online, subscriber count is zero. I investigated:
+   - Found that the permit template doesn't have `{page_id}/presence` in the layers section
+   - `can_read_layer("presence")` returns false, so subscribers aren't added to presence layer
+   - Fixed `add_subscriber_to_layers` in `subscription.rs` to add presence subscribers when `can_see_others` is true
+
+9. After rebuilding, the user reported it still doesn't work. I checked tmux logs and confirmed `subscriber_count=0` on Alice for presence.
+
+10. I discovered the REAL issue: the presence layer doesn't exist when `add_subscriber_to_layers` runs. It's created later by the Lua app's `presence_lib.init()`. The `auto_subscribe_sync_target` function in `operations.rs` should add the node when the layer is first created, but it wasn't working.
+
+11. I added info-level debug logging to `auto_subscribe_sync_target` to diagnose why it's not adding the sync_target to the presence layer.
+
+12. The test failed to start (tmux session issues) and the user interrupted to request a summary.
+
+Key files modified:
+- `e2e_tests/test_custom_channel.py` - event→type fix + new analysis sections
+- `scribe/src/state.rs` - two new capture functions
+- `scribe/src/actor.rs` - capture calls + bare_layer_name fix
+- `courier/src/peer_actor/subscribe.rs` - protocol capture function + calls
+- `integration_tests/src/tests/layer_sync.rs` - authorized_peers fix
+- `scribe/src/sync/subscription.rs` - presence subscriber fix
+- `scribe/src/operations.rs` - debug logging for auto_subscribe_sync_target
+- `sample_apps/osvauld-demos/group-chat/app.lua` - presence re-enabled (but this is the wrong app)
+
+Current debugging: Why `auto_subscribe_sync_target` doesn't add the node as subscriber to the presence layer when it's first created. The debug logging was added but the test failed to start due to tmux session cleanup issues.
+
+Summary:
+1. Primary Request and Intent:
+   The user initially asked to implement an observability plan for the dynamic layer subscribe flow in a P2P CRDT sync system (osvauld). The plan involved adding capture events to trace why dynamic layers weren't syncing from Alice to Bob/Carol. This evolved into:
+   - Implementing observability captures (completed)
+   - Fixing the root cause bug: key mismatch in `get_authority_for_layer` (completed)
+   - Fixing the broken integration test `test_dm_explicit_grant_isolation` (completed)
+   - Enabling presence in the group chat app so users can see each other online (in progress - blocked by presence subscriber_count=0 bug)
+
+2. Key Technical Concepts:
+   - Loro CRDT document sync with layer-based architecture
+   - Permit-based authorization (gurkha::Permit) with layers, dynamic_layer_schemas, and presence capabilities
+   - Scribe actor pattern: LayerUnits with subscriber maps for broadcast
+   - `auto_subscribe_sync_target`: adds sync_target (node) to newly created layers
+   - `add_subscriber_to_layers`: adds subscribers to existing layers during subscription
+   - Capture system: `broadcast::Sender<String>` for JSON-line observability events
+   - Bare vs full layer names: bare = `channels/did:key:.../project-x/messages`, full = `{page_id}/channels/did:key:.../project-x/messages`
+   - Dynamic layer authority flow: creator stores self-permit → node stores authority → node issues permits to other peers
+   - Presence layer: special layer not listed in permit's `layers` section, governed by `can_see_others` capability
+
+3. Files and Code Sections:
+
+   - `e2e_tests/test_custom_channel.py`
+     - Fixed field name bug: all `e.get("event")` changed to `e.get("type")` (captures use "type" not "event")
+     - Added analysis sections for `layer_subscribe_result`, `permit_issue_decision`, `layer_subscribe_protocol` events in both Phase 1 and Phase 2
+
+   - `scribe/src/state.rs`
+     - Added two new capture functions before `emit_broadcast_decision_skip_capture`:
+     ```rust
+     pub fn emit_layer_subscribe_result_capture(
+         &self, layer: &str, peer_did: &str, result: &str, error: Option<&str>, subscriber_added: bool,
+     ) { /* JSON: type=layer_subscribe_result, fields: layer, peer_did, result, error, subscriber_added */ }
+
+     pub fn emit_permit_issue_capture(
+         &self, layer: &str, peer_did: &str, path: &str, result: &str, reason: Option<&str>,
+     ) { /* JSON: type=permit_issue_decision, fields: layer, peer_did, path, result, reason */ }
+     ```
+
+   - `scribe/src/actor.rs`
+     - **HandleLayerSubscribe handler (~line 763)**: Added `subscriber_added` tracking and capture calls:
+       - On success: `state.emit_layer_subscribe_result_capture(&bare, &peer_did, "ok", None, subscriber_added)`
+       - On error: `state.emit_layer_subscribe_result_capture(&bare, &peer_did, "err", Some(e), false)`
+     - **`issue_layer_permit_for_subscribe` function**: Added `emit_permit_issue_capture` at every decision point (self_permit ok/skip/err, stored_authority ok/skip/err, static_layer ok/skip/err, none/err)
+     - **ROOT CAUSE FIX (line ~1111)**: Changed `issuer.get_authority_for_layer(full_layer_name)` to `issuer.get_authority_for_layer(bare_layer_name)` — the stored authority uses bare names, so the lookup must too
+
+   - `courier/src/peer_actor/subscribe.rs`
+     - Added static function `emit_layer_subscribe_protocol_capture` to the `impl<C: Connection> PeerActor<C>` block:
+     ```rust
+     fn emit_layer_subscribe_protocol_capture(
+         capture_tx: &Option<tokio::sync::broadcast::Sender<String>>,
+         direction: &str, page_id: &str, layer: &str, peer_did: &str, result: &str, error: Option<&str>,
+     ) { /* JSON: type=layer_subscribe_protocol */ }
+     ```
+     - Called in `on_layer_subscribe` after Scribe reply (ok/err/dropped paths)
+     - Called in `on_layer_subscribe_ack` when rejected
+
+   - `integration_tests/src/tests/layer_sync.rs`
+     - Fixed `test_dm_explicit_grant_isolation`: Changed `authorized_peers: None` to `authorized_peers: Some(vec![viewer0_did.clone()])` in CreateDynamicLayer
+
+   - `scribe/src/sync/subscription.rs`
+     - Fixed `add_subscriber_to_layers` to handle presence layer:
+     ```rust
+     let is_presence = layer_name == "presence" || layer_name.ends_with("/presence");
+     if is_presence && !can_see_others {
+         continue;
+     }
+     // ... no_incoming_updates check ...
+     if is_presence && can_see_others {
+         let caps = Capabilities { read: true, write: true, sync: true };
+         unit.add_subscriber(user_did.to_string(), caps, broadcast_tx.clone());
+         state.emit_layer_auth_capture(layer_name, user_did, "subscriber_added_presence");
+         continue;
+     }
+     ```
+
+   - `scribe/src/operations.rs`
+     - Added info-level debug logging to `auto_subscribe_sync_target` to diagnose why the sync_target isn't being added to the presence layer when it's first created. Logs: "no sync_config", "no sync_target in config", "sync_target not found in subscribers" with existing subscriber DIDs
+
+   - `sample_apps/osvauld-demos/group-chat/app.lua`
+     - Added `local presence = presence_lib` import
+     - Added `presence.init(page_id, my_did, my_name)` in on_init
+     - Added `scribe:bind("online_users", "presence", {...})` binding
+     - Updated `refresh_member_picker()` to use `presence.get_online_users()`
+     - Note: This is the osvauld-demos copy, NOT the main `sample_apps/group-chat/` which already has presence
+
+   - `sample_apps/group-chat/permit_template.json`
+     - Important: does NOT have `{page_id}/presence` in any layers section
+     - Has `"presence": {"visible": true, "can_see_others": true}` as capability config in owner, viewer, collaborator, and consent templates
+     - `can_see_others()` defaults to `true` when no presence section exists in permit
+
+   - Key code path: `butler/src/storage/store/dynamic_layer.rs`
+     - Store key format: `{page_id}/{audience}/{layer_name}` (bare layer_name)
+     - Lookup in `get_authority_for_layer`: scans keys, extracts `stored_layer`, compares against parameter
+     - Bug was: stored_layer was bare, parameter was full → never matched
+
+4. Errors and Fixes:
+   - **`e.get("event")` vs `e.get("type")` bug**: All capture events use `"type"` field but test analysis checked `"event"`. Fixed by replacing all occurrences.
+   - **`emit_layer_subscribe_protocol_capture` not found**: Function was called in subscribe.rs before being defined. Fixed by adding the function definition at the top of the impl block.
+   - **Root cause: authority key mismatch**: `store_authority_permit` stored with bare name, `get_authority_for_layer` looked up with full name (page_id prefix). Fixed by passing `bare_layer_name` instead of `full_layer_name`.
+   - **Integration test `test_dm_explicit_grant_isolation` failure**: Test created DM with `authorized_peers: None` (open grant), which only passed before due to the key mismatch bug. Fixed by passing `authorized_peers: Some(vec![viewer0_did.clone()])`.
+   - **Presence subscriber_count=0**: Two issues identified:
+     1. `add_subscriber_to_layers` didn't add subscribers to presence because `can_read_layer("presence")` returns false (not in permit layers). Fixed by adding explicit presence check with `can_see_others`.
+     2. Presence layer doesn't exist when `add_subscriber_to_layers` runs (created later by Lua app). `auto_subscribe_sync_target` should handle this but isn't working. Still debugging.
+   - **Test startup failure**: tmux session cleanup timing issue when restarting test. Not yet resolved.
+
+5. Problem Solving:
+   - **Solved**: Dynamic channel sync (project-x/messages) failing because node couldn't issue permits to Bob/Carol. Root cause was bare vs full layer name mismatch in authority storage/lookup.
+   - **Solved**: DM isolation test failing after fix (open grant now works, exposing that test relied on the bug).
+   - **In progress**: Presence layer has subscriber_count=0 on Alice. The presence layer is created AFTER the node subscribes to Alice's Scribe, so `add_subscriber_to_layers` can't add the node (layer doesn't exist yet). The `auto_subscribe_sync_target` function in `operations.rs` should add the node when the layer is first created by `ensure_layer_exists`, but it's not working. Debug logging was added to diagnose whether sync_config/sync_target is set and whether the subscriber lookup matches. The test failed to restart with the debug build due to tmux cleanup issues.
+
+6. All user messages:
+   - "Implement the following plan: # Observability for Dynamic Layer Subscribe Flow [detailed plan with 5 changes]"
+   - [Pasted full test output showing captures working, Alice=1 Bob=0 Carol=0]
+   - "check the captures and analyze and lets understand where it breaks."
+   - "how is the layer stored?"
+   - "the layer name include the did right."
+   - "okay lets fix this."
+   - "so our dynamic layer one works the dm once use authorized dids the one dynamic channel test did not required this."
+   - "so to test the e2e test dm test, we need to enable to presense right."
+   - "can you check the group chat code we have on our group chat app. it does not have presense."
+   - "so there is one more group chat right that is what we are using not in osvauld-demos."
+   - "no they still dont show any online except the user itself. this was working before. check the logs using tmux i see we have presense layer but its subscriber count is zero, it does not show the other peers as online now. check the git diff once more and make sure we havent missed anything."
+   - "you may use tmux to attach to the logs Session kept alive: tmux attach -t dm_channel ... also you can use the sock to directly infer the state of the application."
+   - "can you check and confirm with the permit template that its correct?"
+   - "its still not showin others as online can you attach to tmux and check the logs there?"
+   - "still online has no users now as well you may check the online status using the socket. [socket paths] use tmux to check the logs."
+
+7. Pending Tasks:
+   - Debug why `auto_subscribe_sync_target` doesn't add the node as subscriber to the presence layer when it's first created by the Lua app
+   - The debug logging has been added to `operations.rs` but needs a successful test restart to see the output
+   - Once presence is fixed, the DM E2E test flow needs to work end-to-end
+   - Remove the verbose debug logging from `auto_subscribe_sync_target` once the issue is found
+
+8. Current Work:
+   Debugging why the presence layer has `subscriber_count=0` on Alice's Scribe. The issue is that the presence layer is created AFTER the node subscribes (by the Lua app via `presence_lib.init()` → `map_insert` → `ensure_layer_exists`). The `auto_subscribe_sync_target` function should add the node when the layer is first created, but it's not working. Info-level debug logging was added to `auto_subscribe_sync_target` in `scribe/src/operations.rs` to log:
+   - Whether sync_config exists
+   - Whether sync_target is set
+   - Whether the sync_target DID matches any subscriber DID
+   - All existing subscriber DIDs for comparison
+   
+   The test failed to restart (`tmux kill-session` + `python e2e_tests/test_dm_channel.py --keep` resulted in "Instances failed to start") and the user interrupted for this summary.
+
+9. Optional Next Step:
+   Restart the `dm_channel` test successfully (ensure old tmux session and /tmp/dm_channel directories are cleaned up), then check the alice logs for the `auto_subscribe_sync_target` debug output to understand why the node isn't being added as a subscriber to the presence layer. The user's most recent request: "still online has no users now as well you may check the online status using the socket... use tmux to check the logs."
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/b8604598-b535-45ad-bd70-e7cc88f3ed76.jsonl
+
+---
+
+=== DM Channel E2E (3 peers) ===
+  Alice DID: did:key:REDACTED
+  Bob DID:   did:key:REDACTED
+  Carol DID: did:key:REDACTED
+
+[0] Waiting for presence to sync...
+    Online counts: alice=1 bob=1 carol=1
+    Alice sees online: []
+  Captures: /tmp/dm_channel/captures/
+
+[1] Alice creates DM with bob...
+    Alice active DM: None
+[2] Alice sends message in DM...
+[3] Waiting 8s for sync to node + __sync_meta fanout to bob...
+[4] Checking bob's DM state...
+    Bob active DM: None
+    Bob DM message count: 0
+[5] Bob tries to open DM with alice...
+    Bob open_dm result: False
+    Bob active DM after open: None
+    Bob DM message count after open: 0
+[6] Checking carol's DM state (should be empty)...
+    Carol active DM: None
+    Carol DM message count: 0
+    Carol open_dm result: False
+[7] Alice sends second message...
+
+  Final DM message counts:
+    Alice: 0
+    Bob:   0
+    Carol: 0
+
+============================================================
+=== Capture Analysis ===
+============================================================
+  Total events: 3
+    alice: 1 events
+    bob: 1 events
+    carol: 1 events
+
+--- Layer creation (dms/) ---
+
+--- __sync_meta events ---
+
+  Bob's __sync_meta events: 0
+  Carol's __sync_meta events: 0
+
+--- apply_update for dms/ layers ---
+
+--- permission_check for dms/ ---
+
+--- layer_auth events ---
+
+--- broadcast_decision for dms/ ---
+
+--- subscriber_state events ---
+
+--- All bob events ---
+  type=page_update layer= action= did=
+
+--- All carol events ---
+  type=page_update layer= action= did=
+
+============================================================
+  FAIL: alice=0 bob=0 carol=0
+    Bob should have >= 1 messages
+  Captures: /tmp/dm_channel/captures/dm_test_merged.jsonl
+============================================================
+
+============================================================
+  Session kept alive: tmux attach -t dm_channel
+============================================================
+
+  Sockets:
+    alice       : /tmp/dm_channel/alice/alice.sock
+    bob         : /tmp/dm_channel/bob/bob.sock
+    carol       : /tmp/dm_channel/carol/carol.sock
+    node        : /tmp/dm_channel/node/node.sock we still dont have presense, can you go through the logs and find out why using tmux, you may also use python scritps to check the status of the apps using the socekt described in th ejpasted text.
+
+---
+
+[Request interrupted by user]
+
+---
+
+└─┐scribe::sync::handle_flush{page_id=6a6f2ed2-09c7-4687-b223-01da360989ef}
+┌─┘
+└─┐scribe::operations::handle_map_insert{layer_name="presence", key="did:key:REDACTED", page_id=6a6f2ed2-09c7-4687-b223-01da360989ef,
+layer=presence, path=}
+  ├─  0ms  INFO scribe::operations MapInsert operation
+┌─┘
+ INFO scribe::loro_observer Observer broadcasting local write to layer subscribers, page_id=6a6f2ed2-09c7-4687-b223-01da360989ef, layer_name=presence, subscriber_count=0
+└─┐scribe::sync::handle_flush{page_id=6a6f2ed2-09c7-4687-b223-01da360989ef}
+  └─┐butler::scribe_storage::save_layer{}
+    ├─  0ms  INFO butler::scribe_storage ButlerLayerStorage::save_layer, page_id=6a6f2ed2-09c7-4687-b223-01da360989ef, layer_name=presence, data_len=2293
+    └─┐butler::storage::store::layer::put_layer{}
+      ├─  0ms  INFO butler::storage::store::layer Writing layer to DB, page_id=6a6f2ed2-09c7-4687-b223-01da360989ef, layer_name=presence, key=6a6f2ed2-09c7-4687-b223-01da360989ef/presence, bytes=2321
+    ┌─┘
+  ┌─┘
+  └─┐butler::scribe_storage::save_vectors{}
+    └─┐butler::storage::store::sync::put_peer_vectors{}
+    ┌─┘
+  ┌─┘
+┌─┘ so the presense has no subscribers, node is already connected then why is it so? there are no presense events happening at the node.
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+so that only works sometimest here must be some timing issue.
+
+---
+
+[Request interrupted by user]
