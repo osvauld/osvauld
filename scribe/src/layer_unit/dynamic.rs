@@ -59,14 +59,14 @@ pub fn handle_create_dynamic_layer(
 
     // Add all connected subscribers to the new layer
     if let Ok(subs) = state.subscribers.read() {
-        for ((did, _), info) in subs.iter() {
+        for ((did, device_id), info) in subs.iter() {
             if let Some(unit) = state.units.get(&bare_path) {
-                let caps = super::Capabilities {
-                    read: true,
-                    write: true,
-                    sync: true,
-                };
-                unit.add_subscriber(did.clone(), caps, info.broadcast_tx.clone());
+                unit.add_subscriber(
+                    did.clone(),
+                    device_id.clone(),
+                    true,
+                    info.broadcast_tx.clone(),
+                );
                 state.emit_layer_auth_capture(&bare_path, did, "subscriber_added_on_create");
             }
         }
@@ -256,16 +256,7 @@ pub fn handle_add_layer_access(
         match issuer.get_layer_authority_permit(&state.our_did, &full_name) {
             Ok(Some((version, token))) => {
                 if let Ok(p) = gurkha::Permit::from_token(&token) {
-                    let peers = p
-                        .get_fact("authorized_peers")
-                        .and_then(|v| {
-                            v.as_array().map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| v.as_str().map(String::from))
-                                    .collect::<Vec<_>>()
-                            })
-                        })
-                        .unwrap_or_default();
+                    let peers = p.authorized_peers().unwrap_or_default();
                     (peers, version)
                 } else {
                     (Vec::new(), version)

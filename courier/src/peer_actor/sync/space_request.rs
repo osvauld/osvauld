@@ -3,21 +3,19 @@
 //! Handles viewer requesting space content from node:
 //! - SpaceRequest → SpaceData → SpaceDataAck → Scribe subscription (layers via SyncOffer)
 
-use tracing::{debug, error, info, warn, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::message::*;
 use transport::Connection;
 
+use super::super::consent::DEFAULT_SPACE_CONSENT_TEMPLATE;
 use super::super::guards::{
-    require_user_mode, require_node_mode, require_auth,
-    to_published_space, from_published_space, page_to_published_meta,
-    from_published_page_meta,
+    from_published_page_meta, from_published_space, page_to_published_meta, require_auth,
+    require_node_mode, require_user_mode, to_published_space,
 };
 use super::super::{PeerActor, PeerActorState, PendingViewerSync};
-use super::super::consent::DEFAULT_SPACE_CONSENT_TEMPLATE;
 
 impl<C: Connection> PeerActor<C> {
-
     /// Initiate request for space content as viewer (User mode)
     ///
     /// **Context**: Viewer has aud:* permit from shareable link
@@ -45,11 +43,18 @@ impl<C: Connection> PeerActor<C> {
 
         let request_id = uuid::Uuid::new_v4().to_string();
 
-        info!("Requesting space {} as viewer from node {}", space_id, self.node_id);
+        info!(
+            "Requesting space {} as viewer from node {}",
+            space_id, self.node_id
+        );
 
-        let viewer_public_key: [u8; 32] = identity.public_signing_key().try_into()
+        let viewer_public_key: [u8; 32] = identity
+            .public_signing_key()
+            .try_into()
             .expect("public_signing_key should be 32 bytes");
-        let viewer_encryption_key: [u8; 32] = identity.public_encryption_key().try_into()
+        let viewer_encryption_key: [u8; 32] = identity
+            .public_encryption_key()
+            .try_into()
             .expect("public_encryption_key should be 32 bytes");
 
         let msg = Message::SpaceRequest(SpaceRequestMsg {
@@ -90,29 +95,52 @@ impl<C: Connection> PeerActor<C> {
         info!("SpaceRequest: space={} viewer={}", space_id, viewer_did);
 
         // Validate viewer_permit
-        let Some(permit) = self.parse_permit_or_respond(
-            viewer_permit,
-            Message::SpaceRequestError(SpaceRequestErrorMsg { request_id: request_id.to_string(), error: "Invalid permit".to_string() }),
-            state,
-        ).await else { return };
+        let Some(permit) = self
+            .parse_permit_or_respond(
+                viewer_permit,
+                Message::SpaceRequestError(SpaceRequestErrorMsg {
+                    request_id: request_id.to_string(),
+                    error: "Invalid permit".to_string(),
+                }),
+                state,
+            )
+            .await
+        else {
+            return;
+        };
 
         // Verify it's an aud:* token (wildcard audience)
         if permit.parsed().audience() != "*" {
-            self.send_space_request_error(request_id, "Viewer permit must have wildcard audience (aud:*)", state).await;
+            self.send_space_request_error(
+                request_id,
+                "Viewer permit must have wildcard audience (aud:*)",
+                state,
+            )
+            .await;
             return;
         }
 
         // Verify token_type is viewer_auth
         let token_type = permit.token_type();
         if token_type != Some("viewer_auth") {
-            self.send_space_request_error(request_id, "Viewer permit must be viewer_auth type", state).await;
+            self.send_space_request_error(
+                request_id,
+                "Viewer permit must be viewer_auth type",
+                state,
+            )
+            .await;
             return;
         }
 
         // Verify space_id in permit matches requested space_id
         let permit_space_id = permit.space_id();
         if permit_space_id.as_deref() != Some(space_id) {
-            self.send_space_request_error(request_id, "Viewer permit space_id does not match requested space", state).await;
+            self.send_space_request_error(
+                request_id,
+                "Viewer permit space_id does not match requested space",
+                state,
+            )
+            .await;
             return;
         }
 
@@ -120,11 +148,21 @@ impl<C: Connection> PeerActor<C> {
         let space = match state.butler.spaces().get(space_id) {
             Ok(Some(s)) => s,
             Ok(None) => {
-                self.send_space_request_error(request_id, &format!("Space not found: {}", space_id), state).await;
+                self.send_space_request_error(
+                    request_id,
+                    &format!("Space not found: {}", space_id),
+                    state,
+                )
+                .await;
                 return;
             }
             Err(e) => {
-                self.send_space_request_error(request_id, &format!("Failed to get space: {}", e), state).await;
+                self.send_space_request_error(
+                    request_id,
+                    &format!("Failed to get space: {}", e),
+                    state,
+                )
+                .await;
                 return;
             }
         };
@@ -136,28 +174,53 @@ impl<C: Connection> PeerActor<C> {
         );
 
         // Delegate real viewer permit from space permit
-        let delegated_space_permit = match state.butler.spaces().delegate_to_viewer(space_id, &viewer_pubkey_b64).await {
+        let delegated_space_permit = match state
+            .butler
+            .spaces()
+            .delegate_to_viewer(space_id, &viewer_pubkey_b64)
+            .await
+        {
             Ok(p) => p,
             Err(e) => {
-                self.send_space_request_error(request_id, &format!("Failed to delegate permit: {}", e), state).await;
+                self.send_space_request_error(
+                    request_id,
+                    &format!("Failed to delegate permit: {}", e),
+                    state,
+                )
+                .await;
                 return;
             }
         };
 
-        info!("Delegated space permit to viewer {} (permit len: {})", viewer_did, delegated_space_permit.len());
+        info!(
+            "Delegated space permit to viewer {} (permit len: {})",
+            viewer_did,
+            delegated_space_permit.len()
+        );
 
         // Get page IDs in the space
         let pages = match state.butler.pages().list(space_id) {
             Ok(p) => p,
             Err(e) => {
-                self.send_space_request_error(request_id, &format!("Failed to list pages: {}", e), state).await;
+                self.send_space_request_error(
+                    request_id,
+                    &format!("Failed to list pages: {}", e),
+                    state,
+                )
+                .await;
                 return;
             }
         };
 
-        let published_pages: Vec<PublishedPageMeta> = pages.iter().map(|p| page_to_published_meta(p)).collect();
+        let published_pages: Vec<PublishedPageMeta> =
+            pages.iter().map(|p| page_to_published_meta(p)).collect();
         let page_ids: Vec<String> = published_pages.iter().map(|p| p.id.clone()).collect();
-        info!("Space {} has {} pages for viewer {}", space_id, page_ids.len(), viewer_did);
+        info!(
+            "Space {} has {} pages for viewer {}",
+            space_id,
+            page_ids.len(),
+            viewer_did
+        );
 
         // Store viewer context for streaming pages after ack
         state.pending_viewer_syncs.insert(
@@ -180,7 +243,10 @@ impl<C: Connection> PeerActor<C> {
         });
 
         self.send_message(&msg, state).await;
-        info!("Sent SpaceData for space {} to viewer {} (waiting for ack)", space_id, viewer_did);
+        info!(
+            "Sent SpaceData for space {} to viewer {} (waiting for ack)",
+            space_id, viewer_did
+        );
     }
 
     /// Handle SpaceDataAck from viewer (Node mode)
@@ -219,11 +285,16 @@ impl<C: Connection> PeerActor<C> {
         let total_pages = pending.page_ids.len();
         for (idx, page_id) in pending.page_ids.iter().enumerate() {
             // Prepare page for viewer (delegates permit, encrypts key)
-            let prepared = match state.butler.publish().prepare_page_for_viewer(
-                page_id,
-                &pending.viewer_pubkey_b64,
-                &pending.viewer_encryption_key,
-            ).await {
+            let prepared = match state
+                .butler
+                .publish()
+                .prepare_page_for_viewer(
+                    page_id,
+                    &pending.viewer_pubkey_b64,
+                    &pending.viewer_encryption_key,
+                )
+                .await
+            {
                 Ok(p) => p,
                 Err(e) => {
                     error!("Failed to prepare page {} for viewer: {}", page_id, e);
@@ -232,16 +303,34 @@ impl<C: Connection> PeerActor<C> {
             };
 
             // Store permit CID for revocation tracking
-            if let Err(e) = state.butler.permits().put_cid(page_id, &pending.viewer_did, &prepared.permit) {
+            if let Err(e) =
+                state
+                    .butler
+                    .permits()
+                    .cids()
+                    .store(page_id, &pending.viewer_did, &prepared.permit)
+            {
                 warn!("Failed to store permit CID for page {}: {}", page_id, e);
             }
 
             // Store viewer's page permit for sync authorization
             // This allows the node to authorize incoming SyncOffers from the viewer
-            if let Err(e) = state.butler.permits().store_page_permit(page_id, &pending.viewer_did, &prepared.permit) {
-                warn!("Failed to store viewer's permit for sync auth: {} - sync may fail", e);
+            if let Err(e) =
+                state
+                    .butler
+                    .permits()
+                    .page()
+                    .store(page_id, &pending.viewer_did, &prepared.permit)
+            {
+                warn!(
+                    "Failed to store viewer's permit for sync auth: {} - sync may fail",
+                    e
+                );
             } else {
-                debug!("Stored viewer's permit for page {} (sync authorization)", page_id);
+                debug!(
+                    "Stored viewer's permit for page {} (sync authorization)",
+                    page_id
+                );
             }
 
             // Send the viewer's page permit TO the viewer via PermitUpdate
@@ -249,22 +338,37 @@ impl<C: Connection> PeerActor<C> {
             // SyncOffers from the node (can_write fails on all 3 paths).
             let permit_msg = Message::PermitUpdate(PermitUpdateMsg {
                 permit: prepared.permit.clone(),
-                scope: PermitScope::Page { page_id: page_id.clone() },
+                scope: PermitScope::Page {
+                    page_id: page_id.clone(),
+                },
             });
             self.send_message(&permit_msg, state).await;
-            debug!("Sent PermitUpdate for page {} to viewer {}", page_id, pending.viewer_did);
+            debug!(
+                "Sent PermitUpdate for page {} to viewer {}",
+                page_id, pending.viewer_did
+            );
 
-            debug!("Prepared viewer permit {}/{} ({}) for viewer {}", idx + 1, total_pages, page_id, pending.viewer_did);
+            debug!(
+                "Prepared viewer permit {}/{} ({}) for viewer {}",
+                idx + 1,
+                total_pages,
+                page_id,
+                pending.viewer_did
+            );
         }
 
-        info!("Prepared {} page permits for viewer {} in space {} (layers via Scribe SyncOffer)", total_pages, pending.viewer_did, space_id);
+        info!(
+            "Prepared {} page permits for viewer {} in space {} (layers via Scribe SyncOffer)",
+            total_pages, pending.viewer_did, space_id
+        );
 
         // CRITICAL: Refresh subscriptions now that viewer permits are stored
         // This subscribes the viewer to Scribe for each page, which will deliver
         // layers via SyncOffer. Without this, Scribe broadcasts won't reach the
         // new viewer because PeerActor wasn't subscribed during handshake
         // (viewer had no permits yet).
-        self.refresh_subscriptions_after_page_data(myself, state).await;
+        self.refresh_subscriptions_after_page_data(myself, state)
+            .await;
     }
 
     /// Handle SpaceData from node (Viewer mode)
@@ -310,7 +414,12 @@ impl<C: Connection> PeerActor<C> {
             return;
         }
 
-        info!("Stored space {} with delegated permit and source_did={}, expecting {} pages", space_id, source_did, pages.len());
+        info!(
+            "Stored space {} with delegated permit and source_did={}, expecting {} pages",
+            space_id,
+            source_did,
+            pages.len()
+        );
 
         // Create page shells for each page (viewer generates own AES key per page)
         let identity = match state.butler.get_identity().await {
@@ -320,7 +429,9 @@ impl<C: Connection> PeerActor<C> {
                 return;
             }
         };
-        let viewer_public_enc_key: [u8; 32] = identity.public_encryption_key().try_into()
+        let viewer_public_enc_key: [u8; 32] = identity
+            .public_encryption_key()
+            .try_into()
             .expect("public_encryption_key should be 32 bytes");
 
         for page in pages {
@@ -341,12 +452,21 @@ impl<C: Connection> PeerActor<C> {
             if let Err(e) = state.butler.store().put_page(&page_data) {
                 error!("Failed to store page shell {}: {}", page.id, e);
             } else {
-                debug!("Created page shell {} ({}) with viewer AES key", page.id, page.name);
+                debug!(
+                    "Created page shell {} ({}) with viewer AES key",
+                    page.id, page.name
+                );
             }
         }
 
         // Issue space consent permit immediately after receiving space
-        self.issue_space_consent(space_id, delegated_permit, DEFAULT_SPACE_CONSENT_TEMPLATE, state).await;
+        self.issue_space_consent(
+            space_id,
+            delegated_permit,
+            DEFAULT_SPACE_CONSENT_TEMPLATE,
+            state,
+        )
+        .await;
 
         // Send SpaceDataAck to trigger viewer permit preparation and Scribe subscription
         let msg = Message::SpaceDataAck(SpaceDataAckMsg {
@@ -356,7 +476,11 @@ impl<C: Connection> PeerActor<C> {
         });
 
         self.send_message(&msg, state).await;
-        info!("Sent SpaceDataAck for space {}, waiting for {} pages", space_id, pages.len());
+        info!(
+            "Sent SpaceDataAck for space {}, waiting for {} pages",
+            space_id,
+            pages.len()
+        );
     }
 
     /// Trigger subscription refresh after viewer permits are prepared
@@ -383,7 +507,12 @@ impl<C: Connection> PeerActor<C> {
 
     /// Send a SpaceRequestError message
     #[instrument(skip_all, fields(request_id = %request_id))]
-    async fn send_space_request_error(&self, request_id: &str, error: &str, state: &PeerActorState<C>) {
+    async fn send_space_request_error(
+        &self,
+        request_id: &str,
+        error: &str,
+        state: &PeerActorState<C>,
+    ) {
         error!("SpaceRequest error: {}", error);
         let msg = Message::SpaceRequestError(SpaceRequestErrorMsg {
             request_id: request_id.to_string(),

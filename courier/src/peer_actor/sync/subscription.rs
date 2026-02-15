@@ -3,17 +3,16 @@
 //! Handles subscribing to Scribe for live sync broadcasts and forwarding
 //! broadcasts as SyncOffers to peers.
 
-use tracing::{debug, error, info, warn, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::message::*;
 use crate::CourierMode;
 use transport::Connection;
 
 use super::super::guards::require_auth;
-use super::super::{PeerActor, PeerActorState, PageSubscription, PeerMessage};
+use super::super::{PageSubscription, PeerActor, PeerActorState, PeerMessage};
 
 impl<C: Connection> PeerActor<C> {
-
     /// Subscribe to a page's Scribe for live sync broadcasts
     ///
     /// **Context**: After handshake, we subscribe to pages we want updates from
@@ -63,15 +62,23 @@ impl<C: Connection> PeerActor<C> {
         let subscription_permit = match state.mode {
             CourierMode::Node => {
                 // Node mode: Look up peer's stored page permit
-                match state.butler.permits().get_page_permit(page_id, &peer_did) {
+                match state.butler.permits().page().get(page_id, &peer_did) {
                     Ok(Some(stored_permit)) => {
-                        debug!("Node mode: Using stored page permit for peer {} (permit_len={})", peer_did, stored_permit.len());
+                        debug!(
+                            "Node mode: Using stored page permit for peer {} (permit_len={})",
+                            peer_did,
+                            stored_permit.len()
+                        );
                         stored_permit
                     }
                     _ => {
                         // No stored permit - try passed permit or local
                         if !permit.is_empty() {
-                            debug!("Node mode: Using passed permit for peer {} (permit_len={})", peer_did, permit.len());
+                            debug!(
+                                "Node mode: Using passed permit for peer {} (permit_len={})",
+                                peer_did,
+                                permit.len()
+                            );
                             permit.to_string()
                         } else {
                             match state.butler.pages().get(page_id) {
@@ -79,7 +86,7 @@ impl<C: Connection> PeerActor<C> {
                                     debug!("Node mode: Using local permit for peer {} (no stored permit)", peer_did);
                                     page_data.permit.clone().unwrap_or_default()
                                 }
-                                _ => String::new()
+                                _ => String::new(),
                             }
                         }
                     }
@@ -92,7 +99,7 @@ impl<C: Connection> PeerActor<C> {
                         debug!("User mode: Using local permit for subscription (our sync capabilities)");
                         page_data.permit.clone().unwrap_or_default()
                     }
-                    _ => String::new()
+                    _ => String::new(),
                 }
             }
         };
@@ -116,7 +123,10 @@ impl<C: Connection> PeerActor<C> {
             return;
         }
 
-        info!("Subscribed to page {} for peer {} (with ephemeral channel)", page_id, peer_did);
+        info!(
+            "Subscribed to page {} for peer {} (with ephemeral channel)",
+            page_id, peer_did
+        );
 
         // Spawn listener task that forwards CRDT broadcasts to this actor
         let actor_ref = myself.clone();
@@ -174,7 +184,9 @@ impl<C: Connection> PeerActor<C> {
             user_did: peer_did,
             device_id,
         };
-        state.page_subscriptions.insert(page_id.to_string(), subscription);
+        state
+            .page_subscriptions
+            .insert(page_id.to_string(), subscription);
 
         // Register direct Scribe connection and flush any buffered messages
         // This implements the receiver-initiates pattern for reliable message delivery
@@ -198,7 +210,9 @@ impl<C: Connection> PeerActor<C> {
                 }
             }
         }
-        state.scribe_connections.insert(page_id.to_string(), scribe.clone());
+        state
+            .scribe_connections
+            .insert(page_id.to_string(), scribe.clone());
     }
 
     /// Subscribe this peer to all active Scribes they have access to
@@ -234,11 +248,13 @@ impl<C: Connection> PeerActor<C> {
 
         info!(
             "Auto-subscribing peer {} to {} active scribes",
-            peer_did, active_pages.len()
+            peer_did,
+            active_pages.len()
         );
 
         for (page_id, permit) in active_pages {
-            self.subscribe_to_page(myself.clone(), &page_id, &permit, state).await;
+            self.subscribe_to_page(myself.clone(), &page_id, &permit, state)
+                .await;
         }
     }
 
@@ -253,11 +269,13 @@ impl<C: Connection> PeerActor<C> {
         myself: ractor::ActorRef<PeerMessage>,
         state: &mut PeerActorState<C>,
     ) {
-        let dead_subscriptions: Vec<String> = state.page_subscriptions
+        let dead_subscriptions: Vec<String> = state
+            .page_subscriptions
             .iter()
             .filter_map(|(page_id, sub)| {
                 // Check if either listener has died
-                if sub.listener_handle.is_finished() || sub.ephemeral_listener_handle.is_finished() {
+                if sub.listener_handle.is_finished() || sub.ephemeral_listener_handle.is_finished()
+                {
                     warn!(page_id = %page_id, "Subscription listener died, will resubscribe");
                     Some(page_id.clone())
                 } else {
@@ -282,7 +300,8 @@ impl<C: Connection> PeerActor<C> {
             }
 
             // Resubscribe (uses empty permit - will look up stored permit)
-            self.subscribe_to_page(myself.clone(), &page_id, "", state).await;
+            self.subscribe_to_page(myself.clone(), &page_id, "", state)
+                .await;
         }
     }
 
@@ -315,32 +334,33 @@ impl<C: Connection> PeerActor<C> {
         };
 
         // Encrypt update using ECDH
-        let (ephemeral_public, encrypted_data) = match herald::encrypt_for_transfer(
-            &peer_encryption_key,
-            &payload.update,
-        ) {
-            Ok(result) => result,
-            Err(e) => {
-                error!("Failed to encrypt update for SyncOffer: {}", e);
-                return;
-            }
-        };
+        let (ephemeral_public, encrypted_data) =
+            match herald::encrypt_for_transfer(&peer_encryption_key, &payload.update) {
+                Ok(result) => result,
+                Err(e) => {
+                    error!("Failed to encrypt update for SyncOffer: {}", e);
+                    return;
+                }
+            };
 
         // Fire-and-forget: Don't track pending sync offers for real-time broadcasts.
         // Trust CRDTs to converge. This avoids false divergence detection when
         // rapid writes cause state vectors to advance before SyncAccept arrives.
 
-        let full_layer_name = if payload.layer_name.starts_with(&format!("{}/", payload.page_id)) {
+        let full_layer_name = if payload
+            .layer_name
+            .starts_with(&format!("{}/", payload.page_id))
+        {
             payload.layer_name.clone()
         } else {
             format!("{}/{}", payload.page_id, payload.layer_name)
         };
 
-        let authority_permit = match state
-            .butler
-            .permits()
-            .get_layer_authority_permit(&payload.page_id, &full_layer_name, &peer_did)
-        {
+        let authority_permit = match state.butler.permits().authority().get(
+            &payload.page_id,
+            &full_layer_name,
+            &peer_did,
+        ) {
             Ok(Some((_version, permit))) => Some(permit),
             Ok(None) => None,
             Err(e) => {
@@ -367,6 +387,9 @@ impl<C: Connection> PeerActor<C> {
         });
 
         self.send_message(&msg, state).await;
-        info!("Sent SyncOffer for layer {} to peer {}", payload.layer_name, self.node_id);
+        info!(
+            "Sent SyncOffer for layer {} to peer {}",
+            payload.layer_name, self.node_id
+        );
     }
 }

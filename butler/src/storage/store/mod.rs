@@ -12,8 +12,8 @@ mod permit;
 mod space;
 mod sync;
 
-use crate::error::{ButlerError, Result};
-use redb::{Database, TableDefinition};
+use crate::error::Result;
+use redb::{Database, ReadableDatabase, TableDefinition};
 use std::path::Path;
 use std::sync::Arc;
 use tracing::instrument;
@@ -153,5 +153,65 @@ impl RedbStore {
     pub fn flush(&self) -> Result<()> {
         // redb commits are durable by default
         Ok(())
+    }
+
+    pub(crate) fn key2(a: &str, b: &str) -> String {
+        format!("{}/{}", a, b)
+    }
+
+    pub(crate) fn key3(a: &str, b: &str, c: &str) -> String {
+        format!("{}/{}/{}", a, b, c)
+    }
+
+    pub(crate) fn prefix1(a: &str) -> String {
+        format!("{}/", a)
+    }
+
+    pub(crate) fn prefix2(a: &str, b: &str) -> String {
+        format!("{}/{}/", a, b)
+    }
+
+    pub(crate) fn scan_prefix_str(
+        &self,
+        table_def: TableDefinition<&str, &str>,
+        prefix: &str,
+    ) -> Result<Vec<(String, String)>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(table_def)?;
+
+        let mut rows = Vec::new();
+        for result in table.range(prefix..)? {
+            let (key, value) = result?;
+            let key_str = key.value();
+            if !key_str.starts_with(prefix) {
+                break;
+            }
+            if let Some(suffix) = key_str.strip_prefix(prefix) {
+                rows.push((suffix.to_string(), value.value().to_string()));
+            }
+        }
+        Ok(rows)
+    }
+
+    pub(crate) fn scan_prefix_bytes(
+        &self,
+        table_def: TableDefinition<&str, &[u8]>,
+        prefix: &str,
+    ) -> Result<Vec<(String, Vec<u8>)>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(table_def)?;
+
+        let mut rows = Vec::new();
+        for result in table.range(prefix..)? {
+            let (key, value) = result?;
+            let key_str = key.value();
+            if !key_str.starts_with(prefix) {
+                break;
+            }
+            if let Some(suffix) = key_str.strip_prefix(prefix) {
+                rows.push((suffix.to_string(), value.value().to_vec()));
+            }
+        }
+        Ok(rows)
     }
 }

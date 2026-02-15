@@ -961,8 +961,64 @@ impl Permit {
     /// Returns:
     /// - `Ok(None)` for open distribution (missing/null)
     /// - `Ok(Some(vec))` for explicit recipients
-    pub fn authorized_peers(&self) -> PermitResult<Option<Vec<String>>> {
+    pub fn authorized_peers_checked(&self) -> PermitResult<Option<Vec<String>>> {
         parse_authorized_peers_fact(self.facts.get("authorized_peers"))
+    }
+
+    /// Get authorized peers list.
+    ///
+    /// **Semantics**:
+    /// - Missing or null => unrestricted (returns `None`)
+    /// - Array of DIDs => explicit recipients (returns `Some(Vec<String>)`)
+    /// - Malformed value => returns `None`
+    ///
+    /// **Context**: Used by scribe to check if a peer is authorized for layer access.
+    pub fn authorized_peers(&self) -> Option<Vec<String>> {
+        match self.get_fact("authorized_peers") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::Array(arr)) => Some(
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
+
+    /// Backward-compatible alias for `authorized_peers()`.
+    pub fn authorized_peers_list(&self) -> Option<Vec<String>> {
+        self.authorized_peers()
+    }
+
+    /// Check if a peer is authorized for this permit.
+    ///
+    /// **Semantics**:
+    /// - Missing or null `authorized_peers` => unrestricted (returns `true`)
+    /// - Array of DIDs => only listed peers allowed (returns `true` if peer in list)
+    /// - Malformed value => deny (returns `false`)
+    ///
+    /// **Context**: Used by scribe to validate peer access to dynamic layers.
+    /// This replaces duplicated authorization logic across scribe modules.
+    ///
+    /// # Arguments
+    /// * `peer_did` - The DID to check for authorization
+    ///
+    /// # Example
+    /// ```ignore
+    /// if permit.is_peer_authorized(&viewer_did) {
+    ///     // Grant access
+    /// }
+    /// ```
+    pub fn is_peer_authorized(&self, peer_did: &str) -> bool {
+        match self.get_fact("authorized_peers") {
+            None => true,                          // Missing => unrestricted
+            Some(serde_json::Value::Null) => true, // Null => unrestricted
+            Some(serde_json::Value::Array(arr)) => {
+                // Array => check if peer is in list
+                arr.iter().any(|v| v.as_str() == Some(peer_did))
+            }
+            _ => false, // Malformed => deny
+        }
     }
 
     /// Check if permit has any issue_on templates

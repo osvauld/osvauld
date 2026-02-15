@@ -22,15 +22,15 @@
 //! - `butler.contacts()` - Contact operations
 //! - `butler.permits()` - Permit issuance and CID tracking
 
-pub mod error;
-pub mod models;
-pub mod storage;
-pub mod services;
-pub mod scribe_storage;
-pub mod merge;
-pub mod sync;
 pub mod api;
+pub mod error;
+pub mod merge;
+pub mod models;
 pub(crate) mod scribe_manager;
+pub mod scribe_storage;
+pub mod services;
+pub mod storage;
+pub mod sync;
 
 // Refresh module (filesystem access stays in butler)
 pub mod refresh;
@@ -41,33 +41,31 @@ pub mod test_fixtures;
 #[cfg(test)]
 pub mod test_strategies;
 
+pub use api::{
+    AppsApi, AssetsApi, ContactsApi, FilesApi, NodesApi, PagesApi, PermitsApi, PublishApi,
+    SpacesApi,
+};
 pub use error::{ButlerError, Result};
 pub use models::*;
-pub use api::{SpacesApi, PagesApi, NodesApi, ContactsApi, PermitsApi, AppsApi, FilesApi, PublishApi, AssetsApi};
-pub use storage::{RedbStore, LayerCache, CachedLayer, LayerCacheStats, AssetStore};
+pub use storage::{AssetStore, CachedLayer, LayerCache, LayerCacheStats, RedbStore};
 // Auth functions are standalone (don't need Butler instance)
-pub use services::{signup, login, is_signed_up, recover, change_passphrase, SignupResult, get_identity_data};
+pub use services::{
+    change_passphrase, get_identity_data, is_signed_up, login, recover, signup, SignupResult,
+};
 // Scribe actor exports - re-exported from scribe crate
+use herald::Identity;
+use ractor::ActorRef;
 pub use scribe::{
-    Scribe, ScribeMessage, ScribeArgs, ScribeState, SyncEvent,
-    LoroDelta, ListOp, PageUpdate, PageUpdateTx,
-    BroadcastPayload, SyncConfig,
-    LayerStorage, LayerStorageRef, PeerVectorStorage, PeerVectorStorageRef,
-    PeerResolver, PeerResolverRef,
-    PermitIssuer, PermitIssuerRef, NullPermitIssuer,
-    EphemeralBroadcast, EphemeralOutbound,
-    Permissions, glob_match,
-    SubscriberInfo, QuerySubscriberInfo, SyncMode,
-    ScribeError,
-    JsonOp,
+    BroadcastPayload, EphemeralBroadcast, EphemeralOutbound, JsonOp, LayerStorage, LayerStorageRef,
+    ListOp, LoroDelta, NullPermitIssuer, PageUpdate, PageUpdateTx, PeerConnection, PeerResolver,
+    PeerResolverRef, PeerVectorStorage, PeerVectorStorageRef, PermitIssuer, PermitIssuerRef,
+    Scribe, ScribeArgs, ScribeError, ScribeMessage, SyncConfig, SyncEvent, SyncMode,
     ValidationHandle, ValidationRequest,
 };
-use herald::Identity;
-use tracing::instrument;
-use ractor::ActorRef;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::instrument;
 
 use scribe_manager::ScribeManager;
 
@@ -280,8 +278,8 @@ impl Butler {
     #[instrument(skip_all)]
     pub async fn user_info(&self) -> Result<UserInfo> {
         let identity = self.get_identity().await?;
-        let identity_data = get_identity_data(&self.store)?
-            .ok_or_else(ButlerError::not_logged_in)?;
+        let identity_data =
+            get_identity_data(&self.store)?.ok_or_else(ButlerError::not_logged_in)?;
 
         Ok(UserInfo {
             did: identity.did().to_string(),
@@ -303,7 +301,11 @@ impl Butler {
             .as_ref()
             .map(|data| data.did.clone())
             .unwrap_or_else(|| {
-                let prefix = if page_id.len() >= 8 { &page_id[..8] } else { page_id };
+                let prefix = if page_id.len() >= 8 {
+                    &page_id[..8]
+                } else {
+                    page_id
+                };
                 format!("did:key:unknown-{}", prefix)
             });
 
@@ -312,7 +314,9 @@ impl Butler {
             .map(|data| data.username.clone())
             .unwrap_or_else(|| "Player".to_string());
 
-        let user_role = self.pages().get(page_id)
+        let user_role = self
+            .pages()
+            .get(page_id)
             .ok()
             .flatten()
             .and_then(|page| page.get_permit().cloned())
@@ -323,7 +327,11 @@ impl Butler {
             })
             .unwrap_or_else(|| "owner".to_string());
 
-        AppContext { user_did, user_name, user_role }
+        AppContext {
+            user_did,
+            user_name,
+            user_role,
+        }
     }
 
     /// Issue one-time permit for node connection
@@ -350,7 +358,11 @@ impl Butler {
 
     /// Issue peer connection permit (for long-lived owner/node connections)
     #[instrument(skip(self), fields(relationship = %relationship))]
-    pub async fn issue_peer_connection_permit(&self, peer_pubkey: &str, relationship: &str) -> Result<(String, String)> {
+    pub async fn issue_peer_connection_permit(
+        &self,
+        peer_pubkey: &str,
+        relationship: &str,
+    ) -> Result<(String, String)> {
         let signing_key = self.signing_key().await?;
         let permit = gurkha::issue_peer_connection(&signing_key, peer_pubkey, relationship)
             .await
@@ -399,74 +411,41 @@ impl Butler {
     /// Build ScribeArgs for a page
     #[instrument(skip(self), fields(page_id = %page_id))]
     async fn build_scribe_args(&self, page_id: &str) -> Result<ScribeArgs> {
-        use scribe_storage::{ButlerLayerStorage, ButlerPeerVectorStorage, ButlerPeerResolver, ButlerPermitIssuer};
-
         let page_id_str = page_id.to_string();
-
-        // Load page data and decrypt layers
-        let (decrypted, aes_key) = self.pages().get_decrypted(page_id).await?;
-
-        log::info!(
-            "open_page: page_id={} loaded {} docs from DB (bare layer names)",
-            page_id, decrypted.docs.len()
-        );
-
-        // Convert DecryptedPage docs to Layer type
-        // Use bare layer names (no page_id/ prefix) — storage returns bare names,
-        // Scribe owns a single page so page_id context is implicit.
-        let mut layers = HashMap::new();
-        for (name, doc_bytes) in decrypted.docs {
-            let layer = if doc_bytes.is_empty() {
-                Layer::new()
-            } else {
-                Layer::from_snapshot(&doc_bytes).unwrap_or_else(|_| Layer::new())
-            };
-            layers.insert(name, layer);
-        }
-
-        // Create storage trait implementations
-        let layer_storage: LayerStorageRef = Arc::new(ButlerLayerStorage::new(
-            self.store.clone(),
-            page_id_str.clone(),
-            aes_key,
-        ));
-
-        let vector_storage: PeerVectorStorageRef = Arc::new(ButlerPeerVectorStorage::new(
-            self.store.clone(),
-            page_id_str.clone(),
-        ));
+        let (layers, aes_key) = self.load_decrypted_layers(page_id).await?;
 
         // Resolve SyncConfig from page permit
         let sync_config = self.resolve_sync_config(page_id).await;
 
         // Create peer resolver only if this is node mode (relay capability)
-        let is_node = sync_config.as_ref()
+        let is_node = sync_config
+            .as_ref()
             .map(|c| matches!(c.mode, scribe::state::SyncMode::Broadcast))
             .unwrap_or(false);
 
-        let peer_resolver: Option<PeerResolverRef> = if is_node {
-            Some(Arc::new(ButlerPeerResolver::new(
-                self.store.clone(),
-                page_id_str.clone(),
-            )))
-        } else {
-            None
-        };
+        let (layer_storage, vector_storage, peer_resolver) =
+            self.create_scribe_storage(page_id_str.as_str(), aes_key, is_node);
 
         let sync_event_tx = self.sync_event_tx.clone();
 
         // Note: validation.lua and init.lua (derivation) are now loaded by kunki/LuaRuntime
 
         // Get our permit and identity info
-        let our_permit = self.pages().get(page_id).ok()
+        let our_permit = self
+            .pages()
+            .get(page_id)
+            .ok()
             .flatten()
             .and_then(|p| p.permit);
 
-        let our_did = self.get_identity().await
+        let our_did = self
+            .get_identity()
+            .await
             .map(|id| id.did().to_string())
             .unwrap_or_default();
 
-        let our_username = self.identity_data()
+        let our_username = self
+            .identity_data()
             .ok()
             .flatten()
             .map(|d| d.username)
@@ -478,15 +457,9 @@ impl Butler {
         // Create permit issuer whenever we have signing key + our permit.
         // Node mode uses this to issue recipient layer permits.
         // User mode uses this for creator-side AddLayerAccess issuance.
-        let permit_issuer: Option<PermitIssuerRef> = match (self.signing_key().await, &our_permit) {
-            (Ok(signing_key), Some(permit_token)) => Some(Arc::new(ButlerPermitIssuer::new(
-                signing_key,
-                permit_token.clone(),
-                page_id.to_string(),
-                self.store.clone(),
-            ))),
-            _ => None,
-        };
+        let permit_issuer = self
+            .create_permit_issuer(page_id, our_permit.as_ref())
+            .await;
 
         Ok(ScribeArgs {
             page_id: page_id_str,
@@ -506,6 +479,85 @@ impl Butler {
         })
     }
 
+    #[instrument(skip(self), fields(page_id = %page_id))]
+    async fn load_decrypted_layers(
+        &self,
+        page_id: &str,
+    ) -> Result<(HashMap<String, Layer>, [u8; 32])> {
+        let (decrypted, aes_key) = self.pages().get_decrypted(page_id).await?;
+
+        log::info!(
+            "open_page: page_id={} loaded {} docs from DB (bare layer names)",
+            page_id,
+            decrypted.docs.len()
+        );
+
+        let mut layers = HashMap::new();
+        for (name, doc_bytes) in decrypted.docs {
+            let layer = if doc_bytes.is_empty() {
+                Layer::new()
+            } else {
+                Layer::from_snapshot(&doc_bytes).unwrap_or_else(|_| Layer::new())
+            };
+            layers.insert(name, layer);
+        }
+
+        Ok((layers, aes_key))
+    }
+
+    fn create_scribe_storage(
+        &self,
+        page_id: &str,
+        aes_key: [u8; 32],
+        is_node: bool,
+    ) -> (
+        LayerStorageRef,
+        PeerVectorStorageRef,
+        Option<PeerResolverRef>,
+    ) {
+        use scribe_storage::{ButlerLayerStorage, ButlerPeerResolver, ButlerPeerVectorStorage};
+
+        let layer_storage: LayerStorageRef = Arc::new(ButlerLayerStorage::new(
+            self.store.clone(),
+            page_id.to_string(),
+            aes_key,
+        ));
+
+        let vector_storage: PeerVectorStorageRef = Arc::new(ButlerPeerVectorStorage::new(
+            self.store.clone(),
+            page_id.to_string(),
+        ));
+
+        let peer_resolver = if is_node {
+            Some(Arc::new(ButlerPeerResolver::new(
+                self.store.clone(),
+                page_id.to_string(),
+            )) as PeerResolverRef)
+        } else {
+            None
+        };
+
+        (layer_storage, vector_storage, peer_resolver)
+    }
+
+    async fn create_permit_issuer(
+        &self,
+        page_id: &str,
+        permit_token: Option<&String>,
+    ) -> Option<PermitIssuerRef> {
+        use scribe_storage::ButlerPermitIssuer;
+
+        match (self.signing_key().await, permit_token) {
+            (Ok(signing_key), Some(token)) => Some(Arc::new(ButlerPermitIssuer::new(
+                signing_key,
+                token.clone(),
+                page_id.to_string(),
+                self.store.clone(),
+            ))),
+            _ => None,
+        }
+    }
+
     /// Close a page and stop its Scribe actor
     #[instrument(skip(self), fields(page_id = %page_id))]
     pub async fn close_page(&self, page_id: &str) -> Result<()> {
@@ -521,7 +573,10 @@ impl Butler {
 
     /// List active Scribes with their permits for peer subscription
     #[instrument(skip_all)]
-    pub async fn list_active_scribes_for_peer(&self, _peer_did: &str) -> Result<Vec<(String, String)>> {
+    pub async fn list_active_scribes_for_peer(
+        &self,
+        _peer_did: &str,
+    ) -> Result<Vec<(String, String)>> {
         let page_ids = self.scribe_manager.list_active_page_ids().await;
         let mut result = Vec::new();
 
@@ -551,10 +606,12 @@ impl Butler {
         };
 
         let sync_target = match mode {
-            SyncMode::ToSource => {
-                self.pages().get_source_node(page_id).ok().flatten()
-                    .or_else(|| self.nodes().get_for_sync().ok().flatten())
-            }
+            SyncMode::ToSource => self
+                .pages()
+                .get_source_node(page_id)
+                .ok()
+                .flatten()
+                .or_else(|| self.nodes().get_for_sync().ok().flatten()),
             SyncMode::Broadcast => None,
         };
 
@@ -572,7 +629,11 @@ impl Butler {
         state_vector: &[u8],
     ) -> Result<()> {
         self.store.put_peer_vector_for_layer(
-            page_id, peer_did, peer_device_id, layer_name, state_vector.to_vec(),
+            page_id,
+            peer_did,
+            peer_device_id,
+            layer_name,
+            state_vector.to_vec(),
         )
     }
 
@@ -591,7 +652,11 @@ impl Butler {
             if temp_doc.import(&layer_data).is_ok() {
                 let vector = temp_doc.oplog_vv().encode();
                 let _ = self.store.put_peer_vector_for_layer(
-                    page_id, peer_did, peer_device_id, &layer_name, vector,
+                    page_id,
+                    peer_did,
+                    peer_device_id,
+                    &layer_name,
+                    vector,
                 );
             }
         }

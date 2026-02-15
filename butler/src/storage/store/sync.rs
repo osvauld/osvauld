@@ -5,7 +5,7 @@
 
 use super::{RedbStore, VECTORS};
 use crate::error::{ButlerError, Result};
-use redb::{ReadableDatabase, ReadableTable};
+use redb::ReadableDatabase;
 use std::collections::HashMap;
 use tracing::instrument;
 
@@ -21,7 +21,7 @@ impl RedbStore {
         user_did: &str,
         device_id: &str,
     ) -> Result<Option<HashMap<String, Vec<u8>>>> {
-        let key = format!("{}/{}/{}", page_id, user_did, device_id);
+        let key = Self::key3(page_id, user_did, device_id);
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(VECTORS)?;
 
@@ -48,7 +48,7 @@ impl RedbStore {
         device_id: &str,
         vectors: &HashMap<String, Vec<u8>>,
     ) -> Result<()> {
-        let key = format!("{}/{}/{}", page_id, user_did, device_id);
+        let key = Self::key3(page_id, user_did, device_id);
         let value =
             bincode::serialize(vectors).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
@@ -109,7 +109,7 @@ impl RedbStore {
         user_did: &str,
         device_id: &str,
     ) -> Result<bool> {
-        let key = format!("{}/{}/{}", page_id, user_did, device_id);
+        let key = Self::key3(page_id, user_did, device_id);
         let write_txn = self.db.begin_write()?;
         let removed = {
             let mut table = write_txn.open_table(VECTORS)?;
@@ -125,22 +125,12 @@ impl RedbStore {
     /// **Context**: Called when a page is deleted.
     #[instrument(skip_all)]
     pub fn delete_all_peer_vectors_for_page(&self, page_id: &str) -> Result<usize> {
-        let prefix = format!("{}/", page_id);
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(VECTORS)?;
-
-        // Collect keys to delete
-        let mut keys_to_delete = Vec::new();
-        for result in table.range(prefix.as_str()..)? {
-            let (key, _) = result?;
-            let key_str = key.value();
-            if !key_str.starts_with(&prefix) {
-                break;
-            }
-            keys_to_delete.push(key_str.to_string());
-        }
-        drop(table);
-        drop(read_txn);
+        let prefix = Self::prefix1(page_id);
+        let keys_to_delete: Vec<String> = self
+            .scan_prefix_bytes(VECTORS, prefix.as_str())?
+            .into_iter()
+            .map(|(rest, _)| Self::key2(page_id, rest.as_str()))
+            .collect();
 
         let count = keys_to_delete.len();
         if count > 0 {
@@ -162,20 +152,11 @@ impl RedbStore {
     /// Returns tuples of (user_did, device_id).
     #[instrument(skip_all)]
     pub fn list_peers_for_page(&self, page_id: &str) -> Result<Vec<(String, String)>> {
-        let prefix = format!("{}/", page_id);
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(VECTORS)?;
-
+        let prefix = Self::prefix1(page_id);
+        let rows = self.scan_prefix_bytes(VECTORS, prefix.as_str())?;
         let mut peers = Vec::new();
-        for result in table.range(prefix.as_str()..)? {
-            let (key, _) = result?;
-            let key_str = key.value();
-            if !key_str.starts_with(&prefix) {
-                break;
-            }
-
+        for (rest, _) in rows {
             // Parse {page_id}/{user_did}/{device_id}
-            let rest = key_str.strip_prefix(&prefix).unwrap_or("");
             if let Some((user_did, device_id)) = rest.split_once('/') {
                 peers.push((user_did.to_string(), device_id.to_string()));
             }

@@ -91,11 +91,12 @@ pub struct SyncConfig {
 
 // Subscriber Types
 
-/// Information about a subscribed peer
+/// Page-level connection state for a peer
 ///
 /// **Design**: Stores the parsed permit directly instead of extracted fields.
 /// All access checks delegate to gurkha::Permit methods, ensuring consistency.
-pub struct SubscriberInfo {
+/// **Note**: Version vectors are NOT stored here — they live on LayerSubscriber per-layer.
+pub struct PeerConnection {
     /// Parsed page permit for all access checks (static layers)
     /// Stores the full permit so we can use its methods directly
     pub permit: gurkha::Permit,
@@ -115,11 +116,9 @@ pub struct SubscriberInfo {
     /// Channel to send ephemeral broadcasts (cursor, typing)
     /// PeerActor creates this, spawns listener that sends datagrams
     pub ephemeral_tx: Option<mpsc::Sender<EphemeralOutbound>>,
-    /// Their last known state vectors (layer_name → version_vector)
-    pub vectors: HashMap<String, Vec<u8>>,
 }
 
-impl SubscriberInfo {
+impl PeerConnection {
     /// Check if subscriber can receive updates for layer via page permit
     pub fn can_receive_layer(&self, layer_name: &str, page_id: &str) -> bool {
         // Block presence layer for peers who can't see others
@@ -170,9 +169,9 @@ pub struct ScribeState {
     pub page_id: String,
     /// Per-layer compute units (layer_name → LayerUnit)
     pub units: HashMap<String, LayerUnit>,
-    /// Peer subscribers (user_did, device_id) → SubscriberInfo
+    /// Peer subscribers (user_did, device_id) → PeerConnection
     /// Arc<RwLock> allows Loro observer callback to send directly to peers
-    pub subscribers: Arc<RwLock<HashMap<(String, String), SubscriberInfo>>>,
+    pub subscribers: Arc<RwLock<HashMap<(String, String), PeerConnection>>>,
     /// Query subscribers (query_id → QuerySubscriberInfo)
     pub query_subscribers: HashMap<String, QuerySubscriberInfo>,
 
@@ -225,7 +224,6 @@ pub struct ScribeState {
     /// **Context**: Set when is_node=true and entry_node found in manifest
     /// **Usage**: Send () to shutdown the tick loop
     pub node_script_shutdown: Option<mpsc::Sender<()>>,
-
 }
 
 /// Arguments for spawning Scribe
@@ -273,6 +271,41 @@ impl ScribeState {
         self.capture_seq.fetch_add(1, Ordering::Relaxed)
     }
 
+    fn emit_capture(&self, event_type: &str, extra_fields: serde_json::Value) {
+        if let Some(ref tx) = self.capture_tx {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+
+            let mut payload = serde_json::Map::new();
+            payload.insert(
+                "type".to_string(),
+                serde_json::Value::String(event_type.to_string()),
+            );
+            payload.insert(
+                "ts".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(ts as u64)),
+            );
+            payload.insert(
+                "seq".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(self.next_capture_seq())),
+            );
+            payload.insert(
+                "page_id".to_string(),
+                serde_json::Value::String(self.page_id.clone()),
+            );
+
+            if let serde_json::Value::Object(extra) = extra_fields {
+                payload.extend(extra);
+            }
+
+            if let Ok(json) = serde_json::to_string(&serde_json::Value::Object(payload)) {
+                let _ = tx.send(json);
+            }
+        }
+    }
+
     /// Check if a layer should sync based on permit configuration
     ///
     /// **Context**: Used to filter out local-only layers (sync: false) before broadcasting
@@ -296,24 +329,15 @@ impl ScribeState {
     ///
     /// **Context**: Called before sync_event_tx.send() to capture SyncEvent for observability
     pub fn emit_sync_event_capture(&self, event: &SyncEvent) {
-        if let Some(ref tx) = self.capture_tx {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                "type": "sync_event",
-                "ts": ts,
-                "seq": self.next_capture_seq(),
-                "page_id": &self.page_id,
+        self.emit_capture(
+            "sync_event",
+            serde_json::json!({
                 "data": event,
-            })) {
-                let _ = tx.send(json);
-            }
+            }),
+        );
 
-            match event {
-                SyncEvent::EnsureSync { .. } | SyncEvent::SubscribeLayers { .. } => {}
-            }
+        match event {
+            SyncEvent::EnsureSync { .. } | SyncEvent::SubscribeLayers { .. } => {}
         }
     }
 
@@ -321,25 +345,16 @@ impl ScribeState {
     ///
     /// **Context**: Called when a DID is authorized/pending for a layer, for observability
     pub fn emit_layer_auth_capture(&self, layer: &str, did: &str, action: &str) {
-        if let Some(ref tx) = self.capture_tx {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                "type": "layer_auth",
-                "ts": ts,
-                "seq": self.next_capture_seq(),
-                "page_id": &self.page_id,
+        self.emit_capture(
+            "layer_auth",
+            serde_json::json!({
                 "layer": layer,
                 "layer_short": layer_short(layer),
                 "did": did,
                 "short_did": short_did(did),
                 "action": action,
-            })) {
-                let _ = tx.send(json);
-            }
-        }
+            }),
+        );
     }
 
     /// Emit a write permission check result to the capture channel
@@ -352,16 +367,9 @@ impl ScribeState {
         result: &str,
         granted_by: &str,
     ) {
-        if let Some(ref tx) = self.capture_tx {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                "type": "permission_check",
-                "ts": ts,
-                "seq": self.next_capture_seq(),
-                "page_id": &self.page_id,
+        self.emit_capture(
+            "permission_check",
+            serde_json::json!({
                 "layer": layer,
                 "layer_short": layer_short(layer),
                 "peer_did": peer_did,
@@ -369,10 +377,8 @@ impl ScribeState {
                 "operation": "write",
                 "result": result,
                 "granted_by": granted_by,
-            })) {
-                let _ = tx.send(json);
-            }
-        }
+            }),
+        );
     }
 
     /// Emit an apply update outcome to the capture channel
@@ -385,47 +391,29 @@ impl ScribeState {
         result: &str,
         reason: Option<&str>,
     ) {
-        if let Some(ref tx) = self.capture_tx {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                "type": "apply_update",
-                "ts": ts,
-                "seq": self.next_capture_seq(),
-                "page_id": &self.page_id,
+        self.emit_capture(
+            "apply_update",
+            serde_json::json!({
                 "layer": layer,
                 "layer_short": layer_short(layer),
                 "from_peer": from_peer,
                 "short_did": from_peer.map(short_did),
                 "result": result,
                 "reason": reason,
-            })) {
-                let _ = tx.send(json);
-            }
-        }
+            }),
+        );
     }
 
     /// Emit a page update to the capture channel (pre-serialized JSON line)
     ///
     /// **Context**: Called alongside page_update_subscribers fanout for observability
     pub fn emit_page_update_capture(&self, update: &PageUpdate) {
-        if let Some(ref tx) = self.capture_tx {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                "type": "page_update",
-                "ts": ts,
-                "seq": self.next_capture_seq(),
-                "page_id": &self.page_id,
+        self.emit_capture(
+            "page_update",
+            serde_json::json!({
                 "data": update,
-            })) {
-                let _ = tx.send(json);
-            }
-        }
+            }),
+        );
     }
 
     /// Emit a subscriber state snapshot to the capture channel
@@ -439,18 +427,10 @@ impl ScribeState {
         can_see_others: bool,
         is_visible: bool,
     ) {
-        if let Some(ref tx) = self.capture_tx {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            let short_layers: Vec<String> =
-                authorized_layers.iter().map(|l| layer_short(l)).collect();
-            if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                "type": "subscriber_state",
-                "ts": ts,
-                "seq": self.next_capture_seq(),
-                "page_id": &self.page_id,
+        let short_layers: Vec<String> = authorized_layers.iter().map(|l| layer_short(l)).collect();
+        self.emit_capture(
+            "subscriber_state",
+            serde_json::json!({
                 "peer_did": peer_did,
                 "short_did": short_did(peer_did),
                 "authorized_layers": authorized_layers,
@@ -458,10 +438,8 @@ impl ScribeState {
                 "total_layers": total_layers,
                 "can_see_others": can_see_others,
                 "is_visible": is_visible,
-            })) {
-                let _ = tx.send(json);
-            }
-        }
+            }),
+        );
     }
 
     /// Emit a layer subscribe result to the capture channel
@@ -475,16 +453,9 @@ impl ScribeState {
         error: Option<&str>,
         subscriber_added: bool,
     ) {
-        if let Some(ref tx) = self.capture_tx {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                "type": "layer_subscribe_result",
-                "ts": ts,
-                "seq": self.next_capture_seq(),
-                "page_id": &self.page_id,
+        self.emit_capture(
+            "layer_subscribe_result",
+            serde_json::json!({
                 "layer": layer,
                 "layer_short": layer_short(layer),
                 "peer_did": peer_did,
@@ -492,10 +463,8 @@ impl ScribeState {
                 "result": result,
                 "error": error,
                 "subscriber_added": subscriber_added,
-            })) {
-                let _ = tx.send(json);
-            }
-        }
+            }),
+        );
     }
 
     /// Emit a permit issue decision to the capture channel
@@ -509,16 +478,9 @@ impl ScribeState {
         result: &str,
         reason: Option<&str>,
     ) {
-        if let Some(ref tx) = self.capture_tx {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                "type": "permit_issue_decision",
-                "ts": ts,
-                "seq": self.next_capture_seq(),
-                "page_id": &self.page_id,
+        self.emit_capture(
+            "permit_issue_decision",
+            serde_json::json!({
                 "layer": layer,
                 "layer_short": layer_short(layer),
                 "peer_did": peer_did,
@@ -526,35 +488,24 @@ impl ScribeState {
                 "path": path,
                 "result": result,
                 "reason": reason,
-            })) {
-                let _ = tx.send(json);
-            }
-        }
+            }),
+        );
     }
 
     /// Emit a broadcast decision skip event to the capture channel
     ///
     /// **Context**: Called when a subscriber is skipped during broadcast, for observability
     pub fn emit_broadcast_decision_capture(&self, layer: &str, peer_did: &str, reason: &str) {
-        if let Some(ref tx) = self.capture_tx {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                "type": "broadcast_decision",
-                "ts": ts,
-                "seq": self.next_capture_seq(),
-                "page_id": &self.page_id,
+        self.emit_capture(
+            "broadcast_decision",
+            serde_json::json!({
                 "layer": layer,
                 "layer_short": layer_short(layer),
                 "peer_did": peer_did,
                 "short_did": short_did(peer_did),
                 "decision": "skip",
                 "reason": reason,
-            })) {
-                let _ = tx.send(json);
-            }
-        }
+            }),
+        );
     }
 }

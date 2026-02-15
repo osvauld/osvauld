@@ -11,26 +11,29 @@
 //! 1. Owner calls initiate_get_shareable_link -> sends GetShareableLinkRequest
 //! 2. Node generates aud:* viewer permit -> sends GetShareableLinkResponse
 
-use tracing::{debug, error, info, warn, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::message::*;
 
 use transport::Connection;
 
 use super::guards::{
-    require_user_mode, require_node_mode, require_auth, parse_permit,
-    to_published_space, to_published_page_meta, from_published_space, from_published_page_meta,
+    from_published_page_meta, from_published_space, parse_permit, require_auth, require_node_mode,
+    require_user_mode, to_published_page_meta, to_published_space,
 };
 use super::{PeerActor, PeerActorState};
 
 impl<C: Connection> PeerActor<C> {
-
     /// Initiate publishing a space to the connected node (User mode)
     ///
     /// **Context**: Owner wants to publish a space
     /// **We do**: Get space from Butler, delegate permit, send PublishSpace
     #[instrument(skip(self, state), fields(space_id = %space_id))]
-    pub(super) async fn initiate_publish_space(&self, space_id: &str, state: &mut PeerActorState<C>) {
+    pub(super) async fn initiate_publish_space(
+        &self,
+        space_id: &str,
+        state: &mut PeerActorState<C>,
+    ) {
         if require_user_mode(state.mode, "initiate_publish_space").is_some() {
             return;
         }
@@ -57,7 +60,12 @@ impl<C: Connection> PeerActor<C> {
 
         // Delegate permit to node
         let node_pubkey = self.node_id.to_string();
-        let delegated_permit = match state.butler.spaces().delegate_to_node(space_id, &node_pubkey).await {
+        let delegated_permit = match state
+            .butler
+            .spaces()
+            .delegate_to_node(space_id, &node_pubkey)
+            .await
+        {
             Ok(permit) => permit,
             Err(e) => {
                 error!("Failed to delegate space permit: {}", e);
@@ -66,7 +74,10 @@ impl<C: Connection> PeerActor<C> {
         };
 
         // Get page IDs for this space
-        let pages = state.butler.spaces().list_page_ids(space_id)
+        let pages = state
+            .butler
+            .spaces()
+            .list_page_ids(space_id)
             .unwrap_or_default();
 
         let request_id = uuid::Uuid::new_v4().to_string();
@@ -76,7 +87,12 @@ impl<C: Connection> PeerActor<C> {
             space_permit: delegated_permit,
         });
 
-        info!("Sending PublishSpace for {} (request: {}, {} pages)", space_id, request_id, pages.len());
+        info!(
+            "Sending PublishSpace for {} (request: {}, {} pages)",
+            space_id,
+            request_id,
+            pages.len()
+        );
         self.send_message(&msg, state).await;
     }
 
@@ -86,7 +102,11 @@ impl<C: Connection> PeerActor<C> {
     /// **We send**: PageAnnounce with meta + delegated permit + owner permit (NO layers)
     /// **Next**: After PageAnnounceAck, owner subscribes to Scribe and layers arrive via SyncOffer
     #[instrument(skip(self, state), fields(page_id = %page_id))]
-    pub(super) async fn initiate_page_announce(&self, page_id: &str, state: &mut PeerActorState<C>) {
+    pub(super) async fn initiate_page_announce(
+        &self,
+        page_id: &str,
+        state: &mut PeerActorState<C>,
+    ) {
         if require_user_mode(state.mode, "initiate_page_announce").is_some() {
             return;
         }
@@ -130,18 +150,14 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        let (delegated_permit, _cid) = match gurkha::delegate_page(
-            &signing_key,
-            &owner_permit,
-            "node",
-            &node_pubkey,
-        ).await {
-            Ok(result) => result,
-            Err(e) => {
-                error!("Failed to delegate page permit: {}", e);
-                return;
-            }
-        };
+        let (delegated_permit, _cid) =
+            match gurkha::delegate_page(&signing_key, &owner_permit, "node", &node_pubkey).await {
+                Ok(result) => result,
+                Err(e) => {
+                    error!("Failed to delegate page permit: {}", e);
+                    return;
+                }
+            };
 
         let request_id = uuid::Uuid::new_v4().to_string();
         let msg = Message::PageAnnounce(PageAnnounceMsg {
@@ -151,7 +167,10 @@ impl<C: Connection> PeerActor<C> {
             owner_permit,
         });
 
-        info!("Sending PageAnnounce for {} (request: {})", page_id, request_id);
+        info!(
+            "Sending PageAnnounce for {} (request: {})",
+            page_id, request_id
+        );
         self.send_message(&msg, state).await;
     }
 
@@ -177,61 +196,92 @@ impl<C: Connection> PeerActor<C> {
         let (peer_did, _) = match require_auth(&state.state) {
             Ok(info) => (info.0.to_string(), info.1.to_string()),
             Err(_) => {
-                self.send_publish_error(request_id, "Not authenticated", state).await;
+                self.send_publish_error(request_id, "Not authenticated", state)
+                    .await;
                 return;
             }
         };
 
-        info!("PublishSpace: {} ({}) from {}", space.id, space.name, peer_did);
+        info!(
+            "PublishSpace: {} ({}) from {}",
+            space.id, space.name, peer_did
+        );
 
         // Validate permit
-        let Some(permit) = self.parse_permit_or_respond(
-            space_permit,
-            Message::PublishError(PublishErrorMsg { request_id: request_id.to_string(), error: "Invalid permit".to_string() }),
-            state,
-        ).await else { return };
+        let Some(permit) = self
+            .parse_permit_or_respond(
+                space_permit,
+                Message::PublishError(PublishErrorMsg {
+                    request_id: request_id.to_string(),
+                    error: "Invalid permit".to_string(),
+                }),
+                state,
+            )
+            .await
+        else {
+            return;
+        };
 
         // Verify permit allows accepting publish (peer_capabilities.accept_publish)
         let peer_caps = permit.peer_capabilities();
         if !peer_caps.accept_publish {
             warn!("Space permit lacks accept_publish capability");
-            self.send_publish_error(request_id, "Permit lacks accept_publish capability", state).await;
+            self.send_publish_error(request_id, "Permit lacks accept_publish capability", state)
+                .await;
             return;
         }
 
         // Verify space_id matches
-        let permit_space_id = permit.space_id()
-            .unwrap_or_default();
+        let permit_space_id = permit.space_id().unwrap_or_default();
         if permit_space_id != space.id {
-            warn!("Space ID mismatch: permit has '{}', message has '{}'", permit_space_id, space.id);
-            self.send_publish_error(request_id, "Space ID mismatch", state).await;
+            warn!(
+                "Space ID mismatch: permit has '{}', message has '{}'",
+                permit_space_id, space.id
+            );
+            self.send_publish_error(request_id, "Space ID mismatch", state)
+                .await;
             return;
         }
 
         // Store space via Butler
         let butler_space = from_published_space(space);
-        if let Err(e) = state.butler.publish().store_space(&butler_space, space_permit) {
+        if let Err(e) = state
+            .butler
+            .publish()
+            .store_space(&butler_space, space_permit)
+        {
             error!("Failed to store space: {}", e);
-            self.send_publish_error(request_id, &format!("Storage error: {}", e), state).await;
+            self.send_publish_error(request_id, &format!("Storage error: {}", e), state)
+                .await;
             return;
         }
 
         info!("Stored published space: {} ({})", space.id, space.name);
 
         // Issue permit back to owner (node->owner permit proves space is published)
-        let owner_pubkey = permit.user_id()
-            .unwrap_or_else(|| peer_did.clone());
+        let owner_pubkey = permit.user_id().unwrap_or_else(|| peer_did.clone());
 
-        let node_permit = match state.butler.publish().issue_space_permit_to_owner(&space.id, &owner_pubkey).await {
+        let node_permit = match state
+            .butler
+            .publish()
+            .issue_space_permit_to_owner(&space.id, &owner_pubkey)
+            .await
+        {
             Ok(p) => p,
             Err(e) => {
-                warn!("Failed to issue node permit to owner: {} - using echoed permit", e);
+                warn!(
+                    "Failed to issue node permit to owner: {} - using echoed permit",
+                    e
+                );
                 space_permit.to_string()
             }
         };
 
         // Get existing page IDs for this space
-        let pages = state.butler.spaces().list_page_ids(&space.id)
+        let pages = state
+            .butler
+            .spaces()
+            .list_page_ids(&space.id)
             .unwrap_or_default();
 
         let ack = Message::PublishSpaceAck(PublishSpaceAckMsg {
@@ -268,28 +318,44 @@ impl<C: Connection> PeerActor<C> {
             return;
         }
 
-        info!("PageAnnounce: {} ({}) from {}", page.id, page.name, page.owner_did);
+        info!(
+            "PageAnnounce: {} ({}) from {}",
+            page.id, page.name, page.owner_did
+        );
 
         // Validate permit
-        let Some(permit) = self.parse_permit_or_respond(
-            page_permit,
-            Message::PublishError(PublishErrorMsg { request_id: request_id.to_string(), error: "Invalid permit".to_string() }),
-            state,
-        ).await else { return };
+        let Some(permit) = self
+            .parse_permit_or_respond(
+                page_permit,
+                Message::PublishError(PublishErrorMsg {
+                    request_id: request_id.to_string(),
+                    error: "Invalid permit".to_string(),
+                }),
+                state,
+            )
+            .await
+        else {
+            return;
+        };
 
         // Check permit allows accepting publish
         let peer_caps = permit.peer_capabilities();
         if !peer_caps.accept_publish {
             error!("Permit lacks accept_publish capability");
-            self.send_publish_error(request_id, "Permit lacks accept_publish capability", state).await;
+            self.send_publish_error(request_id, "Permit lacks accept_publish capability", state)
+                .await;
             return;
         }
 
         // Check page_id matches
         let permit_page_id = permit.page_id();
         if permit_page_id.as_deref() != Some(&page.id) {
-            error!("Permit page_id {:?} doesn't match page {}", permit_page_id, page.id);
-            self.send_publish_error(request_id, "Permit page_id mismatch", state).await;
+            error!(
+                "Permit page_id {:?} doesn't match page {}",
+                permit_page_id, page.id
+            );
+            self.send_publish_error(request_id, "Permit page_id mismatch", state)
+                .await;
             return;
         }
 
@@ -299,11 +365,14 @@ impl<C: Connection> PeerActor<C> {
             Ok(id) => id,
             Err(e) => {
                 error!("Failed to get identity for AES key generation: {}", e);
-                self.send_publish_error(request_id, "Internal error", state).await;
+                self.send_publish_error(request_id, "Internal error", state)
+                    .await;
                 return;
             }
         };
-        let node_public_enc_key: [u8; 32] = identity.public_encryption_key().try_into()
+        let node_public_enc_key: [u8; 32] = identity
+            .public_encryption_key()
+            .try_into()
             .expect("public_encryption_key should be 32 bytes");
 
         let aes_key = herald::generate_aes_key();
@@ -311,7 +380,8 @@ impl<C: Connection> PeerActor<C> {
             Ok(ek) => ek,
             Err(e) => {
                 error!("Failed to encrypt AES key for page: {}", e);
-                self.send_publish_error(request_id, "Encryption error", state).await;
+                self.send_publish_error(request_id, "Encryption error", state)
+                    .await;
                 return;
             }
         };
@@ -324,24 +394,40 @@ impl<C: Connection> PeerActor<C> {
 
         if let Err(e) = state.butler.store().put_page(&page_data) {
             error!("Failed to store announced page: {}", e);
-            self.send_publish_error(request_id, &format!("Storage failed: {}", e), state).await;
+            self.send_publish_error(request_id, &format!("Storage failed: {}", e), state)
+                .await;
             return;
         }
 
         info!("Stored announced page shell: {} ({})", page.id, page.name);
 
         // Store owner's permit for sync authorization (permit-based auth, no DID whitelist)
-        if let Err(e) = state.butler.permits().store_page_permit(&page.id, &page.owner_did, owner_permit) {
-            warn!("Failed to store owner's permit for sync auth: {} - sync may fail", e);
+        if let Err(e) = state
+            .butler
+            .permits()
+            .page()
+            .store(&page.id, &page.owner_did, owner_permit)
+        {
+            warn!(
+                "Failed to store owner's permit for sync auth: {} - sync may fail",
+                e
+            );
         } else {
-            debug!("Stored owner's permit for page {} (sync authorization)", page.id);
+            debug!(
+                "Stored owner's permit for page {} (sync authorization)",
+                page.id
+            );
         }
 
         // Register owner as authorized user for this page
-        let permit_cid = gurkha::crypto::get_permit_cid(page_permit)
-            .unwrap_or_else(|_| "unknown".to_string());
+        let permit_cid =
+            gurkha::crypto::get_permit_cid(page_permit).unwrap_or_else(|_| "unknown".to_string());
         let sender_did = page.owner_did.clone();
-        if let Err(e) = state.butler.store().put_permit_cid(&page.id, &sender_did, &permit_cid) {
+        if let Err(e) = state
+            .butler
+            .store()
+            .put_permit_cid(&page.id, &sender_did, &permit_cid)
+        {
             warn!("Failed to store permit CID for page {}: {}", page.id, e);
         }
 
@@ -373,7 +459,10 @@ impl<C: Connection> PeerActor<C> {
         }
 
         if require_auth(&state.state).is_err() {
-            warn!("PageAnnounceAck from unauthenticated peer: {}", self.node_id);
+            warn!(
+                "PageAnnounceAck from unauthenticated peer: {}",
+                self.node_id
+            );
             return;
         }
 
@@ -386,17 +475,32 @@ impl<C: Connection> PeerActor<C> {
 
         // Mark page as published on this node
         let node_id_str = self.node_id.to_string();
-        if let Err(e) = state.butler.publish().mark_page_published(page_id, &node_id_str) {
+        if let Err(e) = state
+            .butler
+            .publish()
+            .mark_page_published(page_id, &node_id_str)
+        {
             warn!("Failed to mark page as published: {}", e);
         }
 
         // Store node's permit for sync authorization (permit-based auth)
         // This allows owner to verify incoming SyncOffer from node
         if let Ok((node_did, _)) = require_auth(&state.state) {
-            if let Err(e) = state.butler.permits().store_page_permit(page_id, node_did, permit) {
-                warn!("Failed to store node's permit for sync auth: {} - sync may fail", e);
+            if let Err(e) = state
+                .butler
+                .permits()
+                .page()
+                .store(page_id, node_did, permit)
+            {
+                warn!(
+                    "Failed to store node's permit for sync auth: {} - sync may fail",
+                    e
+                );
             } else {
-                debug!("Stored node's permit for page {} (sync authorization)", page_id);
+                debug!(
+                    "Stored node's permit for page {} (sync authorization)",
+                    page_id
+                );
             }
 
             // Note: Do NOT store peer vectors here. PageAnnounce sends only metadata,
@@ -407,10 +511,16 @@ impl<C: Connection> PeerActor<C> {
 
         // Subscribe to the page's Scribe so layers are broadcast to the node
         // This opens the Scribe (loading layers from storage) and starts broadcasting
-        info!("Subscribing to Scribe for page {} to deliver layers to node", page_id);
+        info!(
+            "Subscribing to Scribe for page {} to deliver layers to node",
+            page_id
+        );
         self.subscribe_to_page(myself, page_id, permit, state).await;
 
-        info!("Page {} announced successfully to node {}", page_id, self.node_id);
+        info!(
+            "Page {} announced successfully to node {}",
+            page_id, self.node_id
+        );
     }
 
     /// Handle PublishSpaceAck (Owner receives from node)
@@ -435,7 +545,10 @@ impl<C: Connection> PeerActor<C> {
         let (node_did, _) = match require_auth(&state.state) {
             Ok(info) => (info.0.to_string(), info.1.to_string()),
             Err(_) => {
-                warn!("PublishSpaceAck from unauthenticated peer: {}", self.node_id);
+                warn!(
+                    "PublishSpaceAck from unauthenticated peer: {}",
+                    self.node_id
+                );
                 return;
             }
         };
@@ -449,19 +562,35 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        info!("PublishSpaceAck: space={}, request={}, {} existing pages", space_id, request_id, pages.len());
+        info!(
+            "PublishSpaceAck: space={}, request={}, {} existing pages",
+            space_id,
+            request_id,
+            pages.len()
+        );
 
         // Store node's permit (proves space is published to this node)
-        if let Err(e) = state.butler.spaces().store_permit(&space_id, &node_did, permit) {
+        if let Err(e) = state
+            .butler
+            .spaces()
+            .store_permit(&space_id, &node_did, permit)
+        {
             warn!("Failed to store node's space permit: {}", e);
         } else {
-            debug!("Stored node's permit for space {} (published state)", space_id);
+            debug!(
+                "Stored node's permit for space {} (published state)",
+                space_id
+            );
         }
 
-        info!("Space {} published successfully to node {}", space_id, self.node_id);
+        info!(
+            "Space {} published successfully to node {}",
+            space_id, self.node_id
+        );
 
         // Trigger page announcing for pages not already on node
-        let existing_pages_set: std::collections::HashSet<&str> = pages.iter().map(|s| s.as_str()).collect();
+        let existing_pages_set: std::collections::HashSet<&str> =
+            pages.iter().map(|s| s.as_str()).collect();
         let all_pages = match state.butler.spaces().list_page_ids(&space_id) {
             Ok(p) => p,
             Err(e) => {
@@ -476,7 +605,12 @@ impl<C: Connection> PeerActor<C> {
             .collect();
 
         if !pages_to_announce.is_empty() {
-            info!("Announcing {} pages for space {} to node {}", pages_to_announce.len(), space_id, self.node_id);
+            info!(
+                "Announcing {} pages for space {} to node {}",
+                pages_to_announce.len(),
+                space_id,
+                self.node_id
+            );
             for page_id in pages_to_announce {
                 self.initiate_page_announce(&page_id, state).await;
             }
@@ -537,7 +671,7 @@ impl<C: Connection> PeerActor<C> {
             PermitScope::Page { page_id } => {
                 info!("PermitUpdate for page {} from {}", page_id, self.node_id);
                 // Store in USER_PAGE_PERMITS table (for peer_resolver lookups on node)
-                if let Err(e) = state.butler.permits().store_page_permit(
+                if let Err(e) = state.butler.permits().page().store(
                     page_id,
                     &parsed.parsed().issuer().to_string(),
                     permit,
@@ -560,7 +694,12 @@ impl<C: Connection> PeerActor<C> {
 
     /// Send a PublishError message
     #[instrument(skip_all, fields(request_id = %request_id, error = %error))]
-    pub(super) async fn send_publish_error(&self, request_id: &str, error: &str, state: &PeerActorState<C>) {
+    pub(super) async fn send_publish_error(
+        &self,
+        request_id: &str,
+        error: &str,
+        state: &PeerActorState<C>,
+    ) {
         let msg = Message::PublishError(PublishErrorMsg {
             request_id: request_id.to_string(),
             error: error.to_string(),
@@ -594,9 +733,14 @@ impl<C: Connection> PeerActor<C> {
         let request_id = uuid::Uuid::new_v4().to_string();
 
         // Store the callback for when response arrives
-        state.pending_shareable_link_requests.insert(request_id.clone(), response_tx);
+        state
+            .pending_shareable_link_requests
+            .insert(request_id.clone(), response_tx);
 
-        info!("Requesting shareable link for space {} from node {}", space_id, self.node_id);
+        info!(
+            "Requesting shareable link for space {} from node {}",
+            space_id, self.node_id
+        );
 
         let msg = Message::GetShareableLinkRequest(GetShareableLinkRequestMsg {
             request_id,
@@ -627,12 +771,18 @@ impl<C: Connection> PeerActor<C> {
         let (peer_did, _) = match require_auth(&state.state) {
             Ok(info) => (info.0.to_string(), info.1.to_string()),
             Err(_) => {
-                warn!("GetShareableLinkRequest from unauthenticated peer: {}", self.node_id);
+                warn!(
+                    "GetShareableLinkRequest from unauthenticated peer: {}",
+                    self.node_id
+                );
                 return;
             }
         };
 
-        info!("GetShareableLinkRequest: space={} from {}", space_id, peer_did);
+        info!(
+            "GetShareableLinkRequest: space={} from {}",
+            space_id, peer_did
+        );
 
         // Verify this space exists and belongs to the owner
         let space = match state.butler.spaces().get(space_id) {
@@ -648,16 +798,23 @@ impl<C: Connection> PeerActor<C> {
         };
 
         if space.owner_did != peer_did {
-            warn!("Peer {} is not owner of space {} (owner: {})", peer_did, space_id, space.owner_did);
+            warn!(
+                "Peer {} is not owner of space {} (owner: {})",
+                peer_did, space_id, space.owner_did
+            );
             return;
         }
 
         // Generate full connection string with viewer permit
         // Butler has access to all identity keys and can derive node_id
-        let connection_string = match state.butler.nodes().generate_viewer_connection_string(
-            space_id,
-            None, // relay_url - could be obtained from transport if needed
-        ).await {
+        let connection_string = match state
+            .butler
+            .nodes()
+            .generate_viewer_connection_string(
+                space_id, None, // relay_url - could be obtained from transport if needed
+            )
+            .await
+        {
             Ok(cs) => cs,
             Err(e) => {
                 error!("Failed to generate viewer connection string: {}", e);
@@ -665,7 +822,11 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        info!("Generated shareable connection string for space {} (len: {})", space_id, connection_string.len());
+        info!(
+            "Generated shareable connection string for space {} (len: {})",
+            space_id,
+            connection_string.len()
+        );
 
         let msg = Message::GetShareableLinkResponse(GetShareableLinkResponseMsg {
             request_id: request_id.to_string(),
@@ -693,13 +854,19 @@ impl<C: Connection> PeerActor<C> {
             return;
         }
 
-        info!("Received shareable link for space {} (request: {})", space_id, request_id);
+        info!(
+            "Received shareable link for space {} (request: {})",
+            space_id, request_id
+        );
 
         // Look up and invoke the callback
         if let Some(response_tx) = state.pending_shareable_link_requests.remove(request_id) {
             let _ = response_tx.send(Ok(connection_string.to_string()));
         } else {
-            warn!("No pending request found for shareable link request_id: {}", request_id);
+            warn!(
+                "No pending request found for shareable link request_id: {}",
+                request_id
+            );
         }
     }
 }

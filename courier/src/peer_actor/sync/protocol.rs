@@ -15,7 +15,7 @@
 //!
 //! **Invariant**: Node is source of truth for divergence resolution.
 
-use tracing::{debug, error, info, trace, warn, instrument};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::message::*;
 use transport::Connection;
@@ -25,7 +25,6 @@ use super::super::{PeerActor, PeerActorState, MAX_RESYNC_ATTEMPTS};
 use crate::coordinator::CourierMode;
 
 impl<C: Connection> PeerActor<C> {
-
     /// Handle incoming SyncOffer from peer (Step 1)
     ///
     /// **Context**: Peer has a layer update with their state vector
@@ -57,7 +56,11 @@ impl<C: Connection> PeerActor<C> {
 
         info!(
             "SyncOffer received: page={} layer={} ({} bytes, vector {} bytes) from {}",
-            page_id, layer_name, data.len(), their_state_vector.len(), peer_did
+            page_id,
+            layer_name,
+            data.len(),
+            their_state_vector.len(),
+            peer_did
         );
 
         // Open page early so bundled authority fanout and apply share one Scribe handle.
@@ -83,7 +86,7 @@ impl<C: Connection> PeerActor<C> {
                         } else {
                             format!("{}/{}", page_id, layer_name)
                         };
-                        if let Err(e) = state.butler.permits().store_layer_authority_permit(
+                        if let Err(e) = state.butler.permits().authority().store(
                             page_id,
                             &full_layer_name,
                             &audience,
@@ -110,24 +113,32 @@ impl<C: Connection> PeerActor<C> {
         let our_secret = match state.butler.encryption_key().await {
             Ok(key) => key,
             Err(e) => {
-                error!("Failed to get encryption key for SyncOffer decryption: {}", e);
+                error!(
+                    "Failed to get encryption key for SyncOffer decryption: {}",
+                    e
+                );
                 return;
             }
         };
-        let decrypted_data = match herald::decrypt_from_transfer(&our_secret, ephemeral_public, data) {
-            Ok(data) => data,
-            Err(e) => {
-                error!("Failed to decrypt SyncOffer from {}: {}", peer_did, e);
-                return;
-            }
-        };
+        let decrypted_data =
+            match herald::decrypt_from_transfer(&our_secret, ephemeral_public, data) {
+                Ok(data) => data,
+                Err(e) => {
+                    error!("Failed to decrypt SyncOffer from {}: {}", peer_did, e);
+                    return;
+                }
+            };
 
         // Auto-subscribe peer if not already subscribed (both Node and User modes)
         // For Node mode: Ensures can_write() can check viewer's write permissions
         // For User mode: Ensures node gets subscribed to viewer's scribe for bidirectional sync
         if !state.page_subscriptions.contains_key(page_id) {
-            info!("Auto-subscribing peer {} to page {} from SyncOffer", peer_did, page_id);
-            self.subscribe_to_page(myself.clone(), page_id, "", state).await;
+            info!(
+                "Auto-subscribing peer {} to page {} from SyncOffer",
+                peer_did, page_id
+            );
+            self.subscribe_to_page(myself.clone(), page_id, "", state)
+                .await;
         }
 
         // Apply the update with result feedback
@@ -146,15 +157,24 @@ impl<C: Connection> PeerActor<C> {
         // Wait for apply result - only send SyncAccept if successful
         match reply_rx.await {
             Ok(Ok(())) => {
-                debug!("ApplyUpdate succeeded for page={} layer={}", page_id, layer_name);
+                debug!(
+                    "ApplyUpdate succeeded for page={} layer={}",
+                    page_id, layer_name
+                );
             }
             Ok(Err(e)) => {
-                warn!("ApplyUpdate rejected for page={} layer={}: {}", page_id, layer_name, e);
+                warn!(
+                    "ApplyUpdate rejected for page={} layer={}: {}",
+                    page_id, layer_name, e
+                );
                 // DO NOT send SyncAccept - this stops the infinite retry loop
                 return;
             }
             Err(_) => {
-                error!("ApplyUpdate reply channel closed for page={} layer={}", page_id, layer_name);
+                error!(
+                    "ApplyUpdate reply channel closed for page={} layer={}",
+                    page_id, layer_name
+                );
                 return;
             }
         }
@@ -191,7 +211,10 @@ impl<C: Connection> PeerActor<C> {
         self.send_message(&msg, state).await;
         debug!(
             "Sent SyncAccept for page={} layer={} to {} (our vector {} bytes)",
-            page_id, layer_name, peer_did, our_state_vector.len()
+            page_id,
+            layer_name,
+            peer_did,
+            our_state_vector.len()
         );
 
         // After applying a __sync_meta update:
@@ -227,7 +250,10 @@ impl<C: Connection> PeerActor<C> {
 
         debug!(
             "SyncAccept: page={} layer={} from {} (their vector {} bytes)",
-            page_id, layer_name, peer_did, their_state_vector.len()
+            page_id,
+            layer_name,
+            peer_did,
+            their_state_vector.len()
         );
 
         // Get pending sync context (may not exist for fire-and-forget broadcasts)
@@ -284,12 +310,14 @@ impl<C: Connection> PeerActor<C> {
                 // Update Scribe's in-memory vector cache (persistence via periodic flush)
                 let peer_device_id = self.node_id.to_string();
                 if let Some(subscription) = state.page_subscriptions.get(page_id) {
-                    let _ = subscription.scribe.cast(butler::ScribeMessage::UpdatePeerVector {
-                        user_did: peer_did,
-                        device_id: peer_device_id,
-                        layer_name: layer_name.to_string(),
-                        state_vector: their_state_vector.to_vec(),
-                    });
+                    let _ = subscription
+                        .scribe
+                        .cast(butler::ScribeMessage::UpdatePeerVector {
+                            user_did: peer_did,
+                            device_id: peer_device_id,
+                            layer_name: layer_name.to_string(),
+                            state_vector: their_state_vector.to_vec(),
+                        });
                 }
             }
             Some(offer) => {
@@ -305,7 +333,8 @@ impl<C: Connection> PeerActor<C> {
                     // In sync! Send SyncAck
                     trace!(
                         "SyncAccept: vectors match for page={} layer={} - sending SyncAck",
-                        page_id, layer_name
+                        page_id,
+                        layer_name
                     );
 
                     let msg = Message::SyncAck(SyncAckMsg {
@@ -318,12 +347,14 @@ impl<C: Connection> PeerActor<C> {
                     // Update Scribe's in-memory vector cache (persistence via periodic flush)
                     let peer_device_id = self.node_id.to_string();
                     if let Some(subscription) = state.page_subscriptions.get(page_id) {
-                        let _ = subscription.scribe.cast(butler::ScribeMessage::UpdatePeerVector {
-                            user_did: peer_did,
-                            device_id: peer_device_id,
-                            layer_name: layer_name.to_string(),
-                            state_vector: their_state_vector.to_vec(),
-                        });
+                        let _ = subscription
+                            .scribe
+                            .cast(butler::ScribeMessage::UpdatePeerVector {
+                                user_did: peer_did,
+                                device_id: peer_device_id,
+                                layer_name: layer_name.to_string(),
+                                state_vector: their_state_vector.to_vec(),
+                            });
                     }
                 } else {
                     // Diverged! Check if we should resync or fall back to SyncReset
@@ -382,16 +413,14 @@ impl<C: Connection> PeerActor<C> {
                         }
                     };
 
-                    let (ephemeral_public, encrypted_data) = match herald::encrypt_for_transfer(
-                        &peer_encryption_key,
-                        &diff,
-                    ) {
-                        Ok(result) => result,
-                        Err(e) => {
-                            error!("Failed to encrypt resync data: {}", e);
-                            return;
-                        }
-                    };
+                    let (ephemeral_public, encrypted_data) =
+                        match herald::encrypt_for_transfer(&peer_encryption_key, &diff) {
+                            Ok(result) => result,
+                            Err(e) => {
+                                error!("Failed to encrypt resync data: {}", e);
+                                return;
+                            }
+                        };
 
                     // Track this new pending sync with incremented attempt counter
                     state.pending_sync_offers.insert(
@@ -448,12 +477,14 @@ impl<C: Connection> PeerActor<C> {
         // Update Scribe's in-memory vector cache (persistence via periodic flush)
         let peer_device_id = self.node_id.to_string();
         if let Some(subscription) = state.page_subscriptions.get(page_id) {
-            let _ = subscription.scribe.cast(butler::ScribeMessage::UpdatePeerVector {
-                user_did: peer_did.clone(),
-                device_id: peer_device_id.clone(),
-                layer_name: layer_name.to_string(),
-                state_vector: their_state_vector.to_vec(),
-            });
+            let _ = subscription
+                .scribe
+                .cast(butler::ScribeMessage::UpdatePeerVector {
+                    user_did: peer_did.clone(),
+                    device_id: peer_device_id.clone(),
+                    layer_name: layer_name.to_string(),
+                    state_vector: their_state_vector.to_vec(),
+                });
         }
 
         // Clean up any pending sync for this page/layer (shouldn't exist but be safe)
@@ -462,7 +493,8 @@ impl<C: Connection> PeerActor<C> {
 
         // Check if this is an assets layer sync - trigger asset fetch for missing blobs
         if layer_name == "assets" || layer_name.ends_with("/assets") {
-            self.trigger_asset_sync_after_layer_sync(page_id, layer_name, state).await;
+            self.trigger_asset_sync_after_layer_sync(page_id, layer_name, state)
+                .await;
         }
     }
 
@@ -552,16 +584,14 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        let (ephemeral_public, encrypted_snapshot) = match herald::encrypt_for_transfer(
-            &peer_encryption_key,
-            &snapshot,
-        ) {
-            Ok(result) => result,
-            Err(e) => {
-                error!("Failed to encrypt snapshot: {}", e);
-                return;
-            }
-        };
+        let (ephemeral_public, encrypted_snapshot) =
+            match herald::encrypt_for_transfer(&peer_encryption_key, &snapshot) {
+                Ok(result) => result,
+                Err(e) => {
+                    error!("Failed to encrypt snapshot: {}", e);
+                    return;
+                }
+            };
 
         // Send SyncSnapshot
         let layer_name_owned = layer_name.to_string();
@@ -577,7 +607,10 @@ impl<C: Connection> PeerActor<C> {
 
         info!(
             "Sent SyncSnapshot for page={} layer={} to {} ({} bytes)",
-            page_id, layer_name, peer_did, snapshot.len()
+            page_id,
+            layer_name,
+            peer_did,
+            snapshot.len()
         );
     }
 
@@ -605,25 +638,32 @@ impl<C: Connection> PeerActor<C> {
 
         info!(
             "SyncSnapshot: page={} layer={} from {} ({} bytes) - replacing local state",
-            page_id, layer_name, peer_did, snapshot.len()
+            page_id,
+            layer_name,
+            peer_did,
+            snapshot.len()
         );
 
         // Decrypt snapshot
         let our_secret = match state.butler.encryption_key().await {
             Ok(key) => key,
             Err(e) => {
-                error!("Failed to get encryption key for SyncSnapshot decryption: {}", e);
+                error!(
+                    "Failed to get encryption key for SyncSnapshot decryption: {}",
+                    e
+                );
                 return;
             }
         };
 
-        let decrypted_snapshot = match herald::decrypt_from_transfer(&our_secret, ephemeral_public, snapshot) {
-            Ok(data) => data,
-            Err(e) => {
-                error!("Failed to decrypt SyncSnapshot from {}: {}", peer_did, e);
-                return;
-            }
-        };
+        let decrypted_snapshot =
+            match herald::decrypt_from_transfer(&our_secret, ephemeral_public, snapshot) {
+                Ok(data) => data,
+                Err(e) => {
+                    error!("Failed to decrypt SyncSnapshot from {}: {}", peer_did, e);
+                    return;
+                }
+            };
 
         // Get Scribe and replace layer
         let scribe = match state.butler.open_page(page_id).await {
@@ -653,7 +693,10 @@ impl<C: Connection> PeerActor<C> {
                 );
             }
             Ok(Err(e)) => {
-                error!("ReplaceLayer failed for page={} layer={}: {}", page_id, layer_name, e);
+                error!(
+                    "ReplaceLayer failed for page={} layer={}: {}",
+                    page_id, layer_name, e
+                );
                 return;
             }
             Err(_) => {
@@ -665,12 +708,14 @@ impl<C: Connection> PeerActor<C> {
         // Update Scribe's in-memory vector cache (persistence via periodic flush)
         let peer_device_id = self.node_id.to_string();
         if let Some(subscription) = state.page_subscriptions.get(page_id) {
-            let _ = subscription.scribe.cast(butler::ScribeMessage::UpdatePeerVector {
-                user_did: peer_did.clone(),
-                device_id: peer_device_id,
-                layer_name: layer_name.to_string(),
-                state_vector: their_state_vector.to_vec(),
-            });
+            let _ = subscription
+                .scribe
+                .cast(butler::ScribeMessage::UpdatePeerVector {
+                    user_did: peer_did.clone(),
+                    device_id: peer_device_id,
+                    layer_name: layer_name.to_string(),
+                    state_vector: their_state_vector.to_vec(),
+                });
         }
 
         // Clean up any pending sync

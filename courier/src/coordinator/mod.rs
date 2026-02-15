@@ -21,7 +21,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
-use tracing::{debug, error, info, warn, instrument};
+use tracing::{debug, error, info, instrument, warn};
 use transport::{Connection, NodeId};
 
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -50,12 +50,8 @@ pub struct ConnectRequest {
 /// Generic over `C: Connection` to support different transport implementations.
 #[derive(Debug)]
 pub enum CoordinatorMessage<C: Connection> {
-
     /// New connection from transport
-    Connected {
-        node_id: NodeId,
-        conn: C,
-    },
+    Connected { node_id: NodeId, conn: C },
 
     /// Connection disconnected
     Disconnected { node_id: NodeId },
@@ -76,10 +72,7 @@ pub enum CoordinatorMessage<C: Connection> {
     /// **Context**: App wants to connect to a peer
     /// **We do**: Store permit, mark as pending, request transport connection
     /// **Events emitted**: PeerAuthenticated on success, ConnectionFailed on failure
-    Connect {
-        node_id: NodeId,
-        permit: String,
-    },
+    Connect { node_id: NodeId, permit: String },
 
     /// Get PeerActor reference for direct communication
     GetPeerActor {
@@ -88,10 +81,7 @@ pub enum CoordinatorMessage<C: Connection> {
     },
 
     /// Relay datagram to other peers (Node mode only)
-    RelayDatagram {
-        from_node_id: NodeId,
-        data: Vec<u8>,
-    },
+    RelayDatagram { from_node_id: NodeId, data: Vec<u8> },
 
     /// Broadcast datagram to all authenticated peers
     BroadcastDatagram { data: Vec<u8> },
@@ -115,7 +105,7 @@ pub enum CoordinatorMessage<C: Connection> {
     /// **We do**: Store updated permits in butler, send PermitUpdate to each recipient's PeerActor
     DistributePagePermitUpdates {
         page_id: String,
-        permits: Vec<(String, String)>,  // (recipient_did, new_permit_token)
+        permits: Vec<(String, String)>, // (recipient_did, new_permit_token)
     },
 
     /// Page opened - trigger subscription refresh for all authenticated peers
@@ -155,7 +145,9 @@ pub struct Coordinator<C: Connection> {
 
 impl<C: Connection> Coordinator<C> {
     pub fn new() -> Self {
-        Self { _phantom: PhantomData }
+        Self {
+            _phantom: PhantomData,
+        }
     }
 
     /// Emit an event to the app layer via event_tx channel
@@ -182,7 +174,9 @@ impl<C: Connection> Coordinator<C> {
     ///
     /// **Note**: Transport now only emits lifecycle events (Connected/Disconnected).
     /// Message reading is done by PeerSession directly from the Connection.
-    pub fn from_connection_event(event: transport::ConnectionEvent<C>) -> Option<CoordinatorMessage<C>> {
+    pub fn from_connection_event(
+        event: transport::ConnectionEvent<C>,
+    ) -> Option<CoordinatorMessage<C>> {
         match event {
             transport::ConnectionEvent::Connected { node_id, conn } => {
                 Some(CoordinatorMessage::Connected { node_id, conn })
@@ -220,9 +214,13 @@ impl<C: Connection> Actor for Coordinator<C> {
         _myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        let (our_node_id, mode, butler, blob_store, connect_tx, event_tx, message_tx, capture_tx) = args;
+        let (our_node_id, mode, butler, blob_store, connect_tx, event_tx, message_tx, capture_tx) =
+            args;
 
-        info!("Coordinator started in {:?} mode (node_id={})", mode, our_node_id);
+        info!(
+            "Coordinator started in {:?} mode (node_id={})",
+            mode, our_node_id
+        );
 
         Ok(CoordinatorState::new(
             our_node_id,
@@ -243,9 +241,9 @@ impl<C: Connection> Actor for Coordinator<C> {
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-
             CoordinatorMessage::Connected { node_id, conn } => {
-                self.on_connected(myself.clone(), node_id, conn, state).await;
+                self.on_connected(myself.clone(), node_id, conn, state)
+                    .await;
             }
 
             CoordinatorMessage::Disconnected { node_id } => {
@@ -258,7 +256,10 @@ impl<C: Connection> Actor for Coordinator<C> {
                 did,
                 username,
             } => {
-                info!("Peer authenticated: {} ({}) - {:?}", username, node_id, peer_type);
+                info!(
+                    "Peer authenticated: {} ({}) - {:?}",
+                    username, node_id, peer_type
+                );
                 state.authenticate_peer(node_id, peer_type, did.clone(), username.clone());
 
                 // Mark sovereign node as connected (for User mode connecting to their Node)
@@ -272,21 +273,27 @@ impl<C: Connection> Actor for Coordinator<C> {
                 }
 
                 // Emit event for app layer
-                Self::emit_event(state, CourierEvent::PeerAuthenticated {
-                    node_id: node_id.to_string(),
-                    did,
-                    username,
-                });
+                Self::emit_event(
+                    state,
+                    CourierEvent::PeerAuthenticated {
+                        node_id: node_id.to_string(),
+                        did,
+                        username,
+                    },
+                );
             }
 
             CoordinatorMessage::PeerFailed { node_id, reason } => {
                 warn!("Peer failed: {} - {}", node_id, reason);
 
                 // Emit failure event for app layer
-                Self::emit_event(state, CourierEvent::ConnectionFailed {
-                    node_id: node_id.to_string(),
-                    error: reason,
-                });
+                Self::emit_event(
+                    state,
+                    CourierEvent::ConnectionFailed {
+                        node_id: node_id.to_string(),
+                        error: reason,
+                    },
+                );
 
                 state.remove_peer(node_id);
             }
@@ -324,12 +331,18 @@ impl<C: Connection> Actor for Coordinator<C> {
                 self.on_ensure_sync(myself.clone(), user_did, state).await;
             }
 
-            CoordinatorMessage::SubscribeLayers { page_id, creator_did, layers } => {
-                self.on_subscribe_layers(&page_id, &creator_did, layers, state).await;
+            CoordinatorMessage::SubscribeLayers {
+                page_id,
+                creator_did,
+                layers,
+            } => {
+                self.on_subscribe_layers(&page_id, &creator_did, layers, state)
+                    .await;
             }
 
             CoordinatorMessage::DistributePagePermitUpdates { page_id, permits } => {
-                self.on_distribute_page_permit_updates(&page_id, &permits, state).await;
+                self.on_distribute_page_permit_updates(&page_id, &permits, state)
+                    .await;
             }
 
             CoordinatorMessage::PageOpened { page_id } => {
@@ -365,11 +378,7 @@ impl<C: Connection> Actor for Coordinator<C> {
                 debug!("Child actor started: {:?}", cell.get_id());
             }
             SupervisionEvent::ActorTerminated(cell, _, reason) => {
-                debug!(
-                    "Child actor {} terminated: {:?}",
-                    cell.get_id(),
-                    reason
-                );
+                debug!("Child actor {} terminated: {:?}", cell.get_id(), reason);
                 // Find and remove from unified registry
                 state.peers.retain(|node_id, entry| {
                     if entry.actor.get_id() == cell.get_id() {
@@ -420,7 +429,10 @@ impl<C: Connection> Coordinator<C> {
         };
 
         if is_outbound && permit.is_none() {
-            warn!("Outbound connection to {} but no permit - cannot handshake", node_id);
+            warn!(
+                "Outbound connection to {} but no permit - cannot handshake",
+                node_id
+            );
         }
 
         // Spawn PeerActor - if permit provided, it auto-initiates handshake
@@ -461,9 +473,12 @@ impl<C: Connection> Coordinator<C> {
         state.pending_permits.remove(&node_id);
 
         // Emit disconnect event for app layer
-        Self::emit_event(state, CourierEvent::PeerDisconnected {
-            node_id: node_id.to_string(),
-        });
+        Self::emit_event(
+            state,
+            CourierEvent::PeerDisconnected {
+                node_id: node_id.to_string(),
+            },
+        );
     }
 
     /// Connect to peer (fire-and-forget, result via events)
@@ -472,23 +487,21 @@ impl<C: Connection> Coordinator<C> {
     /// **Transport**: CourierRunner sees pending_connections and calls transport.connect()
     /// **Events**: PeerAuthenticated on success, ConnectionFailed on failure
     #[instrument(skip_all, fields(node_id = %node_id))]
-    async fn on_connect(
-        &self,
-        node_id: NodeId,
-        permit: String,
-        state: &mut CoordinatorState<C>,
-    ) {
+    async fn on_connect(&self, node_id: NodeId, permit: String, state: &mut CoordinatorState<C>) {
         info!("Connect: node={}", node_id);
 
         // Check if already authenticated - emit event immediately
         if state.is_authenticated(&node_id) {
             info!("Peer {} already authenticated", node_id);
             if let Some(auth) = state.get_auth(&node_id) {
-                Self::emit_event(state, CourierEvent::PeerAuthenticated {
-                    node_id: node_id.to_string(),
-                    did: auth.did.clone(),
-                    username: auth.username.clone(),
-                });
+                Self::emit_event(
+                    state,
+                    CourierEvent::PeerAuthenticated {
+                        node_id: node_id.to_string(),
+                        did: auth.did.clone(),
+                        username: auth.username.clone(),
+                    },
+                );
             }
             return;
         }
@@ -510,10 +523,13 @@ impl<C: Connection> Coordinator<C> {
         if let Some(ref tx) = state.connect_tx {
             if let Err(e) = tx.try_send(ConnectRequest { node_id, permit }) {
                 warn!(node_id = %node_id, error = %e, "Failed to send connect request");
-                Self::emit_event(state, CourierEvent::ConnectionFailed {
-                    node_id: node_id.to_string(),
-                    error: format!("Failed to initiate connection: {}", e),
-                });
+                Self::emit_event(
+                    state,
+                    CourierEvent::ConnectionFailed {
+                        node_id: node_id.to_string(),
+                        error: format!("Failed to initiate connection: {}", e),
+                    },
+                );
             }
         }
     }
@@ -571,7 +587,9 @@ impl<C: Connection> Coordinator<C> {
         info!(user_did = %user_did, node_id = %node_id, "Requesting connection for sync");
 
         state.pending_connections.insert(node_id);
-        state.pending_permits.insert(node_id, device_info.permit.clone());
+        state
+            .pending_permits
+            .insert(node_id, device_info.permit.clone());
 
         if let Some(ref tx) = state.connect_tx {
             if let Err(e) = tx.try_send(ConnectRequest {
@@ -582,10 +600,13 @@ impl<C: Connection> Coordinator<C> {
             }
         }
 
-        Self::emit_event(state, CourierEvent::ConnectRequested {
-            node_id: node_id.to_string(),
-            permit: device_info.permit,
-        });
+        Self::emit_event(
+            state,
+            CourierEvent::ConnectRequested {
+                node_id: node_id.to_string(),
+                permit: device_info.permit,
+            },
+        );
     }
 
     /// Handle SubscribeLayers - send LayerSubscribe to creator's PeerActor
@@ -625,7 +646,8 @@ impl<C: Connection> Coordinator<C> {
         user_did: &str,
         state: &'a CoordinatorState<C>,
     ) -> Option<&'a ActorRef<PeerMessage>> {
-        state.authenticated_peers()
+        state
+            .authenticated_peers()
             .find(|(_, entry)| entry.auth.as_ref().map(|a| a.did.as_str()) == Some(user_did))
             .map(|(_, entry)| &entry.actor)
     }
@@ -643,16 +665,19 @@ impl<C: Connection> Coordinator<C> {
     ) {
         info!(
             "Distributing {} page permit updates for page={}",
-            permits.len(), page_id
+            permits.len(),
+            page_id
         );
 
         for (recipient_did, permit_token) in permits {
             // Store updated permit in butler
-            if let Err(e) = state.butler.permits().store_page_permit(
-                page_id,
-                recipient_did,
-                permit_token,
-            ) {
+            if let Err(e) =
+                state
+                    .butler
+                    .permits()
+                    .page()
+                    .store(page_id, recipient_did, permit_token)
+            {
                 warn!(
                     recipient = %recipient_did,
                     error = %e,

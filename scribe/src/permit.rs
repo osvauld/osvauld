@@ -6,9 +6,10 @@
 //! - Pattern-based permission rules
 //! - Glob matching for layer names
 
-use tracing::{debug, trace};
+use tracing::{debug, info, trace, warn};
 
 use crate::state::ScribeState;
+use crate::storage::PermitIssuer;
 
 /// Simple glob pattern matching for layer names
 ///
@@ -178,6 +179,274 @@ impl Permissions {
     pub fn can_local_write(state: &ScribeState, layer_name: &str) -> bool {
         state.can_write_layer(layer_name)
     }
+}
+
+// Permit Issuance for LayerSubscribe
+
+/// Issue a layer permit for a LayerSubscribe request
+///
+/// **Context**: Peer sent LayerSubscribe, we need to issue a permit.
+/// Permit-driven priority:
+/// 1. Self-permit check: I'm the creator → issue authority permit
+/// 2. Stored authority check: I'm the node → issue layer_permit
+/// 3. Static layer: defined in our permit → issue layer_permit
+pub fn issue_layer_permit_for_subscribe(
+    state: &ScribeState,
+    peer_did: &str,
+    bare_layer_name: &str,
+    full_layer_name: &str,
+) -> std::result::Result<String, String> {
+    let issuer = state.permit_issuer.as_ref().ok_or_else(|| {
+        state.emit_permit_issue_capture(
+            full_layer_name,
+            peer_did,
+            "none",
+            "err",
+            Some("no permit issuer"),
+        );
+        "No permit issuer (not node mode)".to_string()
+    })?;
+
+    if let Some(token) = try_self_authority_permit(
+        state,
+        issuer.as_ref(),
+        peer_did,
+        bare_layer_name,
+        full_layer_name,
+    )? {
+        return Ok(token);
+    }
+    if let Some(token) = try_stored_authority_permit(
+        state,
+        issuer.as_ref(),
+        peer_did,
+        bare_layer_name,
+        full_layer_name,
+    )? {
+        return Ok(token);
+    }
+    try_static_layer_permit(state, issuer.as_ref(), peer_did, full_layer_name)
+}
+
+/// Strategy 1: Self-permit check — I'm the creator, issue authority permit
+fn try_self_authority_permit(
+    state: &ScribeState,
+    issuer: &dyn PermitIssuer,
+    peer_did: &str,
+    bare_layer_name: &str,
+    full_layer_name: &str,
+) -> std::result::Result<Option<String>, String> {
+    match issuer.get_layer_authority_permit(&state.our_did, full_layer_name) {
+        Ok(Some((_version, self_authority_token))) => {
+            if let Ok(self_permit) = gurkha::Permit::from_token(&self_authority_token) {
+                let authorized_peers = self_permit.authorized_peers();
+                let config = self_permit
+                    .layers()
+                    .get(full_layer_name)
+                    .or_else(|| self_permit.layers().get(bare_layer_name))
+                    .cloned()
+                    .unwrap_or(gurkha::LayerConfig {
+                        sync: true,
+                        write: true,
+                        layer_type: None,
+                    });
+
+                match issuer.issue_layer_authority_permit(
+                    peer_did,
+                    full_layer_name,
+                    config,
+                    authorized_peers,
+                    _version + 1,
+                ) {
+                    Ok((token, _cid)) => {
+                        info!(layer = %full_layer_name, peer = %peer_did, "Issued authority permit (creator → node)");
+                        state.emit_permit_issue_capture(
+                            full_layer_name,
+                            peer_did,
+                            "self_permit",
+                            "ok",
+                            None,
+                        );
+                        return Ok(Some(token));
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to issue authority permit from self-permit");
+                        state.emit_permit_issue_capture(
+                            full_layer_name,
+                            peer_did,
+                            "self_permit",
+                            "err",
+                            Some(&e.to_string()),
+                        );
+                    }
+                }
+            }
+        }
+        Ok(None) => {
+            state.emit_permit_issue_capture(
+                full_layer_name,
+                peer_did,
+                "self_permit",
+                "skip",
+                Some("no self-permit found"),
+            );
+        }
+        Err(e) => {
+            warn!(error = %e, "Error looking up self-permit");
+            state.emit_permit_issue_capture(
+                full_layer_name,
+                peer_did,
+                "self_permit",
+                "err",
+                Some(&e.to_string()),
+            );
+        }
+    }
+    Ok(None)
+}
+
+/// Strategy 2: Stored authority check — I'm the node with authority from a creator
+fn try_stored_authority_permit(
+    state: &ScribeState,
+    issuer: &dyn PermitIssuer,
+    peer_did: &str,
+    bare_layer_name: &str,
+    full_layer_name: &str,
+) -> std::result::Result<Option<String>, String> {
+    match issuer.get_authority_for_layer(bare_layer_name) {
+        Ok(Some((_creator_did, _version, authority_token))) => {
+            if let Ok(authority_permit) = gurkha::Permit::from_token(&authority_token) {
+                let is_authorized = authority_permit.is_peer_authorized(peer_did);
+
+                if is_authorized {
+                    let config = authority_permit
+                        .layers()
+                        .get(full_layer_name)
+                        .or_else(|| authority_permit.layers().get(bare_layer_name))
+                        .cloned()
+                        .unwrap_or(gurkha::LayerConfig {
+                            sync: true,
+                            write: true,
+                            layer_type: None,
+                        });
+
+                    let intent_cid = gurkha::crypto::get_permit_cid(&authority_token).ok();
+                    match issuer.issue_layer_permit(
+                        peer_did,
+                        full_layer_name,
+                        config,
+                        intent_cid.as_deref(),
+                    ) {
+                        Ok((token, _cid)) => {
+                            info!(layer = %full_layer_name, peer = %peer_did, "Issued layer permit from stored authority");
+                            state.emit_permit_issue_capture(
+                                full_layer_name,
+                                peer_did,
+                                "stored_authority",
+                                "ok",
+                                None,
+                            );
+                            return Ok(Some(token));
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "Failed to issue permit from stored authority");
+                            state.emit_permit_issue_capture(
+                                full_layer_name,
+                                peer_did,
+                                "stored_authority",
+                                "err",
+                                Some(&e.to_string()),
+                            );
+                        }
+                    }
+                } else {
+                    warn!(layer = %full_layer_name, peer = %peer_did, "Peer not in authorized_peers list");
+                    state.emit_permit_issue_capture(
+                        full_layer_name,
+                        peer_did,
+                        "stored_authority",
+                        "err",
+                        Some("peer not in authorized_peers"),
+                    );
+                }
+            }
+        }
+        Ok(None) => {
+            state.emit_permit_issue_capture(
+                full_layer_name,
+                peer_did,
+                "stored_authority",
+                "skip",
+                Some("no authority found"),
+            );
+        }
+        Err(e) => {
+            warn!(error = %e, "Error looking up authority for layer");
+            state.emit_permit_issue_capture(
+                full_layer_name,
+                peer_did,
+                "stored_authority",
+                "err",
+                Some(&e.to_string()),
+            );
+        }
+    }
+    Ok(None)
+}
+
+/// Strategy 3: Static layer from our own permit
+fn try_static_layer_permit(
+    state: &ScribeState,
+    issuer: &dyn PermitIssuer,
+    peer_did: &str,
+    full_layer_name: &str,
+) -> std::result::Result<String, String> {
+    if let Some(ref our_permit) = state.our_permit {
+        if let Some(config) = our_permit.layers().get(full_layer_name) {
+            match issuer.issue_layer_permit(peer_did, full_layer_name, config.clone(), None) {
+                Ok((token, _cid)) => {
+                    state.emit_permit_issue_capture(
+                        full_layer_name,
+                        peer_did,
+                        "static_layer",
+                        "ok",
+                        None,
+                    );
+                    return Ok(token);
+                }
+                Err(e) => {
+                    warn!(error = %e, layer = %full_layer_name, "Failed to issue permit for static layer");
+                    state.emit_permit_issue_capture(
+                        full_layer_name,
+                        peer_did,
+                        "static_layer",
+                        "err",
+                        Some(&e.to_string()),
+                    );
+                }
+            }
+        } else {
+            state.emit_permit_issue_capture(
+                full_layer_name,
+                peer_did,
+                "static_layer",
+                "skip",
+                Some("layer not in our permit"),
+            );
+        }
+    }
+
+    state.emit_permit_issue_capture(
+        full_layer_name,
+        peer_did,
+        "none",
+        "err",
+        Some("all paths exhausted"),
+    );
+    Err(format!(
+        "Cannot issue layer permit for {} to {}",
+        full_layer_name, peer_did
+    ))
 }
 
 // Tests

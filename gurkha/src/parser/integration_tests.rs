@@ -948,7 +948,6 @@ mod delegation_chain {
         let authority = Permit::from_token(&authority_token).unwrap();
         let peers = authority
             .authorized_peers()
-            .expect("authorized_peers should parse")
             .expect("authorized_peers should be explicit");
 
         assert_eq!(peers, vec!["did:key:viewer1", "did:key:viewer2"]);

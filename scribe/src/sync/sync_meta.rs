@@ -12,7 +12,7 @@
 //! Both the peer and the node write to the same CRDT doc.
 //! Concurrent writes merge naturally via Loro.
 
-use tracing::{debug, info, warn, instrument};
+use tracing::{debug, info, instrument, warn};
 
 use crate::layer_unit::LayerUnit;
 use crate::loro_observer;
@@ -221,17 +221,16 @@ pub fn populate_static_layers(
 /// Detection-only: no fanout, no GrantType branching. The node sends LayerSubscribe
 /// for each detected layer, gets authority from creator, then fans out.
 #[instrument(skip(state), fields(page_id = %state.page_id, creator_did = %creator_did))]
-pub fn detect_new_dynamic_layers(
-    state: &ScribeState,
-    creator_did: &str,
-) -> Vec<String> {
+pub fn detect_new_dynamic_layers(state: &ScribeState, creator_did: &str) -> Vec<String> {
     use crate::layer_unit::find_matching_dynamic_schema;
 
     let our_permit = match state.our_permit.as_ref() {
         Some(p) => p,
         None => return Vec::new(),
     };
-    if our_permit.dynamic_layer_schemas().is_empty() { return Vec::new(); }
+    if our_permit.dynamic_layer_schemas().is_empty() {
+        return Vec::new();
+    }
 
     let entries = read_sync_meta_entries(state, creator_did);
     let page_id = &state.page_id;
@@ -239,8 +238,12 @@ pub fn detect_new_dynamic_layers(
     let mut new_layers = Vec::new();
 
     for entry in &entries {
-        if entry.synced { continue; }
-        if is_protocol_layer(&entry.layer_name) { continue; }
+        if entry.synced {
+            continue;
+        }
+        if is_protocol_layer(&entry.layer_name) {
+            continue;
+        }
 
         let Some((_schema_key, _schema, path_creator_did)) =
             find_matching_dynamic_schema(our_permit, &entry.layer_name, page_id)
@@ -279,17 +282,16 @@ pub fn detect_new_dynamic_layers(
 /// Node checks stored authorities to determine which layers the peer should discover.
 /// Open-grant (no authorized_peers) → write entry. Explicit → check if peer is in list.
 #[instrument(skip(state), fields(page_id = %state.page_id, peer_did = %peer_did))]
-pub fn populate_dynamic_layers_for_late_joiner(
-    state: &mut ScribeState,
-    peer_did: &str,
-) {
+pub fn populate_dynamic_layers_for_late_joiner(state: &mut ScribeState, peer_did: &str) {
     use crate::layer_unit::find_matching_dynamic_schema;
 
     let our_permit = match state.our_permit.as_ref() {
         Some(p) => p,
         None => return,
     };
-    if our_permit.dynamic_layer_schemas().is_empty() { return; }
+    if our_permit.dynamic_layer_schemas().is_empty() {
+        return;
+    }
 
     let page_id = state.page_id.clone();
 
@@ -318,16 +320,26 @@ pub fn populate_dynamic_layers_for_late_joiner(
         let creator_entries = read_sync_meta_entries(state, creator_did);
 
         for entry in creator_entries {
-            if is_protocol_layer(&entry.layer_name) { continue; }
+            if is_protocol_layer(&entry.layer_name) {
+                continue;
+            }
 
             if find_matching_dynamic_schema(our_permit, &entry.layer_name, &page_id).is_none() {
                 continue;
             }
 
-            let already_has = peer_entries.iter().any(|e| e.layer_name == entry.layer_name);
-            if already_has { continue; }
-            let already_pending = pending_writes.iter().any(|w| w.layer_name == entry.layer_name);
-            if already_pending { continue; }
+            let already_has = peer_entries
+                .iter()
+                .any(|e| e.layer_name == entry.layer_name);
+            if already_has {
+                continue;
+            }
+            let already_pending = pending_writes
+                .iter()
+                .any(|w| w.layer_name == entry.layer_name);
+            if already_pending {
+                continue;
+            }
 
             // Check stored authority to determine if this peer is authorized
             let full_name = format!("{}/{}", page_id, entry.layer_name);
@@ -335,13 +347,7 @@ pub fn populate_dynamic_layers_for_late_joiner(
                 match issuer.get_authority_for_layer(&full_name) {
                     Ok(Some((_creator, _ver, token))) => {
                         if let Ok(auth) = gurkha::Permit::from_token(&token) {
-                            match auth.get_fact("authorized_peers") {
-                                None | Some(serde_json::Value::Null) => true,
-                                Some(serde_json::Value::Array(arr)) => {
-                                    arr.iter().any(|v| v.as_str() == Some(peer_did))
-                                }
-                                _ => false,
-                            }
+                            auth.is_peer_authorized(peer_did)
                         } else {
                             false
                         }
@@ -376,16 +382,116 @@ pub fn populate_dynamic_layers_for_late_joiner(
     }
 }
 
+/// Handle StoreLayerAuthority message (node-side)
+///
+/// **Context**: Node received authority from creator via LayerSubscribeAck.
+/// **We do**: Store authority, apply layer data, fan out to authorized peers.
+pub fn handle_store_layer_authority(
+    state: &mut ScribeState,
+    layer_name: &str,
+    creator_did: &str,
+    authority_token: &str,
+    layer_data: &[u8],
+) {
+    let bare = crate::state::normalize_layer_name(layer_name, &state.page_id);
+
+    // 1. Store authority permit via PermitIssuer
+    if let Some(ref issuer) = state.permit_issuer {
+        if let Err(e) = issuer.store_authority_permit(creator_did, layer_name, authority_token, 1) {
+            tracing::error!(layer = %layer_name, error = %e, "Failed to store authority permit");
+            return;
+        }
+        info!(layer = %layer_name, creator = %creator_did, "Stored authority permit from creator");
+    }
+
+    // 2. Create LayerUnit if needed and apply layer data
+    if !state.units.contains_key(&bare) {
+        let mut unit = LayerUnit::new_empty();
+        unit.set_local_only(false);
+        unit.is_dynamic = true;
+        state.units.insert(bare.clone(), unit);
+        loro_observer::setup_layer_observer(state, &bare);
+        info!(layer = %bare, "Created dynamic layer from authority");
+    }
+
+    if !layer_data.is_empty() {
+        if let Some(unit) = state.units.get(&bare) {
+            if let Err(e) = unit.layer().apply(layer_data) {
+                warn!(layer = %bare, error = %e, "Failed to apply layer data from authority");
+            } else {
+                unit.layer().commit();
+                if let Some(unit) = state.units.get_mut(&bare) {
+                    unit.mark_dirty();
+                }
+            }
+        }
+    }
+
+    // 3. Parse authorized_peers from authority and fan out
+    if let Ok(authority_permit) = gurkha::Permit::from_token(authority_token) {
+        let authorized_peers = authority_permit.authorized_peers();
+
+        handle_fan_out_layer_to_users(state, &bare, authorized_peers.as_deref());
+    }
+
+    // 4. Mark creator's __sync_meta entry as synced
+    mark_entry_synced(state, creator_did, &bare);
+}
+
+/// Fan out a layer entry to authorized users' __sync_meta
+///
+/// **Context**: Node needs to notify authorized peers about a new dynamic layer.
+/// **authorized_peers**: None = all subscribers, Some(list) = specific DIDs only.
+pub fn handle_fan_out_layer_to_users(
+    state: &mut ScribeState,
+    layer_name: &str,
+    authorized_peers: Option<&[String]>,
+) {
+    // Collect all subscriber DIDs
+    let all_peer_dids: Vec<String> = {
+        let mut dids = Vec::new();
+        if let Ok(subs) = state.subscribers.read() {
+            for ((did, _), _) in subs.iter() {
+                if !dids.contains(did) {
+                    dids.push(did.clone());
+                }
+            }
+        }
+        dids
+    };
+
+    let target_dids: Vec<&String> = match authorized_peers {
+        None => all_peer_dids.iter().collect(),
+        Some(list) => all_peer_dids
+            .iter()
+            .filter(|did| list.iter().any(|d| d == *did))
+            .collect(),
+    };
+
+    for peer_did in target_dids {
+        let peer_entries = read_sync_meta_entries(state, peer_did);
+        let already_has = peer_entries.iter().any(|e| e.layer_name == layer_name);
+        if !already_has {
+            write_sync_meta_entry(state, peer_did, layer_name, false);
+            info!(
+                layer = %layer_name,
+                peer_did = %peer_did,
+                "Fan out: wrote dynamic entry to peer's __sync_meta"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
     use std::sync::atomic::AtomicU64;
+    use std::sync::{Arc, Mutex};
 
     use crate::storage::{
-        NullLayerStorage, NullPeerVectorStorage, NullPermitIssuer,
-        LayerStorageRef, PeerVectorStorageRef, PermitIssuerRef,
+        LayerStorageRef, NullLayerStorage, NullPeerVectorStorage, NullPermitIssuer,
+        PeerVectorStorageRef, PermitIssuerRef,
     };
 
     fn make_test_state() -> ScribeState {
@@ -416,7 +522,9 @@ mod tests {
         assert!(is_sync_meta_layer("__sync_meta:did:key:z6MkhaX"));
         assert!(!is_sync_meta_layer("messages"));
         assert!(!is_sync_meta_layer("__sync_other:foo"));
-        assert!(!is_sync_meta_layer("channels/did:key:alice/general/messages"));
+        assert!(!is_sync_meta_layer(
+            "channels/did:key:alice/general/messages"
+        ));
     }
 
     #[test]
@@ -453,7 +561,10 @@ mod tests {
         let messages = entries.iter().find(|e| e.layer_name == "messages").unwrap();
         assert!(messages.synced);
 
-        let reactions = entries.iter().find(|e| e.layer_name == "reactions").unwrap();
+        let reactions = entries
+            .iter()
+            .find(|e| e.layer_name == "reactions")
+            .unwrap();
         assert!(!reactions.synced);
     }
 
@@ -488,6 +599,8 @@ mod tests {
     fn test_is_protocol_layer() {
         assert!(is_protocol_layer("__sync_meta:did:key:alice"));
         assert!(!is_protocol_layer("messages"));
-        assert!(!is_protocol_layer("channels/did:key:alice/general/messages"));
+        assert!(!is_protocol_layer(
+            "channels/did:key:alice/general/messages"
+        ));
     }
 }

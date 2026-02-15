@@ -6,7 +6,7 @@
 //! 3. Responder validates, exports snapshot, issues permit, responds with LayerSubscribeAck
 //! 4. Subscriber decrypts data, stores permit, applies to Scribe, marks synced
 
-use tracing::{debug, error, info, warn, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::message::*;
 use transport::Connection;
@@ -26,7 +26,6 @@ const DEFAULT_LAYER_CONSENT_TEMPLATE: &str = r#"{
 }"#;
 
 impl<C: Connection> PeerActor<C> {
-
     /// Emit a layer_subscribe_protocol capture event
     ///
     /// **Context**: Traces LayerSubscribe/LayerSubscribeAck outcomes for observability
@@ -87,7 +86,10 @@ impl<C: Connection> PeerActor<C> {
             Ok(Some(data)) => match data.get_permit() {
                 Some(permit) => permit.clone(),
                 None => {
-                    warn!("No page permit for page={}, sending consent without proof", page_id);
+                    warn!(
+                        "No page permit for page={}, sending consent without proof",
+                        page_id
+                    );
                     return String::new();
                 }
             },
@@ -105,7 +107,9 @@ impl<C: Connection> PeerActor<C> {
             &full_layer_name,
             &page_permit,
             DEFAULT_LAYER_CONSENT_TEMPLATE,
-        ).await {
+        )
+        .await
+        {
             Ok((token, _cid)) => {
                 debug!("Issued layer consent for layer={}", layer_name);
                 token
@@ -224,13 +228,19 @@ impl<C: Connection> PeerActor<C> {
         // Store consent permit if provided
         if !consent_permit.is_empty() {
             let full_layer_name = format!("{}/{}", page_id, layer_name);
-            if let Err(e) = state.butler.permits().store_viewer_layer_consent(
-                &peer_did, page_id, &full_layer_name, consent_permit,
+            if let Err(e) = state.butler.permits().consent().store(
+                &peer_did,
+                page_id,
+                &full_layer_name,
+                consent_permit,
             ) {
                 warn!("Failed to store viewer layer consent: {}", e);
                 // Non-fatal — continue processing
             } else {
-                debug!("Stored viewer layer consent for peer={} layer={}", peer_did, layer_name);
+                debug!(
+                    "Stored viewer layer consent for peer={} layer={}",
+                    peer_did, layer_name
+                );
             }
         }
 
@@ -239,7 +249,14 @@ impl<C: Connection> PeerActor<C> {
             Some(sub) => sub.scribe.clone(),
             None => {
                 warn!("LayerSubscribe: no page subscription for page={}", page_id);
-                self.send_layer_subscribe_reject(request_id, page_id, layer_name, "page not subscribed", state).await;
+                self.send_layer_subscribe_reject(
+                    request_id,
+                    page_id,
+                    layer_name,
+                    "page not subscribed",
+                    state,
+                )
+                .await;
                 return;
             }
         };
@@ -252,31 +269,67 @@ impl<C: Connection> PeerActor<C> {
             reply: reply_tx,
         }) {
             error!("Failed to send HandleLayerSubscribe to Scribe: {}", e);
-            self.send_layer_subscribe_reject(request_id, page_id, layer_name, "internal error", state).await;
+            self.send_layer_subscribe_reject(
+                request_id,
+                page_id,
+                layer_name,
+                "internal error",
+                state,
+            )
+            .await;
             return;
         }
 
         let (snapshot_data, state_vector, layer_permit) = match reply_rx.await {
             Ok(Ok(result)) => {
                 Self::emit_layer_subscribe_protocol_capture(
-                    &state.capture_tx, "incoming", page_id, layer_name, &peer_did, "ok", None,
+                    &state.capture_tx,
+                    "incoming",
+                    page_id,
+                    layer_name,
+                    &peer_did,
+                    "ok",
+                    None,
                 );
                 result
             }
             Ok(Err(e)) => {
                 warn!("HandleLayerSubscribe error for layer={}: {}", layer_name, e);
                 Self::emit_layer_subscribe_protocol_capture(
-                    &state.capture_tx, "incoming", page_id, layer_name, &peer_did, "err", Some(&e),
+                    &state.capture_tx,
+                    "incoming",
+                    page_id,
+                    layer_name,
+                    &peer_did,
+                    "err",
+                    Some(&e),
                 );
-                self.send_layer_subscribe_reject(request_id, page_id, layer_name, &e, state).await;
+                self.send_layer_subscribe_reject(request_id, page_id, layer_name, &e, state)
+                    .await;
                 return;
             }
             Err(_) => {
-                error!("HandleLayerSubscribe reply dropped for layer={}", layer_name);
-                Self::emit_layer_subscribe_protocol_capture(
-                    &state.capture_tx, "incoming", page_id, layer_name, &peer_did, "err", Some("reply dropped"),
+                error!(
+                    "HandleLayerSubscribe reply dropped for layer={}",
+                    layer_name
                 );
-                self.send_layer_subscribe_reject(request_id, page_id, layer_name, "internal error", state).await;
+                Self::emit_layer_subscribe_protocol_capture(
+                    &state.capture_tx,
+                    "incoming",
+                    page_id,
+                    layer_name,
+                    &peer_did,
+                    "err",
+                    Some("reply dropped"),
+                );
+                self.send_layer_subscribe_reject(
+                    request_id,
+                    page_id,
+                    layer_name,
+                    "internal error",
+                    state,
+                )
+                .await;
                 return;
             }
         };
@@ -286,41 +339,48 @@ impl<C: Connection> PeerActor<C> {
             Some(key) => key,
             None => {
                 warn!("Cannot send LayerSubscribeAck: peer encryption key not set");
-                self.send_layer_subscribe_reject(request_id, page_id, layer_name, "no encryption key", state).await;
+                self.send_layer_subscribe_reject(
+                    request_id,
+                    page_id,
+                    layer_name,
+                    "no encryption key",
+                    state,
+                )
+                .await;
                 return;
             }
         };
 
-        let (ephemeral_public, encrypted_data) = match herald::encrypt_for_transfer(
-            &peer_encryption_key,
-            &snapshot_data,
-        ) {
-            Ok(result) => result,
-            Err(e) => {
-                error!("Failed to encrypt LayerSubscribeAck data: {}", e);
-                self.send_layer_subscribe_reject(request_id, page_id, layer_name, "encryption failed", state).await;
-                return;
-            }
-        };
+        let (ephemeral_public, encrypted_data) =
+            match herald::encrypt_for_transfer(&peer_encryption_key, &snapshot_data) {
+                Ok(result) => result,
+                Err(e) => {
+                    error!("Failed to encrypt LayerSubscribeAck data: {}", e);
+                    self.send_layer_subscribe_reject(
+                        request_id,
+                        page_id,
+                        layer_name,
+                        "encryption failed",
+                        state,
+                    )
+                    .await;
+                    return;
+                }
+            };
 
         // Ensure peer is a per-layer subscriber for future broadcasts.
         // HandleLayerSubscribe attempts this internally, but as a belt-and-suspenders
         // we also send an explicit AuthorizeLayerSubscriber from here.
-        scribe.cast(ScribeMessage::AuthorizeLayerSubscriber {
-            layer_name: layer_name.to_string(),
-            subscriber_did: peer_did.clone(),
-        }).ok();
+        scribe
+            .cast(ScribeMessage::AuthorizeLayerSubscriber {
+                layer_name: layer_name.to_string(),
+                subscriber_did: peer_did.clone(),
+            })
+            .ok();
 
-        // Mark the entry as synced in the peer's __sync_meta on the node
-        if let Some(sub) = state.page_subscriptions.get(page_id) {
-            let meta_layer = format!("__sync_meta:{}", peer_did);
-            let _ = sub.scribe.cast(ScribeMessage::UpdateFromJson {
-                layer_name: meta_layer,
-                path: layer_name.to_string(),
-                value: serde_json::json!(true),
-                reply: None,
-            });
-        }
+        // Note: Entry marking in __sync_meta happens on the requester side when they
+        // receive this ack and apply the data (see handle_layer_permit_ack: MarkSyncMetaSynced).
+        // For authority flow, StoreLayerAuthority in scribe already marks the creator's entry.
 
         let msg = Message::LayerSubscribeAck(LayerSubscribeAckMsg {
             request_id: request_id.to_string(),
@@ -335,7 +395,10 @@ impl<C: Connection> PeerActor<C> {
         });
 
         self.send_message(&msg, state).await;
-        info!("Sent LayerSubscribeAck for page={} layer={} to peer={}", page_id, layer_name, peer_did);
+        info!(
+            "Sent LayerSubscribeAck for page={} layer={} to peer={}",
+            page_id, layer_name, peer_did
+        );
     }
 
     /// Send a rejected LayerSubscribeAck
@@ -384,7 +447,10 @@ impl<C: Connection> PeerActor<C> {
         let (peer_did, _) = match require_auth(&state.state) {
             Ok(info) => (info.0.to_string(), info.1.to_string()),
             Err(_) => {
-                warn!("LayerSubscribeAck from unauthenticated peer: {}", self.node_id);
+                warn!(
+                    "LayerSubscribeAck from unauthenticated peer: {}",
+                    self.node_id
+                );
                 return;
             }
         };
@@ -396,14 +462,23 @@ impl<C: Connection> PeerActor<C> {
                 page_id, layer_name, reject_reason
             );
             Self::emit_layer_subscribe_protocol_capture(
-                &state.capture_tx, "ack_rejected", page_id, layer_name, &peer_did, "err", Some(reject_reason),
+                &state.capture_tx,
+                "ack_rejected",
+                page_id,
+                layer_name,
+                &peer_did,
+                "err",
+                Some(reject_reason),
             );
             return;
         }
 
         info!(
             "LayerSubscribeAck: page={} layer={} from peer={} data_len={}",
-            page_id, layer_name, peer_did, data.len()
+            page_id,
+            layer_name,
+            peer_did,
+            data.len()
         );
 
         // Decrypt data
@@ -415,13 +490,14 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        let decrypted_data = match herald::decrypt_from_transfer(&our_secret, ephemeral_public, data) {
-            Ok(plaintext) => plaintext,
-            Err(e) => {
-                error!("Failed to decrypt LayerSubscribeAck data: {}", e);
-                return;
-            }
-        };
+        let decrypted_data =
+            match herald::decrypt_from_transfer(&our_secret, ephemeral_public, data) {
+                Ok(plaintext) => plaintext,
+                Err(e) => {
+                    error!("Failed to decrypt LayerSubscribeAck data: {}", e);
+                    return;
+                }
+            };
 
         // Detect permit type to determine handling path
         let is_authority = gurkha::Permit::from_token(layer_permit)
@@ -432,9 +508,26 @@ impl<C: Connection> PeerActor<C> {
             .unwrap_or(false);
 
         if is_authority {
-            self.handle_authority_ack(page_id, layer_name, &peer_did, layer_permit, &decrypted_data, state_vector, state).await;
+            self.handle_authority_ack(
+                page_id,
+                layer_name,
+                &peer_did,
+                layer_permit,
+                &decrypted_data,
+                state_vector,
+                state,
+            )
+            .await;
         } else {
-            self.handle_layer_permit_ack(page_id, layer_name, &peer_did, layer_permit, &decrypted_data, state).await;
+            self.handle_layer_permit_ack(
+                page_id,
+                layer_name,
+                &peer_did,
+                layer_permit,
+                &decrypted_data,
+                state,
+            )
+            .await;
         }
     }
 
@@ -453,12 +546,18 @@ impl<C: Connection> PeerActor<C> {
         state_vector: &[u8],
         state: &mut PeerActorState<C>,
     ) {
-        info!("Received layer_authority for layer={} from creator={}", layer_name, creator_did);
+        info!(
+            "Received layer_authority for layer={} from creator={}",
+            layer_name, creator_did
+        );
 
         let scribe = match state.page_subscriptions.get(page_id) {
             Some(sub) => sub.scribe.clone(),
             None => {
-                warn!("No page subscription for page={}, cannot store authority", page_id);
+                warn!(
+                    "No page subscription for page={}, cannot store authority",
+                    page_id
+                );
                 return;
             }
         };
@@ -476,21 +575,19 @@ impl<C: Connection> PeerActor<C> {
         }
 
         // Authorize creator as subscriber for bidirectional sync
-        scribe.cast(ScribeMessage::AuthorizeLayerSubscriber {
-            layer_name: layer_name.to_string(),
-            subscriber_did: creator_did.to_string(),
-        }).ok();
+        scribe
+            .cast(ScribeMessage::AuthorizeLayerSubscriber {
+                layer_name: layer_name.to_string(),
+                subscriber_did: creator_did.to_string(),
+            })
+            .ok();
 
-        // Mark creator's __sync_meta entry as synced
-        let meta_layer = format!("__sync_meta:{}", creator_did);
-        let _ = scribe.cast(ScribeMessage::UpdateFromJson {
-            layer_name: meta_layer,
-            path: layer_name.to_string(),
-            value: serde_json::json!(true),
-            reply: None,
-        });
+        // Note: StoreLayerAuthority in scribe already marks the creator's __sync_meta entry.
 
-        info!("Stored authority and initiated fanout for layer={}", layer_name);
+        info!(
+            "Stored authority and initiated fanout for layer={}",
+            layer_name
+        );
     }
 
     /// Handle LayerSubscribeAck containing a layer_permit (user received from node)
@@ -507,7 +604,10 @@ impl<C: Connection> PeerActor<C> {
         data: &[u8],
         state: &mut PeerActorState<C>,
     ) {
-        info!("Received layer_permit for layer={} from node={}", layer_name, node_did);
+        info!(
+            "Received layer_permit for layer={} from node={}",
+            layer_name, node_did
+        );
 
         // Store layer permit
         let full_layer_name = format!("{}/{}", page_id, layer_name);
@@ -519,9 +619,13 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        if let Err(e) = state.butler.permits().store_layer_permit(
-            page_id, &our_did, &full_layer_name, layer_permit,
-        ) {
+        if let Err(e) =
+            state
+                .butler
+                .permits()
+                .layer()
+                .store(page_id, &our_did, &full_layer_name, layer_permit)
+        {
             error!("Failed to store layer permit: {}", e);
             return;
         }
@@ -531,13 +635,16 @@ impl<C: Connection> PeerActor<C> {
         // Apply data to Scribe
         if let Some(subscription) = state.page_subscriptions.get(page_id) {
             let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-            if let Err(e) = subscription.scribe.cast(ScribeMessage::ApplyUpdateWithResult {
-                layer_name: layer_name.to_string(),
-                update: data.to_vec(),
-                from_peer: Some((node_did.to_string(), self.node_id.to_string())),
-                permit: Some(layer_permit.to_string()),
-                reply: reply_tx,
-            }) {
+            if let Err(e) = subscription
+                .scribe
+                .cast(ScribeMessage::ApplyUpdateWithResult {
+                    layer_name: layer_name.to_string(),
+                    update: data.to_vec(),
+                    from_peer: Some((node_did.to_string(), self.node_id.to_string())),
+                    permit: Some(layer_permit.to_string()),
+                    reply: reply_tx,
+                })
+            {
                 error!("Failed to send ApplyUpdate for LayerSubscribeAck: {}", e);
                 return;
             }
@@ -547,7 +654,10 @@ impl<C: Connection> PeerActor<C> {
                     info!("Applied LayerSubscribeAck data for layer={}", layer_name);
                 }
                 Ok(Err(e)) => {
-                    warn!("Scribe rejected LayerSubscribeAck data for layer={}: {}", layer_name, e);
+                    warn!(
+                        "Scribe rejected LayerSubscribeAck data for layer={}: {}",
+                        layer_name, e
+                    );
                 }
                 Err(_) => {
                     error!("ApplyUpdate reply dropped for layer={}", layer_name);
@@ -556,18 +666,27 @@ impl<C: Connection> PeerActor<C> {
             }
 
             // Authorize node as subscriber for bidirectional sync
-            subscription.scribe.cast(ScribeMessage::AuthorizeLayerSubscriber {
-                layer_name: layer_name.to_string(),
-                subscriber_did: node_did.to_string(),
-            }).ok();
+            subscription
+                .scribe
+                .cast(ScribeMessage::AuthorizeLayerSubscriber {
+                    layer_name: layer_name.to_string(),
+                    subscriber_did: node_did.to_string(),
+                })
+                .ok();
             info!("Authorized node {} on layer={}", node_did, layer_name);
 
             // Mark __sync_meta entry as synced
-            subscription.scribe.cast(ScribeMessage::MarkSyncMetaSynced {
-                layer_name: layer_name.to_string(),
-            }).ok();
+            subscription
+                .scribe
+                .cast(ScribeMessage::MarkSyncMetaSynced {
+                    layer_name: layer_name.to_string(),
+                })
+                .ok();
         } else {
-            warn!("No page subscription for page={}, cannot apply LayerSubscribeAck", page_id);
+            warn!(
+                "No page subscription for page={}, cannot apply LayerSubscribeAck",
+                page_id
+            );
         }
     }
 }

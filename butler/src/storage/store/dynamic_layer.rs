@@ -34,7 +34,7 @@ impl RedbStore {
         layer_name: &str,
         permit_token: &str,
     ) -> Result<()> {
-        let key = format!("{}/{}/{}", page_id, user_did, layer_name);
+        let key = Self::key3(page_id, user_did, layer_name);
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(LAYER_PERMITS)?;
@@ -54,24 +54,8 @@ impl RedbStore {
         page_id: &str,
         user_did: &str,
     ) -> Result<Vec<(String, String)>> {
-        let prefix = format!("{}/{}/", page_id, user_did);
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(LAYER_PERMITS)?;
-
-        let mut permits = Vec::new();
-        for result in table.range(prefix.as_str()..)? {
-            let (key, value) = result?;
-            let key_str = key.value();
-
-            if !key_str.starts_with(&prefix) {
-                break;
-            }
-
-            if let Some(layer_name) = key_str.strip_prefix(&prefix) {
-                permits.push((layer_name.to_string(), value.value().to_string()));
-            }
-        }
-        Ok(permits)
+        let prefix = Self::prefix2(page_id, user_did);
+        self.scan_prefix_str(LAYER_PERMITS, prefix.as_str())
     }
 
     /// Remove a layer permit for a peer.
@@ -84,7 +68,7 @@ impl RedbStore {
         user_did: &str,
         layer_name: &str,
     ) -> Result<bool> {
-        let key = format!("{}/{}/{}", page_id, user_did, layer_name);
+        let key = Self::key3(page_id, user_did, layer_name);
         let write_txn = self.db.begin_write()?;
         let removed = {
             let mut table = write_txn.open_table(LAYER_PERMITS)?;
@@ -103,7 +87,7 @@ impl RedbStore {
         user_did: &str,
         layer_name: &str,
     ) -> Result<bool> {
-        let key = format!("{}/{}/{}", page_id, user_did, layer_name);
+        let key = Self::key3(page_id, user_did, layer_name);
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(LAYER_PERMITS)?;
         let result = table.get(key.as_str())?.is_some();
@@ -125,7 +109,7 @@ impl RedbStore {
         layer_name: &str,
         meta_json: &[u8],
     ) -> Result<()> {
-        let key = format!("{}/{}", page_id, layer_name);
+        let key = Self::key2(page_id, layer_name);
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(DYNAMIC_LAYER_META)?;
@@ -142,24 +126,8 @@ impl RedbStore {
     /// **Returns**: Vec of (layer_name, meta_json_bytes) tuples.
     #[instrument(skip_all)]
     pub fn list_dynamic_layers(&self, page_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
-        let prefix = format!("{}/", page_id);
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(DYNAMIC_LAYER_META)?;
-
-        let mut layers = Vec::new();
-        for result in table.range(prefix.as_str()..)? {
-            let (key, value) = result?;
-            let key_str = key.value();
-
-            if !key_str.starts_with(&prefix) {
-                break;
-            }
-
-            if let Some(layer_name) = key_str.strip_prefix(&prefix) {
-                layers.push((layer_name.to_string(), value.value().to_vec()));
-            }
-        }
-        Ok(layers)
+        let prefix = Self::prefix1(page_id);
+        self.scan_prefix_bytes(DYNAMIC_LAYER_META, prefix.as_str())
     }
 
     /// Get metadata for a specific dynamic layer.
@@ -169,7 +137,7 @@ impl RedbStore {
         page_id: &str,
         layer_name: &str,
     ) -> Result<Option<Vec<u8>>> {
-        let key = format!("{}/{}", page_id, layer_name);
+        let key = Self::key2(page_id, layer_name);
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(DYNAMIC_LAYER_META)?;
 
@@ -195,7 +163,7 @@ impl RedbStore {
         layer_name: &str,
         consent_token: &str,
     ) -> Result<()> {
-        let key = format!("{}/{}/{}", viewer_did, page_id, layer_name);
+        let key = Self::key3(viewer_did, page_id, layer_name);
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(VIEWER_LAYER_CONSENTS)?;
@@ -216,7 +184,7 @@ impl RedbStore {
         page_id: &str,
         layer_name: &str,
     ) -> Result<bool> {
-        let key = format!("{}/{}/{}", viewer_did, page_id, layer_name);
+        let key = Self::key3(viewer_did, page_id, layer_name);
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(VIEWER_LAYER_CONSENTS)?;
         Ok(table.get(key.as_str())?.is_some())
@@ -232,7 +200,7 @@ impl RedbStore {
         page_id: &str,
         layer_name: &str,
     ) -> Result<Option<String>> {
-        let key = format!("{}/{}/{}", viewer_did, page_id, layer_name);
+        let key = Self::key3(viewer_did, page_id, layer_name);
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(VIEWER_LAYER_CONSENTS)?;
 
@@ -257,7 +225,7 @@ impl RedbStore {
         version: u64,
         permit_token: &str,
     ) -> Result<()> {
-        let key = format!("{}/{}/{}", page_id, audience, layer_name);
+        let key = Self::key3(page_id, audience, layer_name);
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(LAYER_AUTHORITY_PERMITS)?;
@@ -291,7 +259,7 @@ impl RedbStore {
         layer_name: &str,
         audience: &str,
     ) -> Result<Option<(u64, String)>> {
-        let key = format!("{}/{}/{}", page_id, audience, layer_name);
+        let key = Self::key3(page_id, audience, layer_name);
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(LAYER_AUTHORITY_PERMITS)?;
 
@@ -313,24 +281,12 @@ impl RedbStore {
         page_id: &str,
         audience: &str,
     ) -> Result<Vec<(String, u64, String)>> {
-        let prefix = format!("{}/{}/", page_id, audience);
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(LAYER_AUTHORITY_PERMITS)?;
+        let prefix = Self::prefix2(page_id, audience);
+        let rows = self.scan_prefix_bytes(LAYER_AUTHORITY_PERMITS, prefix.as_str())?;
 
         let mut permits = Vec::new();
-        for result in table.range(prefix.as_str()..)? {
-            let (key, value) = result?;
-            let key_str = key.value();
-
-            if !key_str.starts_with(&prefix) {
-                break;
-            }
-
-            let Some(layer_name) = key_str.strip_prefix(&prefix) else {
-                continue;
-            };
-
-            let record = serde_json::from_slice::<LayerAuthorityRecord>(value.value())
+        for (layer_name, value) in rows {
+            let record = serde_json::from_slice::<LayerAuthorityRecord>(value.as_slice())
                 .map_err(|e| crate::error::ButlerError::Serialization(e.to_string()))?;
             permits.push((layer_name.to_string(), record.version, record.permit));
         }
@@ -348,21 +304,12 @@ impl RedbStore {
         page_id: &str,
         layer_name: &str,
     ) -> Result<Option<(String, u64, String)>> {
-        let page_prefix = format!("{}/", page_id);
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(LAYER_AUTHORITY_PERMITS)?;
+        let page_prefix = Self::prefix1(page_id);
+        let rows = self.scan_prefix_bytes(LAYER_AUTHORITY_PERMITS, page_prefix.as_str())?;
 
-        for result in table.range(page_prefix.as_str()..)? {
-            let (key, value) = result?;
-            let key_str = key.value();
-
-            if !key_str.starts_with(&page_prefix) {
-                break;
-            }
-
+        for (rest, value) in rows {
             // Key format: {page_id}/{audience}/{layer_name}
             // We need to find entries where the suffix after {page_id}/{audience}/ matches layer_name
-            let rest = &key_str[page_prefix.len()..];
             // rest = {audience}/{layer_name}
             // Find the first '/' after audience (audience is a DID, contains colons but no slashes until the layer_name part)
             // Actually DIDs don't contain '/' but layer_name can have '/'.
@@ -372,8 +319,9 @@ impl RedbStore {
                 let audience = &rest[..slash_pos];
                 let stored_layer = &rest[slash_pos + 1..];
                 if stored_layer == layer_name {
-                    let record = serde_json::from_slice::<LayerAuthorityRecord>(value.value())
-                        .map_err(|e| crate::error::ButlerError::Serialization(e.to_string()))?;
+                    let record =
+                        serde_json::from_slice::<LayerAuthorityRecord>(value.as_slice())
+                            .map_err(|e| crate::error::ButlerError::Serialization(e.to_string()))?;
                     return Ok(Some((audience.to_string(), record.version, record.permit)));
                 }
             }

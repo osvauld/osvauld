@@ -49,15 +49,17 @@ impl PermitIssuer for ButlerPermitIssuer {
         intent_cid: Option<&str>,
     ) -> Result<(String, String)> {
         info!(page_id = %self.page_id, "ButlerPermitIssuer::issue_layer_permit");
-        futures::executor::block_on(gurkha::issue_layer_permit(
-            &self.signing_key,
-            &self.node_permit_token,
-            audience,
-            &self.page_id,
-            layer_name,
-            config,
-            intent_cid,
-        ))
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(gurkha::issue_layer_permit(
+                &self.signing_key,
+                &self.node_permit_token,
+                audience,
+                &self.page_id,
+                layer_name,
+                config,
+                intent_cid,
+            ))
+        })
         .map_err(|e| {
             warn!(error = %e, "Permit issuance failed");
             ScribeError::Other(format!("Permit issuance failed: {}", e))
@@ -101,15 +103,17 @@ impl PermitIssuer for ButlerPermitIssuer {
         authorized_peers: Option<Vec<String>>,
         version: u64,
     ) -> Result<(String, String)> {
-        let (token, cid) = futures::executor::block_on(gurkha::issue_layer_authority_permit(
-            &self.signing_key,
-            &self.node_permit_token,
-            audience,
-            layer_name,
-            config,
-            authorized_peers,
-            version,
-        ))
+        let (token, cid) = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(gurkha::issue_layer_authority_permit(
+                &self.signing_key,
+                &self.node_permit_token,
+                audience,
+                layer_name,
+                config,
+                authorized_peers,
+                version,
+            ))
+        })
         .map_err(|e| {
             warn!(error = %e, "Layer authority permit issuance failed");
             ScribeError::Other(format!("Layer authority permit issuance failed: {}", e))
@@ -135,7 +139,13 @@ impl PermitIssuer for ButlerPermitIssuer {
         version: u64,
     ) -> Result<()> {
         self.store
-            .store_layer_authority_permit(&self.page_id, layer_name, creator_did, version, authority_token)
+            .store_layer_authority_permit(
+                &self.page_id,
+                layer_name,
+                creator_did,
+                version,
+                authority_token,
+            )
             .map_err(|e| ScribeError::Other(format!("Store error: {}", e)))
     }
 
