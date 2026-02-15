@@ -1,0 +1,849 @@
+Implement the following plan:
+
+# Plan: LayerAccessPolicy — Foundational Layer Authorization
+
+## Context
+
+The dynamic layer authorization system was bolted onto the existing static layer protocol as an afterthought. The result:
+
+- **11 call sites** populate `authorized_dids: HashSet<String>` on each LayerUnit — subscription, layer creation (7 paths), AuthorizeLayerSubscriber, pending authorizations, explicit access grants
+- **Complex wire protocol chain**: `emit_dynamic_layer_permits` → `SyncEvent::NewDynamicLayer` → Coordinator → PeerActor → `LayerPermitMsg` → `on_layer_permit` → `AuthorizeLayerSubscriber` → `pending_layer_authorizations` — all to add one DID to a HashSet
+- **Race conditions**: `pending_layer_authorizations` exists only because `AuthorizeLayerSubscriber` can arrive before the layer is created
+- **Bugs**: Viewer writes to dynamic channels fail silently because the node never gets added to `authorized_dids` on the viewer's Scribe
+
+**Root cause**: `authorized_dids` is a cache that's populated eagerly from multiple disconnected sources with no single source of truth.
+
+**Solution**: Replace ad-hoc `authorized_dids` with a first-class `LayerAccessPolicy` on each LayerUnit. Authorization is computed at broadcast time from the policy + subscriber info, not pre-populated.
+
+## Design: LayerAccessPolicy
+
+### The enum
+
+```rust
+// scribe/src/layer_unit/mod.rs
+
+/// How access is determined for this layer — set once at creation, checked at broadcast time.
+/// This replaces the ad-hoc authorized_dids HashSet that was populated from 11 call sites.
+pub enum LayerAccessPolicy {
+    /// Static layer: access by subscriber's page permit
+    /// e.g., channels/general/messages, app:Group Chat
+    PagePermit,
+
+    /// Role-based dynamic layer: access by role match against schema
+    /// e.g., channels/did:key:alice/project-x/messages (grant: "role")
+    /// All collaborators/owners with matching roles get access automatically
+    RoleBased {
+        allowed_roles: HashSet<String>,
+    },
+
+    /// DID-based dynamic layer: access by explicit DID set
+    /// e.g., dms/did:key:alice/room1/messages (grant: "explicit")
+    /// Only specifically granted DIDs get access
+    Explicit {
+        authorized_dids: Arc<RwLock<HashSet<String>>>,
+    },
+}
+```
+
+### The broadcast check (used by observer AND broadcast_update)
+
+```rust
+fn can_broadcast_to(
+    access_policy: &LayerAccessPolicy,
+    subscriber_did: &str,
+    subscriber_info: &SubscriberInfo,
+    layer_name: &str,
+    page_id: &str,
+    sync_target: Option<&str>,
+) -> bool {
+    // Rule 1: Sync target always receives ALL syncable layers
+    // This is the owner/viewer → node path. The node is our sync target.
+    if sync_target == Some(subscriber_did) {
+        return true;
+    }
+
+    // Rule 2: Check the layer's access policy
+    match access_policy {
+        LayerAccessPolicy::PagePermit => {
+            subscriber_info.can_receive_layer(layer_name, page_id)
+        }
+        LayerAccessPolicy::RoleBased { allowed_roles } => {
+            let role = subscriber_info.permit.relationship().unwrap_or("peer");
+            allowed_roles.contains(role)
+        }
+        LayerAccessPolicy::Explicit { authorized_dids } => {
+            authorized_dids.read()
+                .map(|set| set.contains(subscriber_did))
+                .unwrap_or(false)
+        }
+    }
+}
+```
+
+**Key insight**: The `sync_target` rule is why viewer writes work. The viewer's Scribe always broadcasts to the node (its sync_target) regardless of access policy. No LayerPermit chain needed.
+
+### Setting the policy (replaces 11 call sites)
+
+Every layer creation path sets the policy once:
+
+```rust
+fn determine_access_policy(
+    layer_name: &str,
+    our_permit: Option<&gurkha::Permit>,
+    page_id: &str,
+) -> LayerAccessPolicy {
+    if let Some(permit) = our_permit {
+        if let Some((_key, schema, _creator)) = find_matching_dynamic_schema(permit, layer_name, page_id) {
+            return match schema.grant {
+                GrantType::Role => LayerAccessPolicy::RoleBased {
+                    allowed_roles: schema.role_permissions.keys().cloned().collect(),
+                },
+                GrantType::Explicit => LayerAccessPolicy::Explicit {
+                    authorized_dids: Arc::new(RwLock::new(HashSet::new())),
+                },
+            };
+        }
+    }
+    LayerAccessPolicy::PagePermit
+}
+```
+
+## What this eliminates
+
+| Before | After |
+|--------|-------|
+| 11 `authorize_did` call sites | 0 for RoleBased, 1-2 for Explicit |
+| `pending_layer_authorizations` HashMap | Removed entirely |
+| `AuthorizeLayerSubscriber` message (for role-based) | Removed |
+| `emit_dynamic_layer_permits` (for role-based) | Removed |
+| `prepare_layer_permits` (for role-based) | Removed |
+| `LayerPermit`/`LayerConsent` wire protocol (for role-based) | Removed |
+| `authorize_subscriber_for_layers` at subscribe time | Replaced by broadcast-time check |
+| `can_receive_layer` as sole auth source for dynamic | `access_policy` covers dynamic |
+| `fanout_sync_meta_from_authority` for layer permits | Simplified |
+
+**Kept for Explicit schemas (DMs)**:
+- `AuthorizeLayerSubscriber` message (to add DID to Explicit set)
+- `LayerPermit` wire protocol (node tells viewer about new DM access)
+- `emit_dynamic_layer_permits` (only for explicit schemas)
+
+## File-by-file changes
+
+### 1. `scribe/src/layer_unit/mod.rs`
+
+- Add `LayerAccessPolicy` enum (Clone, Debug)
+- Replace `authorized_dids: Arc<RwLock<HashSet<String>>>` with `access_policy: LayerAccessPolicy`
+- Default to `PagePermit` in `LayerUnit::new()` and `new_empty()`
+- Add `set_access_policy(&mut self, policy: LayerAccessPolicy)`
+- Add `access_policy(&self) -> &LayerAccessPolicy`
+- Keep `authorize_did` / `revoke_did` / `is_authorized` but they operate ONLY on `Explicit` variant (no-op otherwise)
+- Add `fn determine_access_policy(layer_name, our_permit, page_id) -> LayerAccessPolicy` (shared helper)
+- Update tests
+
+### 2. `scribe/src/loro_observer.rs` (setup_layer_observer)
+
+Currently captures `authorized_dids: Arc<RwLock<HashSet<String>>>` per layer.
+
+Change: Capture `access_policy: LayerAccessPolicy` and `sync_target: Option<String>` instead.
+
+- `setup_layer_observer`: capture `unit.access_policy().clone()` + `state.sync_config.sync_target.clone()`
+- Replace the `authorized.contains(user_did)` check with `can_broadcast_to(...)` call
+- Remove warning about "not in authorized_dids" — replace with policy-aware logging
+
+### 3. `scribe/src/sync/broadcast.rs` (broadcast_update)
+
+Same pattern as observer:
+- Read `access_policy` from `unit.access_policy()` instead of `authorized_dids`
+- Check `sync_target` from `state.sync_config`
+- Use `can_broadcast_to(...)` for authorization
+- Update capture events
+
+### 4. `scribe/src/sync/subscription.rs`
+
+- **Remove `authorize_subscriber_for_layers`** (no longer needed — broadcast checks access_policy)
+- `send_initial_state_to_subscriber`: Replace `unit.is_authorized(user_did)` with `can_broadcast_to(unit.access_policy(), ...)`
+- `issue_pending_layer_permits`: Keep but only for explicit schemas
+- `handle_subscribe`: Remove call to `authorize_subscriber_for_layers`, keep everything else
+
+### 5. `scribe/src/sync/apply.rs`
+
+- `create_layer_from_peer`: Call `determine_access_policy()` to set the policy on creation. Remove subscriber authorization loop. Remove `pending_layer_authorizations` handling.
+- `emit_dynamic_layer_permits`: Gate on `schema.grant == Explicit` only. For role-based, skip entirely (no permits needed).
+- Keep `find_matching_dynamic_schema` (still used by `determine_access_policy`)
+
+### 6. `scribe/src/actor.rs`
+
+- `ReplaceLayer` handler: Call `determine_access_policy()` instead of unconditional authorization. Remove `pending_layer_authorizations` handling.
+- `EnsureLoroList/Map`: Set `PagePermit` policy (no change needed if `new_empty()` defaults to it)
+- `CreateDynamicLayer`: Already in `handle_create_dynamic_layer` — update there
+- `AuthorizeLayerSubscriber`: Only operate on `Explicit` layers. For `RoleBased`/`PagePermit`, log and skip.
+- Remove `pending_layer_authorizations` drain logic
+
+### 7. `scribe/src/layer_unit/dynamic.rs`
+
+- `handle_create_dynamic_layer`: Set `access_policy` based on schema (RoleBased or Explicit). Remove the subscriber authorization loop.
+- `issue_creator_layer_authority_permits`: Keep (still needed for authority permits on node)
+- `prepare_layer_permits`: Only called for Explicit schemas now
+- Keep `find_matching_dynamic_schema`, `validate_creator_namespace`, `generate_dynamic_path`
+
+### 8. `scribe/src/state.rs`
+
+- Remove `pending_layer_authorizations` field from `ScribeState`
+- Keep all capture helpers (they're valuable for observability)
+- `emit_layer_auth_capture`: Keep but add `policy` field
+
+### 9. `courier/src/peer_actor/consent.rs`
+
+- `on_layer_permit`: Keep for explicit schemas only
+- `send_layer_permit`: Keep for explicit schemas only
+- `issue_layer_consent`: Keep for explicit schemas only
+- `AuthorizeLayerSubscriber` send: Only for explicit schemas
+
+### 10. `courier/src/coordinator/mod.rs`
+
+- `NewDynamicLayer` handling: Only processes permits for explicit schemas
+- Role-based dynamic layers don't generate SyncEvent::NewDynamicLayer at all
+
+## The three access patterns
+
+### Pattern 1: Static layer (PagePermit)
+```
+page.lua:  layer("channels/general/messages", ...)
+permit:    layers: { "channels/general/messages": { sync: true, write: true } }
+
+→ LayerAccessPolicy::PagePermit
+→ Broadcast check: subscriber.permit.can_read_layer("channels/general/messages")
+→ No wire protocol needed beyond initial sync
+```
+
+### Pattern 2: Role-based dynamic layer (RoleBased)
+```
+page.lua:  layer("channels/{channel_id}/messages", ..., { grant = "role" })
+permit:    dynamic_layer_schemas: { "channels/{id}/messages": { role_permissions: {owner, collaborator, node} } }
+
+→ LayerAccessPolicy::RoleBased { allowed_roles: {owner, collaborator, node} }
+→ Broadcast check: allowed_roles.contains(subscriber.role)
+→ No LayerPermit wire protocol needed
+```
+
+### Pattern 3: DID-based dynamic layer (Explicit)
+```
+page.lua:  layer("dms/{id}/messages", ..., { grant = "explicit" })
+permit:    dynamic_layer_schemas: { "dms/{id}/messages": { grant: "explicit" } }
+
+→ LayerAccessPolicy::Explicit { authorized_dids: {} }
+→ Broadcast check: authorized_dids.contains(subscriber_did)
+→ Node issues LayerPermit when creator calls add_layer_access(did)
+→ AuthorizeLayerSubscriber adds DID to the set
+```
+
+## How the bugs are fixed
+
+### Bug: Viewer writes to dynamic channel
+**Before**: Node not in `authorized_dids` on viewer's Scribe → observer skips → message never sent.
+**After**: Node is viewer's `sync_target` → always receives broadcasts. No `authorized_dids` check needed.
+
+### Bug: Late joiner
+**Before**: `emit_dynamic_layer_permits` doesn't fire (layer already exists), `fanout_sync_meta` handles discovery but authorization is fragile.
+**After**: Viewer connects → subscribes → node's `send_initial_state_to_subscriber` checks `RoleBased` policy → viewer's role matches → data sent. No LayerPermit chain needed.
+
+## Verification
+
+```bash
+# Build
+cargo build -p scribe -p courier -p integration_tests
+
+# Run integration tests
+cargo test -p integration_tests -- layer_sync --nocapture
+
+# All 6 tests should pass:
+# 1. test_static_channel_syncs_owner_to_node          ✓ (was passing)
+# 2. test_static_channel_syncs_owner_to_viewer         ✓ (was passing)
+# 3. test_dynamic_channel_first_message_reaches_viewer  ✓ (was passing)
+# 4. test_dynamic_channel_second_message_reaches_viewer ✓ (was passing after chatter fix)
+# 5. test_viewer_writes_to_dynamic_channel              ✓ (NOW FIXED)
+# 6. test_dynamic_channel_late_joiner                   ✓ (NOW FIXED)
+
+# Unit tests
+cargo test -p scribe
+
+# E2E test
+python e2e_tests/test_custom_channel.py
+```
+
+## Migration notes
+
+- Breaking change to `LayerUnit` API (access_policy replaces authorized_dids)
+- `AuthorizeLayerSubscriber` message kept but behavior changes (only Explicit)
+- `SyncEvent::NewDynamicLayer` only emitted for Explicit schemas
+- `LayerPermit`/`LayerConsent` wire messages kept but only sent for Explicit schemas
+- `can_receive_layer` on SubscriberInfo kept (used by PagePermit check) but no longer the sole auth source
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.REDACTED.jsonl
+
+---
+
+[Request interrupted by user]
+
+---
+
+wait first lets discuss ask me questions, also help me understand the system more.
+
+---
+
+so actually for authorized dids we should add that by default when creating the layer rather than them getting implicity access right.
+
+---
+
+so also lets also think about the permit even more deeply should we have permits per layer, or page permit for static app layers and others get dynamic layers will get layer permit. so we also have new apps that could come, it would make us upgrade for new apps, wont it be better to have them per layer and also let the layer unit have the parsed permit with them rather than scribe. also the applications should not add{page_id} at all it should be implicit to them. we could also have the vv's in the layer unit managed rather than scribe, scirbe will be handling them from top. layer unit can also manage the crdt layers. page permits would be something else, maybe page.lua currently the template is also too big. we can make fundemental changes.
+
+---
+
+we also wanted to move away from roles and to a capability based approach. we are still unable to do that as well. we can also think about layer unit being an actor as well. we need a good lifecycle also for layers, we dont need all layers in memory all the time. we can also change where permits are stored.
+
+---
+
+so when we send the layers we also sent the permit to them, they will give us a consent permit back as well.
+
+---
+
+layerunit gets init with the permit. consent to the node is actually when node sends update node gives this particular permit right, that tells that the user has given node to do this action in the viwers local data right. and the permit given by node to the user is giving the user permit to write something into the node.
+
+---
+
+1, we can have something cached on load, can write etc right. layerunit configuration itself will be based on the permit it has.  layer actor can managed the subscribers right, would that be costly or should we just have layer unit as some object with state?
+
+---
+
+yea this works.
+
+---
+
+page level permit would be an access to the scribe. 3. not sure. lets go with permit_template itself. we will discuss that. 5 lets do a clean break but the tests can be rewritten but it needs to check the intent and that should work. lets write a detailed plan.
+
+---
+
+yes lets start the implementation now.
+
+---
+
+[Request interrupted by user]
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the entire conversation:
+
+1. **Initial state**: User had a pre-existing plan for `LayerAccessPolicy` (a foundational layer authorization refactor). They pasted a detailed plan but then interrupted saying "wait first lets discuss ask me questions, also help me understand the system more."
+
+2. **Research phase**: I read through all the key files in the scribe crate:
+   - `scribe/src/layer_unit/mod.rs` - LayerUnit struct with authorized_dids
+   - `scribe/src/loro_observer.rs` - Observer setup and broadcast logic
+   - `scribe/src/sync/broadcast.rs` - broadcast_update function
+   - `scribe/src/sync/subscription.rs` - handle_subscribe, authorize_subscriber_for_layers, send_initial_state_to_subscriber
+   - `scribe/src/sync/apply.rs` - handle_apply_update, create_layer_from_peer, emit_dynamic_layer_permits
+   - `scribe/src/actor.rs` - Scribe actor with all message handlers
+   - `scribe/src/layer_unit/dynamic.rs` - handle_create_dynamic_layer, prepare_layer_permits, find_matching_dynamic_schema
+   - `scribe/src/state.rs` - ScribeState, SubscriberInfo, SyncConfig
+   - `courier/src/peer_actor/consent.rs` - Consent and LayerPermit wire protocol
+   - `courier/src/coordinator/mod.rs` - Coordinator message handling
+
+3. **Discussion phase**: We had an extended architectural discussion where the design evolved significantly:
+   - Started with LayerAccessPolicy enum (PagePermit/RoleBased/Explicit)
+   - User pushed toward per-layer permits instead of monolith page permits
+   - User wanted capability-based instead of role-based access
+   - User suggested LayerUnit could be an actor (we decided against - too much overhead, rich stateful object instead)
+   - User wanted layer lifecycle management (warm/cold)
+   - User clarified permit direction: layer permit = "you can write to MY data", consent = "I authorize you to write to MY data"
+   - User confirmed LayerUnit as rich stateful object with subscribers, VVs, permit config
+
+4. **Plan writing phase**: I read the permit_template.json (957 lines of duplicated JSON), page.lua, group-chat/app.lua, channels.lua, and gurkha types. Then wrote a comprehensive plan at `docs/PLAN_LAYER_ARCHITECTURE.md`.
+
+5. **Implementation start**: User said "yes lets start the implementation now." I created 6 task items for Phase 1 (Rich LayerUnit). The user then interrupted requesting a summary.
+
+Key user messages and their impact on design:
+- "for authorized dids we should add that by default when creating the layer rather than them getting implicit access" → Explicit layers start with empty authorized_dids, only populated via add_layer_access
+- "should we have permits per layer" → Major shift from monolith page permits to per-layer permits
+- "we also wanted to move away from roles and to a capability based approach" → No more role names, just capabilities (read/write/sync)
+- "layer unit being an actor as well" → Discussed but decided against (overhead), rich stateful object instead
+- "when we send the layers we also sent the permit to them" → Unified sync: LayerSync message carries data + permit together
+- "consent to the node is actually when node sends update node gives this particular permit right, that tells that the user has given node to do this action in the viewers local data" → Clarified that consent authorizes the NODE to write to VIEWER's local data, and layer permit authorizes the VIEWER to write to NODE's data
+- "yea this works" → Confirmed the LayerUnit as rich stateful object with Scribe as thin router
+
+The plan has 5 phases:
+1. Rich LayerUnit (scribe only)
+2. Per-layer permits + capabilities (gurkha + scribe)  
+3. Unified wire protocol (courier + scribe)
+4. Butler storage + lifecycle (butler + scribe)
+5. page_id transparency + cleanup
+
+Tasks created for Phase 1:
+1. Add subscriber state and methods to LayerUnit
+2. Migrate observer to use LayerUnit subscribers
+3. Migrate broadcast.rs to use LayerUnit subscribers
+4. Migrate subscription.rs to use LayerUnit.add_subscriber
+5. Remove eager auth from apply.rs and dynamic.rs
+6. Simplify actor.rs handlers and remove pending_layer_authorizations
+
+Summary:
+1. Primary Request and Intent:
+   The user initially had a pre-existing plan for `LayerAccessPolicy` but paused implementation to have a deep architectural discussion. Through the conversation, the design evolved from a simple enum replacement to a comprehensive architectural overhaul:
+   
+   - **Replace monolith page permits with per-layer permits** — Each layer gets its own permit with capabilities (read/write/sync) instead of one giant page permit listing all layers
+   - **Move from role-based to capability-based access** — No more "owner"/"collaborator"/"viewer" role names; permits say what you CAN DO
+   - **Make LayerUnit a rich self-contained object** — Owns CRDT doc, parsed permit config, per-subscriber state (permits, consents, version vectors), broadcast logic
+   - **Make Scribe a thin router** — Routes messages to LayerUnits, manages connection lifecycle, handles cross-layer operations
+   - **Unified sync flow** — Layer data + permit travel together in one message (LayerSync), receiver sends consent back
+   - **Layer lifecycle management** — Cold/warm layers, lazy loading, eviction when idle
+   - **page_id transparency** — Apps never see `{page_id}/` prefixes
+   
+   The user explicitly confirmed: "yea this works" for the LayerUnit as rich stateful object approach, and "yes lets start the implementation now" to begin Phase 1.
+
+2. Key Technical Concepts:
+   - **Osvauld**: P2P, offline-first, E2E encrypted platform using Loro CRDTs for sync, iroh QUIC for transport, UCAN-based permits
+   - **Scribe**: Actor (ractor) that owns LoroDoc layers per page, handles bidirectional sync
+   - **LayerUnit**: Per-layer compute unit owning CRDT doc, dirty flag, observer subscription
+   - **authorized_dids**: Current eager-populated HashSet on each LayerUnit (11+ call sites, race conditions, bugs)
+   - **Layer Permit** (node → viewer): "I authorize you to write to this layer ON MY system"
+   - **Layer Consent** (viewer → node): "I authorize you to push updates for this layer INTO MY local data"
+   - **sync_target rule**: Viewer always syncs to node unconditionally (the one special case)
+   - **Dynamic grant types**: `open` (everyone gets a permit, replaces role-based) and `explicit` (only via add_layer_access, for DMs)
+   - **Capabilities struct**: `{ read: bool, write: bool, sync: bool }` — replaces role_permissions
+   - **Cold/warm lifecycle**: Layers loaded on demand, evicted when idle + no subscribers
+   - **permit_template.json**: Currently 957 lines with 6+ duplicated copies of layer blocks — would reduce to ~40 lines
+
+3. Files and Code Sections:
+   
+   - **`docs/PLAN_LAYER_ARCHITECTURE.md`** (CREATED)
+     - The comprehensive implementation plan covering all 5 phases
+     - This is the primary reference document for the implementation
+     - Contains: new permit model, new page.lua DSL, rich LayerUnit struct definition, new Scribe design, wire protocol changes, gurkha changes, butler storage changes, and 5 implementation phases
+   
+   - **`scribe/src/layer_unit/mod.rs`** (READ - core struct to be refactored)
+     - Current LayerUnit has: `layer: Layer`, `dirty: bool`, `is_local_only: bool`, `is_dynamic: bool`, `loro_sub: Option<loro::Subscription>`, `authorized_dids: Arc<RwLock<HashSet<String>>>`
+     - Phase 1 will add: `subscribers: Arc<RwLock<HashMap<String, LayerSubscriber>>>`, `config: LayerConfig`, `permit_token: Option<String>`, `last_accessed: Instant`
+     - Methods to add: `add_subscriber`, `remove_subscriber`, `can_push_to`, `can_accept_write_from`, `export_update_for`, `broadcast_to_subscribers`
+   
+   - **`scribe/src/loro_observer.rs`** (READ - observer captures authorized_dids Arc)
+     - Line 332: `let authorized_dids_for_task = state.units.get(layer_name).unwrap().authorized_dids().clone();`
+     - Lines 447-480: Observer iterates subscribers and checks `authorized.contains(user_did)` before broadcasting
+     - Needs migration to use LayerUnit's subscriber map instead
+   
+   - **`scribe/src/sync/broadcast.rs`** (READ - broadcast_update uses authorized_dids)
+     - Line 32: `let authorized = unit.authorized_dids().read().unwrap_or_else(|e| e.into_inner()).clone();`
+     - Line 46: `if !authorized.contains(user_did)` check
+     - Needs migration to use LayerUnit subscribers
+   
+   - **`scribe/src/sync/subscription.rs`** (READ - authorize_subscriber_for_layers)
+     - Lines 159-199: `authorize_subscriber_for_layers()` loops all layers and calls `authorize_did()` for each match
+     - Lines 239-311: `send_initial_state_to_subscriber()` uses `unit.is_authorized(user_did)`
+     - Lines 318-380: `issue_pending_layer_permits()` for explicit dynamic layers
+     - Line 125: `authorize_subscriber_for_layers(state, &user_did, &permit, &permit_holder_did, can_see_others);`
+   
+   - **`scribe/src/sync/apply.rs`** (READ - create_layer_from_peer and emit_dynamic_layer_permits)
+     - Lines 337-375: `create_layer_from_peer()` has subscriber authorization loop + pending_layer_authorizations drain
+     - Lines 465-540: `emit_dynamic_layer_permits()` authorizes each permit recipient on LayerUnit
+   
+   - **`scribe/src/actor.rs`** (READ - Scribe actor with all message handlers)
+     - Lines 695-731: `AuthorizeLayerSubscriber` handler with pending_layer_authorizations
+     - Lines 329-397: `ReplaceLayer` handler with unconditional subscriber authorization + pending drain
+     - Line 158: `pending_layer_authorizations: HashMap::new()`
+   
+   - **`scribe/src/layer_unit/dynamic.rs`** (READ - dynamic layer creation)
+     - Lines 59-66: `handle_create_dynamic_layer()` authorizes all current subscribers
+     - Lines 194-276: `prepare_layer_permits()` with role-based and explicit grant types
+     - Lines 282-338: `find_matching_dynamic_schema()` — kept in new design
+   
+   - **`scribe/src/state.rs`** (READ - ScribeState definition)
+     - Line 274-278: `pending_layer_authorizations: HashMap<String, Vec<String>>` — to be removed
+     - Lines 139-161: `SubscriberInfo` struct with `permit`, `subscriber_did`, `broadcast_tx`, `ephemeral_tx`, `vectors`
+     - Lines 213-278: `ScribeState` with all fields
+   
+   - **`courier/src/peer_actor/consent.rs`** (READ - wire protocol for permits/consent)
+     - Lines 476-537: `on_layer_permit()` — viewer receives permit, stores it, sends AuthorizeLayerSubscriber to local Scribe
+     - Lines 608-661: `on_layer_consent_grant()` — node receives consent, sends AuthorizeLayerSubscriber to node Scribe
+     - These will be replaced by unified LayerSync/LayerConsent in Phase 3
+   
+   - **`courier/src/coordinator/mod.rs`** (READ - coordinator)
+     - Lines 327-329: `DistributeLayerPermits` handling
+     - Lines 607-658: `on_distribute_layer_permits()` — to be replaced in Phase 3
+   
+   - **`sample_apps/osvauld-demos/permit_template.json`** (READ - 957 lines)
+     - Massive duplication: same layer block repeated 6+ times across owner_template, node issue_on, viewer issue_on, collaborator, consent_template
+     - dynamic_layer_schemas block repeated 8+ times
+     - ephemeral_funcs repeated 6+ times
+     - Will be replaced by ~40 line template in Phase 2
+   
+   - **`sample_apps/osvauld-demos/page.lua`** (READ - page definition)
+     - Role-based layer definitions: `owner = {"read", "write", "sync"}, collaborator = {...}, node = {...}`
+     - Will be simplified to capability-based: `layer("messages", "list", { read = true, write = true, sync = true })`
+   
+   - **`sample_apps/osvauld-demos/group-chat/app.lua`** (READ - app code)
+     - Uses `scribe:create_layer("channels/{id}/messages", id)` for dynamic channels
+     - Uses `page_id .. "/" .. layer_path` concatenation (to be removed in Phase 5)
+   
+   - **`sample_apps/osvauld-demos/group-chat/channels.lua`** (READ - channel management)
+     - Line 99: `scribe:map(page_id .. "/" .. ch_layer_path)` — page_id prefix to be made transparent
+     - Line 167: `scribe:create_layer("channels/{id}/messages", id)` — dynamic layer creation
+   
+   - **Gurkha types** (explored via agent):
+     - `DynamicLayerSchema`: `layer_type`, `grant: GrantType`, `role_permissions: HashMap<String, LayerConfig>`, `permissions: Option<LayerConfig>`
+     - `LayerConfig`: `sync: bool`, `write: bool`, `layer_type: Option<String>`
+     - `GrantType`: `Role` (default) | `Explicit`
+     - `Permit` methods: `relationship()`, `layers()`, `dynamic_layer_schemas()`, `static_layers()`, `can_read_layer()`, `can_write_layer()`
+
+4. Errors and fixes:
+   - No code errors occurred as this was a design/planning conversation. No code was written yet beyond the plan document.
+   - Key design corrections from user:
+     - I initially had the permit/consent direction wrong. User corrected: "consent to the node is actually when node sends update node gives this particular permit right, that tells that the user has given node to do this action in the viewers local data right. and the permit given by node to the user is giving the user permit to write something into the node."
+     - User corrected my assumption about implicit subscriber authorization: "for authorized dids we should add that by default when creating the layer rather than them getting implicit access" — meaning Explicit layers should start empty, not authorize all current subscribers.
+
+5. Problem Solving:
+   - Identified 11+ call sites populating `authorized_dids` causing race conditions and bugs (viewer writes to dynamic channels fail, late joiner issues)
+   - Designed LayerAccessPolicy enum as initial solution, then evolved to comprehensive per-layer permit architecture
+   - Resolved actor-per-layer vs stateful-object debate: chose rich stateful object (LayerUnit) to avoid double serialization overhead and message-passing complexity
+   - Resolved observer access pattern: LayerUnit's subscribers will be `Arc<RwLock<HashMap>>` shared with observer tokio::spawn task
+
+6. All user messages:
+   - "Implement the following plan: [LayerAccessPolicy plan]... wait first lets discuss ask me questions, also help me understand the system more."
+   - "so actually for authorized dids we should add that by default when creating the layer rather than them getting implicity access right."
+   - "so also lets also think about the permit even more deeply should we have permits per layer, or page permit for static app layers and others get dynamic layers will get layer permit. so we also have new apps that could come, it would make us upgrade for new apps, wont it be better to have them per layer and also let the layer unit have the parsed permit with them rather than scribe. also the applications should not add{page_id} at all it should be implicit to them. we could also have the vv's in the layer unit managed rather than scribe, scirbe will be handling them from top. layer unit can also manage the crdt layers. page permits would be something else, maybe page.lua currently the template is also too big. we can make fundemental changes."
+   - "we also wanted to move away from roles and to a capability based approach. we are still unable to do that as well. we can also think about layer unit being an actor as well. we need a good lifecycle also for layers, we dont need all layers in memory all the time. we can also change where permits are stored."
+   - "1, we can have something cached on load, can write etc right. layerunit configuration itself will be based on the permit it has. layer actor can managed the subscribers right, would that be costly or should we just have layer unit as some object with state?"
+   - "yea this works."
+   - "so when we send the layers we also sent the permit to them, they will give us a consent permit back as well."
+   - "consent to the node is actually when node sends update node gives this particular permit right, that tells that the user has given node to do this action in the viwers local data right. and the permit given by node to the user is giving the user permit to write something into the node."
+   - "page level permit would be an access to the scribe. 3. not sure. lets go with permit_template itself. we will discuss that. 5 lets do a clean break but the tests can be rewritten but it needs to check the intent and that should work. lets write a detailed plan."
+   - "yes lets start the implementation now."
+
+7. Pending Tasks:
+   Created 6 tasks for Phase 1 (Rich LayerUnit):
+   - Task 1: Add subscriber state and methods to LayerUnit
+   - Task 2: Migrate observer to use LayerUnit subscribers
+   - Task 3: Migrate broadcast.rs to use LayerUnit subscribers
+   - Task 4: Migrate subscription.rs to use LayerUnit.add_subscriber
+   - Task 5: Remove eager auth from apply.rs and dynamic.rs
+   - Task 6: Simplify actor.rs handlers and remove pending_layer_authorizations
+
+8. Current Work:
+   The user said "yes lets start the implementation now." I created 6 tasks for Phase 1 implementation. The user then interrupted with "Your task is to create a detailed summary" with additional instructions: "now refer the plan layer arch md and start the implementation."
+   
+   No code has been written yet. The plan is at `docs/PLAN_LAYER_ARCHITECTURE.md`. Task 1 is the first to implement.
+
+9. Optional Next Step:
+   Begin implementing Task 1: Add subscriber state and methods to LayerUnit in `scribe/src/layer_unit/mod.rs`.
+   
+   Per the plan at `docs/PLAN_LAYER_ARCHITECTURE.md` Phase 1 Step 1, this involves:
+   - Adding `LayerSubscriber` struct with `permit_capabilities: Capabilities`, `consent_token: Option<String>`, `version_vector: Vec<u8>`, `broadcast_tx: mpsc::Sender<BroadcastPayload>`
+   - Adding `Capabilities` struct with `read: bool`, `write: bool`, `sync: bool`
+   - Adding `LayerConfig` struct with `capabilities: Capabilities`, `is_local_only: bool`
+   - Adding to LayerUnit: `subscribers: Arc<RwLock<HashMap<String, LayerSubscriber>>>`, `config: LayerConfig`, `permit_token: Option<String>`, `last_accessed: std::time::Instant`
+   - Adding methods: `add_subscriber()`, `remove_subscriber()`, `can_push_to()`, `can_accept_write_from()`, `can_local_write()`, `export_update_for()`, `update_subscriber_vector()`, `set_consent()`, `has_subscribers()`, `touch()`, `is_cold()`
+   
+   User's exact words: "yes lets start the implementation now." and the summary instructions say "now refer the plan layer arch md and start the implementation."
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/150b5a07-332a-4d7e-a937-a15c328de4c1.jsonl
+
+---
+
+please conintue with the impelemntation.
+
+---
+
+yes please coninue
+
+---
+
+lets continue with the next phase.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the entire conversation:
+
+1. **Session Start**: This is a continuation from a previous conversation that ran out of context. The summary from the previous conversation indicates:
+   - User had a pre-existing plan for `LayerAccessPolicy` that evolved into a comprehensive `LayerAccessPolicy` → Rich LayerUnit architecture
+   - A detailed plan was written at `docs/PLAN_LAYER_ARCHITECTURE.md` with 5 phases
+   - User said "yes lets start the implementation now" and tasks were created for Phase 1
+   - No code had been written yet
+
+2. **User's first message**: "please continue with the implementation" (after compact with instruction "now refer the plan layer arch md and start the implementation")
+
+3. **My actions - Phase 1 Implementation**:
+   - Read the plan at `docs/PLAN_LAYER_ARCHITECTURE.md`
+   - Read current files: `layer_unit/mod.rs`, `state.rs`, `broadcast.rs`, `loro_observer.rs`, `lib.rs`, `message.rs`
+   - Created Task 1-6 for Phase 1
+
+4. **Task 1: Add subscriber state and methods to LayerUnit** (`scribe/src/layer_unit/mod.rs`):
+   - Added `Capabilities`, `LayerConfig`, `LayerSubscriber` structs
+   - Added new fields to `LayerUnit`: `subscribers`, `config`, `permit_token`, `last_accessed`
+   - Initially kept `authorized_dids` for backward compatibility
+   - Added methods: `add_subscriber`, `remove_subscriber`, `can_push_to`, `can_accept_write_from`, etc.
+   - Updated `lib.rs` to re-export new types
+   - All 25 tests passed
+
+5. **Task 2: Migrate observer** (`scribe/src/loro_observer.rs`):
+   - Replaced `subscribers_for_task` + `authorized_dids_for_task` captures with single `layer_subscribers_for_task`
+   - Rewrote broadcast section to use `LayerSubscriber.capabilities.read` instead of `authorized.contains()`
+   - All 29 tests passed
+
+6. **User interruptions during implementation**:
+   - "so do we also have a plan on what to remove as well. we need to include that well." → I provided a removal summary table
+   - "apps also should not use page_id anymore." → I noted this is Phase 5
+   - "please also remove the unnecessary comments as we go as well." → I cleaned comments in subsequent edits
+   - **"we also dont need backward compatibility at all. IMPORTANT"** → This was a critical directive. I removed all legacy `authorized_dids` field, `authorize_did()`, `revoke_did()`, `is_authorized()` methods, and the `HashSet` import immediately.
+
+7. **After removing backward compat**: Compile errors appeared across 4 files (actor.rs, subscription.rs, apply.rs, broadcast.rs, operations.rs, dynamic.rs, reconcile.rs). I fixed them all:
+
+8. **Task 3: Migrate broadcast.rs**:
+   - Completely rewrote `broadcast_update()` to use `unit.subscribers().write()` directly
+   - Uses `sub.capabilities.read` for auth, `sub.version_vector` for incremental, `sub.broadcast_tx` for sending
+   - Disconnected subscribers removed from LayerUnit directly
+
+9. **Fixed reconcile.rs** (part of Task 3):
+   - `handle_reconcile_with_peers()` now uses `unit.subscribers().read()` instead of cross-referencing two maps
+
+10. **Task 4: Migrate subscription.rs** - Complete rewrite:
+    - Replaced `authorize_subscriber_for_layers()` with `add_subscriber_to_layers()`
+    - New function iterates layers, checks page permit access, calls `unit.add_subscriber()` with capabilities
+    - `handle_unsubscribe()` now calls `unit.remove_subscriber()` and collects VVs from LayerSubscribers
+    - `send_initial_state_to_subscriber()` uses `unit.can_push_to()` instead of `unit.is_authorized()`
+    - `issue_pending_layer_permits()` looks up broadcast_tx from state.subscribers and calls `unit.add_subscriber()`
+
+11. **Task 5: Remove eager auth from apply.rs and dynamic.rs**:
+    - `create_layer_from_peer()`: replaced `authorize_did` loop + `pending_layer_authorizations` drain with `add_subscriber` loop
+    - `emit_dynamic_layer_permits()`: replaced `authorize_did` with `add_subscriber` lookup
+    - `handle_create_dynamic_layer()` (dynamic.rs): replaced auth loop with `add_subscriber`
+    - `handle_add_layer_access()` (dynamic.rs): replaced `authorize_did` with `add_subscriber`
+    - `ensure_layer_exists()` (operations.rs): replaced `authorize_did` with helper `add_subscriber_from_state()`
+
+12. **Task 6: Simplify actor.rs handlers**:
+    - `ReplaceLayer` handler: replaced auth loop + pending drain with simple `add_subscriber` loop
+    - `AuthorizeLayerSubscriber` handler: replaced authorize_did + pending_layer_authorizations with broadcast_tx lookup + `add_subscriber`
+    - Removed `pending_layer_authorizations` from ScribeState and both initialization sites
+
+13. **Build & test results**: All 29 scribe tests pass. Courier and integration_tests compile cleanly.
+
+14. **User says "lets continue with the next phase"**
+
+15. **Phase 2 planning begins**: I entered plan mode and launched two Explore agents:
+    - Agent 1: Explored gurkha crate (GrantType, DynamicLayerSchema, Permit, LayerConfig, PeerCapabilities, permit parsing, issuance, tests)
+    - Agent 2: Explored page.lua files, permit_template.json, page parsing code, relationship() usage
+
+16. **I was in the middle of reading dynamic.rs for deeper Phase 2 context** when the summary was requested.
+
+Key files modified in Phase 1:
+- `scribe/src/layer_unit/mod.rs` - Major rewrite (new types, subscriber management)
+- `scribe/src/lib.rs` - Re-exports
+- `scribe/src/loro_observer.rs` - Observer migration
+- `scribe/src/sync/broadcast.rs` - Broadcast migration
+- `scribe/src/sync/reconcile.rs` - Reconcile migration
+- `scribe/src/sync/subscription.rs` - Complete rewrite
+- `scribe/src/sync/apply.rs` - Eager auth removal
+- `scribe/src/layer_unit/dynamic.rs` - Eager auth removal
+- `scribe/src/operations.rs` - Eager auth removal
+- `scribe/src/actor.rs` - Handler simplification
+- `scribe/src/state.rs` - Removed pending_layer_authorizations, cleaned comments
+
+Key files explored for Phase 2:
+- `gurkha/src/parser/mod.rs` - GrantType, DynamicLayerSchema, LayerConfig, Permit struct and methods
+- `gurkha/src/decision/layer.rs` - Authorization logic
+- `gurkha/src/service.rs` - Permit issuance
+- `gurkha/src/decision/connection.rs` - Template selection by relationship
+- Multiple sample_apps/*/page.lua and permit_template.json files
+- `butler/src/services/app_service.rs` - Template loading
+- `courier/src/peer_actor/handshake.rs` - Relationship usage
+
+Summary:
+1. Primary Request and Intent:
+   The user is implementing a comprehensive layer-centric architecture overhaul for the Osvauld P2P platform, following a detailed plan at `docs/PLAN_LAYER_ARCHITECTURE.md`. The plan has 5 phases:
+   - Phase 1: Rich LayerUnit (scribe only) — **COMPLETED**
+   - Phase 2: Per-layer permits + capabilities (gurkha + scribe) — **PLANNING IN PROGRESS**
+   - Phase 3: Unified wire protocol (courier + scribe)
+   - Phase 4: Butler storage + lifecycle
+   - Phase 5: page_id transparency + cleanup
+
+   Key user directives during implementation:
+   - "we also dont need backward compatibility at all. IMPORTANT" — Clean break, no legacy fields
+   - "please also remove the unnecessary comments as we go as well" — Clean up verbose comments
+   - "apps also should not use page_id anymore" — Phase 5 concern, noted
+   - "lets continue with the next phase" — Triggered Phase 2 planning
+
+2. Key Technical Concepts:
+   - **LayerUnit as rich self-contained object**: Owns CRDT doc, per-subscriber state, capabilities, version vectors, broadcast logic
+   - **Capabilities struct**: `{ read: bool, write: bool, sync: bool }` — replaces role-based access
+   - **LayerSubscriber**: Per-DID state within a LayerUnit (capabilities, consent_token, version_vector, broadcast_tx)
+   - **Arc<RwLock<HashMap<String, LayerSubscriber>>>**: Shared subscriber map for observer async task access
+   - **No backward compatibility**: `authorized_dids: HashSet<String>` completely removed, not kept alongside new system
+   - **Subscriber addition at multiple points**: subscribe time, layer creation, dynamic layer permits, AuthorizeLayerSubscriber
+   - **`add_subscriber_from_state()` helper pattern**: Looks up broadcast_tx from ScribeState.subscribers, then calls `unit.add_subscriber()`
+   - **Gurkha permit model** (current, Phase 2 target for change): `GrantType::Role` with `role_permissions`, `relationship()` for template selection, `LayerConfig` with `sync`/`write` fields, `PeerCapabilities` struct
+   - **Phase 2 target**: Replace `GrantType::Role` with `DynamicGrant::Open`, remove `role_permissions`, add `Capabilities` to gurkha, simplify permit_template.json from 957→~40 lines
+
+3. Files and Code Sections:
+
+   - **`scribe/src/layer_unit/mod.rs`** (MAJOR REWRITE)
+     - Core of Phase 1. Added `Capabilities`, `LayerConfig`, `LayerSubscriber` structs and `subscribers` field to `LayerUnit`
+     - Removed `authorized_dids: Arc<RwLock<HashSet<String>>>` and all legacy methods (`authorize_did`, `revoke_did`, `is_authorized`, `authorized_dids`)
+     - Key new structs:
+     ```rust
+     #[derive(Debug, Clone, Default)]
+     pub struct Capabilities {
+         pub read: bool,
+         pub write: bool,
+         pub sync: bool,
+     }
+     
+     pub struct LayerConfig {
+         pub capabilities: Capabilities,
+         pub is_local_only: bool,
+     }
+     
+     pub struct LayerSubscriber {
+         pub capabilities: Capabilities,
+         pub consent_token: Option<String>,
+         pub version_vector: Vec<u8>,
+         pub broadcast_tx: mpsc::Sender<BroadcastPayload>,
+     }
+     ```
+     - LayerUnit struct now has: `layer`, `dirty`, `loro_sub`, `config`, `permit_token`, `is_dynamic`, `subscribers: Arc<RwLock<HashMap<String, LayerSubscriber>>>`, `last_accessed`
+     - Key methods: `add_subscriber()`, `remove_subscriber()`, `can_push_to()`, `can_accept_write_from()`, `can_local_write()`, `export_update_for()`, `set_consent()`, `update_subscriber_vector()`, `touch()`, `is_cold()`, `has_subscribers()`, `with_config()`, `set_permit_token()`
+     - 25 tests including 13 new subscriber tests
+
+   - **`scribe/src/lib.rs`** (MINOR EDIT)
+     - Added re-exports: `pub use layer_unit::{LayerUnit, Capabilities, LayerConfig, LayerSubscriber};`
+
+   - **`scribe/src/loro_observer.rs`** (OBSERVER MIGRATION)
+     - Replaced two captures (`subscribers_for_task` + `authorized_dids_for_task`) with single `layer_subscribers_for_task = unit.subscribers().clone()`
+     - Broadcast section now iterates `layer_subscribers_for_task` directly, checking `sub.capabilities.read` instead of `authorized.contains(user_did)`
+     - Uses `sub.version_vector` and `sub.broadcast_tx` directly
+
+   - **`scribe/src/sync/broadcast.rs`** (COMPLETE REWRITE)
+     - `broadcast_update()` now uses `unit.subscribers().write()` directly instead of cross-referencing ScribeState.subscribers + authorized_dids
+     - Sender exclusion by DID (not tuple), uses `sub.capabilities.read` for auth check
+     - Disconnected subscribers removed from LayerUnit directly
+
+   - **`scribe/src/sync/reconcile.rs`** (MIGRATION)
+     - `handle_reconcile_with_peers()` uses `unit.subscribers().read()` checking `sub.capabilities.read` and `sub.version_vector != our_vector`
+     - Removed cross-reference of state.subscribers + authorized_dids
+
+   - **`scribe/src/sync/subscription.rs`** (COMPLETE REWRITE)
+     - Replaced `authorize_subscriber_for_layers()` with `add_subscriber_to_layers()`:
+     ```rust
+     fn add_subscriber_to_layers(
+         state: &ScribeState, user_did: &str, permit: &gurkha::Permit,
+         permit_holder_did: &str, can_see_others: bool,
+         broadcast_tx: &mpsc::Sender<BroadcastPayload>,
+     )
+     ```
+     - For each layer, checks page permit access, derives `Capabilities { read: true, write: can_write, sync: true }`, calls `unit.add_subscriber()`
+     - `handle_unsubscribe()` iterates all units calling `unit.remove_subscriber()`, collects VVs, saves them
+     - `send_initial_state_to_subscriber()` uses `unit.can_push_to()` instead of `unit.is_authorized()`
+     - `issue_pending_layer_permits()` looks up broadcast_tx, calls `unit.add_subscriber()` after permit issuance
+
+   - **`scribe/src/sync/apply.rs`** (EAGER AUTH REMOVAL)
+     - `create_layer_from_peer()`: replaced `authorize_did` loop + `pending_layer_authorizations` drain with:
+     ```rust
+     let can_write = info.can_write_layer(layer_name, &state.page_id);
+     let caps = Capabilities { read: true, write: can_write, sync: true };
+     unit.add_subscriber(did.clone(), caps, info.broadcast_tx.clone());
+     ```
+     - `emit_dynamic_layer_permits()`: looks up broadcast_tx per DID, calls `unit.add_subscriber()`
+
+   - **`scribe/src/layer_unit/dynamic.rs`** (EAGER AUTH REMOVAL)
+     - `handle_create_dynamic_layer()`: replaced `authorize_did` with `add_subscriber` for all connected subscribers
+     - `handle_add_layer_access()`: replaced `authorize_did` with broadcast_tx lookup + `add_subscriber`
+
+   - **`scribe/src/operations.rs`** (EAGER AUTH REMOVAL + HELPER)
+     - `ensure_layer_exists()`: replaced `authorize_did` for `__sync_meta/` layers with `add_subscriber_from_state()` helper
+     - Added helper function:
+     ```rust
+     fn add_subscriber_from_state(state: &ScribeState, layer_name: &str, did: &str) {
+         let broadcast_tx = state.subscribers.read().ok().and_then(|subs| {
+             subs.iter().find(|((d, _), _)| d == did).map(|(_, info)| info.broadcast_tx.clone())
+         });
+         if let (Some(unit), Some(tx)) = (state.units.get(layer_name), broadcast_tx) {
+             let caps = Capabilities { read: true, write: true, sync: true };
+             unit.add_subscriber(did.to_string(), caps, tx);
+         }
+     }
+     ```
+
+   - **`scribe/src/actor.rs`** (HANDLER SIMPLIFICATION)
+     - `ReplaceLayer` handler (is_new branch): replaced auth loop + pending drain with simple `add_subscriber` loop
+     - `AuthorizeLayerSubscriber` handler: replaced authorize_did + pending_layer_authorizations with broadcast_tx lookup + `add_subscriber`. Layer-not-found case just logs and skips (no pending queue)
+     - Removed `pending_layer_authorizations: HashMap::new()` from ScribeState initialization
+
+   - **`scribe/src/state.rs`** (CLEANUP)
+     - Removed `pending_layer_authorizations: HashMap<String, Vec<String>>` field from `ScribeState`
+     - Cleaned stale comments about `authorized_dids`
+
+   - **`docs/PLAN_LAYER_ARCHITECTURE.md`** (READ - implementation plan)
+     - 5-phase plan covering: Rich LayerUnit, Per-layer permits, Unified wire protocol, Butler storage, page_id transparency
+
+   - **Phase 2 exploration files** (READ ONLY):
+     - `gurkha/src/parser/mod.rs` — `GrantType` enum (Role/Explicit), `DynamicLayerSchema`, `LayerConfig` (sync/write), `PeerCapabilities`, `Permit` struct with methods `relationship()`, `can_read_layer()`, `can_write_layer()`, `layers()`, `dynamic_layer_schemas()`
+     - `gurkha/src/decision/layer.rs` — `can_access_layer`, `matches_dynamic_schema_for_role`, authorization logic
+     - `gurkha/src/service.rs` — `issue_layer_permit()`, `issue_layer_authority_permit()`, `reissue_permit_with_layers()`
+     - `gurkha/src/decision/connection.rs` — Template selection by `relationship` parameter
+     - `butler/src/services/app_service.rs` — `load_page_templates()`, `extract_layer_names_from_permit()`
+     - `courier/src/peer_actor/handshake.rs` — Relationship labels ("node_owner", "node_viewer", etc.)
+     - `scribe/src/layer_unit/dynamic.rs` lines 195-277 — `prepare_layer_permits()` which uses `GrantType::Role` with `role_permissions` lookup and `GrantType::Explicit` with authority permits
+     - All sample_apps page.lua and permit_template.json files
+
+4. Errors and fixes:
+   - **Compile errors after removing `authorized_dids`**: Removing the legacy field caused 9+ compile errors across actor.rs, subscription.rs, apply.rs, broadcast.rs, operations.rs, dynamic.rs, reconcile.rs. Fixed by migrating all call sites to use `add_subscriber()` pattern.
+   - **`HashSet` import no longer needed**: Removed `use std::collections::HashSet` from layer_unit/mod.rs after removing `authorized_dids`.
+   - **`pending_layer_authorizations` field removal**: Required removing initialization in two files (actor.rs:158, dynamic.rs:628) beyond just the field definition.
+   - **Tests referencing `is_authorized()`**: Test `test_add_and_remove_subscriber` originally asserted `unit.is_authorized("did:key:alice")`. Fixed to use `unit.can_push_to("did:key:alice")` instead.
+   - **User feedback "we also dont need backward compatibility at all. IMPORTANT"**: This changed the approach from keeping `authorized_dids` alongside `subscribers` to removing it entirely, requiring all callers to be migrated in one pass.
+
+5. Problem Solving:
+   - **11+ call sites of `authorize_did` across codebase**: Systematically found via Explore agent and migrated each one to `add_subscriber` pattern. Each call site required looking up the broadcast_tx from ScribeState.subscribers and deriving Capabilities.
+   - **Race condition elimination**: `pending_layer_authorizations` HashMap was removed entirely. The race condition (AuthorizeLayerSubscriber arriving before layer creation) is now handled by: (1) when layer IS created, existing subscribers are added via `add_subscriber_to_layers`, and (2) if AuthorizeLayerSubscriber arrives after layer creation, it adds the subscriber directly. No pending queue needed.
+   - **Observer + broadcast dual-map complexity**: Both observer and broadcast previously cross-referenced ScribeState.subscribers (for tx/vectors) and LayerUnit.authorized_dids (for auth). Now both use the single LayerUnit.subscribers map for everything.
+
+6. All user messages:
+   - "please continue with the implementation." (initial, after compact with "now refer the plan layer arch md and start the implementation")
+   - "so do we also have a plan on what to remove as well. we need to include that well."
+   - "apps also should not use page_id anymore."
+   - "please also remove the unnecessary comments as we go as well."
+   - "bwe also dont need backward compatibility at all. IMPORTANT"
+   - "yes please continue" (after Task 2 completion and removal summary)
+   - "lets continue with the next phase." (after Phase 1 completion)
+
+7. Pending Tasks:
+   - **Phase 2 planning**: Currently in plan mode, exploring gurkha crate and page.lua/permit_template system to design Phase 2 implementation
+   - Phase 2 goals from plan: Add `Capabilities` to gurkha, replace `GrantType::Role` with `DynamicGrant::Open`, add `PermitType::LayerPermit`/`LayerConsent`, remove `role_permissions` from `DynamicLayerSchema`, remove `relationship()` usage, update page.lua DSL, write new permit_template.json
+   - Phases 3-5 pending after Phase 2
+
+8. Current Work:
+   I am in **plan mode** for Phase 2 implementation. The user said "lets continue with the next phase." I entered plan mode, launched two Explore agents to understand the gurkha crate and page.lua/permit_template system. Both agents completed successfully with comprehensive reports. I was reading `scribe/src/layer_unit/dynamic.rs` lines 160-277 (specifically `prepare_layer_permits()` which is the key integration point between gurkha's `GrantType::Role`/`role_permissions` and scribe's dynamic layer system) when the summary was requested.
+
+   The plan file at `/home/abe/.claude/plans/sparkling-questing-aho.md` still contains the old Phase 1 plan (LayerAccessPolicy). It needs to be overwritten with a Phase 2 plan.
+
+   Key exploration findings for Phase 2:
+   - `GrantType::Role` + `role_permissions` used in `prepare_layer_permits()` (dynamic.rs:205-232) — the main code path that matches roles to schema permissions
+   - `relationship()` is NOT used for authorization logic — only for template selection in gurkha/decision and logging
+   - `LayerConfig` in gurkha has `sync: bool, write: bool, layer_type: Option<String>` — needs `read` field added or replaced with `Capabilities`
+   - permit_template.json has massive duplication (957 lines → target ~40 lines)
+   - `DynamicLayerSchema.role_permissions: HashMap<String, LayerConfig>` needs replacement with `default_capabilities: Capabilities`
+   - 12+ test files in gurkha (parser/tests.rs, parser/integration_tests.rs, decision/layer.rs) will need updates
+
+9. Optional Next Step:
+   Continue Phase 2 planning by writing the plan file. The user's most recent request was "lets continue with the next phase." I was in the middle of exploring integration points in `scribe/src/layer_unit/dynamic.rs` to understand how `GrantType::Role` + `role_permissions` flow through `prepare_layer_permits()`. The next step is to:
+   1. Finish reading key integration files
+   2. Write the Phase 2 implementation plan to the plan file
+   3. Call ExitPlanMode for user approval
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/abe/.claude/projects/-home-abe-osvauld/150b5a07-332a-4d7e-a937-a15c328de4c1.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+[Request interrupted by user for tool use]

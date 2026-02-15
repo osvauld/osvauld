@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "b496a0e09a5e",
+  "session_id": "150b5a07-332a-4d7e-a937-a15c328de4c1",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-15T13:00:08.602962227Z",
+  "branch": "feature/coordinator-refactor",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "docs/PLAN_LAYER_ARCHITECTURE.md",
+    "scribe/src/actor.rs",
+    "scribe/src/layer_unit/dynamic.rs",
+    "scribe/src/layer_unit/mod.rs",
+    "scribe/src/lib.rs",
+    "scribe/src/loro_observer.rs",
+    "scribe/src/operations.rs",
+    "scribe/src/state.rs",
+    "scribe/src/sync/apply.rs",
+    "scribe/src/sync/broadcast.rs",
+    "scribe/src/sync/reconcile.rs",
+    "scribe/src/sync/subscription.rs"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "92bc6bd1-f81d-4ca9-bc69-273a04958c5e",
+  "token_usage": {
+    "input_tokens": 10972,
+    "cache_creation_tokens": 397279,
+    "cache_read_tokens": 11318488,
+    "output_tokens": 43276,
+    "api_call_count": 99
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-15T13:00:08.176446058Z",
+    "agent_lines": 2062,
+    "human_added": 8637,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 10699,
+    "agent_percentage": 19.27282923637723
+  }
+}
