@@ -199,7 +199,7 @@ sthalam_shell (entry point, platform main)
 2. Compile .slint UI (Slint) or initialize window (Raylib)
 3. Execute app.lua in Lua VM
 4. Call `on_init()`
-5. Route events: `on_click()`, `on_loro_change()`, `on_ephemeral()`, `tick()`
+5. Route events: `on_click()`, `on_layer_discovered()`, `on_ephemeral()`, `tick()`
 
 See `docs/app-dev/` for full app development documentation.
 

@@ -6,103 +6,12 @@
 //! become stale after ReplaceLayer (SyncReset recovery). All operations go through
 //! Scribe messages which always operate on the current LoroDoc.
 
-use mlua::{UserData, UserDataMethods, Value as LuaValue, Error as LuaError};
+use mlua::{Error as LuaError, UserData, UserDataMethods, Value as LuaValue};
 use std::sync::Arc;
 use tracing::trace;
 
-use crate::scribe_handle::ScribeHandle;
 use super::convert::lua_to_json;
-
-// Layer Wrapper (for get_or_create_layer return type)
-
-/// Wrapper for List or Map layer types
-pub enum LayerWrapper {
-    List(LuaLoroList),
-    Map(LuaLoroMap),
-}
-
-impl UserData for LayerWrapper {
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        // Forward list methods
-        methods.add_method("push", |_, this, value: LuaValue| {
-            match this {
-                LayerWrapper::List(list) => list.push_value(value),
-                LayerWrapper::Map(_) => Err(LuaError::RuntimeError("push not supported on map".to_string())),
-            }
-        });
-
-        methods.add_method("get", |lua, this, key: LuaValue| {
-            match this {
-                LayerWrapper::List(list) => {
-                    let index = match key {
-                        LuaValue::Integer(i) => i as usize,
-                        _ => return Err(LuaError::RuntimeError("List index must be integer".to_string())),
-                    };
-                    list.get_at(lua, index)
-                }
-                LayerWrapper::Map(map) => {
-                    let key_str = match key {
-                        LuaValue::String(s) => s.to_str()?.to_string(),
-                        _ => return Err(LuaError::RuntimeError("Map key must be string".to_string())),
-                    };
-                    map.get_value(lua, &key_str)
-                }
-            }
-        });
-
-        methods.add_method("set", |_, this, (key, value): (LuaValue, LuaValue)| {
-            match this {
-                LayerWrapper::List(list) => {
-                    let index = match key {
-                        LuaValue::Integer(i) => i as usize,
-                        _ => return Err(LuaError::RuntimeError("List index must be integer".to_string())),
-                    };
-                    list.set_at(index, value)
-                }
-                LayerWrapper::Map(map) => {
-                    let key_str = match key {
-                        LuaValue::String(s) => s.to_str()?.to_string(),
-                        _ => return Err(LuaError::RuntimeError("Map key must be string".to_string())),
-                    };
-                    map.set_value(&key_str, value)
-                }
-            }
-        });
-
-        methods.add_method("length", |_, this, ()| {
-            match this {
-                LayerWrapper::List(list) => list.length(),
-                LayerWrapper::Map(map) => map.length(),
-            }
-        });
-
-        methods.add_method("keys", |lua, this, ()| {
-            match this {
-                LayerWrapper::List(_) => Err(LuaError::RuntimeError("keys not supported on list".to_string())),
-                LayerWrapper::Map(map) => map.keys(lua),
-            }
-        });
-
-        methods.add_method("delete", |_, this, key: LuaValue| {
-            match this {
-                LayerWrapper::List(list) => {
-                    let index = match key {
-                        LuaValue::Integer(i) => i as usize,
-                        _ => return Err(LuaError::RuntimeError("List index must be integer".to_string())),
-                    };
-                    list.delete_at(index)
-                }
-                LayerWrapper::Map(map) => {
-                    let key_str = match key {
-                        LuaValue::String(s) => s.to_str()?.to_string(),
-                        _ => return Err(LuaError::RuntimeError("Map key must be string".to_string())),
-                    };
-                    map.delete_key(&key_str)
-                }
-            }
-        });
-    }
-}
+use crate::scribe_handle::ScribeHandle;
 
 // Lua Loro List
 
@@ -125,14 +34,17 @@ impl LuaLoroList {
         let json_value = lua_to_json(&value)?;
         trace!(layer = %self.layer_name, "LuaLoroList::push via ScribeHandle");
 
-        self.scribe.list_push(&self.layer_name, "", json_value)
+        self.scribe
+            .list_push(&self.layer_name, "", json_value)
             .map_err(|e| LuaError::RuntimeError(e))?;
         Ok(())
     }
 
     /// Get item at index (via ScribeHandle)
     pub(crate) fn get_at(&self, lua: &mlua::Lua, index: usize) -> Result<LuaValue, LuaError> {
-        let result = self.scribe.list_get(&self.layer_name, index)
+        let result = self
+            .scribe
+            .list_get(&self.layer_name, index)
             .map_err(|e| LuaError::RuntimeError(e))?;
 
         match result {
@@ -147,11 +59,13 @@ impl LuaLoroList {
         trace!(layer = %self.layer_name, index, "LuaLoroList::set_at via ScribeHandle");
 
         // Delete at index first
-        self.scribe.list_delete(&self.layer_name, "", index)
+        self.scribe
+            .list_delete(&self.layer_name, "", index)
             .map_err(|e| LuaError::RuntimeError(e))?;
 
         // Insert at index
-        self.scribe.list_insert(&self.layer_name, "", index, json_value)
+        self.scribe
+            .list_insert(&self.layer_name, "", index, json_value)
             .map_err(|e| LuaError::RuntimeError(e))?;
         Ok(())
     }
@@ -160,39 +74,33 @@ impl LuaLoroList {
     pub(crate) fn delete_at(&self, index: usize) -> Result<(), LuaError> {
         trace!(layer = %self.layer_name, index, "LuaLoroList::delete_at via ScribeHandle");
 
-        self.scribe.list_delete(&self.layer_name, "", index)
+        self.scribe
+            .list_delete(&self.layer_name, "", index)
             .map_err(|e| LuaError::RuntimeError(e))?;
         Ok(())
     }
 
     /// Get list length (via ScribeHandle)
     pub(crate) fn length(&self) -> Result<usize, LuaError> {
-        self.scribe.list_length(&self.layer_name)
+        self.scribe
+            .list_length(&self.layer_name)
             .map_err(|e| LuaError::RuntimeError(e))
     }
 }
 
 impl UserData for LuaLoroList {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("push", |_, this, value: LuaValue| {
-            this.push_value(value)
-        });
+        methods.add_method("push", |_, this, value: LuaValue| this.push_value(value));
 
-        methods.add_method("get", |lua, this, index: usize| {
-            this.get_at(lua, index)
-        });
+        methods.add_method("get", |lua, this, index: usize| this.get_at(lua, index));
 
         methods.add_method("set", |_, this, (index, value): (usize, LuaValue)| {
             this.set_at(index, value)
         });
 
-        methods.add_method("delete", |_, this, index: usize| {
-            this.delete_at(index)
-        });
+        methods.add_method("delete", |_, this, index: usize| this.delete_at(index));
 
-        methods.add_method("length", |_, this, ()| {
-            this.length()
-        });
+        methods.add_method("length", |_, this, ()| this.length());
     }
 }
 
@@ -217,14 +125,17 @@ impl LuaLoroMap {
         let json_value = lua_to_json(&value)?;
         trace!(layer = %self.layer_name, key, "LuaLoroMap::set via ScribeHandle");
 
-        self.scribe.map_insert(&self.layer_name, "", key, json_value)
+        self.scribe
+            .map_insert(&self.layer_name, "", key, json_value)
             .map_err(|e| LuaError::RuntimeError(e))?;
         Ok(())
     }
 
     /// Get value for key (via ScribeHandle)
     pub(crate) fn get_value(&self, lua: &mlua::Lua, key: &str) -> Result<LuaValue, LuaError> {
-        let result = self.scribe.map_get(&self.layer_name, key)
+        let result = self
+            .scribe
+            .map_get(&self.layer_name, key)
             .map_err(|e| LuaError::RuntimeError(e))?;
 
         match result {
@@ -237,20 +148,24 @@ impl LuaLoroMap {
     pub(crate) fn delete_key(&self, key: &str) -> Result<(), LuaError> {
         trace!(layer = %self.layer_name, key, "LuaLoroMap::delete via ScribeHandle");
 
-        self.scribe.map_delete(&self.layer_name, "", key)
+        self.scribe
+            .map_delete(&self.layer_name, "", key)
             .map_err(|e| LuaError::RuntimeError(e))?;
         Ok(())
     }
 
     /// Get map length (via ScribeHandle)
     pub(crate) fn length(&self) -> Result<usize, LuaError> {
-        self.scribe.map_length(&self.layer_name)
+        self.scribe
+            .map_length(&self.layer_name)
             .map_err(|e| LuaError::RuntimeError(e))
     }
 
     /// Get all keys (via ScribeHandle)
     pub(crate) fn keys(&self, lua: &mlua::Lua) -> Result<mlua::Table, LuaError> {
-        let keys = self.scribe.map_keys(&self.layer_name)
+        let keys = self
+            .scribe
+            .map_keys(&self.layer_name)
             .map_err(|e| LuaError::RuntimeError(e))?;
 
         let table = lua.create_table()?;
@@ -267,20 +182,12 @@ impl UserData for LuaLoroMap {
             this.set_value(&key, value)
         });
 
-        methods.add_method("get", |lua, this, key: String| {
-            this.get_value(lua, &key)
-        });
+        methods.add_method("get", |lua, this, key: String| this.get_value(lua, &key));
 
-        methods.add_method("delete", |_, this, key: String| {
-            this.delete_key(&key)
-        });
+        methods.add_method("delete", |_, this, key: String| this.delete_key(&key));
 
-        methods.add_method("length", |_, this, ()| {
-            this.length()
-        });
+        methods.add_method("length", |_, this, ()| this.length());
 
-        methods.add_method("keys", |lua, this, ()| {
-            this.keys(lua)
-        });
+        methods.add_method("keys", |lua, this, ()| this.keys(lua));
     }
 }

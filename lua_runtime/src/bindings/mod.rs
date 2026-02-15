@@ -12,58 +12,23 @@
 //!
 //! ## UI Bindings (when ui_enabled=true)
 //! - `ui` - Property updates and VecModel operations
-//! - `page` - Layer event handlers (on_change)
+//! - `page` - In-page app navigation helpers
 
 // Core bindings
-pub mod binding;
-mod convert;
-mod derivation;
-mod emoji;
-mod helpers;
-mod layout;
-mod loro;
-mod page;
-mod peers;
-mod permit;
-mod scribe;
-mod ui;
+pub(crate) mod binding;
+pub(crate) mod convert;
+pub(crate) mod derivation;
+pub(crate) mod emoji;
+pub(crate) mod layout;
+pub(crate) mod loro;
+pub(crate) mod page;
+pub(crate) mod peers;
+pub(crate) mod permit;
+pub(crate) mod scribe;
+pub(crate) mod ui;
 
 // Unified Scribe binding (the single API for apps)
 pub use scribe::ScribeBindings;
 
-// Binding system for declarative layer → UI sync
-// NOTE: apply_sort removed - sorting is a Slint view concern for stable indices
-pub use binding::{
-    apply_transform, convert_delta_for_binding, data_to_ui_mutation, expand_pattern,
-    is_wildcard_pattern, process_binding_data, BindingManager, BindingOptions, LayerBinding,
-};
-
-// Internal types used by ScribeBindings (not for direct app use)
-pub use convert::{
-    // JSON <-> Loro
-    json_to_loro_value,
-    // JSON <-> Lua
-    json_to_lua,
-    loro_value_to_json,
-    // Loro <-> Lua
-    loro_value_to_lua,
-    lua_to_json,
-    lua_to_loro_value,
-    // Pattern matching
-    matches_layer_pattern,
-};
-pub use derivation::DerivationBindings;
-pub use helpers::{
-    notify_change, register_drafts, register_helpers, ChangeSubscription, DraftsHelper,
-    HelpersContext, SubscriptionManager,
-};
-pub use layout::LayoutBindings;
-pub use loro::{LayerWrapper, LuaLoroList, LuaLoroMap};
-
-// Additional bindings
-pub use emoji::EmojiBindings;
-pub use page::PageBindings;
-pub use peers::PeersBindings;
-pub use permit::PermitBindings;
-pub use ui::{event_to_lua, parse_subscribe_options, UiBindings, UiSharedState};
-
+// Public exports
+pub use convert::json_to_lua;

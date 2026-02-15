@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use lua_runtime::mock_scribe::{MockScribeHandle, MockScribeState};
+use lua_runtime::{MockScribeHandle, MockScribeState};
 use renderer_slint::{launch_test_slint_app, LaunchedApp};
 
 struct Peer {
@@ -32,7 +32,10 @@ fn main() {
 
     let app_dir = PathBuf::from(&args[0]);
     if !app_dir.join("manifest.json").exists() {
-        eprintln!("Error: {} does not contain manifest.json", app_dir.display());
+        eprintln!(
+            "Error: {} does not contain manifest.json",
+            app_dir.display()
+        );
         std::process::exit(1);
     }
 
@@ -49,8 +52,14 @@ fn main() {
             .collect()
     } else {
         vec![
-            Peer { name: "Alice".to_string(), role: "owner".to_string() },
-            Peer { name: "Bob".to_string(), role: "viewer".to_string() },
+            Peer {
+                name: "Alice".to_string(),
+                role: "owner".to_string(),
+            },
+            Peer {
+                name: "Bob".to_string(),
+                role: "viewer".to_string(),
+            },
         ]
     };
 
@@ -66,18 +75,11 @@ fn main() {
 
         eprintln!("Launching {} ({})", peer.name, peer.role);
 
-        let app = launch_test_slint_app(
-            &app_dir,
-            page_id,
-            &did,
-            &peer.name,
-            &peer.role,
-            scribe,
-        )
-        .unwrap_or_else(|| {
-            eprintln!("Failed to launch window for {}", peer.name);
-            std::process::exit(1);
-        });
+        let app = launch_test_slint_app(&app_dir, page_id, &did, &peer.name, &peer.role, scribe)
+            .unwrap_or_else(|| {
+                eprintln!("Failed to launch window for {}", peer.name);
+                std::process::exit(1);
+            });
 
         shared_state
             .lock()
@@ -87,7 +89,10 @@ fn main() {
         apps.push(app);
     }
 
-    eprintln!("{} window(s) launched. Close all windows to exit.", apps.len());
+    eprintln!(
+        "{} window(s) launched. Close all windows to exit.",
+        apps.len()
+    );
 
     slint::run_event_loop().unwrap();
 }

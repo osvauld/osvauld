@@ -505,7 +505,7 @@ pub fn create_slint_app(
 
     // Note: Initial data loading is handled by scribe:bind() in on_init()
     // which calls fetch_layer_data() to get the real layer snapshot from Scribe.
-    // We no longer send empty LoroChanged events here as they would override
+    // We no longer send empty layer-change updates here as they would override
     // the real data fetched by scribe:bind().
 
     // Update status to loaded
@@ -637,18 +637,12 @@ pub fn launch_slint_app(
                         return;
                     }
 
-                    if created {
-                        let _ = running_app.lua_tx.try_send(LuaCommand::LayerDiscovered {
-                            layer_name: layer,
-                        });
-                    } else {
-                        let _ = running_app.lua_tx.try_send(LuaCommand::LoroChanged {
-                            layer_name: layer,
-                            ops,
-                            delta,
-                            full_data,  // Already Option<JsonValue> from PageUpdate
-                        });
-                    }
+                    let _ = running_app.lua_tx.try_send(LuaCommand::LayerChanged {
+                        layer_name: layer,
+                        created,
+                        delta,
+                        full_data,
+                    });
                 }
 
                 PageUpdate::Ephemeral { user_did, payload, .. } => {

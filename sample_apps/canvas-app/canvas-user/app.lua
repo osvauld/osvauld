@@ -114,6 +114,16 @@ function on_init()
     rebuild_ui_projection()
     sync_full_ui()
     update_toolbar()
+
+    -- Periodic remote sync refresh (peer edits)
+    timer.setInterval(1000, function()
+        graph.shapes = {}
+        graph.connectors = {}
+        graph.roots = {}
+        load_from_loro()
+        rebuild_ui_projection()
+        sync_full_ui()
+    end)
 end
 
 function load_from_loro()
@@ -133,21 +143,6 @@ function load_from_loro()
         if data then
             create_connector_in_graph(data)
         end
-    end
-end
-
--- =============================================================================
--- LORO CHANGE HANDLER
--- =============================================================================
-
-function on_loro_change(layer_name, ops)
-    if layer_name:match("/shapes$") or layer_name:match("/connectors$") then
-        graph.shapes = {}
-        graph.connectors = {}
-        graph.roots = {}
-        load_from_loro()
-        rebuild_ui_projection()
-        sync_full_ui()
     end
 end
 

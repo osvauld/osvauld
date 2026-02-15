@@ -6,11 +6,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use mlua::{UserData, UserDataMethods, Value as LuaValue, Error as LuaError, Function as LuaFunction};
+use mlua::{
+    Error as LuaError, Function as LuaFunction, UserData, UserDataMethods, Value as LuaValue,
+};
 use tracing::info;
 
+use super::convert::{json_to_lua, lua_to_json, matches_layer_pattern};
 use crate::scribe_handle::ScribeHandle;
-use super::{json_to_lua, lua_to_json};
 
 // Local Derivation Rule
 
@@ -108,7 +110,10 @@ impl UserData for DerivationBindings {
         // derivation:rebuild_all()
         methods.add_method("rebuild_all", |lua, this, ()| {
             let targets: Vec<String> = {
-                let rules = this.rules.read().map_err(|e| LuaError::RuntimeError(format!("Lock error: {}", e)))?;
+                let rules = this
+                    .rules
+                    .read()
+                    .map_err(|e| LuaError::RuntimeError(format!("Lock error: {}", e)))?;
                 rules.iter().map(|r| r.target_layer.clone()).collect()
             };
 
@@ -127,7 +132,7 @@ impl UserData for DerivationBindings {
 
             // Find all rules that match this source layer pattern
             let matching_targets: Vec<String> = rules.iter()
-                .filter(|r| super::matches_layer_pattern(&r.source_pattern, &source_layer))
+                .filter(|r| matches_layer_pattern(&r.source_pattern, &source_layer))
                 .map(|r| r.target_layer.clone())
                 .collect();
 
@@ -147,17 +152,22 @@ impl UserData for DerivationBindings {
 impl DerivationBindings {
     /// Rebuild a specific derived layer
     fn rebuild_target(&self, lua: &mlua::Lua, target: &str) -> Result<i64, LuaError> {
-        let rules = self.rules.read()
+        let rules = self
+            .rules
+            .read()
             .map_err(|e| LuaError::RuntimeError(format!("Lock error: {}", e)))?;
 
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.target_layer == target)
             .ok_or_else(|| LuaError::RuntimeError(format!("No rule for target: {}", target)))?;
 
         info!(target = %target, source = %rule.source_pattern, "Rebuilding derived layer locally");
 
         // Get source layers matching pattern
-        let source_layers = self.scribe.list_layers(&rule.source_pattern)
+        let source_layers = self
+            .scribe
+            .list_layers(&rule.source_pattern)
             .map_err(|e| LuaError::RuntimeError(format!("Failed to list layers: {}", e)))?;
 
         // Collect all derived entries
@@ -165,7 +175,9 @@ impl DerivationBindings {
 
         for source_layer in source_layers {
             // Get source layer data
-            let layer_data = self.scribe.get_layer_data(&source_layer)
+            let layer_data = self
+                .scribe
+                .get_layer_data(&source_layer)
                 .map_err(|e| LuaError::RuntimeError(format!("Failed to get layer data: {}", e)))?;
 
             // Convert to Lua table
@@ -179,7 +191,8 @@ impl DerivationBindings {
             for entry in entries {
                 // Apply filter if present
                 if let Some(ref filter_fn) = rule.filter_fn {
-                    let passes: bool = filter_fn.call(entry.clone())
+                    let passes: bool = filter_fn
+                        .call(entry.clone())
                         .map_err(|e| LuaError::RuntimeError(format!("Filter error: {}", e)))?;
                     if !passes {
                         continue;
@@ -187,12 +200,16 @@ impl DerivationBindings {
                 }
 
                 // Get key for derived map
-                let key: String = rule.key_fn.call(entry.clone())
+                let key: String = rule
+                    .key_fn
+                    .call(entry.clone())
                     .map_err(|e| LuaError::RuntimeError(format!("Key function error: {}", e)))?;
 
                 // Transform entry
-                let transformed: LuaValue = rule.transform_fn.call((source_layer.clone(), entry))
-                    .map_err(|e| LuaError::RuntimeError(format!("Transform error: {}", e)))?;
+                let transformed: LuaValue =
+                    rule.transform_fn
+                        .call((source_layer.clone(), entry))
+                        .map_err(|e| LuaError::RuntimeError(format!("Transform error: {}", e)))?;
 
                 derived_entries.insert(key, transformed);
             }
@@ -201,23 +218,28 @@ impl DerivationBindings {
         let count = derived_entries.len() as i64;
 
         // Ensure derived layer exists
-        self.scribe.ensure_map(target)
-            .map_err(|e| LuaError::RuntimeError(format!("Failed to ensure derived layer: {}", e)))?;
+        self.scribe.ensure_map(target).map_err(|e| {
+            LuaError::RuntimeError(format!("Failed to ensure derived layer: {}", e))
+        })?;
 
         // Get existing keys to clear (if any)
-        let existing_keys = self.scribe.map_keys(target)
+        let existing_keys = self
+            .scribe
+            .map_keys(target)
             .map_err(|e| LuaError::RuntimeError(format!("Failed to get keys: {}", e)))?;
 
         // Delete existing keys
         for key in existing_keys {
-            self.scribe.map_delete(target, "", &key)
+            self.scribe
+                .map_delete(target, "", &key)
                 .map_err(|e| LuaError::RuntimeError(format!("Failed to delete key: {}", e)))?;
         }
 
         // Insert new derived entries via ScribeHandle
         for (key, value) in derived_entries {
             let json_value = lua_to_json(&value)?;
-            self.scribe.map_insert(target, "", &key, json_value)
+            self.scribe
+                .map_insert(target, "", &key, json_value)
                 .map_err(|e| LuaError::RuntimeError(format!("Failed to insert: {}", e)))?;
         }
 

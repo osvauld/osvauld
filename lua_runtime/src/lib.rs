@@ -53,106 +53,44 @@
 // Module declarations
 
 // Core bindings (always available)
-pub mod bindings;
-
-// Event bus for UI interactions
-pub mod event_bus;
+mod bindings;
 
 // Timer and coroutine scheduler
-pub mod scheduler;
+mod scheduler;
 
 // UI types (VecModelOp, UiMutation, PropertyUpdate, UiQuery)
-pub mod ui_types;
+mod ui_types;
 
 // ScribeHandle trait + ActorScribeHandle (production impl)
-pub mod scribe_handle;
+mod scribe_handle;
 
 // MockScribeHandle (in-memory impl for testing)
-pub mod mock_scribe;
+mod mock_scribe;
 
-mod runtime;
 mod commands;
+mod runtime;
 
-pub use runtime::{LuaRuntime, LuaRuntimeConfig, StepResult, BufferedUiBindings, BufferedUiState};
-pub use scribe_handle::{ScribeHandle, ActorScribeHandle};
+pub use commands::{LuaCommand, UiEventType, ValidationContext, ValidationResult};
 pub use mock_scribe::{MockScribeHandle, MockScribeState};
-pub use commands::{
-    LuaCommand, UiEventType, DebugState,
-    ValidationContext, ValidationResult,
-    LoroDelta, ListOp,
-};
-// Re-export JsonOp from butler (domains) for consistency
-pub use butler::JsonOp;
-pub use scheduler::Scheduler;
+pub use runtime::{BufferedUiState, LuaRuntime, LuaRuntimeConfig, StepResult};
+pub use scribe_handle::{ActorScribeHandle, ScribeHandle};
 
-// Re-export binding types
-pub use bindings::{
-    // Unified Scribe API
-    ScribeBindings,
-    // Internal types
-    DerivationBindings, LayoutBindings,
-    LayerWrapper, LuaLoroList, LuaLoroMap,
-    // Loro <-> Lua
-    loro_value_to_lua, lua_to_loro_value,
-    // JSON <-> Lua
-    json_to_lua, lua_to_json,
-    // JSON <-> Loro
-    json_to_loro_value, loro_value_to_json,
-    // Pattern matching
-    matches_layer_pattern,
-    // Helpers
-    HelpersContext, register_helpers, register_drafts, notify_change,
-    SubscriptionManager, ChangeSubscription, DraftsHelper,
-    // Additional bindings
-    PermitBindings, PeersBindings, EmojiBindings,
-    UiBindings, UiSharedState, event_to_lua, parse_subscribe_options,
-    PageBindings,
-};
+// Re-export binding types (public API only)
+pub use bindings::{json_to_lua, ScribeBindings};
 
 // Re-export UI types
-pub use ui_types::{VecModelOp, UiMutation, PropertyUpdate, UiQuery};
-
-// Error types
-
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum LuaRuntimeError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
-
-    #[error("Lua error: {0}")]
-    Lua(#[from] mlua::Error),
-
-    #[error("Slint error: {0}")]
-    Slint(String),
-
-    #[error("Missing function: {0}")]
-    MissingFunction(String),
-
-    #[error("Butler error: {0}")]
-    Butler(String),
-
-    #[error("Missing file: {0}")]
-    MissingFile(String),
-
-    #[error("Validation error: {0}")]
-    Validation(String),
-}
+pub use ui_types::{PropertyUpdate, UiMutation, UiQuery, VecModelOp};
 
 // Constants
 
 /// API Lua module (exported function registry)
-pub const LUA_API_MODULE: &str = include_str!("lua_libs/api.lua");
+pub(crate) const LUA_API_MODULE: &str = include_str!("lua_libs/api.lua");
 
 /// Date Lua module
-pub const LUA_DATE_MODULE: &str = include_str!("lua_libs/date.lua");
+pub(crate) const LUA_DATE_MODULE: &str = include_str!("lua_libs/date.lua");
 
 /// Presence Lua module
-pub const LUA_PRESENCE_MODULE: &str = include_str!("lua_libs/presence.lua");
+pub(crate) const LUA_PRESENCE_MODULE: &str = include_str!("lua_libs/presence.lua");
 
 /// Reactive Binding module for surgical UI updates
-pub const LUA_BINDING_MODULE: &str = include_str!("lua_libs/binding.lua");
+pub(crate) const LUA_BINDING_MODULE: &str = include_str!("lua_libs/binding.lua");

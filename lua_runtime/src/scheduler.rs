@@ -23,20 +23,16 @@
 //! When a timer fires, we send the id to Lua which looks up and calls the callback.
 
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
-use mlua::{Function, Lua, Result as LuaResult, Table, Value};
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 // Timer Entry
 
 /// A registered timer
 #[derive(Debug, Clone)]
 pub struct TimerEntry {
-    /// Unique timer ID
-    pub id: u64,
-
     /// When this timer should fire
     pub deadline: Instant,
 
@@ -92,7 +88,6 @@ impl Scheduler {
         let deadline = now + delay;
 
         let entry = TimerEntry {
-            id,
             deadline,
             interval: if repeat { Some(delay) } else { None },
             cancelled: false,
@@ -226,86 +221,10 @@ impl Scheduler {
         fired
     }
 
-    /// Check if there are any pending timers
-    pub fn has_pending_timers(&self) -> bool {
-        self.timers.values().any(|t| !t.cancelled)
-    }
-
     /// Get count of active (non-cancelled) timers
     pub fn active_timer_count(&self) -> usize {
         self.timers.values().filter(|t| !t.cancelled).count()
     }
-
-    /// Clean up cancelled timers (call periodically to free memory)
-    pub fn gc(&mut self) {
-        // Remove cancelled timers
-        self.timers.retain(|_, entry| !entry.cancelled);
-
-        // Clean up deadline index
-        self.by_deadline.retain(|_, ids| {
-            ids.retain(|id| self.timers.contains_key(id));
-            !ids.is_empty()
-        });
-    }
-}
-
-// Lua Integration
-
-/// Register timer functions in Lua
-///
-/// Creates the `timer` global with:
-/// - `timer.setTimeout(ms, callback)` -> id
-/// - `timer.setInterval(ms, callback)` -> id
-/// - `timer.clear(id)`
-pub fn register_timer_api(lua: &Lua) -> LuaResult<()> {
-    // Create _timers table for storing callbacks
-    let timers_table: Table = lua.create_table()?;
-    lua.globals().set("_timers", timers_table)?;
-
-    // Create timer API table
-    let timer_table: Table = lua.create_table()?;
-
-    // Note: The actual setTimeout/setInterval functions need access to the
-    // Scheduler, which is owned by the runtime. We'll set these up when
-    // creating the runtime, using lua.scope() or by passing a channel.
-    //
-    // For now, we just create the structure. The runtime will fill in the
-    // actual implementations.
-
-    lua.globals().set("timer", timer_table)?;
-
-    debug!("Timer API registered");
-    Ok(())
-}
-
-/// Fire a timer callback in Lua
-///
-/// Looks up the callback in `_G._timers[id]` and calls it
-pub fn fire_timer_callback(lua: &Lua, timer_id: u64) -> LuaResult<()> {
-    let timers: Table = lua.globals().get("_timers")?;
-
-    let callback: Option<Function> = timers.get(timer_id)?;
-
-    match callback {
-        Some(func) => {
-            trace!(timer_id, "Calling timer callback");
-            if let Err(e) = func.call::<()>(()) {
-                warn!(timer_id, error = %e, "Timer callback error");
-            }
-        }
-        None => {
-            warn!(timer_id, "Timer callback not found");
-        }
-    }
-
-    Ok(())
-}
-
-/// Remove a timer callback from Lua (for one-shot timers)
-pub fn remove_timer_callback(lua: &Lua, timer_id: u64) -> LuaResult<()> {
-    let timers: Table = lua.globals().get("_timers")?;
-    timers.set(timer_id, Value::Nil)?;
-    Ok(())
 }
 
 // Tests
@@ -322,17 +241,23 @@ mod tests {
         // Timeout (one-shot)
         let id = scheduler.register_timer(10, false);
         assert_eq!(id, 1);
-        assert!(scheduler.has_pending_timers());
-        assert!(scheduler.fire_due_timers().is_empty(), "Should not fire immediately");
+        assert_eq!(scheduler.active_timer_count(), 1);
+        assert!(
+            scheduler.fire_due_timers().is_empty(),
+            "Should not fire immediately"
+        );
         sleep(Duration::from_millis(15));
         assert_eq!(scheduler.fire_due_timers(), vec![1]);
-        assert!(!scheduler.has_pending_timers(), "One-shot removed after firing");
+        assert!(
+            scheduler.active_timer_count() == 0,
+            "One-shot removed after firing"
+        );
 
         // Interval (repeating)
         let id = scheduler.register_timer(10, true);
         sleep(Duration::from_millis(15));
         assert_eq!(scheduler.fire_due_timers(), vec![id]);
-        assert!(scheduler.has_pending_timers(), "Interval still pending");
+        assert_eq!(scheduler.active_timer_count(), 1, "Interval still pending");
         sleep(Duration::from_millis(15));
         assert_eq!(scheduler.fire_due_timers(), vec![id], "Fires again");
     }
@@ -342,7 +267,7 @@ mod tests {
         let mut scheduler = Scheduler::new();
 
         let id = scheduler.register_timer(10, false);
-        assert!(scheduler.has_pending_timers());
+        assert_eq!(scheduler.active_timer_count(), 1);
         assert!(scheduler.clear_timer(id));
 
         sleep(Duration::from_millis(15));

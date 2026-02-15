@@ -49,7 +49,7 @@ When sync fails, check in this order:
 4. **Did Scribe accept the update?** Check `apply_update` capture events for rejection reasons (permission denied, validation failed, local_only layer).
 5. **Did the observer fire?** Check if Loro `subscribe_root` callback triggered.
 6. **Did broadcast reach subscribers?** Check `broadcast_decision` capture events -- verify subscriber has read capability and non-disconnected channel.
-7. **Did UI get notified?** Check `page_update` events and whether `LuaCommand::LoroChanged` was sent.
+7. **Did UI get notified?** Check `page_update` events and whether `LuaCommand::LayerChanged` was sent.
 8. **Did binding process the delta?** Check if `BindingManager` has a binding for the layer.
 
 ## Common Issues

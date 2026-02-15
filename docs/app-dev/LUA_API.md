@@ -187,7 +187,7 @@ derivation:on_source_change(layer_name)
 
 ---
 
-## `page:` Navigation and Change Subscriptions
+## `page:` Navigation
 
 ### In-Page Navigation
 
@@ -209,23 +209,6 @@ The app name must match the `"name"` field in the target app's `manifest.json`. 
 
 **Note:** `page:open_app()` is a no-op in headless/node mode (no UI to navigate).
 
-### Change Subscriptions
-
-```lua
--- Subscribe to changes on a specific layer pattern
-page:on_change("products", function(layer_name, delta)
-    refresh_products_ui()
-end)
-
--- Pattern-based subscription
-page:on_change("orders/*", function(layer_name, delta)
-    local customer_did = layer_name:match("orders/(.+)")
-    refresh_order_ui(customer_did)
-end)
-```
-
----
-
 ## `binding:` Reactive Binding State
 
 Advanced module for manual surgical UI updates. Use this when you need fine-grained control over how ops are processed.
@@ -236,16 +219,13 @@ local BindingState = binding.BindingState
 -- Create binding state for a UI model
 local state = BindingState.new("online_users", "did")
 
-function on_loro_change(layer_name, ops)
-    if layer_name:match("/presence$") then
-        if ops and #ops > 0 then
-            -- Surgical updates: only changed items
-            state:process_ops(ops, function(entry)
-                return { name = entry.name, status = "online" }
-            end)
-        end
-    end
-end
+-- Pair with on_layer_discovered() or a timer-based refresh for manual flows
+timer.setInterval(1000, function()
+    local items = scribe:list("presence")
+    state:init_from_data(items, function(entry)
+        return { name = entry.name, status = "online" }
+    end)
+end)
 ```
 
 ### BindingState Methods
@@ -334,17 +314,6 @@ function on_init()
     scribe:bind("products", "products")  -- Declarative sync
 end
 
-function on_loro_change(layer_name, ops)
-    -- Layer data changed (local OR remote)
-    -- NOTE: Not needed for layers using scribe:bind() - auto-synced!
-    --
-    -- ops: Array of structured operations (insert/set/delete/update)
-    --      Each op has: { op, path, key, index, value, old_value }
-    --      nil if ops not available
-    --
-    -- Only use for complex scenarios that need custom processing
-end
-
 function on_layer_discovered(layer_name)
     -- New layer found (e.g., customer's order layer appeared)
     -- NOTE: Wildcard bindings (orders/*) auto-include new layers
@@ -400,6 +369,6 @@ end
 - **Layer indices are 0-based** -- `list:get(0)` is the first item, despite Lua convention of 1-based indexing
 - **Layer names must be prefixed with page_id**: `page_id .. "/items"`, not just `"items"`
 - **`ui:set` with an array creates a VecModel automatically** -- no need to pre-declare in manifest `models`
-- **Use `scribe:bind()` instead of manual refresh** -- eliminates `on_loro_change` and `refresh_*_ui` boilerplate
+- **Use `scribe:bind()` instead of manual refresh** -- eliminates most `refresh_*_ui` boilerplate
 - **`{me}` placeholder in bind patterns** -- expands to user's DID at bind time
 - **`on_datagram`** receives a Lua table (already decoded), not a raw string

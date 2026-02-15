@@ -5,105 +5,8 @@
 //! - LuaWorker (lua_runtime)
 //! - ScribeLuaRuntime (lua_runtime)
 
-use loro::LoroValue;
-use mlua::{Value as LuaValue, Error as LuaError};
+use mlua::{Error as LuaError, Value as LuaValue};
 use serde_json::Value as JsonValue;
-
-// Loro <-> Lua conversions
-
-/// Convert LoroValue to Lua value
-pub fn loro_value_to_lua(lua: &mlua::Lua, value: &LoroValue) -> Result<LuaValue, LuaError> {
-    match value {
-        LoroValue::Null => Ok(LuaValue::Nil),
-        LoroValue::Bool(b) => Ok(LuaValue::Boolean(*b)),
-        LoroValue::I64(i) => Ok(LuaValue::Integer(*i)),
-        LoroValue::Double(d) => Ok(LuaValue::Number(*d)),
-        LoroValue::String(s) => {
-            let lua_str = lua.create_string(s.as_ref())?;
-            Ok(LuaValue::String(lua_str))
-        }
-        LoroValue::Binary(b) => {
-            let bytes: &[u8] = &**b;
-            let lua_str = lua.create_string(bytes)?;
-            Ok(LuaValue::String(lua_str))
-        }
-        LoroValue::List(list) => {
-            let table = lua.create_table()?;
-            for (i, v) in list.iter().enumerate() {
-                let lua_v = loro_value_to_lua(lua, v)?;
-                table.set(i + 1, lua_v)?;
-            }
-            Ok(LuaValue::Table(table))
-        }
-        LoroValue::Map(map) => {
-            let table = lua.create_table()?;
-            for (k, v) in map.iter() {
-                let lua_v = loro_value_to_lua(lua, v)?;
-                table.set(k.clone(), lua_v)?;
-            }
-            Ok(LuaValue::Table(table))
-        }
-        LoroValue::Container(_) => {
-            // Container references - return nil for now
-            Ok(LuaValue::Nil)
-        }
-    }
-}
-
-/// Convert Lua value to LoroValue
-pub fn lua_to_loro_value(value: &LuaValue) -> Result<LoroValue, LuaError> {
-    match value {
-        LuaValue::Nil => Ok(LoroValue::Null),
-        LuaValue::Boolean(b) => Ok(LoroValue::Bool(*b)),
-        LuaValue::Integer(i) => Ok(LoroValue::I64(*i)),
-        LuaValue::Number(n) => Ok(LoroValue::Double(*n)),
-        LuaValue::String(s) => {
-            let str_val = s.to_str()?.to_string();
-            Ok(LoroValue::String(str_val.into()))
-        }
-        LuaValue::Table(table) => {
-            // Check if it's an array (sequential integer keys starting at 1)
-            let mut is_array = true;
-            let mut max_index = 0;
-            for pair in table.clone().pairs::<LuaValue, LuaValue>() {
-                let (k, _) = pair?;
-                match k {
-                    LuaValue::Integer(i) if i > 0 => {
-                        max_index = max_index.max(i as usize);
-                    }
-                    _ => {
-                        is_array = false;
-                        break;
-                    }
-                }
-            }
-
-            if is_array && max_index > 0 {
-                // Array
-                let mut arr = Vec::with_capacity(max_index);
-                for i in 1..=max_index {
-                    let v: LuaValue = table.get(i)?;
-                    arr.push(lua_to_loro_value(&v)?);
-                }
-                Ok(LoroValue::List(arr.into()))
-            } else {
-                // Map
-                let mut map = std::collections::HashMap::new();
-                for pair in table.clone().pairs::<LuaValue, LuaValue>() {
-                    let (k, v) = pair?;
-                    let key = match k {
-                        LuaValue::String(s) => s.to_str()?.to_string(),
-                        LuaValue::Integer(i) => i.to_string(),
-                        _ => continue,
-                    };
-                    map.insert(key, lua_to_loro_value(&v)?);
-                }
-                Ok(LoroValue::Map(map.into()))
-            }
-        }
-        _ => Err(LuaError::RuntimeError(format!("Unsupported Lua type: {:?}", value))),
-    }
-}
 
 // JSON <-> Lua conversions
 
@@ -150,11 +53,9 @@ pub fn lua_to_json(value: &LuaValue) -> Result<JsonValue, LuaError> {
         LuaValue::Nil => Ok(JsonValue::Null),
         LuaValue::Boolean(b) => Ok(JsonValue::Bool(*b)),
         LuaValue::Integer(i) => Ok(JsonValue::Number((*i).into())),
-        LuaValue::Number(f) => {
-            serde_json::Number::from_f64(*f)
-                .map(JsonValue::Number)
-                .ok_or_else(|| LuaError::RuntimeError("Invalid float value".to_string()))
-        }
+        LuaValue::Number(f) => serde_json::Number::from_f64(*f)
+            .map(JsonValue::Number)
+            .ok_or_else(|| LuaError::RuntimeError("Invalid float value".to_string())),
         LuaValue::String(s) => {
             let str_val = s.to_str()?;
             Ok(JsonValue::String(str_val.to_string()))
@@ -210,69 +111,9 @@ pub fn lua_to_json(value: &LuaValue) -> Result<JsonValue, LuaError> {
     }
 }
 
-// JSON <-> Loro conversions
-
-/// Convert JSON value to LoroValue
-pub fn json_to_loro_value(json: &JsonValue) -> LoroValue {
-    match json {
-        JsonValue::Null => LoroValue::Null,
-        JsonValue::Bool(b) => LoroValue::Bool(*b),
-        JsonValue::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                LoroValue::I64(i)
-            } else if let Some(f) = n.as_f64() {
-                LoroValue::Double(f)
-            } else {
-                LoroValue::Null
-            }
-        }
-        JsonValue::String(s) => LoroValue::String(s.clone().into()),
-        JsonValue::Array(arr) => {
-            let list: Vec<LoroValue> = arr.iter().map(json_to_loro_value).collect();
-            LoroValue::List(list.into())
-        }
-        JsonValue::Object(obj) => {
-            let map: std::collections::HashMap<String, LoroValue> = obj
-                .iter()
-                .map(|(k, v)| (k.clone(), json_to_loro_value(v)))
-                .collect();
-            LoroValue::Map(map.into())
-        }
-    }
-}
-
-/// Convert LoroValue to JSON value
-pub fn loro_value_to_json(value: &LoroValue) -> JsonValue {
-    match value {
-        LoroValue::Null => JsonValue::Null,
-        LoroValue::Bool(b) => JsonValue::Bool(*b),
-        LoroValue::I64(i) => JsonValue::Number((*i).into()),
-        LoroValue::Double(d) => {
-            serde_json::Number::from_f64(*d)
-                .map(JsonValue::Number)
-                .unwrap_or(JsonValue::Null)
-        }
-        LoroValue::String(s) => JsonValue::String(s.to_string()),
-        LoroValue::Binary(b) => {
-            // Encode binary as base64 string
-            JsonValue::String(base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                &**b,
-            ))
-        }
-        LoroValue::List(list) => {
-            let arr: Vec<JsonValue> = list.iter().map(loro_value_to_json).collect();
-            JsonValue::Array(arr)
-        }
-        LoroValue::Map(map) => {
-            let obj: serde_json::Map<String, JsonValue> = map
-                .iter()
-                .map(|(k, v)| (k.clone(), loro_value_to_json(v)))
-                .collect();
-            JsonValue::Object(obj)
-        }
-        LoroValue::Container(_) => JsonValue::Null,
-    }
+/// Convert Lua value to JSON and normalize all failures as RuntimeError.
+pub fn lua_to_json_err(value: &LuaValue) -> Result<JsonValue, LuaError> {
+    lua_to_json(value).map_err(|e| LuaError::RuntimeError(e.to_string()))
 }
 
 // Pattern matching for layer names
@@ -313,7 +154,10 @@ mod tests {
         // Wildcard matches
         assert!(matches_layer_pattern("orders/*", "orders/did:key:abc"));
         assert!(matches_layer_pattern("orders/*", "orders/did:key:xyz"));
-        assert!(matches_layer_pattern("shop/orders/*", "shop/orders/customer"));
+        assert!(matches_layer_pattern(
+            "shop/orders/*",
+            "shop/orders/customer"
+        ));
         assert!(matches_layer_pattern("*/*", "orders/customer"));
 
         // Exact matches
@@ -324,20 +168,5 @@ mod tests {
         assert!(!matches_layer_pattern("orders/*", "bookings/did:key:abc"));
         assert!(!matches_layer_pattern("orders/*", "orders/sub/did:key:abc"));
         assert!(!matches_layer_pattern("orders", "orders/extra"));
-    }
-
-    #[test]
-    fn test_json_to_loro_roundtrip() {
-        let json = serde_json::json!({
-            "name": "Test",
-            "count": 42,
-            "active": true,
-            "items": [1, 2, 3]
-        });
-
-        let loro = json_to_loro_value(&json);
-        let back = loro_value_to_json(&loro);
-
-        assert_eq!(json, back);
     }
 }

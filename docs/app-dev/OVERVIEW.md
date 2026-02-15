@@ -176,7 +176,7 @@ function on_click(target)
 end
 ```
 
-The name must match the target app's `"name"` in its `manifest.json` (or the name passed to `app()` in page.lua). Navigation only works between apps in the same page. See [LUA_API.md](LUA_API.md#page-navigation-and-change-subscriptions) for details.
+The name must match the target app's `"name"` in its `manifest.json` (or the name passed to `app()` in page.lua). Navigation only works between apps in the same page. See [LUA_API.md](LUA_API.md#page-navigation) for details.
 
 ## App Lifecycle
 
@@ -189,7 +189,6 @@ The name must match the target app's `"name"` in its `manifest.json` (or the nam
 
 ### Optional Callbacks (for advanced scenarios)
 
-- **`on_loro_change(layer_name, ops)`**: Manual layer change handling (not needed with `scribe:bind()`)
 - **`on_layer_discovered(layer_name)`**: New layer found (wildcards auto-include)
 
 ## Event Handlers Reference
@@ -205,7 +204,6 @@ The name must match the target app's `"name"` in its `manifest.json` (or the nam
 | `on_peer_joined(did)` | Peer connected | user_did |
 | `on_peer_left(did)` | Peer disconnected | user_did |
 | `tick()` | Game loop (~60fps) | None |
-| `on_loro_change(layer, ops)` | Layer data changed (optional) | layer_name, ops_array |
 | `on_layer_discovered(name)` | New layer found (optional) | layer_name |
 
 ## Sample Apps

@@ -26,28 +26,43 @@
 //! })?;
 //! ```
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
-use mlua::{Function, Lua, ObjectLike, Table, UserData, UserDataMethods, Value};
+use mlua::{Function, Lua, ObjectLike, Table, Value};
 use parking_lot::Mutex;
 use serde_json::Value as JsonValue;
 use tokio::sync::mpsc;
 use tracing::{debug, info, trace, warn};
 
-use butler::LoroDelta;
 use crate::scribe_handle::ScribeHandle;
+use butler::LoroDelta;
 
-use crate::bindings::{
-    json_to_lua, lua_to_json, process_binding_data, BindingManager,
-    DerivationBindings, EmojiBindings, LayoutBindings, PageBindings, PeersBindings,
-    PermitBindings, ScribeBindings, UiBindings, UiSharedState,
-};
-use crate::commands::{DebugState, LuaCommand, UiEventType, ValidationContext, ValidationResult};
-use crate::event_bus::EventDelivery;
+use crate::bindings::binding::{data_to_ui_mutation, process_binding_data, BindingManager};
+use crate::bindings::convert::{json_to_lua, lua_to_json};
+use crate::bindings::derivation::DerivationBindings;
+use crate::bindings::emoji::EmojiBindings;
+use crate::bindings::layout::LayoutBindings;
+use crate::bindings::page::PageBindings;
+use crate::bindings::peers::PeersBindings;
+use crate::bindings::permit::PermitBindings;
+use crate::bindings::scribe::ScribeBindings;
+use crate::bindings::ui::{UiBindings, UiSharedState};
+use crate::commands::{DebugState, LuaCommand, ValidationContext, ValidationResult};
 use crate::scheduler::Scheduler;
 use crate::ui_types::{UiMutation, UiQuery};
-use crate::{LUA_API_MODULE, LUA_DATE_MODULE, LUA_PRESENCE_MODULE, LUA_BINDING_MODULE};
+use crate::{LUA_API_MODULE, LUA_BINDING_MODULE, LUA_DATE_MODULE, LUA_PRESENCE_MODULE};
+
+mod buffered_ui;
+mod debug;
+mod handlers;
+mod timer_bindings;
+#[cfg(test)]
+mod validation_tests;
+
+use buffered_ui::BufferedUiBindings;
+pub use buffered_ui::BufferedUiState;
+use debug::collect_lua_globals;
+use timer_bindings::register_timer_functions;
 
 // Configuration
 
@@ -85,242 +100,6 @@ pub struct LuaRuntimeConfig {
 
     /// Channel for in-page app navigation (page:open_app triggers tab switch)
     pub navigate_tx: Option<std::sync::mpsc::Sender<String>>,
-}
-
-// Buffered UI Bindings (for headless/test mode)
-
-/// Buffered UI bindings for headless runtime
-///
-/// Stores properties in-memory and buffers all mutations for test inspection.
-/// Implements the full ui:set/get/push/insert/remove/clear/update/subscribe/emit API.
-pub struct BufferedUiBindings {
-    state: Arc<std::sync::Mutex<BufferedUiState>>,
-}
-
-/// Internal state for BufferedUiBindings
-pub struct BufferedUiState {
-    /// Property values (scalar values set via ui:set)
-    pub properties: HashMap<String, serde_json::Value>,
-    /// Accumulated mutations (for test inspection via drain_mutations)
-    pub mutations: Vec<UiMutation>,
-    /// Model data (arrays set via ui:set with array values)
-    pub models: HashMap<String, Vec<serde_json::Value>>,
-}
-
-impl BufferedUiState {
-    fn new() -> Self {
-        Self {
-            properties: HashMap::new(),
-            mutations: Vec::new(),
-            models: HashMap::new(),
-        }
-    }
-}
-
-impl BufferedUiBindings {
-    pub fn new() -> Self {
-        Self {
-            state: Arc::new(std::sync::Mutex::new(BufferedUiState::new())),
-        }
-    }
-
-    /// Get the shared state for external inspection
-    pub fn state(&self) -> Arc<std::sync::Mutex<BufferedUiState>> {
-        self.state.clone()
-    }
-}
-
-impl UserData for BufferedUiBindings {
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("get", |lua, this, key: String| {
-            let state = this.state.lock().unwrap();
-            match state.properties.get(&key) {
-                Some(v) => json_to_lua(lua, v),
-                None => Ok(Value::Nil),
-            }
-        });
-
-        methods.add_method("set", |_lua, this, (key, value): (String, Value)| {
-            let json_value =
-                lua_to_json(&value).map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
-            let mut state = this.state.lock().unwrap();
-
-            if let serde_json::Value::Array(ref items) = json_value {
-                state.models.insert(key.clone(), items.clone());
-                state.mutations.push(UiMutation {
-                    app_id: String::new(),
-                    properties: vec![],
-                    model_ops: vec![crate::ui_types::VecModelOp::Replace {
-                        model_name: key,
-                        items: items.clone(),
-                    }],
-                });
-            } else {
-                state.properties.insert(key.clone(), json_value.clone());
-                state.mutations.push(UiMutation {
-                    app_id: String::new(),
-                    properties: vec![crate::ui_types::PropertyUpdate {
-                        key,
-                        value: json_value,
-                    }],
-                    model_ops: vec![],
-                });
-            }
-            Ok(())
-        });
-
-        methods.add_method("push", |_lua, this, (model_name, item): (String, Value)| {
-            let item_json =
-                lua_to_json(&item).map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
-            let mut state = this.state.lock().unwrap();
-            state.models.entry(model_name.clone()).or_default().push(item_json.clone());
-            state.mutations.push(UiMutation {
-                app_id: String::new(),
-                properties: vec![],
-                model_ops: vec![crate::ui_types::VecModelOp::Push {
-                    model_name,
-                    item: item_json,
-                }],
-            });
-            Ok(())
-        });
-
-        methods.add_method(
-            "insert",
-            |_lua, this, (model_name, index, item): (String, usize, Value)| {
-                let item_json =
-                    lua_to_json(&item).map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
-                let mut state = this.state.lock().unwrap();
-                let model = state.models.entry(model_name.clone()).or_default();
-                if index <= model.len() {
-                    model.insert(index, item_json.clone());
-                }
-                state.mutations.push(UiMutation {
-                    app_id: String::new(),
-                    properties: vec![],
-                    model_ops: vec![crate::ui_types::VecModelOp::Insert {
-                        model_name,
-                        index,
-                        item: item_json,
-                    }],
-                });
-                Ok(())
-            },
-        );
-
-        methods.add_method("remove", |_lua, this, (model_name, index): (String, usize)| {
-            let mut state = this.state.lock().unwrap();
-            if let Some(model) = state.models.get_mut(&model_name) {
-                if index < model.len() {
-                    model.remove(index);
-                }
-            }
-            state.mutations.push(UiMutation {
-                app_id: String::new(),
-                properties: vec![],
-                model_ops: vec![crate::ui_types::VecModelOp::Remove {
-                    model_name,
-                    index,
-                }],
-            });
-            Ok(())
-        });
-
-        methods.add_method("clear", |_lua, this, model_name: String| {
-            let mut state = this.state.lock().unwrap();
-            state.models.insert(model_name.clone(), vec![]);
-            state.mutations.push(UiMutation {
-                app_id: String::new(),
-                properties: vec![],
-                model_ops: vec![crate::ui_types::VecModelOp::Clear {
-                    model_name,
-                }],
-            });
-            Ok(())
-        });
-
-        methods.add_method(
-            "update",
-            |_lua, this, (model_name, index, item): (String, usize, Value)| {
-                let item_json =
-                    lua_to_json(&item).map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
-                let mut state = this.state.lock().unwrap();
-                if let Some(model) = state.models.get_mut(&model_name) {
-                    if index < model.len() {
-                        model[index] = item_json.clone();
-                    }
-                }
-                state.mutations.push(UiMutation {
-                    app_id: String::new(),
-                    properties: vec![],
-                    model_ops: vec![crate::ui_types::VecModelOp::Set {
-                        model_name,
-                        index,
-                        item: item_json,
-                    }],
-                });
-                Ok(())
-            },
-        );
-
-        methods.add_method(
-            "subscribe",
-            |_lua, _this, _args: mlua::MultiValue| Ok(0i64),
-        );
-        methods.add_method("unsubscribe", |_lua, _this, _id: i64| Ok(false));
-        methods.add_method("emit", |_lua, _this, _args: (String, Value)| Ok(0i64));
-    }
-}
-
-// Timer Bindings
-
-/// Register timer functions on a Lua table
-///
-/// Creates timer.setTimeout, timer.setInterval, timer.clear as regular functions
-/// that can be called with dot syntax (timer.setInterval(ms, callback))
-fn register_timer_functions(lua: &Lua, scheduler: Arc<Mutex<Scheduler>>) -> mlua::Result<Table> {
-    let timer_table = lua.create_table()?;
-
-    // timer.setTimeout(ms, callback) -> id
-    let sched = scheduler.clone();
-    timer_table.set("setTimeout", lua.create_function(move |lua, (ms, callback): (u64, Function)| {
-        let id = {
-            let mut scheduler = sched.lock();
-            scheduler.register_timer(ms, false)
-        };
-        let timers: Table = lua.globals().get("_timers")?;
-        timers.set(id, callback)?;
-        trace!(timer_id = id, ms, "setTimeout registered");
-        Ok(id)
-    })?)?;
-
-    // timer.setInterval(ms, callback) -> id
-    let sched = scheduler.clone();
-    timer_table.set("setInterval", lua.create_function(move |lua, (ms, callback): (u64, Function)| {
-        let id = {
-            let mut scheduler = sched.lock();
-            scheduler.register_timer(ms, true)
-        };
-        let timers: Table = lua.globals().get("_timers")?;
-        timers.set(id, callback)?;
-        trace!(timer_id = id, ms, "setInterval registered");
-        Ok(id)
-    })?)?;
-
-    // timer.clear(id)
-    let sched = scheduler.clone();
-    timer_table.set("clear", lua.create_function(move |lua, id: u64| {
-        {
-            let mut scheduler = sched.lock();
-            scheduler.clear_timer(id);
-        }
-        let timers: Table = lua.globals().get("_timers")?;
-        timers.set(id, Value::Nil)?;
-        trace!(timer_id = id, "Timer cleared");
-        Ok(())
-    })?)?;
-
-    Ok(timer_table)
 }
 
 // Lua Runtime
@@ -371,7 +150,6 @@ pub struct LuaRuntime {
 
 /// Cache of which Lua handler functions exist (avoids repeated globals lookups)
 struct HandlerCache {
-    on_loro_change: bool,
     on_layer_discovered: bool,
     on_ephemeral: bool,
     on_peer_joined: bool,
@@ -384,11 +162,8 @@ struct HandlerCache {
 
 impl HandlerCache {
     fn populate(lua: &Lua) -> Self {
-        let has = |name: &str| -> bool {
-            lua.globals().get::<Function>(name).is_ok()
-        };
+        let has = |name: &str| -> bool { lua.globals().get::<Function>(name).is_ok() };
         Self {
-            on_loro_change: has("on_loro_change"),
             on_layer_discovered: has("on_layer_discovered"),
             on_ephemeral: has("on_ephemeral"),
             on_peer_joined: has("on_peer_joined"),
@@ -443,7 +218,7 @@ impl LuaRuntime {
     /// **Context**: Runs the Lua on_init function and re-populates handler cache
     pub fn call_on_init(&mut self) {
         if self.has_function("on_init") {
-            if let Err(e) = self.call_no_args::<()>("on_init") {
+            if let Err(e) = self.call_handler("on_init", ()) {
                 warn!(page_id = %self.page_id, error = %e, "on_init failed");
             } else {
                 debug!(page_id = %self.page_id, "on_init completed");
@@ -559,8 +334,6 @@ impl LuaRuntime {
 
         // Register page bindings
         let page = PageBindings {
-            handlers: Arc::new(RwLock::new(Vec::new())),
-            page_id: config.page_id.clone(),
             navigate_tx: config.navigate_tx,
         };
         lua.globals()
@@ -569,10 +342,10 @@ impl LuaRuntime {
 
         // Register UI bindings (real or stub)
         if config.ui_enabled {
-            if let (Some(ui_tx), Some(query_tx)) = (config.ui_tx.clone(), config.query_tx.clone()) {
+            if let (Some(_ui_tx), Some(query_tx)) = (config.ui_tx.clone(), config.query_tx.clone())
+            {
                 let ui = UiBindings {
                     app_id: config.page_id.clone(),
-                    ui_tx,
                     query_tx,
                     shared: ui_shared.clone(),
                 };
@@ -681,7 +454,9 @@ impl LuaRuntime {
                     // Timer resolution is handled by fire_due_timers() in step()
                     let sleep_ms = {
                         let scheduler = self.scheduler.lock();
-                        scheduler.time_until_next().min(std::time::Duration::from_millis(16))
+                        scheduler
+                            .time_until_next()
+                            .min(std::time::Duration::from_millis(16))
                     };
                     std::thread::sleep(sleep_ms.min(std::time::Duration::from_millis(1)));
                 }
@@ -694,15 +469,15 @@ impl LuaRuntime {
         self.lua.globals().get::<Function>(name).is_ok()
     }
 
-    /// Call a Lua function with no arguments
-    fn call_no_args<R: mlua::FromLuaMulti>(&self, name: &str) -> Result<R, String> {
+    /// Call a Lua function with arguments.
+    fn call_handler<A: mlua::IntoLuaMulti>(&self, name: &str, args: A) -> Result<(), String> {
         let func: Function = self
             .lua
             .globals()
             .get(name)
             .map_err(|e| format!("Function '{}' not found: {}", name, e))?;
 
-        func.call(())
+        func.call::<()>(args)
             .map_err(|e| format!("Error calling '{}': {}", name, e))
     }
 
@@ -713,7 +488,7 @@ impl LuaRuntime {
         match cmd {
             LuaCommand::Shutdown => {
                 if self.handler_cache.on_shutdown {
-                    if let Err(e) = self.call_no_args::<()>("on_shutdown") {
+                    if let Err(e) = self.call_handler("on_shutdown", ()) {
                         warn!(page_id = %self.page_id, error = %e, "on_shutdown failed");
                     }
                 }
@@ -721,21 +496,19 @@ impl LuaRuntime {
                 true
             }
 
-            LuaCommand::LoroChanged {
+            LuaCommand::LayerChanged {
                 layer_name,
-                ops,
+                created,
                 delta,
                 full_data,
             } => {
-                if let Err(e) = self.handle_loro_change(&layer_name, ops, delta, full_data) {
-                    warn!(page_id = %self.page_id, layer = %layer_name, error = %e, "Loro change error");
-                }
-                false
-            }
-
-            LuaCommand::LayerDiscovered { layer_name } => {
-                if let Err(e) = self.handle_layer_discovered(&layer_name) {
-                    warn!(page_id = %self.page_id, layer = %layer_name, error = %e, "Layer discovered error");
+                let result = if created {
+                    self.handle_layer_discovered(&layer_name)
+                } else {
+                    self.handle_loro_change(&layer_name, delta, full_data)
+                };
+                if let Err(e) = result {
+                    warn!(page_id = %self.page_id, layer = %layer_name, error = %e, "Layer change error");
                 }
                 false
             }
@@ -750,7 +523,11 @@ impl LuaRuntime {
                 false
             }
 
-            LuaCommand::StructuredEphemeral { from_did, func, args } => {
+            LuaCommand::StructuredEphemeral {
+                from_did,
+                func,
+                args,
+            } => {
                 self.handle_structured_ephemeral(&from_did, &func, &args);
                 false
             }
@@ -775,7 +552,10 @@ impl LuaRuntime {
                 false
             }
 
-            LuaCommand::UiCallback { callback_name, args } => {
+            LuaCommand::UiCallback {
+                callback_name,
+                args,
+            } => {
                 if let Err(e) = self.handle_ui_callback(&callback_name, args) {
                     warn!(page_id = %self.page_id, callback = %callback_name, error = %e, "UI callback error");
                 }
@@ -816,10 +596,9 @@ impl LuaRuntime {
 
             LuaCommand::DebugGetState { response_tx } => {
                 let state = DebugState {
-                    globals: self.collect_lua_globals(),
+                    globals: collect_lua_globals(&self.lua),
                     timers: self.scheduler.lock().active_timer_count(),
                     has_on_init: self.has_function("on_init"),
-                    has_on_loro_change: self.handler_cache.on_loro_change,
                 };
                 let _ = response_tx.send(state);
                 false
@@ -835,44 +614,24 @@ impl LuaRuntime {
     fn handle_loro_change(
         &self,
         layer_name: &str,
-        ops: Option<Vec<butler::JsonOp>>,
         delta: Option<LoroDelta>,
         full_data: Option<JsonValue>,
     ) -> Result<(), String> {
-        let ops_count = ops.as_ref().map(|o| o.len()).unwrap_or(0);
         trace!(
             page_id = %self.page_id,
             layer = %layer_name,
             has_delta = delta.is_some(),
             has_full_data = full_data.is_some(),
-            ops_count = ops_count,
             "handle_loro_change ENTRY"
         );
 
         // Process through binding system (handles delta surgically when available)
-        let bindings_processed = self.process_bindings(layer_name, full_data.as_ref(), delta.as_ref());
+        let bindings_processed =
+            self.process_bindings(layer_name, full_data.as_ref(), delta.as_ref());
 
         if bindings_processed {
             self.trigger_derivation(layer_name);
             return Ok(());
-        }
-
-        // Legacy path: on_loro_change(layer_name, ops) callback
-        if self.handler_cache.on_loro_change {
-            let func: Function = self.lua.globals().get("on_loro_change").unwrap();
-
-            // Convert ops to Lua table (or nil if None)
-            let lua_ops = if let Some(ref op_vec) = ops {
-                let ops_json = serde_json::to_value(op_vec)
-                    .map_err(|e| format!("Ops to JSON: {}", e))?;
-                json_to_lua(&self.lua, &ops_json).map_err(|e| format!("Ops to Lua: {}", e))?
-            } else {
-                Value::Nil
-            };
-
-            if let Err(e) = func.call::<()>((layer_name, lua_ops)) {
-                warn!(page_id = %self.page_id, layer = %layer_name, error = %e, "on_loro_change error");
-            }
         }
 
         self.trigger_derivation(layer_name);
@@ -916,7 +675,8 @@ impl LuaRuntime {
         let bindings = manager.get_bindings_for_layer(layer_name);
 
         if bindings.is_empty() {
-            let all_bindings: Vec<_> = manager.all_bindings()
+            let all_bindings: Vec<_> = manager
+                .all_bindings()
                 .map(|b| format!("{}→{}", b.expanded_pattern, b.ui_property))
                 .collect();
             debug!(
@@ -934,9 +694,16 @@ impl LuaRuntime {
             // Delta-first path: try surgical updates for non-wildcard bindings
             if let Some(delta) = delta {
                 if !binding.is_wildcard {
-                    let layer_for_transform = if binding.is_wildcard { Some(layer_name) } else { None };
+                    let layer_for_transform = if binding.is_wildcard {
+                        Some(layer_name)
+                    } else {
+                        None
+                    };
                     let ops = crate::bindings::binding::convert_delta_for_binding(
-                        &self.lua, binding, delta, layer_for_transform,
+                        &self.lua,
+                        binding,
+                        delta,
+                        layer_for_transform,
                     );
                     if !ops.is_empty() {
                         let mutation = UiMutation {
@@ -972,7 +739,11 @@ impl LuaRuntime {
                 &self.lua,
                 binding,
                 data,
-                if binding.is_wildcard { Some(layer_name) } else { None },
+                if binding.is_wildcard {
+                    Some(layer_name)
+                } else {
+                    None
+                },
             ) {
                 Ok(data) => data,
                 Err(e) => {
@@ -983,7 +754,7 @@ impl LuaRuntime {
             };
 
             if let Some(ref ui_tx) = self.ui_tx {
-                if let Some(mutation) = crate::bindings::data_to_ui_mutation(&self.page_id, ui_property, processed) {
+                if let Some(mutation) = data_to_ui_mutation(&self.page_id, ui_property, processed) {
                     if let Err(e) = ui_tx.try_send(mutation) {
                         warn!(page_id = %self.page_id, ui_property = %ui_property, error = %e,
                             "Failed to send binding UI mutation");
@@ -996,356 +767,6 @@ impl LuaRuntime {
         }
 
         true
-    }
-
-    /// Handle layer discovered
-    ///
-    /// **Context**: New layer arriving via sync (e.g., derived/orders_summary first appearance)
-    /// **We do**: Process bindings for the discovered layer, then call Lua callback
-    /// **Why**: Without binding processing here, first-time layer arrivals are invisible to UI
-    fn handle_layer_discovered(&self, layer_name: &str) -> Result<(), String> {
-        // Process bindings for the discovered layer (fetches full data from Scribe)
-        if self.ui_enabled {
-            let has_bindings = {
-                let manager = self.binding_manager.lock();
-                !manager.get_bindings_for_layer(layer_name).is_empty()
-            };
-
-            if has_bindings {
-                if let Ok(data) = self.fetch_layer_data(layer_name) {
-                    self.process_bindings(layer_name, Some(&data), None);
-                }
-            }
-        }
-
-        if self.handler_cache.on_layer_discovered {
-            let func: Function = self.lua.globals().get("on_layer_discovered").unwrap();
-            if let Err(e) = func.call::<()>(layer_name.to_string()) {
-                warn!(page_id = %self.page_id, layer = %layer_name, error = %e, "on_layer_discovered error");
-            }
-        }
-
-        self.trigger_derivation(layer_name);
-
-        Ok(())
-    }
-
-    /// Fetch layer data as JSON from Scribe
-    fn fetch_layer_data(&self, layer_name: &str) -> Result<JsonValue, String> {
-        match self.scribe.get_layer_json(layer_name)? {
-            Some(data) => Ok(data),
-            None => Ok(JsonValue::Array(vec![])),
-        }
-    }
-
-    /// Fire due timers
-    fn fire_due_timers(&self) {
-        let fired_ids = {
-            let mut scheduler = self.scheduler.lock();
-            scheduler.fire_due_timers()
-        };
-
-        for timer_id in fired_ids {
-            self.fire_timer(timer_id);
-        }
-    }
-
-    /// Fire a single timer callback
-    fn fire_timer(&self, timer_id: u64) {
-        let timers: Result<Table, _> = self.lua.globals().get("_timers");
-        if let Ok(timers) = timers {
-            let callback: Result<Function, _> = timers.get(timer_id);
-            if let Ok(func) = callback {
-                if let Err(e) = func.call::<()>(()) {
-                    warn!(timer_id, error = %e, "Timer callback error");
-                }
-            }
-
-            // Remove one-shot timer callback
-            let is_one_shot = {
-                let scheduler = self.scheduler.lock();
-                !scheduler.timers.contains_key(&timer_id)
-            };
-            if is_one_shot {
-                let _ = timers.set(timer_id, Value::Nil);
-            }
-        }
-    }
-
-    /// Handle ephemeral message
-    fn handle_ephemeral(&self, user_did: &str, payload: &[u8]) {
-        if self.handler_cache.on_ephemeral {
-            let payload_str = String::from_utf8_lossy(payload);
-            let func: Function = self.lua.globals().get("on_ephemeral").unwrap();
-            if let Err(e) = func.call::<()>((user_did, payload_str.to_string())) {
-                warn!(page_id = %self.page_id, user = %user_did, error = %e, "on_ephemeral error");
-            }
-        }
-    }
-
-    /// Handle structured ephemeral message
-    fn handle_structured_ephemeral(&self, from_did: &str, func_name: &str, args: &JsonValue) {
-        debug!(page_id = %self.page_id, from_did = %from_did, func = %func_name, "handle_structured_ephemeral: received");
-
-        if self.handler_cache.on_ephemeral {
-            let lua_args = match json_to_lua(&self.lua, args) {
-                Ok(v) => v,
-                Err(e) => {
-                    warn!(page_id = %self.page_id, error = %e, "Args conversion error");
-                    return;
-                }
-            };
-
-            let func: Function = self.lua.globals().get("on_ephemeral").unwrap();
-            if let Err(e) = func.call::<()>((from_did, func_name, lua_args)) {
-                warn!(page_id = %self.page_id, from = %from_did, func = %func_name, error = %e, "on_ephemeral error");
-            } else {
-                debug!(page_id = %self.page_id, from_did = %from_did, func = %func_name, "on_ephemeral called successfully");
-            }
-        } else {
-            debug!(page_id = %self.page_id, "on_ephemeral function not defined");
-        }
-    }
-
-    /// Handle peer joined
-    fn handle_peer_joined(&self, user_did: &str) {
-        if self.handler_cache.on_peer_joined {
-            let func: Function = self.lua.globals().get("on_peer_joined").unwrap();
-            if let Err(e) = func.call::<()>(user_did.to_string()) {
-                warn!(page_id = %self.page_id, user = %user_did, error = %e, "on_peer_joined error");
-            } else {
-                info!(page_id = %self.page_id, user = %user_did, "on_peer_joined executed");
-            }
-        }
-    }
-
-    /// Handle peer left
-    fn handle_peer_left(&self, user_did: &str) {
-        if self.handler_cache.on_peer_left {
-            let func: Function = self.lua.globals().get("on_peer_left").unwrap();
-            if let Err(e) = func.call::<()>(user_did.to_string()) {
-                warn!(page_id = %self.page_id, user = %user_did, error = %e, "on_peer_left error");
-            } else {
-                info!(page_id = %self.page_id, user = %user_did, "on_peer_left executed");
-            }
-        }
-    }
-
-    /// Handle asset uploaded
-    fn handle_asset_uploaded(&self, hash: &str, filename: &str, mime_type: &str, size: u64) {
-        if self.handler_cache.on_asset_uploaded {
-            let table = match self.lua.create_table() {
-                Ok(t) => t,
-                Err(e) => {
-                    warn!(page_id = %self.page_id, error = %e, "Failed to create table");
-                    return;
-                }
-            };
-
-            let _ = table.set("hash", hash);
-            let _ = table.set("filename", filename);
-            let _ = table.set("mime_type", mime_type);
-            let _ = table.set("size", size);
-
-            let func: Function = self.lua.globals().get("on_asset_uploaded").unwrap();
-            if let Err(e) = func.call::<()>(table) {
-                warn!(page_id = %self.page_id, hash = %hash, error = %e, "on_asset_uploaded error");
-            } else {
-                info!(page_id = %self.page_id, hash = %hash, filename = %filename, "on_asset_uploaded executed");
-            }
-        }
-    }
-
-    /// Handle UI callback
-    fn handle_ui_callback(&self, name: &str, args: Vec<JsonValue>) -> Result<(), String> {
-        if !self.has_function(name) {
-            debug!(page_id = %self.page_id, callback = %name, "No handler found");
-            return Ok(());
-        }
-
-        let func: Function = self.lua.globals().get(name).unwrap();
-        let lua_args: Vec<Value> = args
-            .iter()
-            .filter_map(|a| json_to_lua(&self.lua, a).ok())
-            .collect();
-
-        if let Err(e) = func.call::<()>(mlua::MultiValue::from_iter(lua_args)) {
-            warn!(page_id = %self.page_id, callback = %name, error = %e, "UI callback error");
-        }
-
-        Ok(())
-    }
-
-    /// Handle UI event
-    fn handle_ui_event(&self, event: UiEventType) -> Result<(), String> {
-        match event {
-            UiEventType::KeyPressed { key } => {
-                if self.handler_cache.on_key_pressed {
-                    let func: Function = self.lua.globals().get("on_key_pressed").unwrap();
-                    if let Err(e) = func.call::<()>(key) {
-                        warn!(error = %e, "on_key_pressed error");
-                    }
-                }
-            }
-            UiEventType::TextChanged { element: _, text } => {
-                if self.handler_cache.on_text_input {
-                    let func: Function = self.lua.globals().get("on_text_input").unwrap();
-                    if let Err(e) = func.call::<()>(text) {
-                        warn!(error = %e, "on_text_input error");
-                    }
-                }
-            }
-            UiEventType::Custom { name, data } => {
-                // Dispatch to event bus
-                let event = crate::event_bus::Event::new(&name, crate::event_bus::EventSource::Human)
-                    .with_data(data);
-
-                let deliveries = self.ui_shared.lock().event_bus.emit(event);
-                for (subscriber_id, _callback_key, delivery) in deliveries {
-                    self.dispatch_event_delivery(subscriber_id, delivery);
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    /// Dispatch event delivery to subscriber
-    fn dispatch_event_delivery(&self, subscriber_id: u64, delivery: EventDelivery) {
-        let shared = self.ui_shared.lock();
-        if let Some(registry_key) = shared.callback_keys.get(&subscriber_id) {
-            let callback: Result<Function, _> = self.lua.registry_value(registry_key);
-            drop(shared);
-
-            if let Ok(callback) = callback {
-                match delivery {
-                    EventDelivery::Single(evt) => {
-                        if let Ok(event_lua) =
-                            crate::bindings::event_to_lua(&self.lua, &evt)
-                        {
-                            let _ = callback.call::<()>(event_lua);
-                        }
-                    }
-                    EventDelivery::Batch(events) => {
-                        if let Ok(events_lua) = self.lua.create_table() {
-                            for (i, evt) in events.iter().enumerate() {
-                                if let Ok(event_lua) =
-                                    crate::bindings::event_to_lua(&self.lua, evt)
-                                {
-                                    let _ = events_lua.set(i + 1, event_lua);
-                                }
-                            }
-                            let _ = callback.call::<()>(events_lua);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Flush accumulated UI mutations
-    fn flush_mutations(&self) {
-        if !self.ui_enabled {
-            return;
-        }
-
-        let mut shared = self.ui_shared.lock();
-        let properties = std::mem::take(&mut shared.pending_properties);
-        let model_ops = std::mem::take(&mut shared.pending_model_ops);
-        drop(shared);
-
-        if properties.is_empty() && model_ops.is_empty() {
-            return;
-        }
-
-        let mutation = UiMutation {
-            app_id: self.page_id.clone(),
-            properties,
-            model_ops,
-        };
-
-        debug!(
-            page_id = %self.page_id,
-            prop_count = mutation.properties.len(),
-            op_count = mutation.model_ops.len(),
-            "Flushing UI mutations"
-        );
-
-        if let Some(ref tx) = self.ui_tx {
-            if let Err(e) = tx.try_send(mutation) {
-                warn!(page_id = %self.page_id, error = %e, "Failed to send mutation");
-            }
-        }
-    }
-
-    /// Collect non-builtin Lua globals
-    fn collect_lua_globals(&self) -> Vec<String> {
-        let builtins = [
-            "_G",
-            "_VERSION",
-            "_timers",
-            "assert",
-            "collectgarbage",
-            "dofile",
-            "error",
-            "getmetatable",
-            "ipairs",
-            "load",
-            "loadfile",
-            "next",
-            "pairs",
-            "pcall",
-            "print",
-            "rawequal",
-            "rawget",
-            "rawlen",
-            "rawset",
-            "require",
-            "select",
-            "setmetatable",
-            "tonumber",
-            "tostring",
-            "type",
-            "warn",
-            "xpcall",
-            "coroutine",
-            "debug",
-            "io",
-            "math",
-            "os",
-            "package",
-            "string",
-            "table",
-            "utf8",
-            "scribe",
-            "ui",
-            "page",
-            "permit",
-            "peers",
-            "derivation",
-            "layout",
-            "emoji",
-            "datetime",
-            "timer",
-            "api",
-            "presence_lib",
-        ];
-
-        let mut globals = Vec::new();
-        if let Ok(pairs) = self
-            .lua
-            .globals()
-            .pairs::<String, Value>()
-            .collect::<Result<Vec<_>, _>>()
-        {
-            for (name, _) in pairs {
-                if !builtins.contains(&name.as_str()) {
-                    globals.push(name);
-                }
-            }
-        }
-        globals.sort();
-        globals
     }
 
     // Validation
@@ -1381,192 +802,5 @@ impl LuaRuntime {
             },
             failed_op_index: None,
         })
-    }
-}
-
-/// Test-only validation runtime that doesn't require a full Scribe actor
-///
-/// **Purpose**: Enables unit testing of validate_ops without actor setup
-#[cfg(test)]
-pub struct TestValidationRuntime {
-    lua: Lua,
-    page_id: String,
-}
-
-#[cfg(test)]
-impl TestValidationRuntime {
-    /// Create a test runtime for validation testing
-    pub fn new(page_id: &str) -> Result<Self, String> {
-        let lua = Lua::new();
-        Ok(Self {
-            lua,
-            page_id: page_id.to_string(),
-        })
-    }
-
-    /// Load validation code
-    pub fn load_validation_code(&self, code: &str) -> Result<(), String> {
-        self.lua.load(code)
-            .exec()
-            .map_err(|e| format!("Failed to load validation code: {}", e))?;
-        Ok(())
-    }
-
-    /// Check if a function exists
-    pub fn has_function(&self, name: &str) -> bool {
-        self.lua.globals()
-            .get::<Value>(name)
-            .map(|v| matches!(v, Value::Function(_)))
-            .unwrap_or(false)
-    }
-
-    /// Validate operations
-    pub fn validate_ops(
-        &self,
-        layer_name: &str,
-        ops: &[serde_json::Value],
-        from_did: &str,
-        role: &str,
-    ) -> Result<(bool, Option<String>), String> {
-        let globals = self.lua.globals();
-
-        let validate_fn: Function = match globals.get("validate_ops") {
-            Ok(f) => f,
-            Err(_) => {
-                return Ok((true, None));
-            }
-        };
-
-        let ops_table = self.lua.create_table()
-            .map_err(|e| format!("Failed to create ops table: {}", e))?;
-
-        for (i, op_json) in ops.iter().enumerate() {
-            let op_lua = json_to_lua(&self.lua, op_json)
-                .map_err(|e| format!("Failed to convert op to Lua: {}", e))?;
-            ops_table.set(i + 1, op_lua)
-                .map_err(|e| format!("Failed to add op to table: {}", e))?;
-        }
-
-        let result: bool = validate_fn.call((
-            layer_name,
-            ops_table,
-            from_did,
-            role,
-            self.page_id.as_str(),
-        )).map_err(|e| format!("validate_ops error: {}", e))?;
-
-        Ok((result, if result { None } else { Some("Validation failed".to_string()) }))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_validate_ops_basic() {
-        // No validate_ops function → allows all
-        let rt = TestValidationRuntime::new("test-page").unwrap();
-        assert!(!rt.has_function("validate_ops"));
-        let ops = vec![serde_json::json!({"op": "insert", "path": "messages", "value": {"text": "hello"}})];
-        let (passed, _) = rt.validate_ops("messages", &ops, "did:key:user", "viewer").unwrap();
-        assert!(passed, "Should allow ops when no validate_ops function");
-
-        // Returns true
-        let rt = TestValidationRuntime::new("test-page").unwrap();
-        rt.load_validation_code(r#"function validate_ops(l, o, f, r, p) return true end"#).unwrap();
-        let (passed, error) = rt.validate_ops("messages", &ops, "did:key:user", "viewer").unwrap();
-        assert!(passed);
-        assert!(error.is_none());
-
-        // Returns false
-        let rt = TestValidationRuntime::new("test-page").unwrap();
-        rt.load_validation_code(r#"function validate_ops(l, o, f, r, p) return false end"#).unwrap();
-        let (passed, error) = rt.validate_ops("messages", &ops, "did:key:user", "viewer").unwrap();
-        assert!(!passed);
-        assert!(error.is_some());
-
-        // Empty ops
-        let rt = TestValidationRuntime::new("test-page").unwrap();
-        rt.load_validation_code(r#"function validate_ops(l, ops, f, r, p) return #ops == 0 end"#).unwrap();
-        let (passed, _) = rt.validate_ops("layer", &[], "did:key:user", "viewer").unwrap();
-        assert!(passed, "Empty ops should pass");
-        let (passed, _) = rt.validate_ops("layer", &ops, "did:key:user", "viewer").unwrap();
-        assert!(!passed, "Non-empty ops should fail");
-    }
-
-    #[test]
-    fn test_validate_ops_args_and_logic() {
-        // Receives correct args
-        let rt = TestValidationRuntime::new("test-page-123").unwrap();
-        rt.load_validation_code(r#"
-            function validate_ops(layer_name, ops, from_did, role, page_id)
-                if layer_name ~= "orders" then return false end
-                if from_did ~= "did:key:alice" then return false end
-                if role ~= "owner" then return false end
-                if page_id ~= "test-page-123" then return false end
-                if #ops ~= 2 then return false end
-                return true
-            end
-        "#).unwrap();
-        let ops = vec![
-            serde_json::json!({"op": "insert", "value": 1}),
-            serde_json::json!({"op": "insert", "value": 2}),
-        ];
-        let (passed, _) = rt.validate_ops("orders", &ops, "did:key:alice", "owner").unwrap();
-        assert!(passed, "All arguments should match");
-
-        // Can access op fields
-        let rt = TestValidationRuntime::new("test-page").unwrap();
-        rt.load_validation_code(r#"
-            function validate_ops(layer_name, ops, from_did, role, page_id)
-                for _, op in ipairs(ops) do
-                    if op.op == "insert" and op.path == "messages" then
-                        if op.value and op.value.text == "forbidden" then return false end
-                    end
-                end
-                return true
-            end
-        "#).unwrap();
-        let allowed = vec![serde_json::json!({"op": "insert", "path": "messages", "value": {"text": "hello"}})];
-        let (passed, _) = rt.validate_ops("messages", &allowed, "did:key:user", "viewer").unwrap();
-        assert!(passed, "Normal messages allowed");
-        let forbidden = vec![serde_json::json!({"op": "insert", "path": "messages", "value": {"text": "forbidden"}})];
-        let (passed, _) = rt.validate_ops("messages", &forbidden, "did:key:user", "viewer").unwrap();
-        assert!(!passed, "Forbidden messages rejected");
-
-        // Role-based access
-        let rt = TestValidationRuntime::new("test-page").unwrap();
-        rt.load_validation_code(r#"
-            function validate_ops(layer_name, ops, from_did, role, page_id)
-                if layer_name == "orders" and role ~= "owner" then return false end
-                return true
-            end
-        "#).unwrap();
-        let ops = vec![serde_json::json!({"op": "insert"})];
-        let (passed, _) = rt.validate_ops("orders", &ops, "did:key:owner", "owner").unwrap();
-        assert!(passed, "Owner can modify orders");
-        let (passed, _) = rt.validate_ops("orders", &ops, "did:key:viewer", "viewer").unwrap();
-        assert!(!passed, "Viewer cannot modify orders");
-    }
-
-    #[test]
-    fn test_validate_ops_error_handling() {
-        // Lua error propagation
-        let rt = TestValidationRuntime::new("test-page").unwrap();
-        rt.load_validation_code(r#"
-            function validate_ops(l, o, f, r, p)
-                error("Something went wrong!")
-            end
-        "#).unwrap();
-        let ops = vec![serde_json::json!({"op": "insert"})];
-        let result = rt.validate_ops("layer", &ops, "did:key:user", "viewer");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Something went wrong"));
-
-        // Invalid Lua code
-        let rt = TestValidationRuntime::new("test-page").unwrap();
-        let result = rt.load_validation_code("function validate_ops( -- missing closing paren");
-        assert!(result.is_err(), "Invalid Lua should fail to load");
     }
 }

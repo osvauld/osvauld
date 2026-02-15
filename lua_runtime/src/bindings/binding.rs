@@ -1,7 +1,7 @@
 //! Declarative Binding System for Layer → UI Auto-Sync
 //!
 //! Provides `scribe:bind()` API that auto-syncs layer data to UI properties,
-//! eliminating manual layer tracking, on_loro_change callbacks, and refresh_*_ui functions.
+//! eliminating manual layer tracking and refresh_*_ui functions.
 //!
 //! ## Usage
 //!
@@ -33,6 +33,8 @@ use tracing::debug;
 
 use crate::ui_types::{PropertyUpdate, UiMutation, VecModelOp};
 use butler::{ListOp, LoroDelta};
+
+use super::convert::{json_to_lua, lua_to_json};
 
 /// Options for a binding (transform, key, max_items)
 ///
@@ -278,9 +280,10 @@ impl Default for BindingManager {
 /// # Examples
 /// - `"products"` → `"products"`
 /// - `"orders/{me}"` with my_did "did:key:xyz" → `"orders/did:key:xyz"`
-pub fn expand_pattern(pattern: &str, _page_id: &str, my_did: &str) -> String {
-    // Substitute {me} placeholder
-    pattern.replace("{me}", my_did)
+pub fn expand_pattern(pattern: &str, page_id: &str, my_did: &str) -> String {
+    // Substitute {me} placeholder and add page_id prefix
+    let expanded = pattern.replace("{me}", my_did);
+    format!("{}/{}", page_id, expanded)
 }
 
 /// Check if a pattern is a wildcard pattern
@@ -306,7 +309,7 @@ pub fn apply_transform(
         serde_json::Value::Array(items) => {
             let mut result = Vec::new();
             for item in items {
-                let lua_item = super::json_to_lua(lua, item)?;
+                let lua_item = json_to_lua(lua, item)?;
 
                 let transformed: Value = if let Some(layer) = layer_name {
                     // Wildcard: pass layer_name as first arg
@@ -321,14 +324,14 @@ pub fn apply_transform(
                     continue;
                 }
 
-                let json_item = super::lua_to_json(&transformed)?;
+                let json_item = lua_to_json(&transformed)?;
                 result.push(json_item);
             }
             Ok(serde_json::Value::Array(result))
         }
         // For non-arrays, transform as single item
         _ => {
-            let lua_item = super::json_to_lua(lua, data)?;
+            let lua_item = json_to_lua(lua, data)?;
             let transformed: Value = if let Some(layer) = layer_name {
                 transform.call((layer.to_string(), lua_item))?
             } else {
@@ -340,7 +343,7 @@ pub fn apply_transform(
                 return Ok(serde_json::Value::Null);
             }
 
-            super::lua_to_json(&transformed)
+            lua_to_json(&transformed)
         }
     }
 }
@@ -605,7 +608,7 @@ fn apply_transform_single(
     layer_name: Option<&str>,
 ) -> LuaResult<Option<serde_json::Value>> {
     let transform: Function = lua.registry_value(transform_key)?;
-    let lua_item = super::json_to_lua(lua, value)?;
+    let lua_item = json_to_lua(lua, value)?;
 
     let transformed: Value = if let Some(layer) = layer_name {
         transform.call((layer.to_string(), lua_item))?
@@ -617,7 +620,7 @@ fn apply_transform_single(
         return Ok(None);
     }
 
-    let json_item = super::lua_to_json(&transformed)?;
+    let json_item = lua_to_json(&transformed)?;
     Ok(Some(json_item))
 }
 

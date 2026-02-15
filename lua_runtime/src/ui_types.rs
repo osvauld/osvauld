@@ -97,36 +97,17 @@ pub struct UiQuery {
 }
 
 impl UiMutation {
-    /// Create empty mutation (no-op)
-    pub fn empty(app_id: String) -> Self {
-        Self {
-            app_id,
-            properties: vec![],
-            model_ops: vec![],
-        }
-    }
-
-    /// Create mutation with only property updates
-    pub fn properties_only(app_id: String, properties: Vec<PropertyUpdate>) -> Self {
+    /// Create new mutation
+    pub fn new(
+        app_id: String,
+        properties: Vec<PropertyUpdate>,
+        model_ops: Vec<VecModelOp>,
+    ) -> Self {
         Self {
             app_id,
             properties,
-            model_ops: vec![],
-        }
-    }
-
-    /// Create mutation with only model operations
-    pub fn models_only(app_id: String, model_ops: Vec<VecModelOp>) -> Self {
-        Self {
-            app_id,
-            properties: vec![],
             model_ops,
         }
-    }
-
-    /// Check if mutation has any operations
-    pub fn is_empty(&self) -> bool {
-        self.properties.is_empty() && self.model_ops.is_empty()
     }
 }
 
@@ -154,25 +135,5 @@ mod tests {
             }
             _ => panic!("Wrong variant"),
         }
-    }
-
-    #[test]
-    fn test_ui_mutation_empty() {
-        let mutation = UiMutation::empty("chat_app".to_string());
-        assert!(mutation.is_empty());
-    }
-
-    #[test]
-    fn test_ui_mutation_properties() {
-        let mutation = UiMutation::properties_only(
-            "chat_app".to_string(),
-            vec![PropertyUpdate {
-                key: "draft".to_string(),
-                value: serde_json::json!(""),
-            }],
-        );
-        assert!(!mutation.is_empty());
-        assert_eq!(mutation.properties.len(), 1);
-        assert_eq!(mutation.model_ops.len(), 0);
     }
 }

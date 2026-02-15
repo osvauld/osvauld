@@ -3,8 +3,8 @@
 //! No Loro, no actors, no network. Pure HashMap-based storage.
 //! Provides inspection methods for test assertions.
 //!
-//! **Reactive**: Mutations notify all registered subscribers via `LuaCommand::LoroChanged`
-//! with `full_data` (no delta/ops — uses the Replace fallback path, works for both lists and maps).
+//! **Reactive**: Mutations notify all registered subscribers via `LuaCommand::LayerChanged`
+//! with `full_data` (no delta — uses the Replace fallback path, works for both lists and maps).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -28,7 +28,7 @@ enum MockLayer {
 /// (simulates multiple peers on the same page).
 ///
 /// **Reactive**: Register `lua_tx` channels via `register_subscriber()`.
-/// Every mutation sends `LuaCommand::LoroChanged { full_data }` to all subscribers.
+/// Every mutation sends `LuaCommand::LayerChanged { full_data }` to all subscribers.
 ///
 /// **Layer normalization**: Like the real Scribe, strips `page_id/` prefix from layer names.
 /// Lua calls `scribe:list(page_id .. "/messages")` but layers are stored as `"messages"`.
@@ -75,7 +75,7 @@ impl MockScribeState {
     /// Register a Lua runtime's command channel for change notifications
     ///
     /// **Context**: Called after `launch_test_slint_app()` returns the `lua_tx`.
-    /// All subsequent mutations will send `LoroChanged` to this channel.
+    /// All subsequent mutations will send `LayerChanged` to this channel.
     pub fn register_subscriber(&mut self, tx: mpsc::Sender<LuaCommand>) {
         self.subscribers.push(tx);
     }
@@ -87,7 +87,7 @@ impl MockScribeState {
 
     /// Notify all subscribers that a layer changed
     ///
-    /// **Sends**: `LuaCommand::LoroChanged` with `full_data` (no delta/ops).
+    /// **Sends**: `LuaCommand::LayerChanged` with `full_data` (no delta).
     /// This triggers the Replace fallback path in the binding system,
     /// which works for both list and map layers.
     fn notify_change(&self, layer_name: &str) {
@@ -99,9 +99,9 @@ impl MockScribeState {
             None => return,
         };
         for tx in &self.subscribers {
-            let _ = tx.try_send(LuaCommand::LoroChanged {
+            let _ = tx.try_send(LuaCommand::LayerChanged {
                 layer_name: layer_name.to_string(),
-                ops: None,
+                created: false,
                 delta: None,
                 full_data: Some(full_data.clone()),
             });
@@ -617,18 +617,18 @@ mod tests {
         // Check notification arrived
         let cmd = rx.try_recv().unwrap();
         match cmd {
-            LuaCommand::LoroChanged {
+            LuaCommand::LayerChanged {
                 layer_name,
+                created,
                 full_data,
-                ops,
                 delta,
             } => {
                 assert_eq!(layer_name, "messages");
-                assert!(ops.is_none());
+                assert!(!created);
                 assert!(delta.is_none());
                 assert_eq!(full_data, Some(serde_json::json!([{"text": "hello"}])));
             }
-            other => panic!("Expected LoroChanged, got {:?}", other),
+            other => panic!("Expected LayerChanged, got {:?}", other),
         }
     }
 

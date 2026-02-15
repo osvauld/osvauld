@@ -409,32 +409,15 @@ Most apps should use `scribe:bind()` exclusively. However, some advanced scenari
 
 | Scenario | Approach |
 |----------|----------|
-| Complex internal state (e.g., graph structure) | Use `on_loro_change` to trigger reload |
+| Complex internal state (e.g., graph structure) | Use `on_layer_discovered` + periodic reload |
 | Write access to dynamic per-user layers | Track layer references in a table |
 | Custom aggregation beyond simple transforms | Combine layers programmatically |
 
-For these cases, the `on_loro_change(layer_name, ops)` callback receives:
-- `layer_name`: Full layer path (e.g., "page123/presence")
-- `ops`: Array of structured operations (or nil if not available)
-
-### Ops Structure
-
-Each op in the `ops` array has:
-
-```lua
-{
-    op = "set" | "insert" | "delete" | "update",
-    path = "root",           -- Container path
-    key = "did:key:abc",     -- For map operations
-    index = 0,               -- For list operations
-    value = { ... },         -- New value (for set/insert/update)
-    old_value = { ... }      -- Previous value (for update/delete)
-}
-```
+For these cases, reload directly from layers instead of relying on change-op callbacks.
 
 ### Reactive Binding State
 
-For advanced use cases, use the `binding` module for manual surgical updates:
+For advanced use cases, use the `binding` module for custom keyed state management:
 
 ```lua
 local BindingState = binding.BindingState
@@ -442,21 +425,16 @@ local BindingState = binding.BindingState
 -- Create binding state for a model
 local presence_state = BindingState.new("online_users", "did")
 
-function on_loro_change(layer_name, ops)
-    if layer_name:match("/presence$") then
-        if ops and #ops > 0 then
-            -- Surgical updates: only changed items
-            presence_state:process_ops(ops, function(entry)
-                return { name = entry.name, status = "online" }
-            end)
-        end
-    end
-end
+timer.setInterval(1000, function()
+    local snapshot = scribe:list("presence")
+    presence_state:init_from_data(snapshot, function(entry)
+        return { name = entry.name, status = "online" }
+    end)
+end)
 ```
 
 **BindingState Methods:**
 - `BindingState.new(model_name, key_field)` - Create new state
-- `state:process_ops(ops, transform)` - Apply ops surgically
 - `state:init_from_data(full_data, transform)` - Initialize/replace from full data
 - `state:count()` - Get item count
 - `state:has(key)` - Check if key exists

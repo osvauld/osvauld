@@ -10,8 +10,8 @@ use serde_json::Value as JsonValue;
 use tokio::sync::mpsc;
 
 use lua_runtime::{
-    BufferedUiState, LuaCommand, LuaRuntime, LuaRuntimeConfig,
-    MockScribeHandle, MockScribeState, StepResult, UiEventType,
+    BufferedUiState, LuaCommand, LuaRuntime, LuaRuntimeConfig, MockScribeHandle, MockScribeState,
+    StepResult, UiEventType,
 };
 
 /// Single-app test runner
@@ -31,12 +31,7 @@ impl AppTestRunner {
     ///
     /// Reads manifest.json + app.lua (or entry_logic from manifest).
     /// Creates MockScribeHandle + headless LuaRuntime.
-    pub fn load(
-        app_dir: &Path,
-        role: &str,
-        did: &str,
-        name: &str,
-    ) -> Result<Self, String> {
+    pub fn load(app_dir: &Path, role: &str, did: &str, name: &str) -> Result<Self, String> {
         // Read manifest
         let manifest_path = app_dir.join("manifest.json");
         let manifest_str = std::fs::read_to_string(&manifest_path)
@@ -57,7 +52,8 @@ impl AppTestRunner {
 
         // Set package.path so require() finds .lua modules in the app directory
         // (matches production behavior in renderer_slint)
-        let app_dir_abs = app_dir.canonicalize()
+        let app_dir_abs = app_dir
+            .canonicalize()
             .map_err(|e| format!("Failed to resolve app dir: {}", e))?;
         let package_path_preamble = format!(
             "package.path = '{}/?.lua;' .. package.path\n",
@@ -253,16 +249,16 @@ impl AppTestRunner {
             .map_err(|e| format!("Failed to send text: {}", e))
     }
 
-    /// Inject a Loro change (simulates remote write arriving)
+    /// Inject a layer change (simulates remote write arriving)
     pub fn inject_loro_change(
         &self,
         layer_name: &str,
         full_data: Option<JsonValue>,
     ) -> Result<(), String> {
         self.cmd_tx
-            .try_send(LuaCommand::LoroChanged {
+            .try_send(LuaCommand::LayerChanged {
                 layer_name: layer_name.to_string(),
-                ops: None,
+                created: false,
                 delta: None,
                 full_data,
             })

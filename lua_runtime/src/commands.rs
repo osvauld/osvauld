@@ -6,8 +6,7 @@
 use serde_json::Value as JsonValue;
 use tokio::sync::oneshot;
 
-// Re-export LoroDelta from butler (originally from scribe)
-pub use butler::{LoroDelta, ListOp};
+use butler::LoroDelta;
 
 // Debug State (for introspection)
 
@@ -17,7 +16,6 @@ pub struct DebugState {
     pub globals: Vec<String>,
     pub timers: usize,
     pub has_on_init: bool,
-    pub has_on_loro_change: bool,
 }
 
 // Lua Commands
@@ -28,28 +26,16 @@ pub struct DebugState {
 /// **Receiver**: LuaRuntime event loop
 #[derive(Debug)]
 pub enum LuaCommand {
-
-    /// Layer data changed (local write or peer sync)
+    /// Layer changed or discovered
     ///
-    /// **Context**: Loro observer detected a change
-    /// **We do**: Process through binding system (delta-first) or call on_loro_change callback
-    /// **Ops**: Structured operations extracted from update (same format as validation)
-    /// **Delta**: Incremental delta for surgical VecModel ops (Insert/Remove)
-    /// **full_data**: None when delta is available (avoids O(N) serialization), Some for fallback
-    LoroChanged {
+    /// **Context**: Scribe emitted a page layer update
+    /// **created=true**: call `on_layer_discovered(layer_name)`
+    /// **created=false**: process binding updates + derivation trigger
+    LayerChanged {
         layer_name: String,
-        /// Structured ops for surgical updates (insert/update/delete with keys/indices)
-        ops: Option<Vec<butler::JsonOp>>,
+        created: bool,
         delta: Option<LoroDelta>,
         full_data: Option<JsonValue>,
-    },
-
-    /// New layer discovered (from peer sync)
-    ///
-    /// **Context**: Peer synced a layer we didn't have
-    /// **We do**: Call Lua's `on_layer_discovered(layer_name)` if defined
-    LayerDiscovered {
-        layer_name: String,
     },
 
     /// UI callback triggered (button click, etc.)
@@ -65,9 +51,7 @@ pub enum LuaCommand {
     ///
     /// **Context**: Slint event (key press, focus, etc.)
     /// **We do**: Call Lua's event handler if defined
-    UiEvent {
-        event: UiEventType,
-    },
+    UiEvent { event: UiEventType },
 
     /// Shutdown the runtime
     ///
@@ -79,18 +63,13 @@ pub enum LuaCommand {
     ///
     /// **Context**: Scheduler detected a timer is due
     /// **We do**: Look up callback in `_G._timers[id]` and call it
-    TimerFired {
-        timer_id: u64,
-    },
+    TimerFired { timer_id: u64 },
 
     /// Raw ephemeral data from peer
     ///
     /// **Context**: Peer sent ephemeral data via datagram
     /// **We do**: Call Lua's `on_ephemeral(user_did, payload)` if defined
-    Ephemeral {
-        user_did: String,
-        payload: Vec<u8>,
-    },
+    Ephemeral { user_did: String, payload: Vec<u8> },
 
     /// Structured ephemeral message (typed RPC-style)
     ///
@@ -106,17 +85,13 @@ pub enum LuaCommand {
     ///
     /// **Context**: Remote peer subscribed to this page's Scribe
     /// **We do**: Call Lua's `on_peer_joined(user_did)` if defined
-    PeerJoined {
-        user_did: String,
-    },
+    PeerJoined { user_did: String },
 
     /// Peer left (unsubscribed from page)
     ///
     /// **Context**: Remote peer unsubscribed or disconnected
     /// **We do**: Call Lua's `on_peer_left(user_did)` if defined
-    PeerLeft {
-        user_did: String,
-    },
+    PeerLeft { user_did: String },
 
     /// Asset upload completed
     ///
@@ -171,20 +146,8 @@ pub enum UiEventType {
     /// Key pressed
     KeyPressed { key: String },
 
-    /// Key released
-    KeyReleased { key: String },
-
-    /// Focus gained
-    FocusGained { element: String },
-
-    /// Focus lost
-    FocusLost { element: String },
-
     /// Text input changed
     TextChanged { element: String, text: String },
-
-    /// Generic custom event
-    Custom { name: String, data: JsonValue },
 }
 
 // Validation Types

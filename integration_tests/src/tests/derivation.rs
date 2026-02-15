@@ -93,19 +93,13 @@ async fn start_node_runtime(
         tokio::spawn(async move {
             while let Some(update) = page_update_rx.recv().await {
                 match update {
-                    PageUpdate::LayerChanged { layer, ops, full_data, delta, created, .. } => {
-                        if created {
-                            let _ = bridge_cmd_tx.send(LuaCommand::LayerDiscovered {
-                                layer_name: layer,
-                            }).await;
-                        } else {
-                            let _ = bridge_cmd_tx.send(LuaCommand::LoroChanged {
-                                layer_name: layer,
-                                ops,
-                                delta,
-                                full_data,
-                            }).await;
-                        }
+                    PageUpdate::LayerChanged { layer, full_data, delta, created, .. } => {
+                        let _ = bridge_cmd_tx.send(LuaCommand::LayerChanged {
+                            layer_name: layer,
+                            created,
+                            delta,
+                            full_data,
+                        }).await;
                     }
                     _ => {}
                 }

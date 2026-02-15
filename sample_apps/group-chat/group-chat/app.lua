@@ -522,39 +522,17 @@ function on_layer_discovered(layer_name)
     if dms.on_layer_discovered(layer_name) then return end
 end
 
--- Layer change callback for non-bound layers.
--- Bound layers (messages) are handled by the binding system automatically.
-function on_loro_change(layer_name)
-    -- Presence layer changed — refresh online users sidebar
-    if layer_name:match("presence$") then
-        refresh_online_users()
-        return
-    end
-
-    -- Active DM messages changed
-    if view_mode == "dms" then
-        local dm_path = dms.get_active_layer_path()
-        if dm_path and layer_name:sub(-#dm_path) == dm_path then
-            return
-        end
-    end
-
-    -- Active channel messages changed (handles read tracking + thread refresh)
-    local active_path = channels.get_active_layer_path()
-    if active_path and layer_name:sub(-#active_path) == active_path then
-        refresh_messages()
-        if threads.is_open() then
-            threads.refresh_replies(channels.get_messages_layer())
-        end
-    end
-end
-
 -- Periodic typing cleanup + presence refresh
 timer.setInterval(1000, function()
     refresh_typing_indicator()
 end)
 timer.setInterval(5000, function()
     refresh_online_users()
+end)
+timer.setInterval(1000, function()
+    if threads.is_open() then
+        threads.refresh_replies(channels.get_messages_layer())
+    end
 end)
 
 -- API exports

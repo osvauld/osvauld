@@ -3,7 +3,7 @@
 //! Provides graph layout algorithms for canvas apps.
 //! Pure functions: takes nodes/edges, returns positions.
 
-use mlua::{UserData, UserDataMethods, Error as LuaError, Table};
+use mlua::{Error as LuaError, Table, UserData, UserDataMethods};
 use std::collections::HashMap;
 
 // Layout Bindings
@@ -12,8 +12,6 @@ use std::collections::HashMap;
 ///
 /// **Methods**:
 /// - `layout:flowchart(nodes, edges)` - Layered/hierarchical layout (Sugiyama-style)
-/// - `layout:force(nodes, edges, iterations)` - Force-directed layout
-/// - `layout:tree(nodes, edges, root_id)` - Tree layout from root
 /// - `layout:grid(nodes, columns)` - Simple grid layout
 ///
 /// All methods are pure functions: input nodes/edges → output positions
@@ -43,23 +41,14 @@ impl UserData for LayoutBindings {
             flowchart_layout(lua, nodes, edges)
         });
 
-        // layout:force(nodes, edges, iterations) -> positions
-        // Simple force-directed layout
-        methods.add_method("force", |lua, _, (nodes, edges, iterations): (Table, Table, Option<usize>)| {
-            force_layout(lua, nodes, edges, iterations.unwrap_or(100))
-        });
-
-        // layout:tree(nodes, edges, root_id) -> positions
-        // Tree layout starting from root
-        methods.add_method("tree", |lua, _, (nodes, edges, root_id): (Table, Table, String)| {
-            tree_layout(lua, nodes, edges, &root_id)
-        });
-
         // layout:grid(nodes, columns) -> positions
         // Simple grid layout
-        methods.add_method("grid", |lua, _, (nodes, columns): (Table, Option<usize>)| {
-            grid_layout(lua, nodes, columns.unwrap_or(3))
-        });
+        methods.add_method(
+            "grid",
+            |lua, _, (nodes, columns): (Table, Option<usize>)| {
+                grid_layout(lua, nodes, columns.unwrap_or(3))
+            },
+        );
     }
 }
 
@@ -215,216 +204,10 @@ fn flowchart_layout(
     build_positions_table(lua, &positions)
 }
 
-/// Force-directed layout
-///
-/// Simple spring-based layout algorithm
-fn force_layout(
-    lua: &mlua::Lua,
-    nodes_table: Table,
-    edges_table: Table,
-    iterations: usize,
-) -> Result<Table, LuaError> {
-    let nodes = parse_nodes(&nodes_table)?;
-    let edges = parse_edges(&edges_table)?;
-
-    if nodes.is_empty() {
-        return build_positions_table(lua, &HashMap::new());
-    }
-
-    // Initialize positions in a circle
-    let mut positions: HashMap<String, (f64, f64)> = HashMap::new();
-    let mut i = 0;
-    for id in nodes.keys() {
-        let angle = i as f64 * 2.0 * std::f64::consts::PI / nodes.len() as f64;
-        let radius = 200.0;
-        positions.insert(id.clone(), (radius * angle.cos(), radius * angle.sin()));
-        i += 1;
-    }
-
-    // Force-directed iterations
-    let repulsion = 5000.0;
-    let attraction = 0.01;
-    let damping = 0.85;
-
-    for _ in 0..iterations {
-        let mut forces: HashMap<String, (f64, f64)> = HashMap::new();
-
-        for id in nodes.keys() {
-            forces.insert(id.clone(), (0.0, 0.0));
-        }
-
-        // Repulsion between all nodes
-        let ids: Vec<_> = nodes.keys().cloned().collect();
-        for i in 0..ids.len() {
-            for j in (i + 1)..ids.len() {
-                let id1 = &ids[i];
-                let id2 = &ids[j];
-
-                let (x1, y1) = positions[id1];
-                let (x2, y2) = positions[id2];
-
-                let dx = x2 - x1;
-                let dy = y2 - y1;
-                let dist = (dx * dx + dy * dy).sqrt().max(1.0);
-
-                let force = repulsion / (dist * dist);
-                let fx = force * dx / dist;
-                let fy = force * dy / dist;
-
-                let f1 = forces.get_mut(id1).unwrap();
-                f1.0 -= fx;
-                f1.1 -= fy;
-
-                let f2 = forces.get_mut(id2).unwrap();
-                f2.0 += fx;
-                f2.1 += fy;
-            }
-        }
-
-        // Attraction along edges
-        for (from, to) in &edges {
-            if let (Some(&(x1, y1)), Some(&(x2, y2))) = (positions.get(from), positions.get(to)) {
-                let dx = x2 - x1;
-                let dy = y2 - y1;
-                let dist = (dx * dx + dy * dy).sqrt().max(1.0);
-
-                let force = attraction * dist;
-                let fx = force * dx / dist;
-                let fy = force * dy / dist;
-
-                if let Some(f) = forces.get_mut(from) {
-                    f.0 += fx;
-                    f.1 += fy;
-                }
-                if let Some(f) = forces.get_mut(to) {
-                    f.0 -= fx;
-                    f.1 -= fy;
-                }
-            }
-        }
-
-        // Apply forces with damping
-        for (id, (fx, fy)) in &forces {
-            if let Some((x, y)) = positions.get_mut(id) {
-                *x += fx * damping;
-                *y += fy * damping;
-            }
-        }
-    }
-
-    build_positions_table(lua, &positions)
-}
-
-/// Tree layout from a root node
-///
-/// Places children below parent with even spacing
-fn tree_layout(
-    lua: &mlua::Lua,
-    nodes_table: Table,
-    edges_table: Table,
-    root_id: &str,
-) -> Result<Table, LuaError> {
-    let nodes = parse_nodes(&nodes_table)?;
-    let edges = parse_edges(&edges_table)?;
-
-    if nodes.is_empty() || !nodes.contains_key(root_id) {
-        return build_positions_table(lua, &HashMap::new());
-    }
-
-    // Build adjacency list (parent -> children)
-    let mut children: HashMap<String, Vec<String>> = HashMap::new();
-    for id in nodes.keys() {
-        children.insert(id.clone(), Vec::new());
-    }
-
-    for (from, to) in &edges {
-        if nodes.contains_key(from) && nodes.contains_key(to) {
-            children.get_mut(from).unwrap().push(to.clone());
-        }
-    }
-
-    let mut positions: HashMap<String, (f64, f64)> = HashMap::new();
-    let mut widths: HashMap<String, f64> = HashMap::new();
-
-    // Calculate subtree widths
-    fn calc_width(
-        id: &str,
-        children: &HashMap<String, Vec<String>>,
-        nodes: &HashMap<String, (f64, f64)>,
-        widths: &mut HashMap<String, f64>,
-    ) -> f64 {
-        let node_width = nodes.get(id).map(|(w, _)| *w).unwrap_or(100.0);
-        let child_list = children.get(id).cloned().unwrap_or_default();
-
-        if child_list.is_empty() {
-            widths.insert(id.to_string(), node_width);
-            return node_width;
-        }
-
-        let total: f64 = child_list
-            .iter()
-            .map(|c| calc_width(c, children, nodes, widths))
-            .sum::<f64>() + 50.0 * (child_list.len() as f64 - 1.0);
-
-        let width = total.max(node_width);
-        widths.insert(id.to_string(), width);
-        width
-    }
-
-    calc_width(root_id, &children, &nodes, &mut widths);
-
-    // Position nodes
-    fn position_node(
-        id: &str,
-        x: f64,
-        y: f64,
-        children: &HashMap<String, Vec<String>>,
-        nodes: &HashMap<String, (f64, f64)>,
-        widths: &HashMap<String, f64>,
-        positions: &mut HashMap<String, (f64, f64)>,
-    ) {
-        let (node_width, node_height) = nodes.get(id).copied().unwrap_or((100.0, 50.0));
-        positions.insert(id.to_string(), (x - node_width / 2.0, y));
-
-        let child_list = children.get(id).cloned().unwrap_or_default();
-        if child_list.is_empty() {
-            return;
-        }
-
-        let total_width: f64 = child_list.iter().map(|c| widths.get(c).copied().unwrap_or(100.0)).sum::<f64>()
-            + 50.0 * (child_list.len() as f64 - 1.0);
-
-        let mut child_x = x - total_width / 2.0;
-        let child_y = y + node_height + 80.0;
-
-        for child in child_list {
-            let child_width = widths.get(&child).copied().unwrap_or(100.0);
-            position_node(
-                &child,
-                child_x + child_width / 2.0,
-                child_y,
-                children,
-                nodes,
-                widths,
-                positions,
-            );
-            child_x += child_width + 50.0;
-        }
-    }
-
-    position_node(root_id, 0.0, 0.0, &children, &nodes, &widths, &mut positions);
-
-    build_positions_table(lua, &positions)
-}
-
 /// Simple grid layout
 ///
 /// Arranges nodes in a grid with specified columns
-fn grid_layout(
-    lua: &mlua::Lua,
-    nodes_table: Table,
-    columns: usize,
-) -> Result<Table, LuaError> {
+fn grid_layout(lua: &mlua::Lua, nodes_table: Table, columns: usize) -> Result<Table, LuaError> {
     let nodes = parse_nodes(&nodes_table)?;
 
     if nodes.is_empty() {
