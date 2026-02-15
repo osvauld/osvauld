@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.2",
+  "checkpoint_id": "b496a0e09a5e",
+  "session_id": "21851bd5-d25d-4a6d-9731-6cf5fec6507d",
+  "strategy": "manual-commit",
+  "created_at": "2026-02-15T13:00:09.463204922Z",
+  "branch": "feature/coordinator-refactor",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "sample_apps/group-chat/group-chat/app.lua",
+    "sample_apps/group-chat/permit_template.json"
+  ],
+  "agent": "Claude Code",
+  "transcript_identifier_at_start": "e7cbc281-3a22-4283-989f-62747f5388bb",
+  "token_usage": {
+    "input_tokens": 95,
+    "cache_creation_tokens": 202754,
+    "cache_read_tokens": 8936590,
+    "output_tokens": 16857,
+    "api_call_count": 79
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-02-15T13:00:09.295612555Z",
+    "agent_lines": 1104,
+    "human_added": 9579,
+    "human_modified": 8,
+    "human_removed": 0,
+    "total_committed": 10691,
+    "agent_percentage": 10.326442802357123
+  }
+}
