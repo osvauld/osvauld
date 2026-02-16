@@ -1,8 +1,8 @@
 //! LayerCache - In-memory cache for Layer instances
 
 use crate::error::{ButlerError, Result};
-use crate::storage::RedbStore;
 use crate::models::Layer;
+use crate::storage::RedbStore;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -187,7 +187,9 @@ impl LayerCache {
         let _ = self.get(page_id, layer_name, decrypt_fn)?;
 
         if let Some(entry) = self.layers.get_mut(&key) {
-            entry.layer.apply(update)
+            entry
+                .layer
+                .apply(update)
                 .map_err(|e| ButlerError::loro_error(e.to_string()))?;
             entry.dirty = true;
             entry.touch();
@@ -225,12 +227,7 @@ impl LayerCache {
 
     /// Flush a single layer to redb
     #[instrument(skip_all)]
-    pub fn flush_layer<F>(
-        &mut self,
-        page_id: &str,
-        layer_name: &str,
-        encrypt_fn: F,
-    ) -> Result<bool>
+    pub fn flush_layer<F>(&mut self, page_id: &str, layer_name: &str, encrypt_fn: F) -> Result<bool>
     where
         F: FnOnce(&[u8]) -> Result<Vec<u8>>,
     {
@@ -257,7 +254,8 @@ impl LayerCache {
     fn evict_if_needed(&mut self) {
         while self.layers.len() >= self.max_size {
             // Find the oldest non-dirty entry
-            let oldest = self.layers
+            let oldest = self
+                .layers
                 .iter()
                 .filter(|(_, e)| !e.dirty) // Don't evict dirty layers
                 .min_by_key(|(_, e)| e.last_accessed)

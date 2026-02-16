@@ -1,0 +1,183 @@
+
+================================================================
+  PHASE A: Initial run with messages
+================================================================
+
+============================================================
+  chat_restart_5000
+============================================================
+  All instances ready
+
+  alice: signup, create space...
+  Space: 643a4c70..., Page: 065e80e4...
+  alice: connect to node...
+    Waiting for node authentication...
+    Node authenticated
+  alice: publish space to node...
+  Published and synced to node
+
+  Connecting viewers (parallel)...
+  bob synced in 2.9s
+  All viewers connected and synced
+
+  Opening apps (parallel)...
+  bob app 'Group Chat' synced in 0.0s
+    alice app ready
+    bob app ready
+  All apps opened and ready
+
+  Building peer handles...
+
+  Ready! Peers: ['alice', 'bob']
+============================================================
+
+
+Sending 5000 messages...
+  [1/5000] alice: "Behavior data much better theory explain..."
+  [2/5000] alice: "Too size leader five never."
+  [3/5000] alice: "Feeling."
+  [51/5000] alice: "Technology treat where her pretty yard p..."
+  [101/5000] alice: "Will gas right college worker."
+  [151/5000] alice: "Rate choice window picture trade."
+  [201/5000] alice: "Short really approach certain religious ..."
+  [251/5000] alice: "Others city show."
+  [301/5000] alice: "Remain vote other."
+  [351/5000] alice: "Say nature black turn have treatment ind..."
+  [401/5000] alice: "Method soldier source husband agent yes."
+  [451/5000] alice: "Shake prevent wide dog why."
+  [501/5000] alice: "Theory region east site build fish shoul..."
+  [551/5000] alice: "Population change chance glass campaign ..."
+  [601/5000] alice: "West same race public budget life everyo..."
+  [651/5000] alice: "Itself physical receive."
+  [701/5000] alice: "Democratic PM data environmental open fl..."
+  [751/5000] alice: "Across several attorney."
+  [801/5000] alice: "Environment sense green media street ind..."
+  [851/5000] alice: "Nice technology expect loss position."
+  [901/5000] alice: "Get easy long laugh near."
+  [951/5000] alice: "Early trouble program indeed TV PM shoul..."
+  [1001/5000] alice: "Skin cover director inside this write si..."
+  [1051/5000] alice: "Ahead pass various into ahead fill."
+  [1101/5000] alice: "Bar wonder international attack."
+  [1151/5000] alice: "While pressure worry defense very employ..."
+  [1201/5000] alice: "Also deal policy at like sport."
+  [1251/5000] alice: "Yeah black yard window rest."
+  [1301/5000] alice: "Never social."
+  [1351/5000] alice: "When task college effect either."
+  [1401/5000] alice: "Only strong suffer build computer."
+  [1451/5000] alice: "To strategy market."
+  [1501/5000] alice: "Western international ten hear yard."
+  [1551/5000] alice: "Central number front economy."
+  [1601/5000] alice: "Color on manage."
+  [1651/5000] alice: "Big paper large carry seat body."
+  [1701/5000] alice: "Movement town could moment commercial to..."
+  [1751/5000] alice: "Artist mean worker report itself card ea..."
+  [1801/5000] alice: "Even both thousand sell."
+  [1851/5000] alice: "Tv weight answer child without particula..."
+  [1901/5000] alice: "Might site brother believe."
+  [1951/5000] alice: "Nor cup continue show range build."
+  [2001/5000] alice: "Now example history society machine Repu..."
+  [2051/5000] alice: "Black lay least leave tonight already."
+  [2101/5000] alice: "Fight surface true hotel condition."
+  [2151/5000] alice: "Budget discussion early home."
+  [2201/5000] alice: "Southern name factor."
+  [2251/5000] alice: "Capital hot machine politics painting se..."
+  [2301/5000] alice: "Allow meet deal to along hair live soon ..."
+  [2351/5000] alice: "White company."
+  [2401/5000] alice: "Imagine off administration."
+  [2451/5000] alice: "East movement skin smile kind add enviro..."
+  [2501/5000] alice: "Huge decide deep few customer enough civ..."
+  [2551/5000] alice: "Share so different."
+  [2601/5000] alice: "Seven kid wear easy tree car bill high m..."
+  [2651/5000] alice: "Process ability stage edge sign area sol..."
+  [2701/5000] alice: "President point gas community that hold ..."
+  [2751/5000] alice: "What her just whatever simply service."
+  [2801/5000] alice: "Entire lose smile office practice."
+  [2851/5000] alice: "Particularly answer kind religious forwa..."
+  [2901/5000] alice: "Must world candidate then hit sense whil..."
+  [2951/5000] alice: "Plan type recognize answer education and..."
+  [3001/5000] alice: "Less recognize image reach case and."
+  [3051/5000] alice: "Lead parent about education security sor..."
+  [3101/5000] alice: "Total heavy bill among why beat way."
+  [3151/5000] alice: "Concern base guy beyond word close inclu..."
+  [3201/5000] alice: "Adult might into east board reason anyth..."
+  [3251/5000] alice: "Computer radio office sea strong head th..."
+  [3301/5000] alice: "Cut want first rich black."
+  [3351/5000] alice: "Number whether far compare someone of sm..."
+  [3401/5000] alice: "Through blue not."
+  [3451/5000] alice: "Issue good wind although conference coup..."
+  [3501/5000] alice: "Tough more huge what."
+  [3551/5000] alice: "Carry provide person."
+  [3601/5000] alice: "Visit exist pull business vote later."
+  [3651/5000] alice: "Ok take then."
+  [3701/5000] alice: "Reach in third they simply window but sk..."
+  [3751/5000] alice: "Find their event soon."
+  [3801/5000] alice: "Unit head garden case serve girl they th..."
+  [3851/5000] alice: "Six customer change religious."
+  [3901/5000] alice: "Ready many possible lead rest establish ..."
+  [3951/5000] alice: "Laugh medical movement product out focus..."
+  [4001/5000] alice: "When city air important me attorney son ..."
+  [4051/5000] alice: "Join manage apply southern cultural acce..."
+  [4101/5000] alice: "After nothing nearly though service per ..."
+  [4151/5000] alice: "Last able edge event behind try step."
+  [4201/5000] alice: "Though goal attention test finish follow..."
+  [4251/5000] alice: "Simple ask design mind be mother attenti..."
+  [4301/5000] alice: "Concern issue recognize quite serve we t..."
+  [4351/5000] alice: "Easy pressure top law important stand."
+  [4401/5000] alice: "Probably defense travel."
+  [4451/5000] alice: "Event believe fear should foreign studen..."
+  [4501/5000] alice: "Which each space end."
+  [4551/5000] alice: "Reduce building relationship paper tell ..."
+  [4601/5000] alice: "Best others throughout owner could."
+  [4651/5000] alice: "Cost order language career bill wall lat..."
+  [4701/5000] alice: "Support institution case under seem push..."
+  [4751/5000] alice: "Likely room require."
+  [4801/5000] alice: "She all step bag loss author campaign bu..."
+  [4851/5000] alice: "Value land discussion."
+  [4901/5000] alice: "Gas certain above open player bed amount..."
+  [4951/5000] alice: "Political pretty entire cultural wonder."
+  Sent 5000 messages
+
+  alice: 5000 messages
+  bob:   779 messages
+  [WARN] Sync mismatch (expected 5000)
+
+  Phase A end memory:
+    alice       :    436 MB
+    bob         :    362 MB
+    node        :    144 MB
+
+  Phase A complete. Processes stopped.
+  Data persisted in: /tmp/chat_restart_5000
+
+================================================================
+  PHASE B: Restart from persisted data
+================================================================
+
+============================================================
+  chat_restart_5000
+============================================================
+  All instances ready
+
+  alice: reusing existing space/page...
+  Space: 643a4c70..., Page: 065e80e4...
+  alice: connect to node...
+    Waiting for node authentication...
+Traceback (most recent call last):
+  File "/home/abe/osvauld/e2e_tests/test_chat_restart_memory.py", line 202, in <module>
+    with AppTestScenario(
+         ~~~~~~~~~~~~~~~^
+        name=f"chat_restart_{cli_args.messages}",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<11 lines>...
+        reuse_page_id=page_id,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    ) as s:
+    ^
+  File "/home/abe/osvauld/scripts/osvauld/scenario.py", line 802, in __enter__
+    self._setup()
+    ~~~~~~~~~~~^^
+  File "/home/abe/osvauld/scripts/osvauld/scenario.py", line 906, in _setup
+    raise RuntimeError(
+        f"{owner_name} failed to authenticate with node within 10s"
+    )
+RuntimeError: alice failed to authenticate with node within 10s

@@ -139,9 +139,9 @@ Defines an application for a role.
 | `node` | table | Node (headless) definition |
 | `for_role` | string/array | Role(s) that can use this app |
 
-**Client options**: `ui` (path to .slint), `logic` (path to .lua), `tick` (bool), `models` (array)
+**Client options**: `ui` (path to .slint), `logic` (path to .lua), `models` (array)
 
-**Node options**: `logic` (path to .lua), `tick` (bool)
+**Node options**: `logic` (path to .lua)
 
 ```lua
 -- Client-only app
@@ -153,7 +153,7 @@ app("Customer View", {
 -- App with node logic (for derivation)
 app("Shop Owner", {
     client = { ui = "owner/app.slint", logic = "owner/app.lua" },
-    node = { logic = "owner/node.lua", tick = true },
+    node = { logic = "owner/node.lua" },
     for_role = "owner"
 })
 
@@ -180,12 +180,17 @@ The name must match the target app's `"name"` in its `manifest.json` (or the nam
 
 ## App Lifecycle
 
-1. **Load**: manifest.json parsed, .slint compiled, .lua executed
-2. **`on_init()`**: App startup -- set up `scribe:bind()` declarations, initialize state
-3. **`scribe:bind()` auto-sync**: Layer changes automatically sync to UI properties
-4. **`tick()`**: Called ~60fps if `tick_enabled: true` in manifest (Slint) or always (Raylib)
-5. **`on_ephemeral(user_did, func, args)`**: Real-time structured messages from peers
-6. **`on_key_pressed(key)`**: Keyboard input (requires FocusScope in Slint)
+1. **Load**: manifest.json parsed (as `domains::AppManifest`), routed to renderer by `renderer` field
+2. **Renderer-specific preparation**:
+   - **Slint**: Compile .slint UI file, set up VecModels
+   - **Raylib**: Initialize window with `width`, `height`, `target_fps`
+   - **Kunki (node runtime)**: Execute `entry_node` script (no UI)
+3. **Execute app.lua** in Lua VM
+4. **`on_init()`**: App startup -- set up `scribe:bind()` declarations, initialize state
+5. **`scribe:bind()` auto-sync**: Layer changes automatically sync to UI properties
+6. **Runtime loop**: Slint apps use timers for periodic work; Raylib apps use `update(dt)` + `draw()`
+7. **`on_ephemeral(user_did, func, args)`**: Real-time structured messages from peers
+8. **`on_key_pressed(key)`**: Keyboard input (requires FocusScope in Slint)
 
 ### Optional Callbacks (for advanced scenarios)
 
@@ -203,15 +208,16 @@ The name must match the target app's `"name"` in its `manifest.json` (or the nam
 | `on_key_pressed(key)` | Keyboard input | key_string |
 | `on_peer_joined(did)` | Peer connected | user_did |
 | `on_peer_left(did)` | Peer disconnected | user_did |
-| `tick()` | Game loop (~60fps) | None |
+| `update(dt)` *(Raylib)* | Per-frame game update | delta_time_seconds |
+| `draw()` *(Raylib)* | Per-frame render callback | None |
 | `on_layer_discovered(name)` | New layer found (optional) | layer_name |
 
 ## Sample Apps
 
 | App | Directory | Key Patterns |
 |-----|-----------|-------------|
-| **Snake Game** | `sample_apps/osvauld-demos/snake-game/` | `tick_enabled`, keyboard input, game loop, scores list |
-| **Math Simulation** | `sample_apps/osvauld-demos/math-sim/` | `tick_enabled`, particle arrays, lazy VecModel creation |
+| **Snake Game** | `sample_apps/osvauld-demos/snake-game/` | keyboard input, game loop patterns, scores list |
+| **Math Simulation** | `sample_apps/osvauld-demos/math-sim/` | particle arrays, lazy VecModel creation |
 | **Group Chat** | `sample_apps/osvauld-demos/group-chat/` | Real-time sync, ephemeral events, text input |
 | **Guide** | `sample_apps/osvauld-demos/guide/` | Tab navigation, static content |
 | **Tank Game** | `sample_apps/osvauld-demos/tank-game/` | Multiplayer, datagrams, node game loop, obstacles |

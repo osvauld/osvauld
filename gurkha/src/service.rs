@@ -190,9 +190,7 @@ pub async fn delegate_page(
     let page_id = parsed_permit
         .get_fact("page_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ServiceError::InvalidPermit("Missing page_id in token facts".to_string())
-        })?
+        .ok_or_else(|| ServiceError::InvalidPermit("Missing page_id in token facts".to_string()))?
         .to_string();
 
     // Validate token has share_page permission (from facts.operations)
@@ -211,12 +209,8 @@ pub async fn delegate_page(
     }
 
     // Create delegation decision
-    let delegation_decision = decision::decide_delegation(
-        &template,
-        &page_id,
-        "page",
-        audience_pubkey,
-    )?;
+    let delegation_decision =
+        decision::decide_delegation(&template, &page_id, "page", audience_pubkey)?;
 
     // Use builder to create token
     let builder = crate::builder::GurkhaPermitBuilder::from_bytes(signing_key_bytes);
@@ -275,11 +269,8 @@ pub async fn issue_space_node_to_owner(
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
 
-    let decision = decision::decide_space_node_to_owner_token(
-        &verifying_key,
-        space_id,
-        owner_pubkey,
-    )?;
+    let decision =
+        decision::decide_space_node_to_owner_token(&verifying_key, space_id, owner_pubkey)?;
 
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
 
@@ -321,9 +312,7 @@ pub async fn delegate_space(
     let space_id = parsed_permit
         .get_fact("space_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ServiceError::InvalidPermit("Missing space_id in token facts".to_string())
-        })?
+        .ok_or_else(|| ServiceError::InvalidPermit("Missing space_id in token facts".to_string()))?
         .to_string();
 
     // Validate token has add_pages permission (from facts.operations)
@@ -342,12 +331,8 @@ pub async fn delegate_space(
     }
 
     // Create delegation decision
-    let delegation_decision = decision::decide_delegation(
-        &template,
-        &space_id,
-        "space",
-        audience_pubkey,
-    )?;
+    let delegation_decision =
+        decision::decide_delegation(&template, &space_id, "space", audience_pubkey)?;
 
     // Use builder to create token
     let builder = crate::builder::GurkhaPermitBuilder::from_bytes(signing_key_bytes);
@@ -369,11 +354,10 @@ pub fn extract_space_id(permit_token: &str) -> ServiceResult<String> {
     trace!("Extracting space ID from token");
     let permit = Permit::from_token(permit_token)?;
 
-    let space_id = permit.get_fact("space_id")
+    let space_id = permit
+        .get_fact("space_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            ServiceError::InvalidPermit("Cannot extract space_id".to_string())
-        })?;
+        .ok_or_else(|| ServiceError::InvalidPermit("Cannot extract space_id".to_string()))?;
 
     trace!("Space ID extracted: {}", space_id);
     Ok(space_id.to_string())
@@ -454,7 +438,11 @@ pub async fn reissue_permit_with_layers(
 
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
 
-    info!("Permit re-issued with {} new layers: cid={}", new_layers.len(), cid);
+    info!(
+        "Permit re-issued with {} new layers: cid={}",
+        new_layers.len(),
+        cid
+    );
     Ok((token, cid))
 }
 
@@ -511,12 +499,8 @@ pub async fn issue_layer_authority_permit(
     facts.insert("layers".to_string(), serde_json::Value::Object(layers));
 
     if let Some(peers) = authorized_peers {
-        let authorized_value = serde_json::Value::Array(
-            peers
-                .into_iter()
-                .map(serde_json::Value::String)
-                .collect(),
-        );
+        let authorized_value =
+            serde_json::Value::Array(peers.into_iter().map(serde_json::Value::String).collect());
         let normalized = crate::parser::parse_authorized_peers_fact(Some(&authorized_value))?
             .unwrap_or_default();
         let normalized_value = serde_json::Value::Array(
@@ -543,7 +527,10 @@ pub async fn issue_layer_authority_permit(
     };
 
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
-    info!("Layer authority permit issued: layer={}, cid={}", layer_name, cid);
+    info!(
+        "Layer authority permit issued: layer={}, cid={}",
+        layer_name, cid
+    );
     Ok((token, cid))
 }
 
@@ -623,7 +610,10 @@ pub async fn issue_layer_permit(
     let mut facts = serde_json::Map::new();
     facts.insert("token_type".to_string(), serde_json::json!("layer_permit"));
     facts.insert("page_id".to_string(), serde_json::json!(page_id));
-    facts.insert("relationship".to_string(), serde_json::json!("layer_permit"));
+    facts.insert(
+        "relationship".to_string(),
+        serde_json::json!("layer_permit"),
+    );
 
     // Single layer entry
     let mut layer_obj = serde_json::Map::new();

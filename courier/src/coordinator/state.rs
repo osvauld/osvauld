@@ -111,11 +111,14 @@ impl<C: Connection> CoordinatorState<C> {
 
     /// Add a new peer (on connection, before authentication)
     pub fn add_peer(&mut self, node_id: NodeId, actor: ActorRef<PeerMessage>, conn: C) {
-        self.peers.insert(node_id, PeerEntry {
-            actor,
-            conn,
-            auth: None,
-        });
+        self.peers.insert(
+            node_id,
+            PeerEntry {
+                actor,
+                conn,
+                auth: None,
+            },
+        );
     }
 
     /// Mark peer as authenticated
@@ -185,7 +188,8 @@ impl<C: Connection> CoordinatorState<C> {
 
     /// Iterate over authenticated peers
     pub fn authenticated_peers(&self) -> impl Iterator<Item = (NodeId, &PeerEntry<C>)> {
-        self.peers.iter()
+        self.peers
+            .iter()
             .filter(|(_, e)| e.auth.is_some())
             .map(|(id, e)| (*id, e))
     }
@@ -233,10 +237,10 @@ impl<C: Connection> CoordinatorState<C> {
     ///
     /// **Context**: In Node mode, Scribe needs to connect to all PeerActors for peers with shares
     /// **Returns**: Iterator over (DID, PeerActor ref) for authenticated peers
-    pub fn get_all_authenticated_peer_actors(&self) -> impl Iterator<Item = (&str, &ActorRef<PeerMessage>)> {
+    pub fn get_all_authenticated_peer_actors(
+        &self,
+    ) -> impl Iterator<Item = (&str, &ActorRef<PeerMessage>)> {
         self.authenticated_peers()
-            .filter_map(|(_, entry)| {
-                entry.auth.as_ref().map(|a| (a.did.as_str(), &entry.actor))
-            })
+            .filter_map(|(_, entry)| entry.auth.as_ref().map(|a| (a.did.as_str(), &entry.actor)))
     }
 }

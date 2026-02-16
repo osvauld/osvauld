@@ -63,10 +63,13 @@ impl ValidationHandle {
             reply: reply_tx,
         };
 
-        self.tx.send(request).await
+        self.tx
+            .send(request)
+            .await
             .map_err(|_| "ValidationService not running".to_string())?;
 
-        reply_rx.await
+        reply_rx
+            .await
             .map_err(|_| "ValidationService dropped request".to_string())?
     }
 

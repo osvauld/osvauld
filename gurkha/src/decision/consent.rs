@@ -6,7 +6,7 @@
 
 use super::types::{DecisionResult, TokenDecision};
 use crate::errors::GurkhaError;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::VerifyingKey;
 use serde_json::{json, Value};
 use tracing::trace;
@@ -37,8 +37,9 @@ pub fn decide_sync_space_consent(
     let mut decision = TokenDecision::new(node_pubkey); // Specific node as audience
 
     // Parse consent template
-    let template_data: Value = serde_json::from_str(template_json)
-        .map_err(|e| GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e)))?;
+    let template_data: Value = serde_json::from_str(template_json).map_err(|e| {
+        GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e))
+    })?;
 
     let consent_template = template_data
         .get("consent_template")
@@ -63,9 +64,15 @@ pub fn decide_sync_space_consent(
     // Calculate CID of the proof token and add to proof chain
     let proof_cid = crate::crypto::get_permit_cid(node_viewer_permit)?;
     decision.proofs.push(proof_cid.clone());
-    decision.proof_tokens.insert(proof_cid, node_viewer_permit.to_string());
+    decision
+        .proof_tokens
+        .insert(proof_cid, node_viewer_permit.to_string());
 
-    trace!("Space sync consent decision created for space {} -> node {}", space_id, node_pubkey);
+    trace!(
+        "Space sync consent decision created for space {} -> node {}",
+        space_id,
+        node_pubkey
+    );
     Ok(decision)
 }
 
@@ -96,8 +103,9 @@ pub fn decide_sync_page_consent(
     let mut decision = TokenDecision::new(node_pubkey); // Specific node as audience
 
     // Parse consent template
-    let template_data: Value = serde_json::from_str(template_json)
-        .map_err(|e| GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e)))?;
+    let template_data: Value = serde_json::from_str(template_json).map_err(|e| {
+        GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e))
+    })?;
 
     let consent_template = template_data
         .get("consent_template")
@@ -132,9 +140,15 @@ pub fn decide_sync_page_consent(
     // Calculate CID of the proof token and add to proof chain
     let proof_cid = crate::crypto::get_permit_cid(node_viewer_permit)?;
     decision.proofs.push(proof_cid.clone());
-    decision.proof_tokens.insert(proof_cid, node_viewer_permit.to_string());
+    decision
+        .proof_tokens
+        .insert(proof_cid, node_viewer_permit.to_string());
 
-    trace!("Page sync consent decision created for page {} -> node {}", page_id, node_pubkey);
+    trace!(
+        "Page sync consent decision created for page {} -> node {}",
+        page_id,
+        node_pubkey
+    );
     Ok(decision)
 }
 
@@ -165,8 +179,9 @@ pub fn decide_sync_layer_consent(
     let mut decision = TokenDecision::new(node_pubkey);
 
     // Parse consent template (reuse page consent template structure)
-    let template_data: Value = serde_json::from_str(template_json)
-        .map_err(|e| GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e)))?;
+    let template_data: Value = serde_json::from_str(template_json).map_err(|e| {
+        GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e))
+    })?;
 
     let consent_template = template_data
         .get("consent_template")
@@ -192,8 +207,15 @@ pub fn decide_sync_layer_consent(
     // Calculate CID of the page permit and add to proof chain
     let proof_cid = crate::crypto::get_permit_cid(page_permit_token)?;
     decision.proofs.push(proof_cid.clone());
-    decision.proof_tokens.insert(proof_cid, page_permit_token.to_string());
+    decision
+        .proof_tokens
+        .insert(proof_cid, page_permit_token.to_string());
 
-    trace!("Layer sync consent decision created for page {} layer {} -> node {}", page_id, layer_name, node_pubkey);
+    trace!(
+        "Layer sync consent decision created for page {} layer {} -> node {}",
+        page_id,
+        layer_name,
+        node_pubkey
+    );
     Ok(decision)
 }

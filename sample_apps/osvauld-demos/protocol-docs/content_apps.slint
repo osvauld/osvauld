@@ -317,13 +317,13 @@ export component ContentApps inherits VerticalLayout {
 
         InfoCard {
             title: "Raylib Renderer";
-            content: "Immediate-mode graphics. Best for: games, simulations, visualizations. Features: draw primitives (rect, circle, line, text), keyboard polling, tick() at ~60fps.";
+            content: "Immediate-mode graphics. Best for: games, simulations, visualizations. Features: draw primitives (rect, circle, line, text), keyboard polling, update(dt)/draw() loop.";
             accent-color: Theme.accent-green;
         }
 
         CodeBlock {
             label: "Raylib manifest.json";
-            code: "{\n  \"name\": \"Tank Game\",\n  \"renderer\": \"raylib\",\n  \"entry_logic\": \"app.lua\",\n  \"tick_enabled\": true\n}";
+            code: "{\n  \"name\": \"Tank Game\",\n  \"renderer\": \"raylib\",\n  \"entry_logic\": \"app.lua\"\n}";
         }
 
         SectionCard {

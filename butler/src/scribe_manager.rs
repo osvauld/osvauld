@@ -13,8 +13,8 @@ use std::time::Instant;
 use ractor::ActorRef;
 use tokio::sync::RwLock;
 
+use crate::{ButlerError, Result, Scribe, ScribeArgs, ScribeMessage};
 use tracing::instrument;
-use crate::{ButlerError, Result, ScribeMessage, ScribeArgs, Scribe};
 
 /// Default maximum number of open pages
 pub(crate) const DEFAULT_MAX_OPEN_PAGES: usize = 50;
@@ -105,7 +105,10 @@ impl ScribeManager {
     ) -> Result<ActorRef<ScribeMessage>> {
         // Check for stale actor in registry (happens when evicted actor hasn't fully shut down)
         if let Some(old_actor) = ractor::registry::where_is(actor_name.clone()) {
-            log::info!("Found stale Scribe actor in registry: {} - stopping it", actor_name);
+            log::info!(
+                "Found stale Scribe actor in registry: {} - stopping it",
+                actor_name
+            );
             old_actor.stop(Some("replaced by new open_page call".to_string()));
 
             // Wait for the old actor to fully unregister (up to 500ms)
@@ -121,21 +124,20 @@ impl ScribeManager {
         self.maybe_evict_lru().await;
 
         // Spawn the Scribe actor
-        let (actor, _handle) = ractor::Actor::spawn(
-            Some(actor_name),
-            Scribe::new(),
-            args,
-        )
-        .await
-        .map_err(|e| ButlerError::Database(format!("Failed to spawn Scribe: {:?}", e)))?;
+        let (actor, _handle) = ractor::Actor::spawn(Some(actor_name), Scribe::new(), args)
+            .await
+            .map_err(|e| ButlerError::Database(format!("Failed to spawn Scribe: {:?}", e)))?;
 
         // Register in cache
         {
             let mut scribes = self.scribes.write().await;
-            scribes.insert(page_id.to_string(), ScribeEntry {
-                actor: actor.clone(),
-                last_accessed: Instant::now(),
-            });
+            scribes.insert(
+                page_id.to_string(),
+                ScribeEntry {
+                    actor: actor.clone(),
+                    last_accessed: Instant::now(),
+                },
+            );
         }
 
         Ok(actor)

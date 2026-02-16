@@ -9,6 +9,7 @@ raylib = "5.0"
 lua_runtime = { path = "../lua_runtime" }
 butler = { path = "../butler" }
 scribe = { path = "../scribe" }
+domains = { path = "../domains" }
 tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

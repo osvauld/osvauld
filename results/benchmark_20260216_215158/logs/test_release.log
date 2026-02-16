@@ -1,0 +1,225 @@
+
+============================================================
+  chat_perf
+============================================================
+  All instances ready
+
+  alice: signup, create space...
+  Space: e84c8a03..., Page: fffb9c36...
+  alice: connect to node...
+    Waiting for node authentication...
+    Node authenticated
+  alice: publish space to node...
+  Published and synced to node
+
+  Connecting viewers (parallel)...
+  carol synced in 0.7s
+  bob synced in 0.8s
+  All viewers connected and synced
+
+  Opening apps (parallel)...
+  carol app 'Group Chat' synced in 0.0s
+  bob app 'Group Chat' synced in 0.1s
+    carol app ready
+    alice app ready
+    bob app ready
+  All apps opened and ready
+
+  Building peer handles...
+
+  Ready! Peers: ['alice', 'bob', 'carol']
+============================================================
+
+
+[Phase 1] Send-path benchmark: alice sends 5000 messages (no delay)...
+  [1/5000 | 0%] elapsed=0.0s rate=1300.2 msg/s eval_p50(last100)=0.8ms
+  [2/5000 | 0%] elapsed=0.0s rate=1080.6 msg/s eval_p50(last100)=0.9ms
+  [3/5000 | 0%] elapsed=0.0s rate=1000.1 msg/s eval_p50(last100)=1.0ms
+  [250/5000 | 5%] elapsed=0.4s rate=639.5 msg/s eval_p50(last100)=1.2ms
+  [500/5000 | 10%] elapsed=0.9s rate=581.8 msg/s eval_p50(last100)=1.1ms
+  [750/5000 | 15%] elapsed=1.3s rate=586.4 msg/s eval_p50(last100)=1.1ms
+  [1000/5000 | 20%] elapsed=1.8s rate=563.1 msg/s eval_p50(last100)=1.2ms
+  [1250/5000 | 25%] elapsed=2.2s rate=567.0 msg/s eval_p50(last100)=1.1ms
+  [1500/5000 | 30%] elapsed=2.7s rate=559.5 msg/s eval_p50(last100)=1.1ms
+  [1750/5000 | 35%] elapsed=3.1s rate=561.9 msg/s eval_p50(last100)=1.1ms
+  [2000/5000 | 40%] elapsed=3.6s rate=556.6 msg/s eval_p50(last100)=1.1ms
+  [2250/5000 | 45%] elapsed=4.1s rate=554.8 msg/s eval_p50(last100)=1.1ms
+  [2500/5000 | 50%] elapsed=4.6s rate=544.5 msg/s eval_p50(last100)=1.2ms
+  [2750/5000 | 55%] elapsed=5.0s rate=544.8 msg/s eval_p50(last100)=1.2ms
+  [3000/5000 | 60%] elapsed=5.5s rate=546.5 msg/s eval_p50(last100)=1.1ms
+  [3250/5000 | 65%] elapsed=5.9s rate=551.9 msg/s eval_p50(last100)=1.1ms
+  [3500/5000 | 70%] elapsed=6.3s rate=553.4 msg/s eval_p50(last100)=1.1ms
+  [3750/5000 | 75%] elapsed=6.7s rate=556.1 msg/s eval_p50(last100)=1.1ms
+  [4000/5000 | 80%] elapsed=7.2s rate=556.7 msg/s eval_p50(last100)=1.1ms
+  [4250/5000 | 85%] elapsed=7.6s rate=557.0 msg/s eval_p50(last100)=1.1ms
+  [4500/5000 | 90%] elapsed=8.1s rate=558.7 msg/s eval_p50(last100)=1.1ms
+  [4750/5000 | 95%] elapsed=8.5s rate=558.8 msg/s eval_p50(last100)=1.1ms
+  [5000/5000 | 100%] elapsed=8.9s rate=560.7 msg/s eval_p50(last100)=1.1ms
+  Sent 5000 messages in 9.01s (555.1 msg/s)
+  Send eval latency: p50=1.1ms p95=3.5ms
+
+[Phase 2] Distributed send: 5000 messages with 0.0s delay...
+  [1/5000 | 0%] bob: "Indicate single radio."
+  [2/5000 | 0%] alice: "First material chance."
+  [3/5000 | 0%] alice: "Next event product artist account help n..."
+  [4/5000 | 0%] alice: "Stand bed message such."
+  [5/5000 | 0%] bob: "Number benefit seem probably when throug..."
+  [100/5000 | 2%] alice: "Responsibility present tough thus couple..."
+  [200/5000 | 4%] bob: "Congress live wall later clear certain."
+  [250/5000 | 5%] alice: "Message sing sure open page anything."
+  [300/5000 | 6%] carol: "Court whole member already at."
+  [400/5000 | 8%] alice: "Ask seek himself break drop civil or nex..."
+  [500/5000 | 10%] bob: "Travel organization thing hear mother."
+  [600/5000 | 12%] alice: "Finish cost network forget son mission p..."
+  [700/5000 | 14%] alice: "Rule sure fight production protect your ..."
+  [750/5000 | 15%] alice: "Yes special medical prove measure bit po..."
+  [800/5000 | 16%] carol: "Necessary social there budget Mr forward..."
+  [900/5000 | 18%] bob: "Price network eight sometimes garden tho..."
+  [1000/5000 | 20%] alice: "Drive simple general space TV."
+  [1100/5000 | 22%] carol: "Interview sell take marriage piece behav..."
+  [1200/5000 | 24%] carol: "Strategy morning."
+  [1250/5000 | 25%] bob: "See participant address eye throw yet di..."
+  [1300/5000 | 26%] bob: "Be third various."
+  [1400/5000 | 28%] alice: "Quite capital."
+  [1500/5000 | 30%] alice: "Size up hot box southern accept establis..."
+  [1600/5000 | 32%] carol: "Bad entire then."
+  [1700/5000 | 34%] bob: "Kid able huge green staff audience face ..."
+  [1750/5000 | 35%] carol: "Take beat significant child choice can a..."
+  [1800/5000 | 36%] alice: "Its cut relationship result."
+  [1900/5000 | 38%] alice: "Off society possible story couple resear..."
+  [2000/5000 | 40%] carol: "Smile include top what catch agent soldi..."
+  [2100/5000 | 42%] alice: "Throughout leg trouble responsibility di..."
+  [2200/5000 | 44%] carol: "Phone find in chance type dream drive pa..."
+  [2250/5000 | 45%] alice: "Yeah road guy assume."
+  [2300/5000 | 46%] alice: "Current executive safe or throughout soo..."
+  [2400/5000 | 48%] carol: "Sort safe represent area environmental w..."
+  [2500/5000 | 50%] alice: "Stuff believe message government improve..."
+  [2600/5000 | 52%] alice: "Marriage beyond huge second call grow ho..."
+  [2700/5000 | 54%] carol: "Investment learn begin."
+  [2750/5000 | 55%] alice: "See recognize trial phone discover owner..."
+  [2800/5000 | 56%] bob: "Agency attorney poor kid."
+  [2900/5000 | 58%] bob: "Way thank put marriage analysis training..."
+  [3000/5000 | 60%] carol: "Find game."
+  [3100/5000 | 62%] bob: "Several get develop."
+  [3200/5000 | 64%] bob: "Laugh least hand shoulder PM itself thus..."
+  [3250/5000 | 65%] alice: "Some character technology during same ch..."
+  [3300/5000 | 66%] bob: "Information international anything case ..."
+  [3400/5000 | 68%] bob: "Poor in art those name a Mrs blood also ..."
+  [3500/5000 | 70%] carol: "Usually much receive item commercial res..."
+  [3600/5000 | 72%] carol: "Explain candidate subject occur inside t..."
+  [3700/5000 | 74%] bob: "Bar produce door professor less single a..."
+  [3750/5000 | 75%] bob: "Take line white amount while individual."
+  [3800/5000 | 76%] bob: "Another four until prepare business arri..."
+  [3900/5000 | 78%] bob: "But space space create above business su..."
+  [4000/5000 | 80%] bob: "Physical board defense actually ago meth..."
+  [4100/5000 | 82%] alice: "Throughout PM public blood thought."
+  [4200/5000 | 84%] bob: "Side day argue care response oil."
+  [4250/5000 | 85%] alice: "With prevent push avoid grow federal min..."
+  [4300/5000 | 86%] bob: "Eight reveal million bit opportunity gen..."
+  [4400/5000 | 88%] carol: "Other enter like."
+  [4500/5000 | 90%] bob: "Successful state consider."
+  [4600/5000 | 92%] alice: "See send push."
+  [4700/5000 | 94%] bob: "Voice why life involve religious nor."
+  [4750/5000 | 95%] bob: "Cold letter exactly mother popular decad..."
+  [4800/5000 | 96%] bob: "Nice student sign can."
+  [4900/5000 | 98%] carol: "Reflect country present job eat developm..."
+  [5000/5000 | 100%] carol: "Meet follow age prepare."
+  Sent 5000 messages
+
+Waiting for sync convergence (expected 10000, timeout 120.0s)...
+  Waiting sync... 0s  min=4952 max=7194 target=10000
+  Waiting sync... 2s  min=5634 max=8537 target=10000
+  Waiting sync... 4s  min=8071 max=8707 target=10000
+  Waiting sync... 6s  min=8267 max=8707 target=10000
+  Waiting sync... 8s  min=8267 max=8707 target=10000
+  Waiting sync... 10s  min=8267 max=8707 target=10000
+  Waiting sync... 12s  min=8267 max=8707 target=10000
+  Waiting sync... 14s  min=8267 max=8707 target=10000
+  Waiting sync... 16s  min=8267 max=8707 target=10000
+  Waiting sync... 18s  min=8267 max=8707 target=10000
+  Waiting sync... 20s  min=8267 max=8707 target=10000
+  Waiting sync... 22s  min=8267 max=8707 target=10000
+  Waiting sync... 24s  min=8267 max=8707 target=10000
+  Waiting sync... 26s  min=8267 max=8985 target=10000
+  Waiting sync... 29s  min=8985 max=9282 target=10000
+  Waiting sync... 31s  min=8985 max=9282 target=10000
+  Waiting sync... 33s  min=9282 max=10000 target=10000
+  Waiting sync... 35s  min=9282 max=10000 target=10000
+  Waiting sync... 37s  min=9282 max=10000 target=10000
+  Waiting sync... 39s  min=9282 max=10000 target=10000
+  Sync converged at 40.8s — all peers at 10000
+  alice: 10000 messages [OK]
+  bob: 10000 messages [OK]
+  carol: 10000 messages [OK]
+  [PASS] All peers synced to 10000 messages
+
+Burst: 10 messages at 50ms...
+  Waiting for burst sync (expected 10010)...
+  Waiting sync... 0s  min=10001 max=10005 target=10010
+  Waiting sync... 2s  min=10001 max=10005 target=10010
+  Waiting sync... 4s  min=10001 max=10005 target=10010
+  Waiting sync... 6s  min=10001 max=10005 target=10010
+  Waiting sync... 8s  min=10001 max=10005 target=10010
+  Waiting sync... 10s  min=10001 max=10005 target=10010
+  Waiting sync... 13s  min=10001 max=10005 target=10010
+  Waiting sync... 15s  min=10001 max=10005 target=10010
+  Waiting sync... 17s  min=10001 max=10005 target=10010
+  Waiting sync... 19s  min=10001 max=10005 target=10010
+  Waiting sync... 21s  min=10001 max=10005 target=10010
+  Waiting sync... 23s  min=10001 max=10005 target=10010
+  Waiting sync... 25s  min=10001 max=10005 target=10010
+  Waiting sync... 27s  min=10001 max=10005 target=10010
+  Waiting sync... 29s  min=10001 max=10005 target=10010
+  Sync timeout after 31.5s
+  After burst (expected 10010):
+    alice: 10005
+    bob: 10004
+    carol: 10001
+
+================================================================
+  PERFORMANCE REPORT
+================================================================
+
+  Build: release
+  Git: cff2502a
+
+  Timeline:
+        7.2s (+  7.2s)  setup_complete
+        7.3s (+  0.0s)  send_phase_start
+       16.3s (+  9.0s)  send_phase_done
+       16.3s (+  0.0s)  messages_start
+       36.4s (+ 20.2s)  messages_done
+       77.2s (+ 40.8s)  sync_wait_done
+      109.4s (+ 32.2s)  test_complete
+
+  Message Throughput: 495.6 msg/sec
+  Total Messages: 10000
+  Duration: 20.2s
+
+  Memory Usage (peak):
+    alice       :    507 MB
+    bob         :    669 MB
+    carol       :    610 MB
+    node        :    643 MB
+
+  CPU Usage (avg):
+    alice       : 141.9%
+    bob         :  92.0%
+    carol       :  90.1%
+    node        :  27.3%
+
+  Memory Growth:
+    alice       : 420 -> 507 MB (+86 MB (0.01 MB/msg))
+    bob         : 402 -> 669 MB (+266 MB (0.03 MB/msg))
+    carol       : 421 -> 610 MB (+188 MB (0.02 MB/msg))
+    node        : 194 -> 634 MB (+440 MB (0.04 MB/msg))
+
+  Latency / Idle Metrics:
+    send_avg_latency_ms: 1.8ms
+    send_eval_p50_ms: 1.1ms
+    send_eval_p95_ms: 3.5ms
+    send_throughput_msg_per_sec: 555.1 msg/sec
+    sync_convergence_time_s: 40.8ms
+
+================================================================
+  Results saved to: /home/abe/osvauld/results/benchmark_20260216_215158/perf_release.json

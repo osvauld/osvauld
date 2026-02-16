@@ -1,0 +1,138 @@
+
+============================================================
+  chat_perf
+============================================================
+  All instances ready
+
+  alice: signup, create space...
+  Space: 056ab473..., Page: 76a39c57...
+  alice: connect to node...
+    Waiting for node authentication...
+    Node authenticated
+  alice: publish space to node...
+  Published and synced to node
+
+  Connecting viewers (parallel)...
+  bob synced in 0.7s
+  carol synced in 0.7s
+  All viewers connected and synced
+
+  Opening apps (parallel)...
+  bob app 'Group Chat' synced in 0.0s
+  carol app 'Group Chat' synced in 0.2s
+    alice app ready
+    carol app ready
+    bob app ready
+  All apps opened and ready
+
+  Building peer handles...
+
+  Ready! Peers: ['alice', 'bob', 'carol']
+============================================================
+
+Sending 500 messages...
+  [1/500] alice: "Agent language truth maybe central its d..."
+  [2/500] alice: "Arrive machine."
+  [3/500] carol: "Environmental season to skill many serve..."
+  [4/500] alice: "Always specific firm research religious ..."
+  [5/500] bob: "White already between weight lot identif..."
+  [11/500] alice: "Force."
+  [21/500] carol: "Follow staff accept life peace whole."
+  [31/500] carol: "Spring prove prove newspaper decide body..."
+  [41/500] bob: "Power million girl return them."
+  [51/500] bob: "Group day person American daughter card ..."
+  [61/500] carol: "End remain arm forget into style knowled..."
+  [71/500] alice: "Property do street draw show table part ..."
+  [81/500] alice: "Add mean marriage whatever hope lay part..."
+  [91/500] bob: "Gas sea put provide brother national inc..."
+  [101/500] bob: "Painting large almost finish property."
+  [111/500] alice: "Be hot out almost."
+  [121/500] carol: "Low vote blue whatever."
+  [131/500] carol: "Ten result various hair."
+  [141/500] carol: "Carry agency agency act."
+  [151/500] alice: "Late add life remember floor movie watch..."
+  [161/500] alice: "Better morning remain agreement military..."
+  [171/500] bob: "Four language personal."
+  [181/500] carol: "Red positive discover least should tax f..."
+  [191/500] carol: "Agent necessary father."
+  [201/500] bob: "Nor require professor rich where beat."
+  [211/500] alice: "Development find investment often follow..."
+  [221/500] carol: "Sort product two however who society."
+  [231/500] carol: "Throw final manager language me includin..."
+  [241/500] bob: "Worker its dream imagine inside serve pr..."
+  [251/500] bob: "Of far account style quite she raise kid..."
+  [261/500] carol: "Scene management call voice build."
+  [271/500] carol: "Sort his month."
+  [281/500] carol: "Affect we almost allow available society..."
+  [291/500] alice: "Miss article executive great receive him..."
+  [301/500] bob: "Simple public wonder."
+  [311/500] alice: "Response man."
+  [321/500] bob: "Enjoy town debate management teach colle..."
+  [331/500] carol: "Region election already I."
+  [341/500] alice: "Them very popular."
+  [351/500] bob: "Realize lay bed dream explain friend fou..."
+  [361/500] carol: "Present society air light speech grow co..."
+  [371/500] carol: "Defense yard."
+  [381/500] carol: "Remain especially firm eye develop focus..."
+  [391/500] bob: "Popular course class."
+  [401/500] alice: "Appear media end fast wrong spring repre..."
+  [411/500] alice: "Star attention responsibility support pr..."
+  [421/500] alice: "Trial benefit tough factor."
+  [431/500] bob: "Doctor war without store beautiful choic..."
+  [441/500] bob: "Beautiful professional player worry."
+  [451/500] alice: "Standard social enough parent sit floor ..."
+  [461/500] carol: "Five own bit head all clearly democratic..."
+  [471/500] carol: "Like late my modern reduce field mission..."
+  [481/500] alice: "Wait represent cover reach build keep he..."
+  [491/500] bob: "Quality financial agency garden value bl..."
+  Sent 500 messages
+
+Checking message sync...
+  alice: 500 messages [OK]
+  bob: 500 messages [OK]
+  carol: 500 messages [OK]
+  [PASS] All peers synced to 500 messages
+
+Burst: 10 messages at 50ms...
+  After burst (expected 510):
+    alice: 510
+    bob: 510
+    carol: 510
+
+================================================================
+  PERFORMANCE REPORT
+================================================================
+
+  Build: release
+  Git: cff2502a
+
+  Timeline:
+       11.8s (+ 11.8s)  setup_complete
+       11.9s (+  0.1s)  messages_start
+       92.0s (+ 80.1s)  messages_done
+       94.0s (+  2.0s)  sync_wait_done
+       97.8s (+  3.8s)  test_complete
+
+  Message Throughput: 6.2 msg/sec
+  Total Messages: 500
+  Duration: 80.1s
+
+  Memory Usage (peak):
+    alice       :    280 MB
+    bob         :    237 MB
+    carol       :    234 MB
+    node        :     87 MB
+
+  CPU Usage (avg):
+    alice       :  27.7%
+    bob         :  35.6%
+    carol       :  28.3%
+    node        :  29.2%
+
+  Memory Growth:
+    alice       : 262 -> 280 MB (+18 MB (0.04 MB/msg))
+    bob         : 212 -> 237 MB (+25 MB (0.05 MB/msg))
+    carol       : 212 -> 234 MB (+22 MB (0.04 MB/msg))
+    node        : 64 -> 87 MB (+23 MB (0.05 MB/msg))
+
+================================================================

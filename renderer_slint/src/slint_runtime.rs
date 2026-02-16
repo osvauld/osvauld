@@ -8,13 +8,14 @@
 //! **Pattern**: Pull mutations from channel via process_ui_mutations()
 //! **Global API**: Uses `set_global_property` and `set_global_callback` for AppAPI
 
-use slint::{VecModel, Model};
-use slint_interpreter::{ComponentInstance, Compiler, Value as SlintValue};
-use std::rc::Rc;
+use crate::value_convert::{json_to_slint_value, slint_value_to_json};
+use lua_runtime::{LuaCommand, PropertyUpdate, UiMutation, UiQuery, VecModelOp};
+use slint::{Model, VecModel};
+use slint_interpreter::{Compiler, ComponentInstance, Value as SlintValue};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::rc::Rc;
 use tokio::sync::mpsc;
-use lua_runtime::{UiMutation, VecModelOp, PropertyUpdate, UiQuery, LuaCommand};
 
 /// Request to open native file picker for asset upload
 ///
@@ -89,11 +90,9 @@ impl SlintRuntime {
         // Note: This is running on the main thread (not Tokio)
         // We need to block on the async compilation
         let result = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
-                tokio::task::block_in_place(|| {
-                    handle.block_on(compiler.build_from_path(&slint_path))
-                })
-            }
+            Ok(handle) => tokio::task::block_in_place(|| {
+                handle.block_on(compiler.build_from_path(&slint_path))
+            }),
             Err(_) => {
                 // No runtime, create a temporary one
                 let rt = tokio::runtime::Runtime::new()
@@ -117,12 +116,16 @@ impl SlintRuntime {
             .component("App")
             .or_else(|| {
                 // Try to get the first component if "App" doesn't exist
-                result.component_names().next().and_then(|name| result.component(&name))
+                result
+                    .component_names()
+                    .next()
+                    .and_then(|name| result.component(&name))
             })
             .ok_or_else(|| "No component found in .slint file")?;
 
         // Create component instance
-        let slint_instance = definition.create()
+        let slint_instance = definition
+            .create()
             .map_err(|e| format!("Failed to create instance: {:?}", e))?;
 
         tracing::debug!(
@@ -154,7 +157,10 @@ impl SlintRuntime {
     ///
     /// **Called by**: App loader after parsing manifest.json
     /// **Pattern**: Pre-create VecModels for declared models to enable incremental updates
-    pub fn init_models(&mut self, model_names: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn init_models(
+        &mut self,
+        model_names: &[String],
+    ) -> Result<(), Box<dyn std::error::Error>> {
         for model_name in model_names {
             if let Some(_model) = self.get_or_create_model(model_name) {
                 tracing::info!(
@@ -203,7 +209,10 @@ impl SlintRuntime {
         }
 
         // Check if this property exists and is a Model type
-        if let Ok(value) = self.slint_instance.get_global_property(GLOBAL_API_NAME, prop_name) {
+        if let Ok(value) = self
+            .slint_instance
+            .get_global_property(GLOBAL_API_NAME, prop_name)
+        {
             if matches!(value, SlintValue::Model(_)) {
                 // Create new VecModel
                 let model = Rc::new(VecModel::<SlintValue>::default());
@@ -212,7 +221,7 @@ impl SlintRuntime {
                 if let Err(e) = self.slint_instance.set_global_property(
                     GLOBAL_API_NAME,
                     prop_name,
-                    SlintValue::Model(model.clone().into())
+                    SlintValue::Model(model.clone().into()),
                 ) {
                     tracing::warn!(
                         page_id = %self.page_id,
@@ -225,7 +234,8 @@ impl SlintRuntime {
                 }
 
                 // Store and return
-                self.global_models.insert(prop_name.to_string(), model.clone());
+                self.global_models
+                    .insert(prop_name.to_string(), model.clone());
                 tracing::info!(
                     page_id = %self.page_id,
                     global = GLOBAL_API_NAME,
@@ -303,7 +313,10 @@ impl SlintRuntime {
 
     /// Read a property from AppAPI global and convert to JSON
     fn read_property(&self, prop_name: &str) -> Option<serde_json::Value> {
-        match self.slint_instance.get_global_property(GLOBAL_API_NAME, prop_name) {
+        match self
+            .slint_instance
+            .get_global_property(GLOBAL_API_NAME, prop_name)
+        {
             Ok(value) => Some(slint_value_to_json(&value)),
             Err(e) => {
                 tracing::warn!(
@@ -322,11 +335,17 @@ impl SlintRuntime {
     ///
     /// **Pattern**: All app properties go through AppAPI global
     /// **Triggers**: Property change notification in Slint
-    fn apply_property_update(&self, update: PropertyUpdate) -> Result<(), Box<dyn std::error::Error>> {
+    fn apply_property_update(
+        &self,
+        update: PropertyUpdate,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let slint_val = json_to_slint_value(&update.value)?;
 
         // All properties go to AppAPI global
-        if let Err(e) = self.slint_instance.set_global_property(GLOBAL_API_NAME, &update.key, slint_val) {
+        if let Err(e) =
+            self.slint_instance
+                .set_global_property(GLOBAL_API_NAME, &update.key, slint_val)
+        {
             tracing::warn!(
                 page_id = %self.page_id,
                 global = GLOBAL_API_NAME,
@@ -355,23 +374,7 @@ impl SlintRuntime {
 
         match op {
             Push { model_name, item } => {
-                // Lazy model creation - create if not exists
-                if !self.global_models.contains_key(&model_name) {
-                    self.get_or_create_model(&model_name);
-                }
-                let model = match self.global_models.get(&model_name) {
-                    Some(m) => m,
-                    None => {
-                        tracing::error!(
-                            page_id = %self.page_id,
-                            global = GLOBAL_API_NAME,
-                            model = %model_name,
-                            available_models = ?self.global_models.keys().collect::<Vec<_>>(),
-                            "Model not found for Push operation (lazy creation failed)"
-                        );
-                        return Err(format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name).into());
-                    }
-                };
+                let model = self.ensure_model(&model_name, "Push")?;
                 let slint_val = json_to_slint_value(&item)?;
                 model.push(slint_val);
 
@@ -383,13 +386,12 @@ impl SlintRuntime {
                     "VecModel::push"
                 );
             }
-            Insert { model_name, index, item } => {
-                // Lazy model creation - create if not exists
-                if !self.global_models.contains_key(&model_name) {
-                    self.get_or_create_model(&model_name);
-                }
-                let model = self.global_models.get(&model_name)
-                    .ok_or_else(|| format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name))?;
+            Insert {
+                model_name,
+                index,
+                item,
+            } => {
+                let model = self.ensure_model(&model_name, "Insert")?;
                 let slint_val = json_to_slint_value(&item)?;
                 model.insert(index, slint_val);
 
@@ -402,11 +404,7 @@ impl SlintRuntime {
                 );
             }
             Remove { model_name, index } => {
-                if !self.global_models.contains_key(&model_name) {
-                    self.get_or_create_model(&model_name);
-                }
-                let model = self.global_models.get(&model_name)
-                    .ok_or_else(|| format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name))?;
+                let model = self.ensure_model(&model_name, "Remove")?;
                 if index < model.row_count() {
                     model.remove(index);
 
@@ -428,12 +426,12 @@ impl SlintRuntime {
                     );
                 }
             }
-            Set { model_name, index, item } => {
-                if !self.global_models.contains_key(&model_name) {
-                    self.get_or_create_model(&model_name);
-                }
-                let model = self.global_models.get(&model_name)
-                    .ok_or_else(|| format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name))?;
+            Set {
+                model_name,
+                index,
+                item,
+            } => {
+                let model = self.ensure_model(&model_name, "Set")?;
                 if index < model.row_count() {
                     let slint_val = json_to_slint_value(&item)?;
                     model.set_row_data(index, slint_val);
@@ -457,23 +455,7 @@ impl SlintRuntime {
                 }
             }
             Clear { model_name } => {
-                // Lazy model creation - create if not exists
-                if !self.global_models.contains_key(&model_name) {
-                    self.get_or_create_model(&model_name);
-                }
-                let model = match self.global_models.get(&model_name) {
-                    Some(m) => m,
-                    None => {
-                        tracing::error!(
-                            page_id = %self.page_id,
-                            global = GLOBAL_API_NAME,
-                            model = %model_name,
-                            available_models = ?self.global_models.keys().collect::<Vec<_>>(),
-                            "Model not found for Clear operation (lazy creation failed)"
-                        );
-                        return Err(format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name).into());
-                    }
-                };
+                let model = self.ensure_model(&model_name, "Clear")?;
                 let count = model.row_count();
                 model.set_vec(vec![]);
 
@@ -486,22 +468,7 @@ impl SlintRuntime {
                 );
             }
             Replace { model_name, items } => {
-                // Lazy model creation - create if not exists
-                if !self.global_models.contains_key(&model_name) {
-                    self.get_or_create_model(&model_name);
-                }
-                let model = match self.global_models.get(&model_name) {
-                    Some(m) => m,
-                    None => {
-                        tracing::error!(
-                            page_id = %self.page_id,
-                            global = GLOBAL_API_NAME,
-                            model = %model_name,
-                            "Model not found for Replace operation"
-                        );
-                        return Err(format!("Model not found: {}", model_name).into());
-                    }
-                };
+                let model = self.ensure_model(&model_name, "Replace")?;
 
                 // Convert all items to Slint values
                 let slint_items: Vec<SlintValue> = items
@@ -527,6 +494,31 @@ impl SlintRuntime {
         Ok(())
     }
 
+    fn ensure_model(
+        &mut self,
+        model_name: &str,
+        operation: &str,
+    ) -> Result<Rc<VecModel<SlintValue>>, Box<dyn std::error::Error>> {
+        if !self.global_models.contains_key(model_name) {
+            self.get_or_create_model(model_name);
+        }
+
+        match self.global_models.get(model_name) {
+            Some(model) => Ok(model.clone()),
+            None => {
+                tracing::error!(
+                    page_id = %self.page_id,
+                    global = GLOBAL_API_NAME,
+                    model = %model_name,
+                    operation = %operation,
+                    available_models = ?self.global_models.keys().collect::<Vec<_>>(),
+                    "Model not found for VecModel operation"
+                );
+                Err(format!("Model not found in {}: {}", GLOBAL_API_NAME, model_name).into())
+            }
+        }
+    }
+
     /// Setup shell-level callbacks (tab switching, add-app)
     ///
     /// **Pattern**: Wire shell callbacks to appropriate handlers
@@ -542,18 +534,19 @@ impl SlintRuntime {
             if callback_name == "select-tab" || callback_name == "select_tab" {
                 if let Some(ref tx) = self.tab_switch_tx {
                     let tx = tx.clone();
-                    self.slint_instance.set_callback(&callback_name, move |args| {
-                        if let Some(tab_name) = args.first() {
-                            if let SlintValue::String(name) = tab_name {
-                                tracing::info!(
-                                    tab = %name,
-                                    "Tab switch requested"
-                                );
-                                let _ = tx.send(name.to_string());
+                    self.slint_instance
+                        .set_callback(&callback_name, move |args| {
+                            if let Some(tab_name) = args.first() {
+                                if let SlintValue::String(name) = tab_name {
+                                    tracing::info!(
+                                        tab = %name,
+                                        "Tab switch requested"
+                                    );
+                                    let _ = tx.send(name.to_string());
+                                }
                             }
-                        }
-                        SlintValue::Void
-                    })?;
+                            SlintValue::Void
+                        })?;
                     callback_count += 1;
                 }
             }
@@ -585,12 +578,12 @@ impl SlintRuntime {
             "on_click",
             "on_field_changed",
             "on_modal_action",
-            "on_pointer_event",  // For canvas/drawing apps that need x,y coordinates
-            "on_scroll",         // For canvas/drawing apps that need scroll/zoom
-            "on_hover",          // For cursor sync without drag (timer-based polling)
-            "on_key_pressed",    // For games/interactive apps that need keyboard input
-            "on_submit",         // For form submissions (chat, search, etc.)
-            "on_text_input",     // For text input changes (typing indicators, etc.)
+            "on_pointer_event", // For canvas/drawing apps that need x,y coordinates
+            "on_scroll",        // For canvas/drawing apps that need scroll/zoom
+            "on_hover",         // For cursor sync without drag (timer-based polling)
+            "on_key_pressed",   // For games/interactive apps that need keyboard input
+            "on_submit",        // For form submissions (chat, search, etc.)
+            "on_text_input",    // For text input changes (typing indicators, etc.)
         ];
 
         let mut callback_count = 0;
@@ -599,26 +592,28 @@ impl SlintRuntime {
             let callback_name_owned = callback_name.to_string();
 
             // Try to set the global callback - if it doesn't exist, that's OK (not all apps have all callbacks)
-            match self.slint_instance.set_global_callback(GLOBAL_API_NAME, callback_name, move |args| {
-                // Convert Slint args to JSON for Lua
-                let json_args: Vec<serde_json::Value> = args
-                    .iter()
-                    .map(slint_value_to_json)
-                    .collect();
+            match self.slint_instance.set_global_callback(
+                GLOBAL_API_NAME,
+                callback_name,
+                move |args| {
+                    // Convert Slint args to JSON for Lua
+                    let json_args: Vec<serde_json::Value> =
+                        args.iter().map(slint_value_to_json).collect();
 
-                tracing::trace!(
-                    global = GLOBAL_API_NAME,
-                    callback = %callback_name_owned,
-                    arg_count = json_args.len(),
-                    "AppAPI callback triggered"
-                );
+                    tracing::trace!(
+                        global = GLOBAL_API_NAME,
+                        callback = %callback_name_owned,
+                        arg_count = json_args.len(),
+                        "AppAPI callback triggered"
+                    );
 
-                let _ = lua_tx.try_send(LuaCommand::UiCallback {
-                    callback_name: callback_name_owned.clone(),
-                    args: json_args,
-                });
-                SlintValue::Void
-            }) {
+                    let _ = lua_tx.try_send(LuaCommand::UiCallback {
+                        callback_name: callback_name_owned.clone(),
+                        args: json_args,
+                    });
+                    SlintValue::Void
+                },
+            ) {
                 Ok(_) => {
                     callback_count += 1;
                     tracing::debug!(
@@ -653,21 +648,26 @@ impl SlintRuntime {
         if let Some(ref tx) = self.asset_pick_tx {
             let tx = tx.clone();
             let page_id = self.page_id.clone();
-            match self.slint_instance.set_global_callback(GLOBAL_API_NAME, "pick_asset_file", move |args| {
-                let filter = args.first()
-                    .and_then(|v| v.clone().try_into().ok())
-                    .and_then(|v: slint::SharedString| Some(v.to_string()))
-                    .unwrap_or_else(|| "all".to_string());
+            match self.slint_instance.set_global_callback(
+                GLOBAL_API_NAME,
+                "pick_asset_file",
+                move |args| {
+                    let filter = args
+                        .first()
+                        .and_then(|v| v.clone().try_into().ok())
+                        .and_then(|v: slint::SharedString| Some(v.to_string()))
+                        .unwrap_or_else(|| "all".to_string());
 
-                tracing::info!(
-                    page_id = %page_id,
-                    filter = %filter,
-                    "Asset pick requested via AppAPI callback"
-                );
+                    tracing::info!(
+                        page_id = %page_id,
+                        filter = %filter,
+                        "Asset pick requested via AppAPI callback"
+                    );
 
-                let _ = tx.send(AssetPickRequest { filter });
-                SlintValue::Void
-            }) {
+                    let _ = tx.send(AssetPickRequest { filter });
+                    SlintValue::Void
+                },
+            ) {
                 Ok(_) => {
                     tracing::debug!(
                         page_id = %self.page_id,
@@ -689,67 +689,5 @@ impl SlintRuntime {
         }
 
         Ok(())
-    }
-}
-
-/// Convert Slint value to JSON for passing to Lua
-fn slint_value_to_json(value: &SlintValue) -> serde_json::Value {
-    match value {
-        SlintValue::String(s) => serde_json::Value::String(s.to_string()),
-        SlintValue::Number(n) => serde_json::json!(n),
-        SlintValue::Bool(b) => serde_json::Value::Bool(*b),
-        SlintValue::Void => serde_json::Value::Null,
-        SlintValue::Image(_) => serde_json::Value::Null, // Can't serialize images
-        SlintValue::Model(_) => serde_json::Value::Null, // Can't serialize models
-        SlintValue::Struct(s) => {
-            // Convert struct fields to JSON object
-            let obj: serde_json::Map<String, serde_json::Value> = s
-                .iter()
-                .map(|(k, v)| (k.to_string(), slint_value_to_json(&v)))
-                .collect();
-            serde_json::Value::Object(obj)
-        }
-        SlintValue::Brush(_) => serde_json::Value::Null, // Can't serialize brushes
-        _ => serde_json::Value::Null,
-    }
-}
-
-/// Convert JSON to Slint value
-///
-/// **Note**: This is similar to lua_to_slint_value in slint_model_bindings.rs
-fn json_to_slint_value(value: &serde_json::Value) -> Result<SlintValue, Box<dyn std::error::Error>> {
-    use slint_interpreter::Value;
-
-    match value {
-        serde_json::Value::Null => Ok(Value::Void),
-        serde_json::Value::Bool(b) => Ok(Value::Bool(*b)),
-        serde_json::Value::Number(n) => {
-            if let Some(f) = n.as_f64() {
-                Ok(Value::Number(f))
-            } else {
-                Err(format!("Invalid number: {}", n).into())
-            }
-        }
-        serde_json::Value::String(s) => {
-            Ok(Value::String(slint::SharedString::from(s.as_str())))
-        }
-        serde_json::Value::Array(arr) => {
-            // Convert as Slint Model
-            let items: Result<Vec<_>, _> = arr.iter()
-                .map(json_to_slint_value)
-                .collect();
-            let items = items?;
-            Ok(Value::Model(Rc::new(VecModel::from(items)).into()))
-        }
-        serde_json::Value::Object(obj) => {
-            // Convert as Slint Struct
-            let fields: Result<Vec<_>, _> = obj.iter()
-                .map(|(k, v)| {
-                    json_to_slint_value(v).map(|val| (k.clone(), val))
-                })
-                .collect();
-            let fields = fields?;
-            Ok(Value::Struct(slint_interpreter::Struct::from_iter(fields).into()))
-        }
     }
 }

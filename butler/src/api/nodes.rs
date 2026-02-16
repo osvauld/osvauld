@@ -1,8 +1,8 @@
 //! Nodes API - Sovereign node and owner operations
 
-use crate::{Butler, Result, SovereignNode, OwnerInfo, ConnectionString};
-use crate::services::node_service;
 use crate::models::ConnectionType;
+use crate::services::node_service;
+use crate::{Butler, ConnectionString, OwnerInfo, Result, SovereignNode};
 
 /// Nodes API facade
 ///
@@ -12,14 +12,20 @@ pub struct NodesApi<'a> {
 }
 
 impl<'a> NodesApi<'a> {
-
     /// Add a sovereign node from connection string
     pub fn add(&self, connection_string: &str) -> std::result::Result<SovereignNode, String> {
-        node_service::add_sovereign_node(self.butler.store(), connection_string, ConnectionType::Owner)
+        node_service::add_sovereign_node(
+            self.butler.store(),
+            connection_string,
+            ConnectionType::Owner,
+        )
     }
 
     /// Parse a connection string without storing (for viewer connections)
-    pub fn parse_connection_string(&self, connection_string: &str) -> std::result::Result<ConnectionString, String> {
+    pub fn parse_connection_string(
+        &self,
+        connection_string: &str,
+    ) -> std::result::Result<ConnectionString, String> {
         ConnectionString::parse(connection_string)
     }
 
@@ -55,7 +61,9 @@ impl<'a> NodesApi<'a> {
 
     /// Update node relay URL
     pub fn update_relay(&self, id: &str, relay_url: Option<String>) -> Result<bool> {
-        self.butler.store().update_sovereign_node_relay(id, relay_url)
+        self.butler
+            .store()
+            .update_sovereign_node_relay(id, relay_url)
     }
 
     /// Get sovereign node for owner sync
@@ -96,7 +104,7 @@ impl<'a> NodesApi<'a> {
     /// **Context**: Node generates connection string for owner to scan/enter
     /// **Returns**: Base64-encoded JSON containing keys, permit, etc.
     pub async fn generate_connection_string(&self, relay_url: Option<&str>) -> Result<String> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
 
         let identity = self.butler.get_identity().await?;
         let user_info = self.butler.user_info().await?;
@@ -135,7 +143,7 @@ impl<'a> NodesApi<'a> {
         space_id: &str,
         relay_url: Option<&str>,
     ) -> Result<String> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
 
         let identity = self.butler.get_identity().await?;
         let user_info = self.butler.user_info().await?;

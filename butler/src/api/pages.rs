@@ -1,10 +1,10 @@
 //! Pages API - Page CRUD and lifecycle operations
 
-use std::collections::HashMap;
 use ractor::ActorRef;
+use std::collections::HashMap;
 
-use crate::{Butler, Result, Page, PageData, DecryptedPage, ScribeMessage};
 use crate::services::page_service;
+use crate::{Butler, DecryptedPage, Page, PageData, Result, ScribeMessage};
 
 /// Pages API facade
 ///
@@ -35,7 +35,8 @@ impl<'a> PagesApi<'a> {
             &signing_key,
             layer_names,
             permit_template,
-        ).await
+        )
+        .await
     }
 
     /// Get a page by ID
@@ -88,7 +89,10 @@ impl<'a> PagesApi<'a> {
     /// This stores the permit on PageData.permit so build_scribe_args can
     /// find it as our_permit for Scribe authorization.
     pub fn set_permit(&self, page_id: &str, permit: String) -> Result<()> {
-        let mut page = self.butler.store().find_page_by_id(page_id)?
+        let mut page = self
+            .butler
+            .store()
+            .find_page_by_id(page_id)?
             .ok_or_else(|| crate::error::ButlerError::page_not_found(page_id))?;
         page.set_permit(permit);
         self.butler.store().put_page(&page)?;

@@ -7,7 +7,7 @@
 
 use super::types::{DecisionResult, TokenDecision};
 use crate::errors::GurkhaError;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::VerifyingKey;
 use serde_json::{json, Value};
 
@@ -35,7 +35,9 @@ pub fn decide_space_owner_token(
     let ops = owner_template
         .get("operations")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string()))?;
+        .ok_or_else(|| {
+            GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string())
+        })?;
 
     // Build facts from template (no URI capabilities)
     decision.add_fact("token_type".into(), json!("space_owner"));
@@ -82,13 +84,19 @@ pub fn decide_space_node_to_owner_token(
     decision.add_fact("relationship".into(), json!("owner"));
     decision.add_fact("space_id".into(), json!(space_id));
     decision.add_fact("issuer_id".into(), json!(pub_key_b64));
-    decision.add_fact("operations".into(), json!({
-        "sync": "allow"
-    }));
-    decision.add_fact("auth_capabilities".into(), json!({
-        "can_connect": true,
-        "sync_enabled": true
-    }));
+    decision.add_fact(
+        "operations".into(),
+        json!({
+            "sync": "allow"
+        }),
+    );
+    decision.add_fact(
+        "auth_capabilities".into(),
+        json!({
+            "can_connect": true,
+            "sync_enabled": true
+        }),
+    );
 
     Ok(decision)
 }
@@ -117,7 +125,9 @@ pub fn decide_page_owner_token(
     let ops = owner_template
         .get("operations")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string()))?;
+        .ok_or_else(|| {
+            GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string())
+        })?;
 
     // Build facts from template (no URI capabilities)
     decision.add_fact("token_type".into(), json!("page_owner"));
@@ -129,8 +139,13 @@ pub fn decide_page_owner_token(
 
     // Copy all template fields to facts, then resolve {page_id}
     let template_fields = [
-        "layers", "sync", "issue_on", "peer_capabilities",
-        "presence", "ephemeral_funcs", "dynamic_layer_schemas",
+        "layers",
+        "sync",
+        "issue_on",
+        "peer_capabilities",
+        "presence",
+        "ephemeral_funcs",
+        "dynamic_layer_schemas",
     ];
     for field in &template_fields {
         if let Some(val) = owner_template.get(*field) {

@@ -22,6 +22,8 @@ use std::sync::Arc;
 use butler::{Butler, LayerCache, RedbStore, ScribeMessage, SyncEvent};
 use clap::Parser;
 use courier::CourierHandle;
+#[cfg(feature = "raylib")]
+use domains::AppManifest;
 use renderer_slint::{AppStatus, DebugEvalRequest, LaunchedApp, PreparedPage};
 use slint::ComponentHandle;
 use sthalam_shell::Shell;
@@ -507,7 +509,7 @@ async fn launch_raylib_app(
     app_name: &str,
     butler: Arc<Butler>,
     scribe_ref: ractor::ActorRef<ScribeMessage>,
-    manifest: renderer_slint::Manifest,
+    manifest: AppManifest,
 ) {
     let files = match renderer_slint::get_app_files_from_scribe(&scribe_ref, app_name).await {
         Ok(f) => f,
@@ -525,21 +527,12 @@ async fn launch_raylib_app(
         }
     };
 
-    let game_manifest = renderer_raylib::GameManifest {
-        name: manifest.name.clone(),
-        version: manifest.version.clone(),
-        entry_logic: manifest.entry_logic.clone(),
-        width: manifest.width.unwrap_or(800),
-        height: manifest.height.unwrap_or(600),
-        target_fps: manifest.target_fps.unwrap_or(60),
-    };
-
     if let Err(e) = renderer_raylib::spawn_app(
         page_id,
         app_name,
         butler,
         scribe_ref,
-        game_manifest,
+        manifest,
         lua_code,
     ) {
         tracing::error!(error = %e, "Failed to spawn Raylib app");

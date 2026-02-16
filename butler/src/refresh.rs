@@ -8,8 +8,8 @@ use std::path::Path;
 use tracing::{info, instrument};
 use walkdir::WalkDir;
 
-use scribe::ScribeState;
 use scribe::LayerUnit;
+use scribe::ScribeState;
 
 /// Refresh app from filesystem (owner only)
 ///
@@ -33,11 +33,12 @@ pub async fn handle_refresh_app(
     );
 
     // 1. Collect new files from disk
-    let new_files = collect_app_files(app_dir)
-        .map_err(|e| format!("Failed to read app files: {}", e))?;
+    let new_files =
+        collect_app_files(app_dir).map_err(|e| format!("Failed to read app files: {}", e))?;
 
     // 2. Get or create the app layer unit
-    let unit = state.units
+    let unit = state
+        .units
         .entry(layer_name.clone())
         .or_insert_with(LayerUnit::new_empty);
 
@@ -68,7 +69,8 @@ pub async fn handle_refresh_app(
     }
 
     // 5. Update layer with new files
-    unit.layer().set_all_files(&new_files)
+    unit.layer()
+        .set_all_files(&new_files)
         .map_err(|e| format!("Failed to update app layer: {}", e))?;
 
     // 6. Commit to trigger Loro observer (broadcasts to peers + emits PageUpdate)
@@ -92,7 +94,9 @@ pub async fn handle_refresh_app(
 ///
 /// Returns HashMap of relative_path -> content for text files.
 #[instrument(skip_all)]
-fn collect_app_files(app_dir: &Path) -> std::result::Result<std::collections::HashMap<String, String>, String> {
+fn collect_app_files(
+    app_dir: &Path,
+) -> std::result::Result<std::collections::HashMap<String, String>, String> {
     let mut files = std::collections::HashMap::new();
 
     for entry in WalkDir::new(app_dir).into_iter().filter_map(|e| e.ok()) {

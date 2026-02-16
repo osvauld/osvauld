@@ -5,8 +5,8 @@
 //! Contacts store identity info (did, encryption_key, username, devices).
 
 use crate::error::Result;
-use crate::storage::RedbStore;
 use crate::models::{ContactData, ContactType};
+use crate::storage::RedbStore;
 use tracing::instrument;
 
 /// Get a contact by DID

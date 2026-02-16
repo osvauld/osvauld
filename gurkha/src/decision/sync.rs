@@ -26,12 +26,21 @@ impl SyncContext {
         let peer_permit = crate::parser::Permit::from_token(peer_token)
             .map_err(|e| format!("Failed to parse peer token: {}", e))?;
 
-        Ok(Self { our_permit, peer_permit })
+        Ok(Self {
+            our_permit,
+            peer_permit,
+        })
     }
 
     /// Create sync context from parsed permits
-    pub fn from_permits(our_permit: crate::parser::Permit, peer_permit: crate::parser::Permit) -> Self {
-        Self { our_permit, peer_permit }
+    pub fn from_permits(
+        our_permit: crate::parser::Permit,
+        peer_permit: crate::parser::Permit,
+    ) -> Self {
+        Self {
+            our_permit,
+            peer_permit,
+        }
     }
 
     pub fn our_permit(&self) -> &crate::parser::Permit {
@@ -52,12 +61,18 @@ pub fn should_send_updates(context: &SyncContext, layer_name: &str) -> SyncDecis
 
     if let Some(config) = context.our_permit.get_layer_config(layer_name) {
         if config.sync {
-            tracing::info!("[should_send_updates] '{}' → SendIncrementalUpdates", layer_name);
+            tracing::info!(
+                "[should_send_updates] '{}' → SendIncrementalUpdates",
+                layer_name
+            );
             return SyncDecision::SendIncrementalUpdates;
         }
     }
 
-    tracing::info!("[should_send_updates] '{}' → DontSend (no access)", layer_name);
+    tracing::info!(
+        "[should_send_updates] '{}' → DontSend (no access)",
+        layer_name
+    );
     SyncDecision::DontSend
 }
 
@@ -84,11 +99,17 @@ pub fn can_receive_updates(context: &SyncContext, layer_name: &str) -> bool {
 /// Uses simple sync rules - if we can receive, we should request.
 /// Returns DontSend if no capability or sync disabled.
 pub fn should_request_updates(context: &SyncContext, layer_name: &str) -> SyncDecision {
-    tracing::debug!("🔍 [should_request_updates] Checking layer '{}'", layer_name);
+    tracing::debug!(
+        "🔍 [should_request_updates] Checking layer '{}'",
+        layer_name
+    );
 
     // TODO: Implement simple permit-based logic in Phase 4
     if can_receive_updates(context, layer_name) {
-        tracing::info!("✅ [should_request_updates] '{}' → RequestUpdates", layer_name);
+        tracing::info!(
+            "✅ [should_request_updates] '{}' → RequestUpdates",
+            layer_name
+        );
         SyncDecision::SendIncrementalUpdates
     } else {
         tracing::info!("🚫 [should_request_updates] '{}' → DontRequest", layer_name);

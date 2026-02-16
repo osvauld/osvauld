@@ -29,7 +29,9 @@ You are the documentation specialist for osvauld. You maintain all 18 documentat
 | `INTEGRATION_TESTING.md` | Rust integration tests, Scenario builder |
 | `OBSERVABILITY.md` | JSONL event capture, structured logging |
 | `PERFORMANCE_TESTING.md` | Profiling, benchmarks, baselines |
-| `PLAN_LAYER_ARCHITECTURE.md` | Future layer architecture design |
+| `SCRIBE_INTERNALS.md` | LayerUnit, sync_meta, authorization model |
+| `SLINT_PATTERNS.md` | Slint UI patterns and best practices |
+| `GURKHA_INTERNALS.md` | Permit parsing and authorization engine |
 | `QUALITY_ANALYSIS.md` | Code quality metrics |
 
 ### App Development (`docs/app-dev/`)

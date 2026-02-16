@@ -1,0 +1,214 @@
+
+============================================================
+  chat_perf
+============================================================
+  All instances ready
+
+  alice: signup, create space...
+  Space: c378f885..., Page: 599ade16...
+  alice: connect to node...
+    Waiting for node authentication...
+    Node authenticated
+  alice: publish space to node...
+  Published and synced to node
+
+  Connecting viewers (parallel)...
+  carol synced in 1.4s
+  bob synced in 1.5s
+  All viewers connected and synced
+
+  Opening apps (parallel)...
+  carol app 'Group Chat' synced in 0.0s
+  bob app 'Group Chat' synced in 0.1s
+    alice app ready
+    bob app ready
+    carol app ready
+  All apps opened and ready
+
+  Building peer handles...
+
+  Ready! Peers: ['alice', 'bob', 'carol']
+============================================================
+
+
+[Phase 1] Send-path benchmark: alice sends 1000 messages (no delay)...
+  [1/1000 | 0%] elapsed=0.0s rate=363.9 msg/s eval_p50(last100)=2.7ms
+  [2/1000 | 0%] elapsed=0.0s rate=237.7 msg/s eval_p50(last100)=3.9ms
+  [3/1000 | 0%] elapsed=0.0s rate=204.8 msg/s eval_p50(last100)=5.0ms
+  [50/1000 | 5%] elapsed=0.1s rate=337.4 msg/s eval_p50(last100)=2.3ms
+  [100/1000 | 10%] elapsed=0.3s rate=341.9 msg/s eval_p50(last100)=2.3ms
+  [150/1000 | 15%] elapsed=0.4s rate=351.1 msg/s eval_p50(last100)=2.3ms
+  [200/1000 | 20%] elapsed=0.6s rate=354.9 msg/s eval_p50(last100)=2.3ms
+  [250/1000 | 25%] elapsed=0.7s rate=348.2 msg/s eval_p50(last100)=2.5ms
+  [300/1000 | 30%] elapsed=0.9s rate=344.8 msg/s eval_p50(last100)=2.5ms
+  [350/1000 | 35%] elapsed=1.0s rate=350.9 msg/s eval_p50(last100)=2.3ms
+  [400/1000 | 40%] elapsed=1.1s rate=358.9 msg/s eval_p50(last100)=2.2ms
+  [450/1000 | 45%] elapsed=1.2s rate=365.8 msg/s eval_p50(last100)=2.1ms
+  [500/1000 | 50%] elapsed=1.4s rate=369.3 msg/s eval_p50(last100)=2.1ms
+  [550/1000 | 55%] elapsed=1.5s rate=372.5 msg/s eval_p50(last100)=2.1ms
+  [600/1000 | 60%] elapsed=1.6s rate=372.5 msg/s eval_p50(last100)=2.1ms
+  [650/1000 | 65%] elapsed=1.7s rate=376.8 msg/s eval_p50(last100)=2.1ms
+  [700/1000 | 70%] elapsed=1.8s rate=382.1 msg/s eval_p50(last100)=2.1ms
+  [750/1000 | 75%] elapsed=1.9s rate=385.4 msg/s eval_p50(last100)=1.9ms
+  [800/1000 | 80%] elapsed=2.1s rate=385.0 msg/s eval_p50(last100)=2.0ms
+  [850/1000 | 85%] elapsed=2.2s rate=385.3 msg/s eval_p50(last100)=2.1ms
+  [900/1000 | 90%] elapsed=2.3s rate=389.9 msg/s eval_p50(last100)=2.0ms
+  [950/1000 | 95%] elapsed=2.4s rate=396.6 msg/s eval_p50(last100)=1.7ms
+  [1000/1000 | 100%] elapsed=2.5s rate=401.5 msg/s eval_p50(last100)=1.5ms
+  Sent 1000 messages in 2.62s (381.4 msg/s)
+  Send eval latency: p50=2.1ms p95=4.5ms
+
+[Phase 2] Distributed send: 1000 messages with 0.0s delay...
+  [1/1000 | 0%] carol: "Sit mind often human such break question..."
+  [2/1000 | 0%] carol: "At her off wide other any my white."
+  [3/1000 | 0%] alice: "Door resource total."
+  [4/1000 | 0%] bob: "Other join interview animal indeed same ..."
+  [5/1000 | 0%] alice: "Actually your upon clearly pick still ma..."
+  [50/1000 | 5%] bob: "Recognize contain record discover pick m..."
+  [100/1000 | 10%] alice: "Hope so discuss usually one purpose."
+  [150/1000 | 15%] alice: "Believe record pattern Democrat practice..."
+  [200/1000 | 20%] carol: "Less firm cell get."
+  [250/1000 | 25%] alice: "Manager central voice family through TV ..."
+  [300/1000 | 30%] carol: "Idea receive Mr radio serve."
+  [350/1000 | 35%] bob: "Develop media individual property both v..."
+  [400/1000 | 40%] alice: "Think create successful job ability thou..."
+  [450/1000 | 45%] alice: "Listen ever heavy production per food yo..."
+  [500/1000 | 50%] bob: "Him involve side receive husband availab..."
+  [550/1000 | 55%] carol: "Total enough rise official enjoy dream w..."
+  [600/1000 | 60%] carol: "Other staff red left face husband until."
+  [650/1000 | 65%] bob: "Attention particular social describe giv..."
+  [700/1000 | 70%] bob: "Serve against eight there music TV lawye..."
+  [750/1000 | 75%] alice: "Water line see bring goal meeting compar..."
+  [800/1000 | 80%] alice: "Oil economy lay three central score red ..."
+  [850/1000 | 85%] carol: "Scene safe public political many special..."
+  [900/1000 | 90%] bob: "His receive stay former against move."
+  [950/1000 | 95%] carol: "Pick professor stay instead walk securit..."
+  [1000/1000 | 100%] carol: "Else fine ready require much arm."
+  Sent 1000 messages
+
+Waiting for sync convergence (expected 2000, timeout 120.0s)...
+  Waiting sync... 0s  min=353 max=1390 target=2000
+  Waiting sync... 2s  min=389 max=1457 target=2000
+  Waiting sync... 4s  min=407 max=1474 target=2000
+  Waiting sync... 6s  min=420 max=1524 target=2000
+  Waiting sync... 8s  min=420 max=1524 target=2000
+  Waiting sync... 10s  min=420 max=1524 target=2000
+  Waiting sync... 12s  min=420 max=1524 target=2000
+  Waiting sync... 14s  min=456 max=1780 target=2000
+  Waiting sync... 16s  min=456 max=1780 target=2000
+  Waiting sync... 18s  min=693 max=1780 target=2000
+  Waiting sync... 20s  min=693 max=1780 target=2000
+  Waiting sync... 22s  min=693 max=2000 target=2000
+  Waiting sync... 24s  min=790 max=2000 target=2000
+  Waiting sync... 26s  min=790 max=2000 target=2000
+  Waiting sync... 29s  min=790 max=2000 target=2000
+  Waiting sync... 31s  min=790 max=2000 target=2000
+  Waiting sync... 33s  min=790 max=2000 target=2000
+  Waiting sync... 35s  min=790 max=2000 target=2000
+  Waiting sync... 37s  min=790 max=2000 target=2000
+  Waiting sync... 39s  min=790 max=2000 target=2000
+  Waiting sync... 41s  min=790 max=2000 target=2000
+  Waiting sync... 43s  min=790 max=2000 target=2000
+  Waiting sync... 45s  min=790 max=2000 target=2000
+  Waiting sync... 47s  min=790 max=2000 target=2000
+  Waiting sync... 49s  min=790 max=2000 target=2000
+  Waiting sync... 51s  min=790 max=2000 target=2000
+  Waiting sync... 53s  min=790 max=2000 target=2000
+  Waiting sync... 55s  min=790 max=2000 target=2000
+  Waiting sync... 57s  min=790 max=2000 target=2000
+  Waiting sync... 59s  min=790 max=2000 target=2000
+  Waiting sync... 61s  min=790 max=2000 target=2000
+  Waiting sync... 63s  min=790 max=2000 target=2000
+  Waiting sync... 65s  min=790 max=2000 target=2000
+  Waiting sync... 67s  min=790 max=2000 target=2000
+  Waiting sync... 69s  min=790 max=2000 target=2000
+  Waiting sync... 71s  min=790 max=2000 target=2000
+  Waiting sync... 73s  min=790 max=2000 target=2000
+  Waiting sync... 75s  min=790 max=2000 target=2000
+  Waiting sync... 77s  min=790 max=2000 target=2000
+  Waiting sync... 79s  min=790 max=2000 target=2000
+  Waiting sync... 81s  min=790 max=2000 target=2000
+  Waiting sync... 83s  min=790 max=2000 target=2000
+  Waiting sync... 85s  min=790 max=2000 target=2000
+  Waiting sync... 87s  min=790 max=2000 target=2000
+  Waiting sync... 89s  min=790 max=2000 target=2000
+  Waiting sync... 91s  min=790 max=2000 target=2000
+  Waiting sync... 93s  min=790 max=2000 target=2000
+  Waiting sync... 95s  min=790 max=2000 target=2000
+  Waiting sync... 97s  min=790 max=2000 target=2000
+  Waiting sync... 99s  min=790 max=2000 target=2000
+  Sync converged at 101.0s — all peers at 2000
+  alice: 2000 messages [OK]
+  bob: 2000 messages [OK]
+  carol: 2000 messages [OK]
+  [PASS] All peers synced to 2000 messages
+
+Burst: 10 messages at 50ms...
+  Waiting for burst sync (expected 2010)...
+  Waiting sync... 0s  min=2002 max=2004 target=2010
+  Waiting sync... 2s  min=2002 max=2006 target=2010
+  Waiting sync... 5s  min=2006 max=2010 target=2010
+  Waiting sync... 7s  min=2006 max=2010 target=2010
+  Waiting sync... 9s  min=2006 max=2010 target=2010
+  Waiting sync... 11s  min=2006 max=2010 target=2010
+  Waiting sync... 13s  min=2006 max=2010 target=2010
+  Waiting sync... 15s  min=2006 max=2010 target=2010
+  Waiting sync... 17s  min=2006 max=2010 target=2010
+  Waiting sync... 19s  min=2006 max=2010 target=2010
+  Waiting sync... 21s  min=2006 max=2010 target=2010
+  Waiting sync... 23s  min=2006 max=2010 target=2010
+  Waiting sync... 25s  min=2006 max=2010 target=2010
+  Waiting sync... 27s  min=2006 max=2010 target=2010
+  Waiting sync... 29s  min=2006 max=2010 target=2010
+  Sync timeout after 30.9s
+  After burst (expected 2010):
+    alice: 2010
+    bob: 2006
+    carol: 2006
+
+================================================================
+  PERFORMANCE REPORT
+================================================================
+
+  Build: release
+  Git: cff2502a
+
+  Timeline:
+       16.3s (+ 16.3s)  setup_complete
+       16.4s (+  0.1s)  send_phase_start
+       19.0s (+  2.6s)  send_phase_done
+       19.0s (+  0.0s)  messages_start
+       23.3s (+  4.3s)  messages_done
+      124.3s (+101.0s)  sync_wait_done
+      156.3s (+ 32.0s)  test_complete
+
+  Message Throughput: 463.8 msg/sec
+  Total Messages: 2000
+  Duration: 4.3s
+
+  Memory Usage (peak):
+    alice       :    366 MB
+    bob         :    301 MB
+    carol       :    307 MB
+    node        :     69 MB
+
+  CPU Usage (avg):
+    alice       :  58.2%
+    bob         :  32.7%
+    carol       :  42.9%
+    node        :  27.9%
+
+  Memory Growth:
+    alice       : 354 -> 366 MB (+12 MB (0.01 MB/msg))
+    bob         : 289 -> 301 MB (+12 MB (0.01 MB/msg))
+    carol       : 297 -> 307 MB (+10 MB (0.01 MB/msg))
+    node        : 68 -> 69 MB (+2 MB (0.00 MB/msg))
+
+  Latency / Idle Metrics:
+    send_avg_latency_ms: 2.6ms
+    send_eval_p50_ms: 2.1ms
+    send_eval_p95_ms: 4.5ms
+    send_throughput_msg_per_sec: 381.4 msg/sec
+    sync_convergence_time_s: 101.0ms
+
+================================================================

@@ -9,10 +9,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use crate::state::{ScribeArgs, SyncConfig, SyncMode, SubscriberInfo};
+use crate::state::{PeerConnection, ScribeArgs, SyncConfig, SyncMode};
 use crate::storage::{
-    NullLayerStorage, NullPeerVectorStorage, NullPeerResolver,
-    LayerStorageRef, PeerVectorStorageRef,
+    LayerStorageRef, NullLayerStorage, NullPeerResolver, NullPeerVectorStorage,
+    PeerVectorStorageRef,
 };
 use crate::BroadcastPayload;
 use domains::Layer;
@@ -121,15 +121,15 @@ pub fn viewer_scribe_args(page_id: &str, sync_target: &str) -> ScribeArgs {
     }
 }
 
-// SubscriberInfo Builders
+// PeerConnection Builders
 
-/// Create a mock SubscriberInfo for testing
-pub fn mock_subscriber_info(permit: gurkha::Permit, subscriber_did: &str) -> SubscriberInfo {
+/// Create a mock PeerConnection for testing
+pub fn mock_subscriber_info(permit: gurkha::Permit, subscriber_did: &str) -> PeerConnection {
     let (tx, _rx) = mpsc::channel::<BroadcastPayload>(16);
     let is_visible = permit.is_visible();
     let can_see_others = permit.can_see_others();
     let display_name = permit.display_name().map(String::from);
-    SubscriberInfo {
+    PeerConnection {
         permit,
         subscriber_did: subscriber_did.to_string(),
         is_visible,
@@ -137,18 +137,17 @@ pub fn mock_subscriber_info(permit: gurkha::Permit, subscriber_did: &str) -> Sub
         display_name,
         broadcast_tx: tx,
         ephemeral_tx: None,
-        vectors: HashMap::new(),
     }
 }
 
 /// Create a subscriber with shop customer permit
-pub fn shop_customer_subscriber(page_id: &str, did: &str) -> SubscriberInfo {
+pub fn shop_customer_subscriber(page_id: &str, did: &str) -> PeerConnection {
     let permit = gurkha::test_fixtures::shop_customer(page_id, did);
     mock_subscriber_info(permit, did)
 }
 
 /// Create a subscriber with shop owner permit
-pub fn shop_owner_subscriber(page_id: &str, did: &str) -> SubscriberInfo {
+pub fn shop_owner_subscriber(page_id: &str, did: &str) -> PeerConnection {
     let permit = gurkha::test_fixtures::shop_owner(page_id, did);
     mock_subscriber_info(permit, did)
 }
@@ -161,7 +160,7 @@ pub fn test_broadcast_payload(page_id: &str, layer_name: &str) -> BroadcastPaylo
         page_id: page_id.to_string(),
         layer_name: layer_name.to_string(),
         layer_type: domains::LayerType::from_layer_name(layer_name),
-        update: vec![1, 2, 3, 4], // Dummy update bytes
+        update: vec![1, 2, 3, 4],       // Dummy update bytes
         state_vector: vec![0, 0, 0, 1], // Dummy state vector
     }
 }
@@ -186,20 +185,20 @@ pub fn broadcast_payload_with_data(
 
 use crate::EphemeralOutbound;
 
-/// Create a mock SubscriberInfo with ephemeral channel for testing ephemeral flow
+/// Create a mock PeerConnection with ephemeral channel for testing ephemeral flow
 ///
-/// Returns (SubscriberInfo, ephemeral_rx) so test can verify ephemerals arrive
+/// Returns (PeerConnection, ephemeral_rx) so test can verify ephemerals arrive
 pub fn mock_subscriber_with_ephemeral(
     permit: gurkha::Permit,
     subscriber_did: &str,
-) -> (SubscriberInfo, mpsc::Receiver<EphemeralOutbound>) {
+) -> (PeerConnection, mpsc::Receiver<EphemeralOutbound>) {
     let (broadcast_tx, _broadcast_rx) = mpsc::channel::<BroadcastPayload>(16);
     let (ephemeral_tx, ephemeral_rx) = mpsc::channel::<EphemeralOutbound>(16);
     let is_visible = permit.is_visible();
     let can_see_others = permit.can_see_others();
     let display_name = permit.display_name().map(String::from);
 
-    let info = SubscriberInfo {
+    let info = PeerConnection {
         permit,
         subscriber_did: subscriber_did.to_string(),
         is_visible,
@@ -207,7 +206,6 @@ pub fn mock_subscriber_with_ephemeral(
         display_name,
         broadcast_tx,
         ephemeral_tx: Some(ephemeral_tx),
-        vectors: HashMap::new(),
     };
 
     (info, ephemeral_rx)

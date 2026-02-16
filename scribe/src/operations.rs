@@ -9,12 +9,83 @@
 
 use tracing::{debug, info, instrument};
 
-use crate::{ScribeError, Result};
+use crate::{Result, ScribeError};
 use domains::json_to_loro_value;
 
-use crate::layer_unit::{LayerUnit, find_matching_dynamic_schema};
-use crate::state::ScribeState;
+use crate::layer_unit::{find_matching_dynamic_schema, LayerUnit};
 use crate::loro_observer;
+use crate::state::ScribeState;
+
+// Typed Read Operations (for Lua bindings - avoids stale handles)
+
+/// Handle ListGet - read a single item from a list container
+pub fn handle_list_get(
+    state: &ScribeState,
+    layer_name: &str,
+    index: usize,
+) -> Result<Option<serde_json::Value>> {
+    let layer = state
+        .units
+        .get(layer_name)
+        .map(|unit| unit.layer())
+        .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
+    let list = layer.loro().get_list(layer_name);
+    Ok(list.get(index).map(|v| {
+        let deep = v.get_deep_value();
+        domains::loro_value_to_json(deep)
+    }))
+}
+
+/// Handle ListLength - get the length of a list container
+pub fn handle_list_length(state: &ScribeState, layer_name: &str) -> Result<usize> {
+    let layer = state
+        .units
+        .get(layer_name)
+        .map(|unit| unit.layer())
+        .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
+    let list = layer.loro().get_list(layer_name);
+    Ok(list.len())
+}
+
+/// Handle MapGet - read a single value from a map container
+pub fn handle_map_get(
+    state: &ScribeState,
+    layer_name: &str,
+    key: &str,
+) -> Result<Option<serde_json::Value>> {
+    let layer = state
+        .units
+        .get(layer_name)
+        .map(|unit| unit.layer())
+        .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
+    let map = layer.loro().get_map(layer_name);
+    Ok(map.get(key).map(|v| {
+        let deep = v.get_deep_value();
+        domains::loro_value_to_json(deep)
+    }))
+}
+
+/// Handle MapLength - get the number of entries in a map container
+pub fn handle_map_length(state: &ScribeState, layer_name: &str) -> Result<usize> {
+    let layer = state
+        .units
+        .get(layer_name)
+        .map(|unit| unit.layer())
+        .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
+    let map = layer.loro().get_map(layer_name);
+    Ok(map.len())
+}
+
+/// Handle MapKeys - get all keys from a map container
+pub fn handle_map_keys(state: &ScribeState, layer_name: &str) -> Result<Vec<String>> {
+    let layer = state
+        .units
+        .get(layer_name)
+        .map(|unit| unit.layer())
+        .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
+    let map = layer.loro().get_map(layer_name);
+    Ok(map.keys().map(|k| k.to_string()).collect())
+}
 
 // Typed CRDT Operation Handlers
 
@@ -96,8 +167,19 @@ pub(crate) fn auto_subscribe_sync_target(state: &ScribeState, layer_name: &str) 
     }
 
     if let (Some(unit), Some(tx)) = (state.units.get(layer_name), broadcast_tx) {
-        let caps = crate::layer_unit::Capabilities { read: true, write: true, sync: true };
-        unit.add_subscriber(sync_target_did.clone(), caps, tx);
+        // Use device_id from global subscribers if available, otherwise empty string
+        // for logical sync targets
+        let device_id = state
+            .subscribers
+            .read()
+            .ok()
+            .and_then(|subs| {
+                subs.iter()
+                    .find(|((d, _), _)| d == &sync_target_did)
+                    .map(|((_, dev), _)| dev.clone())
+            })
+            .unwrap_or_default();
+        unit.add_subscriber(sync_target_did.clone(), device_id, true, tx);
         info!(layer = %layer_name, target = %sync_target_did, "Auto-subscribed sync_target to new layer");
     }
 }
@@ -118,7 +200,9 @@ pub async fn handle_list_push(
     // Ensure layer exists
     let is_new_layer = ensure_layer_exists(state, layer_name);
 
-    let unit = state.units.get_mut(layer_name)
+    let unit = state
+        .units
+        .get_mut(layer_name)
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
 
     if path.is_empty() {
@@ -130,7 +214,8 @@ pub async fn handle_list_push(
         unit.layer().commit();
     } else {
         // Template pattern: use root map with nested path
-        unit.layer().list_push(path, &item)
+        unit.layer()
+            .list_push(path, &item)
             .map_err(|e| ScribeError::CrdtError(format!("Layer: {}", e)))?;
     }
 
@@ -160,7 +245,9 @@ pub async fn handle_list_insert(
 
     let is_new_layer = ensure_layer_exists(state, layer_name);
 
-    let unit = state.units.get_mut(layer_name)
+    let unit = state
+        .units
+        .get_mut(layer_name)
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
 
     if path.is_empty() {
@@ -172,7 +259,8 @@ pub async fn handle_list_insert(
         unit.layer().commit();
     } else {
         // Template pattern: use root map with nested path
-        unit.layer().list_insert(path, index, &item)
+        unit.layer()
+            .list_insert(path, index, &item)
             .map_err(|e| ScribeError::CrdtError(format!("Layer: {}", e)))?;
     }
 
@@ -200,7 +288,9 @@ pub async fn handle_list_delete(
 
     let is_new_layer = ensure_layer_exists(state, layer_name);
 
-    let unit = state.units.get_mut(layer_name)
+    let unit = state
+        .units
+        .get_mut(layer_name)
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
 
     if path.is_empty() {
@@ -211,7 +301,8 @@ pub async fn handle_list_delete(
         unit.layer().commit();
     } else {
         // Template pattern: use root map with nested path
-        unit.layer().list_delete(path, index)
+        unit.layer()
+            .list_delete(path, index)
             .map_err(|e| ScribeError::CrdtError(format!("Layer: {}", e)))?;
     }
 
@@ -240,7 +331,9 @@ pub async fn handle_map_insert(
 
     let is_new_layer = ensure_layer_exists(state, layer_name);
 
-    let unit = state.units.get_mut(layer_name)
+    let unit = state
+        .units
+        .get_mut(layer_name)
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
 
     if path.is_empty() {
@@ -252,7 +345,8 @@ pub async fn handle_map_insert(
         unit.layer().commit();
     } else {
         // Template pattern: use root map with nested path
-        unit.layer().map_insert(path, key, &value)
+        unit.layer()
+            .map_insert(path, key, &value)
             .map_err(|e| ScribeError::CrdtError(format!("Layer: {}", e)))?;
     }
 
@@ -280,7 +374,9 @@ pub async fn handle_map_delete(
 
     let is_new_layer = ensure_layer_exists(state, layer_name);
 
-    let unit = state.units.get_mut(layer_name)
+    let unit = state
+        .units
+        .get_mut(layer_name)
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
 
     if path.is_empty() {
@@ -290,7 +386,8 @@ pub async fn handle_map_delete(
         unit.layer().commit();
     } else {
         // Template pattern: use root map with nested path
-        unit.layer().map_delete(path, key)
+        unit.layer()
+            .map_delete(path, key)
             .map_err(|e| ScribeError::CrdtError(format!("Layer: {}", e)))?;
     }
 
@@ -317,10 +414,13 @@ pub async fn handle_counter_inc(
 
     let is_new_layer = ensure_layer_exists(state, layer_name);
 
-    let unit = state.units.get_mut(layer_name)
+    let unit = state
+        .units
+        .get_mut(layer_name)
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
 
-    unit.layer().counter_inc(path, amount)
+    unit.layer()
+        .counter_inc(path, amount)
         .map_err(|e| ScribeError::CrdtError(format!("Layer: {}", e)))?;
 
     unit.mark_dirty();

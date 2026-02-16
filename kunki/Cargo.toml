@@ -27,6 +27,7 @@ transport = { path = "../transport" }
 courier = { path = "../courier" }
 control_server = { path = "../control_server", features = ["butler"] }
 lua_runtime = { path = "../lua_runtime" }
+domains = { path = "../domains" }
 
 # CLI and async runtime
 clap = { version = "4.5.40", features = ["derive"] }

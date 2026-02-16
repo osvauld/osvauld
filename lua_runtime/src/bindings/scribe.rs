@@ -388,24 +388,8 @@ impl UserData for ScribeBindings {
 
                 // Perform initial sync
                 if is_wildcard {
-                    // For wildcards, list matching layers and aggregate data
-                    let layer_names = this
-                        .scribe
-                        .list_layers(&expanded_pattern)
-                        .map_err(|e| LuaError::RuntimeError(e))?;
-
-                    let mut aggregated_data = Vec::new();
-                    for name in &layer_names {
-                        if let Ok(data) = fetch_layer_data(&this.scribe, name) {
-                            if let serde_json::Value::Array(items) = data {
-                                for item in items {
-                                    aggregated_data.push(item);
-                                }
-                            }
-                        }
-                    }
-
-                    let aggregated_json = serde_json::Value::Array(aggregated_data);
+                    let aggregated_json =
+                        aggregate_wildcard_layers(&this.scribe, &expanded_pattern)?;
                     sync_binding_to_ui(lua, this, &ui_property, &aggregated_json, None)?;
                 } else {
                     // For exact patterns, fetch and sync single layer
@@ -474,23 +458,8 @@ impl UserData for ScribeBindings {
 
                 // Fetch and sync new layer's data
                 if is_wildcard {
-                    let layer_names = this
-                        .scribe
-                        .list_layers(&expanded_pattern)
-                        .map_err(|e| LuaError::RuntimeError(e))?;
-
-                    let mut aggregated_data = Vec::new();
-                    for name in &layer_names {
-                        if let Ok(data) = fetch_layer_data(&this.scribe, name) {
-                            if let serde_json::Value::Array(items) = data {
-                                for item in items {
-                                    aggregated_data.push(item);
-                                }
-                            }
-                        }
-                    }
-
-                    let aggregated_json = serde_json::Value::Array(aggregated_data);
+                    let aggregated_json =
+                        aggregate_wildcard_layers(&this.scribe, &expanded_pattern)?;
                     sync_binding_to_ui(lua, this, &ui_property, &aggregated_json, None)?;
                 } else {
                     if let Ok(data) = fetch_layer_data(&this.scribe, &expanded_pattern) {
@@ -513,6 +482,24 @@ fn fetch_layer_data(
         Some(data) => Ok(data),
         None => Ok(serde_json::Value::Array(vec![])),
     }
+}
+
+fn aggregate_wildcard_layers(
+    scribe: &Arc<dyn ScribeHandle>,
+    expanded_pattern: &str,
+) -> LuaResult<serde_json::Value> {
+    let layer_names = scribe
+        .list_layers(expanded_pattern)
+        .map_err(LuaError::RuntimeError)?;
+
+    let mut aggregated_data = Vec::new();
+    for name in &layer_names {
+        if let Ok(serde_json::Value::Array(items)) = fetch_layer_data(scribe, name) {
+            aggregated_data.extend(items);
+        }
+    }
+
+    Ok(serde_json::Value::Array(aggregated_data))
 }
 
 /// Sync binding data to UI after processing through transform/sort/filter

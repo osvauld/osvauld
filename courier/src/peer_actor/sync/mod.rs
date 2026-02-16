@@ -22,6 +22,6 @@
 //!
 //! Authorization logic lives in app code (signed by owner, trusted).
 
-mod space_request;
 mod protocol;
+mod space_request;
 mod subscription;

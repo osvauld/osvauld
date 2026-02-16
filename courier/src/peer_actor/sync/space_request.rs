@@ -459,6 +459,28 @@ impl<C: Connection> PeerActor<C> {
             }
         }
 
+        // Track expected page permits for ViewerSyncComplete event
+        let expected_page_ids: Vec<String> = pages.iter().map(|p| p.id.clone()).collect();
+        state.viewer_initial_sync.insert(
+            space_id.to_string(),
+            (expected_page_ids.clone(), std::collections::HashSet::new()),
+        );
+
+        // Notify coordinator that viewer received space metadata
+        if let Err(e) = state
+            .coordinator
+            .cast(crate::coordinator::CoordinatorMessage::ViewerSpaceReceived {
+                node_id: self.node_id,
+                space: butler_space.clone(),
+                page_count: pages.len(),
+            })
+        {
+            warn!(
+                "Failed to notify coordinator of ViewerSpaceReceived: {:?}",
+                e
+            );
+        }
+
         // Issue space consent permit immediately after receiving space
         self.issue_space_consent(
             space_id,
@@ -477,7 +499,7 @@ impl<C: Connection> PeerActor<C> {
 
         self.send_message(&msg, state).await;
         info!(
-            "Sent SpaceDataAck for space {}, waiting for {} pages",
+            "Sent SpaceDataAck for space {}, waiting for {} page permits",
             space_id,
             pages.len()
         );

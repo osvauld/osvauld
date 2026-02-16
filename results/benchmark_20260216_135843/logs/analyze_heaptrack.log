@@ -1,0 +1,151 @@
+================================================================
+  HEAPTRACK ANALYSIS
+================================================================
+
+  Analyzing alice.heaptrack...
+
+  alice.heaptrack
+  ============================================================
+  Peak heap: 90.46M
+  Peak RSS:  293.43M
+  Leaked:    58.68M
+  Runtime:   94.5s
+  Allocs:    20,616,334 (218,086/s)
+
+  Peak Memory by Subsystem:
+  Subsystem                Peak     Calls
+  ---------------- ------------  --------
+  argon2               67.11 MB         3
+  glutin                1.65 MB     36190
+  fontique            289.77 KB    270590
+  tokio                    19 B   5073721
+
+  Leaked Memory by Subsystem:
+  Subsystem              Leaked     Calls
+  ---------------- ------------  --------
+  slint                19.85 MB     75495
+  femtovg              19.85 MB     75495
+  wayland              19.85 MB     75495
+  glutin                3.18 MB     36190
+  redb                  3.06 MB       342
+  iroh                  3.02 MB         5
+  tokio                 3.02 MB         5
+  quinn                 3.02 MB         5
+  loro                  1.15 MB      4513
+  ractor                1.09 MB      1613
+  mlua                350.08 KB    735862
+  fontique            331.97 KB       115
+  serde_json           13.27 KB      2394
+
+  Analyzing bob.heaptrack...
+
+  bob.heaptrack
+  ============================================================
+  Peak heap: 90.46M
+  Peak RSS:  248.91M
+  Leaked:    66.79M
+  Runtime:   94.1s
+  Allocs:    22,339,618 (237,430/s)
+
+  Peak Memory by Subsystem:
+  Subsystem                Peak     Calls
+  ---------------- ------------  --------
+  argon2               67.11 MB         3
+  glutin                1.65 MB     36192
+  fontique            289.77 KB    307143
+  slint                 6.75 KB   1440494
+  wayland               6.50 KB   1082875
+  femtovg               6.21 KB   1101304
+  tokio                    17 B   5082713
+
+  Leaked Memory by Subsystem:
+  Subsystem              Leaked     Calls
+  ---------------- ------------  --------
+  slint                19.88 MB     76456
+  femtovg              19.88 MB     76456
+  wayland              19.88 MB     75537
+  glutin                3.18 MB     36192
+  redb                  3.06 MB       342
+  iroh                  3.02 MB         5
+  tokio                 3.02 MB         5
+  quinn                 3.02 MB         5
+  loro                  1.04 MB    400873
+  ractor              766.44 KB      8580
+  mlua                347.14 KB    761479
+  fontique            331.97 KB       115
+  serde_json          313.77 KB    131167
+
+  Analyzing carol.heaptrack...
+
+  carol.heaptrack
+  ============================================================
+  Peak heap: 90.46M
+  Peak RSS:  245.49M
+  Leaked:    58.19M
+  Runtime:   93.7s
+  Allocs:    19,952,331 (212,942/s)
+
+  Peak Memory by Subsystem:
+  Subsystem                Peak     Calls
+  ---------------- ------------  --------
+  argon2               67.11 MB         3
+  glutin                1.65 MB     36192
+  slint               289.77 KB    269401
+  fontique            289.77 KB    270590
+  tokio                    19 B   5035749
+
+  Leaked Memory by Subsystem:
+  Subsystem              Leaked     Calls
+  ---------------- ------------  --------
+  slint                19.85 MB     75494
+  femtovg              19.85 MB     75494
+  wayland              19.85 MB     75494
+  glutin                3.18 MB     36192
+  redb                  3.06 MB       342
+  iroh                  3.02 MB         5
+  tokio                 3.02 MB         5
+  quinn                 3.02 MB         5
+  loro                  1.04 MB    396229
+  ractor              766.24 KB      8531
+  fontique            331.97 KB       115
+  mlua                321.82 KB    863896
+  serde_json           52.42 KB    129294
+
+  Analyzing node.heaptrack...
+
+  node.heaptrack
+  ============================================================
+  Peak heap: 67.49M
+  Peak RSS:  91.18M
+  Leaked:    13.79M
+  Runtime:   94.0s
+  Allocs:    18,301,598 (194,594/s)
+
+  Peak Memory by Subsystem:
+  Subsystem                Peak     Calls
+  ---------------- ------------  --------
+  argon2               67.11 MB         1
+  tokio                   535 B   5957721
+
+  Leaked Memory by Subsystem:
+  Subsystem              Leaked     Calls
+  ---------------- ------------  --------
+  iroh                  3.02 MB         5
+  tokio                 3.02 MB         5
+  quinn                 3.02 MB         5
+  loro                  1.04 MB    405268
+  ractor              854.88 KB     13982
+  mlua                225.24 KB      6943
+  redb                168.43 KB     12392
+  serde_json           13.27 KB    139567
+
+  ============================================================
+  SUMMARY
+  Instance        Peak Heap       Leaked       Allocs
+  ------------ ------------ ------------ ------------
+  alice.heaptrack       90.46M       58.68M   20,616,334
+  bob.heaptrack       90.46M       66.79M   22,339,618
+  carol.heaptrack       90.46M       58.19M   19,952,331
+  node.heaptrack       67.49M       13.79M   18,301,598
+
+  Results saved to: /home/abe/osvauld/results/benchmark_20260216_135843/heap_analysis.json

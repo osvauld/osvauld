@@ -4,7 +4,7 @@
 //! Provides: Canvas bindings for immediate-mode drawing
 
 use butler::{Butler, ScribeMessage};
-use lua_runtime::{ScribeBindings, ActorScribeHandle, json_to_lua};
+use lua_runtime::{json_to_lua, ActorScribeHandle, ScribeBindings};
 use mlua::{Function, Lua, Table};
 use ractor::ActorRef;
 use raylib::prelude::*;
@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
-use crate::canvas_bindings::{DrawCommand, parse_color};
+use crate::canvas_bindings::{parse_color, DrawCommand};
 
 /// Game loop state
 pub struct GameLoop {
@@ -101,47 +101,81 @@ impl GameLoop {
 
         // canvas:clear(color)
         let cmds = self.draw_commands.clone();
-        let clear_fn = self.lua.create_function(move |_, (_self, color): (mlua::Value, String)| {
-            let color = parse_color(&color);
-            cmds.lock().unwrap().push(DrawCommand::Clear { color });
-            Ok(())
-        })?;
+        let clear_fn =
+            self.lua
+                .create_function(move |_, (_self, color): (mlua::Value, String)| {
+                    let color = parse_color(&color);
+                    cmds.lock().unwrap().push(DrawCommand::Clear { color });
+                    Ok(())
+                })?;
         canvas.set("clear", clear_fn)?;
 
         // canvas:rect(x, y, w, h, color)
         let cmds = self.draw_commands.clone();
-        let rect_fn = self.lua.create_function(move |_, (_self, x, y, w, h, color): (mlua::Value, f32, f32, f32, f32, String)| {
-            let color = parse_color(&color);
-            cmds.lock().unwrap().push(DrawCommand::Rect { x, y, w, h, color });
-            Ok(())
-        })?;
+        let rect_fn = self.lua.create_function(
+            move |_, (_self, x, y, w, h, color): (mlua::Value, f32, f32, f32, f32, String)| {
+                let color = parse_color(&color);
+                cmds.lock()
+                    .unwrap()
+                    .push(DrawCommand::Rect { x, y, w, h, color });
+                Ok(())
+            },
+        )?;
         canvas.set("rect", rect_fn)?;
 
         // canvas:circle(x, y, r, color)
         let cmds = self.draw_commands.clone();
-        let circle_fn = self.lua.create_function(move |_, (_self, x, y, r, color): (mlua::Value, f32, f32, f32, String)| {
-            let color = parse_color(&color);
-            cmds.lock().unwrap().push(DrawCommand::Circle { x, y, r, color });
-            Ok(())
-        })?;
+        let circle_fn = self.lua.create_function(
+            move |_, (_self, x, y, r, color): (mlua::Value, f32, f32, f32, String)| {
+                let color = parse_color(&color);
+                cmds.lock()
+                    .unwrap()
+                    .push(DrawCommand::Circle { x, y, r, color });
+                Ok(())
+            },
+        )?;
         canvas.set("circle", circle_fn)?;
 
         // canvas:text(x, y, text, size, color)
         let cmds = self.draw_commands.clone();
-        let text_fn = self.lua.create_function(move |_, (_self, x, y, text, size, color): (mlua::Value, f32, f32, String, f32, String)| {
-            let color = parse_color(&color);
-            cmds.lock().unwrap().push(DrawCommand::Text { x, y, text, size, color });
-            Ok(())
-        })?;
+        let text_fn = self.lua.create_function(
+            move |_,
+                  (_self, x, y, text, size, color): (
+                mlua::Value,
+                f32,
+                f32,
+                String,
+                f32,
+                String,
+            )| {
+                let color = parse_color(&color);
+                cmds.lock().unwrap().push(DrawCommand::Text {
+                    x,
+                    y,
+                    text,
+                    size,
+                    color,
+                });
+                Ok(())
+            },
+        )?;
         canvas.set("text", text_fn)?;
 
         // canvas:line(x1, y1, x2, y2, color)
         let cmds = self.draw_commands.clone();
-        let line_fn = self.lua.create_function(move |_, (_self, x1, y1, x2, y2, color): (mlua::Value, f32, f32, f32, f32, String)| {
-            let color = parse_color(&color);
-            cmds.lock().unwrap().push(DrawCommand::Line { x1, y1, x2, y2, color });
-            Ok(())
-        })?;
+        let line_fn = self.lua.create_function(
+            move |_, (_self, x1, y1, x2, y2, color): (mlua::Value, f32, f32, f32, f32, String)| {
+                let color = parse_color(&color);
+                cmds.lock().unwrap().push(DrawCommand::Line {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    color,
+                });
+                Ok(())
+            },
+        )?;
         canvas.set("line", line_fn)?;
 
         globals.set("canvas", canvas)?;
@@ -151,9 +185,9 @@ impl GameLoop {
 
         // input:key_down(key) - will be populated in handle_input
         // Note: Using colon syntax (input:key_down) passes self as first arg
-        let key_down_fn = self.lua.create_function(|_, (_self, _key): (mlua::Value, String)| {
-            Ok(false)
-        })?;
+        let key_down_fn = self
+            .lua
+            .create_function(|_, (_self, _key): (mlua::Value, String)| Ok(false))?;
         input.set("key_down", key_down_fn)?;
 
         globals.set("input", input)?;
@@ -175,7 +209,10 @@ impl GameLoop {
         key_states.insert("right".to_string(), rl.is_key_down(KeyboardKey::KEY_RIGHT));
         key_states.insert("space".to_string(), rl.is_key_down(KeyboardKey::KEY_SPACE));
         key_states.insert("enter".to_string(), rl.is_key_down(KeyboardKey::KEY_ENTER));
-        key_states.insert("escape".to_string(), rl.is_key_down(KeyboardKey::KEY_ESCAPE));
+        key_states.insert(
+            "escape".to_string(),
+            rl.is_key_down(KeyboardKey::KEY_ESCAPE),
+        );
         key_states.insert("r".to_string(), rl.is_key_down(KeyboardKey::KEY_R));
 
         // Update input bindings based on current key state
@@ -183,18 +220,32 @@ impl GameLoop {
         if let Ok(input) = globals.get::<Table>("input") {
             // Create closure that captures the polled key states
             // Note: Using colon syntax (input:key_down) passes self as first arg
-            let key_down_fn = self.lua.create_function(move |_, (_self, key): (mlua::Value, String)| {
-                let key_lower = key.to_lowercase();
-                // Check for combined keys (w/up, s/down, etc.)
-                let is_down = match key_lower.as_str() {
-                    "w" | "up" => *key_states.get("w").unwrap_or(&false) || *key_states.get("up").unwrap_or(&false),
-                    "s" | "down" => *key_states.get("s").unwrap_or(&false) || *key_states.get("down").unwrap_or(&false),
-                    "a" | "left" => *key_states.get("a").unwrap_or(&false) || *key_states.get("left").unwrap_or(&false),
-                    "d" | "right" => *key_states.get("d").unwrap_or(&false) || *key_states.get("right").unwrap_or(&false),
-                    _ => *key_states.get(&key_lower).unwrap_or(&false),
-                };
-                Ok(is_down)
-            });
+            let key_down_fn =
+                self.lua
+                    .create_function(move |_, (_self, key): (mlua::Value, String)| {
+                        let key_lower = key.to_lowercase();
+                        // Check for combined keys (w/up, s/down, etc.)
+                        let is_down = match key_lower.as_str() {
+                            "w" | "up" => {
+                                *key_states.get("w").unwrap_or(&false)
+                                    || *key_states.get("up").unwrap_or(&false)
+                            }
+                            "s" | "down" => {
+                                *key_states.get("s").unwrap_or(&false)
+                                    || *key_states.get("down").unwrap_or(&false)
+                            }
+                            "a" | "left" => {
+                                *key_states.get("a").unwrap_or(&false)
+                                    || *key_states.get("left").unwrap_or(&false)
+                            }
+                            "d" | "right" => {
+                                *key_states.get("d").unwrap_or(&false)
+                                    || *key_states.get("right").unwrap_or(&false)
+                            }
+                            _ => *key_states.get(&key_lower).unwrap_or(&false),
+                        };
+                        Ok(is_down)
+                    });
             if let Ok(key_fn) = key_down_fn {
                 let _ = input.set("key_down", key_fn);
             }
@@ -236,10 +287,22 @@ impl GameLoop {
                 DrawCommand::Circle { x, y, r, color } => {
                     d.draw_circle(x as i32, y as i32, r, color);
                 }
-                DrawCommand::Text { x, y, text, size, color } => {
+                DrawCommand::Text {
+                    x,
+                    y,
+                    text,
+                    size,
+                    color,
+                } => {
                     d.draw_text(&text, x as i32, y as i32, size as i32, color);
                 }
-                DrawCommand::Line { x1, y1, x2, y2, color } => {
+                DrawCommand::Line {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    color,
+                } => {
                     d.draw_line(x1 as i32, y1 as i32, x2 as i32, y2 as i32, color);
                 }
             }
@@ -257,11 +320,19 @@ impl GameLoop {
     pub fn process_sync_updates(&mut self) {
         while let Ok(update) = self.page_update_rx.try_recv() {
             match update {
-                PageUpdate::StructuredEphemeral { from_did, func, args } => {
+                PageUpdate::StructuredEphemeral {
+                    from_did,
+                    func,
+                    args,
+                } => {
                     if let Ok(on_ephemeral) = self.lua.globals().get::<Function>("on_ephemeral") {
                         match json_to_lua(&self.lua, &args) {
                             Ok(args_lua) => {
-                                if let Err(e) = on_ephemeral.call::<()>((from_did.clone(), func.clone(), args_lua)) {
+                                if let Err(e) = on_ephemeral.call::<()>((
+                                    from_did.clone(),
+                                    func.clone(),
+                                    args_lua,
+                                )) {
                                     tracing::warn!(error = %e, func = %func, "Error calling on_ephemeral");
                                 }
                             }
@@ -272,7 +343,8 @@ impl GameLoop {
                     }
                 }
                 PageUpdate::PeerSubscribed { did, .. } => {
-                    if let Ok(on_peer_joined) = self.lua.globals().get::<Function>("on_peer_joined") {
+                    if let Ok(on_peer_joined) = self.lua.globals().get::<Function>("on_peer_joined")
+                    {
                         if let Err(e) = on_peer_joined.call::<()>(did.clone()) {
                             tracing::warn!(error = %e, did = %did, "Error calling on_peer_joined");
                         }

@@ -41,8 +41,8 @@
 //!     user_role: "viewer".into(),
 //!     ui_enabled: false,  // true for shell
 //!     ui_tx: None,
-//!     cmd_rx,
-//!     tick_enabled: false,
+//!     query_tx: None,
+//!     navigate_tx: None,
 //! };
 //!
 //! let mut runtime = LuaRuntime::new(config).await?;
@@ -76,7 +76,7 @@ pub use runtime::{BufferedUiState, LuaRuntime, LuaRuntimeConfig, StepResult};
 pub use scribe_handle::{ActorScribeHandle, ScribeHandle};
 
 // Re-export binding types (public API only)
-pub use bindings::{json_to_lua, ScribeBindings};
+pub use bindings::{json_to_lua, lua_to_json_err, ScribeBindings};
 
 // Re-export UI types
 pub use ui_types::{PropertyUpdate, UiMutation, UiQuery, VecModelOp};

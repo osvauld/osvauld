@@ -16,12 +16,13 @@ pub struct EmojiBindings;
 impl UserData for EmojiBindings {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // emoji:get(shortcode) -> Unicode emoji string or nil
-        methods.add_method("get", |lua, _this, shortcode: String| {
-            match emojis::get_by_shortcode(&shortcode) {
+        methods.add_method(
+            "get",
+            |lua, _this, shortcode: String| match emojis::get_by_shortcode(&shortcode) {
                 Some(emoji) => Ok(LuaValue::String(lua.create_string(emoji.as_str())?)),
                 None => Ok(LuaValue::Nil),
-            }
-        });
+            },
+        );
 
         // emoji:name(unicode) -> emoji name string or nil
         methods.add_method("name", |lua, _this, unicode: String| {
@@ -42,10 +43,7 @@ impl UserData for EmojiBindings {
                     break;
                 }
 
-                let name_matches = emoji
-                    .name()
-                    .to_lowercase()
-                    .contains(&query.to_lowercase());
+                let name_matches = emoji.name().to_lowercase().contains(&query.to_lowercase());
                 let shortcode_matches = emoji
                     .shortcode()
                     .map(|s| s.to_lowercase().contains(&query.to_lowercase()))

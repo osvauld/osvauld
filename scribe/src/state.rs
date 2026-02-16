@@ -224,6 +224,11 @@ pub struct ScribeState {
     /// **Context**: Set when is_node=true and entry_node found in manifest
     /// **Usage**: Send () to shutdown the tick loop
     pub node_script_shutdown: Option<mpsc::Sender<()>>,
+
+    /// Cached peer roles (peer_did → role string)
+    /// **Context**: `get_peer_role` does a redb read + UCAN parse per call.
+    /// Role is static for a peer's session, so caching avoids 12% CPU overhead.
+    pub peer_role_cache: HashMap<String, String>,
 }
 
 /// Arguments for spawning Scribe

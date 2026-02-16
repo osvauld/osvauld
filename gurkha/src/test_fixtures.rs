@@ -32,7 +32,8 @@ pub fn load_template(filename: &str) -> Value {
 /// * `audience` - DID of the permit holder
 pub fn create_permit(filename: &str, role: &str, page_id: &str, audience: &str) -> Permit {
     let template = load_template(filename);
-    let role_template = template[role].as_object()
+    let role_template = template[role]
+        .as_object()
         .unwrap_or_else(|| panic!("Missing role '{}' in {}", role, filename));
 
     // Build facts from template
@@ -55,11 +56,11 @@ pub fn create_permit(filename: &str, role: &str, page_id: &str, audience: &str) 
     let (token, _cid) = pollster::block_on(generate_permit_with_cid(
         &TEST_KEY,
         audience,
-        vec![],              // No capabilities (facts-only architecture)
+        vec![], // No capabilities (facts-only architecture)
         Some(facts),
-        None,                // No expiry
-        vec![],              // No proofs
-        HashMap::new(),      // No proof tokens
+        None,           // No expiry
+        vec![],         // No proofs
+        HashMap::new(), // No proof tokens
     ))
     .expect("Failed to create test permit");
 
@@ -72,7 +73,8 @@ pub fn create_permit(filename: &str, role: &str, page_id: &str, audience: &str) 
 /// Useful for tests that need to pass the token to Subscribe messages.
 pub fn create_permit_token(filename: &str, role: &str, page_id: &str, audience: &str) -> String {
     let template = load_template(filename);
-    let role_template = template[role].as_object()
+    let role_template = template[role]
+        .as_object()
         .unwrap_or_else(|| panic!("Missing role '{}' in {}", role, filename));
 
     // Build facts from template
@@ -95,11 +97,11 @@ pub fn create_permit_token(filename: &str, role: &str, page_id: &str, audience: 
     let (token, _cid) = pollster::block_on(generate_permit_with_cid(
         &TEST_KEY,
         audience,
-        vec![],              // No capabilities (facts-only architecture)
+        vec![], // No capabilities (facts-only architecture)
         Some(facts),
-        None,                // No expiry
-        vec![],              // No proofs
-        HashMap::new(),      // No proof tokens
+        None,           // No expiry
+        vec![],         // No proofs
+        HashMap::new(), // No proof tokens
     ))
     .expect("Failed to create test permit");
 

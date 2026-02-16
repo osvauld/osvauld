@@ -24,23 +24,21 @@ pub async fn broadcast_update(
     let layer = unit.layer().clone();
     let sender_did = from_peer.map(|(did, _)| did.as_str());
 
-    let mut to_remove: Vec<String> = Vec::new();
+    let mut to_remove: Vec<(String, String)> = Vec::new();
 
     if let Ok(mut layer_subs) = unit.subscribers().write() {
-        for (did, sub) in layer_subs.iter_mut() {
+        for ((user_did, device_id), sub) in layer_subs.iter_mut() {
             // Skip sender
-            if sender_did == Some(did.as_str()) {
-                state.emit_broadcast_decision_capture(layer_name, did, "skip_sender");
+            if sender_did == Some(user_did.as_str()) {
+                state.emit_broadcast_decision_capture(layer_name, user_did, "skip_sender");
                 continue;
             }
 
-            if !sub.capabilities.read {
-                state.emit_broadcast_decision_capture(layer_name, did, "no_read_capability");
-                continue;
-            }
+            // Presence in subscriber map = can read (no separate capability check)
 
             let update = if !sub.version_vector.is_empty() {
-                layer.export_updates(&sub.version_vector)
+                layer
+                    .export_updates(&sub.version_vector)
                     .unwrap_or_else(|_| layer.export_snapshot())
             } else {
                 layer.export_snapshot()
@@ -59,18 +57,18 @@ pub async fn broadcast_update(
                     sub.version_vector = current_vector.clone();
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
-                    info!(user_did = %did, "Layer subscriber disconnected, removing");
-                    to_remove.push(did.clone());
+                    info!(user_did = %user_did, device_id = %device_id, "Layer subscriber disconnected, removing");
+                    to_remove.push((user_did.clone(), device_id.clone()));
                 }
                 Err(mpsc::error::TrySendError::Full(_)) => {
-                    warn!(user_did = %did, "Broadcast channel full, update dropped");
+                    warn!(user_did = %user_did, device_id = %device_id, "Broadcast channel full, update dropped");
                 }
             }
         }
 
-        for did in &to_remove {
-            layer_subs.remove(did);
-            debug!(user_did = %did, layer = %layer_name, "Removed disconnected layer subscriber");
+        for key in &to_remove {
+            layer_subs.remove(key);
+            debug!(user_did = %key.0, device_id = %key.1, layer = %layer_name, "Removed disconnected layer subscriber");
         }
     }
 
@@ -91,11 +89,15 @@ pub fn notify_layer_discovered(state: &ScribeState, layer_name: &str) {
         debug!(layer = %layer_name, "Skipping notify_layer_discovered for protocol layer");
         return;
     }
-    let full_data = state.units.get(layer_name)
+    let full_data = state
+        .units
+        .get(layer_name)
         .map(|unit| unit.layer().get_content(layer_name))
         .unwrap_or(serde_json::Value::Null);
 
-    let state_vector = state.units.get(layer_name)
+    let state_vector = state
+        .units
+        .get(layer_name)
         .map(|unit| unit.layer().version_vector())
         .unwrap_or_default();
 

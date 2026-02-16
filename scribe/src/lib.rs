@@ -25,19 +25,19 @@
 // Core modules
 pub mod error;
 pub mod message;
-pub mod validation_handle;
 pub mod storage;
+pub mod validation_handle;
 
 // Actor modules
 pub mod actor;
-pub mod state;
-pub mod permit;
-pub mod query;
-pub mod operations;
-pub mod loro_observer;
-pub mod sync;
 pub mod ephemeral;
 pub mod layer_unit;
+pub mod loro_observer;
+pub mod operations;
+pub mod permit;
+pub mod query;
+pub mod state;
+pub mod sync;
 
 // Test infrastructure (only compiled in test mode)
 #[cfg(test)]
@@ -47,31 +47,25 @@ pub mod test_strategies;
 
 // Re-export common types
 pub use message::{
-    BroadcastPayload, EphemeralBroadcast, EphemeralOutbound,
-    LoroDelta, ListOp,
-    PageUpdate, PageUpdateTx, SyncEvent,
-    ScribeMessage,
+    BroadcastPayload, EphemeralBroadcast, EphemeralOutbound, ListOp, LoroDelta, PageUpdate,
+    PageUpdateTx, ScribeMessage, SyncEvent,
 };
 
 // JsonOp comes from domains (Layer::extract_ops_from_bytes)
 pub use domains::JsonOp;
 pub use validation_handle::{ValidationHandle, ValidationRequest};
 
-
-pub use error::{ScribeError, Result};
+pub use error::{Result, ScribeError};
 
 // Storage traits
 pub use storage::{
-    LayerStorage, PeerVectorStorage, PeerResolver, PermitIssuer,
-    LayerStorageRef, PeerVectorStorageRef, PeerResolverRef, PermitIssuerRef,
-    NullLayerStorage, NullPeerVectorStorage, NullPeerResolver, NullPermitIssuer,
+    LayerStorage, LayerStorageRef, NullLayerStorage, NullPeerResolver, NullPeerVectorStorage,
+    NullPermitIssuer, PeerResolver, PeerResolverRef, PeerVectorStorage, PeerVectorStorageRef,
+    PermitIssuer, PermitIssuerRef,
 };
 
 // Actor and state types
 pub use actor::Scribe;
-pub use state::{
-    ScribeState, ScribeArgs, SyncConfig, SyncMode,
-    SubscriberInfo, QuerySubscriberInfo,
-};
-pub use layer_unit::{LayerUnit, Capabilities, LayerConfig, LayerSubscriber};
-pub use permit::{Permissions, glob_match};
+pub use layer_unit::{LayerConfig, LayerSubscriber, LayerUnit};
+pub use permit::{glob_match, Permissions};
+pub use state::{PeerConnection, ScribeArgs, ScribeState, SyncConfig, SyncMode};

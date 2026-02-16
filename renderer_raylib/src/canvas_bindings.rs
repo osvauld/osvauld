@@ -7,11 +7,36 @@ use raylib::prelude::*;
 /// Draw command types collected from Lua and executed by the renderer
 #[derive(Debug, Clone)]
 pub enum DrawCommand {
-    Clear { color: Color },
-    Rect { x: f32, y: f32, w: f32, h: f32, color: Color },
-    Circle { x: f32, y: f32, r: f32, color: Color },
-    Text { x: f32, y: f32, text: String, size: f32, color: Color },
-    Line { x1: f32, y1: f32, x2: f32, y2: f32, color: Color },
+    Clear {
+        color: Color,
+    },
+    Rect {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        color: Color,
+    },
+    Circle {
+        x: f32,
+        y: f32,
+        r: f32,
+        color: Color,
+    },
+    Text {
+        x: f32,
+        y: f32,
+        text: String,
+        size: f32,
+        color: Color,
+    },
+    Line {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        color: Color,
+    },
 }
 
 /// Parse hex color string to Raylib Color

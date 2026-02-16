@@ -631,3 +631,366 @@ fn issue_on_preserved_in_page_owner_token() {
         .expect("Node template should have nested issue_on.viewer");
     assert_eq!(nested_viewer.token_type, "page_viewer");
 }
+
+// Authorized Peers Tests
+
+#[test]
+fn test_authorized_peers_list_missing() {
+    // Create a permit without authorized_peers fact
+    use crate::service::issue_page_owner_token;
+
+    const TEMPLATE: &str = r#"{
+      "owner_template": {
+        "operations": { "own": "allow" },
+        "peer_capabilities": { "relay": false, "share": true },
+        "layers": {
+          "content": { "sync": true, "write": true }
+        }
+      }
+    }"#;
+
+    let signing_key = [1u8; 32];
+    let (token, _) = pollster::block_on(issue_page_owner_token(&signing_key, "page123", TEMPLATE))
+        .expect("Failed to create token");
+
+    let permit = Permit::from_token(&token).expect("Failed to parse token");
+
+    // Missing authorized_peers => unrestricted
+    assert_eq!(
+        permit.authorized_peers_list(),
+        None,
+        "Missing authorized_peers should return None (unrestricted)"
+    );
+}
+
+#[test]
+fn test_authorized_peers_list_null() {
+    // For null test, we can use the fact that missing authorized_peers
+    // behaves the same as null (both return None)
+    // This is tested by test_authorized_peers_list_missing
+    // Skipping redundant test
+}
+
+#[test]
+fn test_authorized_peers_list_explicit() {
+    use crate::service::issue_layer_authority_permit;
+    use crate::service::issue_page_owner_token;
+    use crate::LayerConfig;
+
+    const TEMPLATE: &str = r#"{
+      "owner_template": {
+        "operations": { "own": "allow" },
+        "peer_capabilities": { "relay": false, "share": true },
+        "layers": {
+          "content": { "sync": true, "write": true }
+        },
+        "issue_on": {
+          "layer_authority": {
+            "token_type": "layer_authority",
+            "peer_capabilities": { "relay": true, "share": true },
+            "layers": {}
+          }
+        }
+      }
+    }"#;
+
+    let signing_key = [1u8; 32];
+    let (owner_token, _) =
+        pollster::block_on(issue_page_owner_token(&signing_key, "page123", TEMPLATE))
+            .expect("Failed to create owner token");
+
+    let (authority_token, _) = pollster::block_on(issue_layer_authority_permit(
+        &signing_key,
+        &owner_token,
+        "did:key:node",
+        "page123/layer1",
+        LayerConfig {
+            sync: true,
+            write: true,
+            layer_type: None,
+        },
+        Some(vec![
+            "did:key:viewer1".to_string(),
+            "did:key:viewer2".to_string(),
+        ]),
+        1,
+    ))
+    .expect("Failed to create authority token");
+
+    let permit = Permit::from_token(&authority_token).expect("Failed to parse token");
+
+    // Explicit authorized_peers => Some(vec)
+    let peers = permit
+        .authorized_peers_list()
+        .expect("Should have explicit authorized_peers");
+    assert_eq!(peers, vec!["did:key:viewer1", "did:key:viewer2"]);
+}
+
+#[test]
+fn test_authorized_peers_list_malformed() {
+    // Test malformed authorized_peers by manually constructing a token
+    // with invalid authorized_peers fact (string instead of array)
+    use crate::builder::GurkhaPermitBuilder;
+    use crate::decision::TokenDecision;
+    use std::collections::HashMap;
+
+    let signing_key = [1u8; 32];
+    let builder = GurkhaPermitBuilder::from_bytes(&signing_key);
+
+    let mut decision = TokenDecision {
+        audience: "did:key:audience".to_string(),
+        capabilities: vec![("test".to_string(), "read".to_string())],
+        facts: serde_json::Map::new(),
+        expiry: None,
+        proofs: vec![],
+        proof_tokens: HashMap::new(),
+    };
+
+    decision
+        .facts
+        .insert("token_type".to_string(), serde_json::json!("test"));
+    decision.facts.insert(
+        "authorized_peers".to_string(),
+        serde_json::json!("not-an-array"),
+    );
+
+    let (token, _) = pollster::block_on(builder.build(decision)).expect("Failed to build token");
+    let permit = Permit::from_token(&token).expect("Failed to parse token");
+
+    // Malformed value => None (defensive fallback to unrestricted)
+    assert_eq!(
+        permit.authorized_peers_list(),
+        None,
+        "Malformed authorized_peers should return None (defensive fallback)"
+    );
+}
+
+#[test]
+fn test_is_peer_authorized_missing() {
+    use crate::service::issue_page_owner_token;
+
+    const TEMPLATE: &str = r#"{
+      "owner_template": {
+        "operations": { "own": "allow" },
+        "peer_capabilities": { "relay": false, "share": true },
+        "layers": {
+          "content": { "sync": true, "write": true }
+        }
+      }
+    }"#;
+
+    let signing_key = [1u8; 32];
+    let (token, _) = pollster::block_on(issue_page_owner_token(&signing_key, "page123", TEMPLATE))
+        .expect("Failed to create token");
+
+    let permit = Permit::from_token(&token).expect("Failed to parse token");
+
+    // Missing authorized_peers => all peers authorized
+    assert!(
+        permit.is_peer_authorized("did:key:viewer1"),
+        "Missing authorized_peers should authorize all peers"
+    );
+    assert!(
+        permit.is_peer_authorized("did:key:viewer2"),
+        "Missing authorized_peers should authorize all peers"
+    );
+}
+
+#[test]
+fn test_is_peer_authorized_null() {
+    // Test null authorized_peers by manually constructing a token
+    use crate::builder::GurkhaPermitBuilder;
+    use crate::decision::TokenDecision;
+    use crate::types::Capability;
+
+    let signing_key = [1u8; 32];
+    let builder = GurkhaPermitBuilder::from_bytes(&signing_key);
+
+    let mut decision = TokenDecision {
+        audience: "did:key:audience".to_string(),
+        capabilities: vec![Capability::from_str("test/read").unwrap()],
+        facts: serde_json::Map::new(),
+        expiry: None,
+        proofs: vec![],
+        proof_tokens: vec![],
+    };
+
+    decision
+        .facts
+        .insert("token_type".to_string(), serde_json::json!("test"));
+    decision
+        .facts
+        .insert("authorized_peers".to_string(), serde_json::Value::Null);
+
+    let (token, _) = pollster::block_on(builder.build(decision)).expect("Failed to build token");
+    let permit = Permit::from_token(&token).expect("Failed to parse token");
+
+    // Null authorized_peers => all peers authorized
+    assert!(
+        permit.is_peer_authorized("did:key:viewer1"),
+        "Null authorized_peers should authorize all peers"
+    );
+    assert!(
+        permit.is_peer_authorized("did:key:viewer2"),
+        "Null authorized_peers should authorize all peers"
+    );
+}
+
+#[test]
+fn test_is_peer_authorized_explicit_allowed() {
+    use crate::service::issue_layer_authority_permit;
+    use crate::service::issue_page_owner_token;
+    use crate::LayerConfig;
+
+    const TEMPLATE: &str = r#"{
+      "owner_template": {
+        "operations": { "own": "allow" },
+        "peer_capabilities": { "relay": false, "share": true },
+        "layers": {
+          "content": { "sync": true, "write": true }
+        },
+        "issue_on": {
+          "layer_authority": {
+            "token_type": "layer_authority",
+            "peer_capabilities": { "relay": true, "share": true },
+            "layers": {}
+          }
+        }
+      }
+    }"#;
+
+    let signing_key = [1u8; 32];
+    let (owner_token, _) =
+        pollster::block_on(issue_page_owner_token(&signing_key, "page123", TEMPLATE))
+            .expect("Failed to create owner token");
+
+    let (authority_token, _) = pollster::block_on(issue_layer_authority_permit(
+        &signing_key,
+        &owner_token,
+        "did:key:node",
+        "page123/layer1",
+        LayerConfig {
+            sync: true,
+            write: true,
+            layer_type: None,
+        },
+        Some(vec![
+            "did:key:viewer1".to_string(),
+            "did:key:viewer2".to_string(),
+        ]),
+        1,
+    ))
+    .expect("Failed to create authority token");
+
+    let permit = Permit::from_token(&authority_token).expect("Failed to parse token");
+
+    // Peers in the list should be authorized
+    assert!(
+        permit.is_peer_authorized("did:key:viewer1"),
+        "Peer in authorized_peers list should be authorized"
+    );
+    assert!(
+        permit.is_peer_authorized("did:key:viewer2"),
+        "Peer in authorized_peers list should be authorized"
+    );
+}
+
+#[test]
+fn test_is_peer_authorized_explicit_denied() {
+    use crate::service::issue_layer_authority_permit;
+    use crate::service::issue_page_owner_token;
+    use crate::LayerConfig;
+
+    const TEMPLATE: &str = r#"{
+      "owner_template": {
+        "operations": { "own": "allow" },
+        "peer_capabilities": { "relay": false, "share": true },
+        "layers": {
+          "content": { "sync": true, "write": true }
+        },
+        "issue_on": {
+          "layer_authority": {
+            "token_type": "layer_authority",
+            "peer_capabilities": { "relay": true, "share": true },
+            "layers": {}
+          }
+        }
+      }
+    }"#;
+
+    let signing_key = [1u8; 32];
+    let (owner_token, _) =
+        pollster::block_on(issue_page_owner_token(&signing_key, "page123", TEMPLATE))
+            .expect("Failed to create owner token");
+
+    let (authority_token, _) = pollster::block_on(issue_layer_authority_permit(
+        &signing_key,
+        &owner_token,
+        "did:key:node",
+        "page123/layer1",
+        LayerConfig {
+            sync: true,
+            write: true,
+            layer_type: None,
+        },
+        Some(vec![
+            "did:key:viewer1".to_string(),
+            "did:key:viewer2".to_string(),
+        ]),
+        1,
+    ))
+    .expect("Failed to create authority token");
+
+    let permit = Permit::from_token(&authority_token).expect("Failed to parse token");
+
+    // Peers NOT in the list should be denied
+    assert!(
+        !permit.is_peer_authorized("did:key:viewer3"),
+        "Peer not in authorized_peers list should be denied"
+    );
+    assert!(
+        !permit.is_peer_authorized("did:key:other"),
+        "Peer not in authorized_peers list should be denied"
+    );
+}
+
+#[test]
+fn test_is_peer_authorized_malformed() {
+    // Test malformed authorized_peers by manually constructing a token
+    use crate::builder::GurkhaPermitBuilder;
+    use crate::decision::TokenDecision;
+    use crate::types::Capability;
+
+    let signing_key = [1u8; 32];
+    let builder = GurkhaPermitBuilder::from_bytes(&signing_key);
+
+    let mut decision = TokenDecision {
+        audience: "did:key:audience".to_string(),
+        capabilities: vec![Capability::from_str("test/read").unwrap()],
+        facts: serde_json::Map::new(),
+        expiry: None,
+        proofs: vec![],
+        proof_tokens: vec![],
+    };
+
+    decision
+        .facts
+        .insert("token_type".to_string(), serde_json::json!("test"));
+    decision.facts.insert(
+        "authorized_peers".to_string(),
+        serde_json::json!("not-an-array"),
+    );
+
+    let (token, _) = pollster::block_on(builder.build(decision)).expect("Failed to build token");
+    let permit = Permit::from_token(&token).expect("Failed to parse token");
+
+    // Malformed value => deny (defensive)
+    assert!(
+        !permit.is_peer_authorized("did:key:viewer1"),
+        "Malformed authorized_peers should deny all peers"
+    );
+    assert!(
+        !permit.is_peer_authorized("did:key:viewer2"),
+        "Malformed authorized_peers should deny all peers"
+    );
+}

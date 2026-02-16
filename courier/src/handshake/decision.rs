@@ -19,7 +19,7 @@
 //! - **Uniform handshake**: Same flow for all peers, capabilities determine behavior
 //! - **Bidirectional permits**: Both sides issue permits to authenticate
 
-use gurkha::{Permit, PeerCapabilities};
+use gurkha::{PeerCapabilities, Permit};
 
 /// Extract peer capabilities from permit
 ///
@@ -168,7 +168,8 @@ pub struct WelcomeContext<'a> {
 /// Decision enum indicating acceptance or rejection
 pub fn decide_welcome_response(ctx: &WelcomeContext) -> WelcomeDecision {
     // 1. Verify node identity matches connection string
-    if !ctx.expected_node_pubkey.is_empty() && ctx.expected_node_pubkey != ctx.received_node_pubkey {
+    if !ctx.expected_node_pubkey.is_empty() && ctx.expected_node_pubkey != ctx.received_node_pubkey
+    {
         return WelcomeDecision::RejectNodeMismatch;
     }
 
@@ -300,7 +301,10 @@ mod tests {
         };
 
         match decide_hello_response(&ctx) {
-            HelloDecision::AcceptReconnection { stored_permit, can_publish } => {
+            HelloDecision::AcceptReconnection {
+                stored_permit,
+                can_publish,
+            } => {
                 assert_eq!(stored_permit, "stored_permit_token");
                 assert!(can_publish);
             }

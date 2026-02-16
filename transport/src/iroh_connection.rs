@@ -61,8 +61,6 @@ impl IrohConnection {
     }
 
     /// Get the underlying ConnectionHandle
-    ///
-    /// Useful for legacy code that needs direct access
     pub fn inner(&self) -> &ConnectionHandle {
         &self.inner
     }

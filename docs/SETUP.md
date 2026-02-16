@@ -203,8 +203,16 @@ osvauld/
 ├── gurkha/               # Permit validation
 │   ├── src/
 │   │   ├── lib.rs
-│   │   ├── permit.rs
-│   │   └── capabilities.rs
+│   │   ├── parser/           # Permit parsing module
+│   │   │   ├── mod.rs
+│   │   │   ├── permit.rs
+│   │   │   └── template.rs
+│   │   ├── decision/         # Decision logic modules
+│   │   ├── builder.rs        # Permit builder
+│   │   ├── crypto.rs         # Signing/verification
+│   │   ├── service.rs        # Authorization service
+│   │   ├── types.rs          # Core types
+│   │   └── errors.rs         # Error types
 │   └── Cargo.toml
 │
 ├── transport/            # QUIC networking
@@ -217,18 +225,29 @@ osvauld/
 ├── courier/              # P2P orchestration
 │   ├── src/
 │   │   ├── lib.rs
-│   │   ├── coordinator.rs
-│   │   ├── peer_actor.rs
-│   │   └── sync.rs
+│   │   ├── coordinator/      # Coordinator module
+│   │   ├── peer_actor/       # PeerActor with sync submodules
+│   │   ├── handshake/        # Handshake flows
+│   │   ├── message.rs        # Message types
+│   │   ├── handle.rs         # Public handle
+│   │   └── state.rs          # State types
 │   └── Cargo.toml
 │
 ├── butler/               # Storage services
 │   ├── src/
 │   │   ├── lib.rs
 │   │   ├── services/
+│   │   │   ├── mod.rs
 │   │   │   ├── page_service.rs
-│   │   │   └── blob_service.rs
-│   │   └── scribe.rs
+│   │   │   ├── app_service.rs
+│   │   │   ├── asset_service.rs
+│   │   │   ├── auth_service.rs
+│   │   │   ├── contact_service.rs
+│   │   │   ├── node_service.rs
+│   │   │   ├── publish_service.rs
+│   │   │   └── space_service.rs
+│   │   ├── stores/          # redb storage implementations
+│   │   └── error.rs
 │   └── Cargo.toml
 │
 ├── lua_runtime/          # Lua scripting runtime

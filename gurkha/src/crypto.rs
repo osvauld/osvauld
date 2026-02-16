@@ -11,10 +11,7 @@ use serde_json::json;
 use ucan::{
     builder::UcanBuilder,
     capability::Capability,
-    crypto::{
-        did::{ED25519_MAGIC_BYTES},
-        JwtSignatureAlgorithm, KeyMaterial,
-    },
+    crypto::{did::ED25519_MAGIC_BYTES, JwtSignatureAlgorithm, KeyMaterial},
 };
 
 /// Ed25519 key material for Permit signing
@@ -190,9 +187,10 @@ pub fn get_permit_cid(token: &str) -> Result<String, GurkhaError> {
 ///
 /// Used for pattern expansion in can_access_layer to match DID-based layer names.
 pub fn did_from_base64_pubkey(base64_pubkey: &str) -> Result<String, GurkhaError> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-    let pubkey_bytes = STANDARD.decode(base64_pubkey)
+    let pubkey_bytes = STANDARD
+        .decode(base64_pubkey)
         .map_err(|e| GurkhaError::InvalidPermit(format!("Invalid base64 public key: {}", e)))?;
 
     if pubkey_bytes.len() != 32 {
@@ -203,5 +201,8 @@ pub fn did_from_base64_pubkey(base64_pubkey: &str) -> Result<String, GurkhaError
     }
 
     let did_bytes = [ED25519_MAGIC_BYTES, pubkey_bytes.as_slice()].concat();
-    Ok(format!("did:key:z{}", bs58::encode(&did_bytes).into_string()))
+    Ok(format!(
+        "did:key:z{}",
+        bs58::encode(&did_bytes).into_string()
+    ))
 }

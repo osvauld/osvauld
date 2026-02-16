@@ -123,6 +123,26 @@ pub enum CoordinatorMessage<C: Connection> {
         response: oneshot::Sender<bool>,
     },
 
+    /// Viewer received space metadata from node (PeerActor -> Coordinator)
+    ///
+    /// **Context**: Viewer's PeerActor received SpaceData, stored space + page shells
+    /// **We emit**: ViewerSpaceReceived event to app
+    ViewerSpaceReceived {
+        node_id: NodeId,
+        space: domains::Space,
+        page_count: usize,
+    },
+
+    /// Viewer completed initial permit sync (PeerActor -> Coordinator)
+    ///
+    /// **Context**: Viewer received all expected page permits via PermitUpdate
+    /// **We emit**: ViewerSyncComplete event to app
+    ViewerSyncComplete {
+        node_id: NodeId,
+        space_id: String,
+        pages_synced: usize,
+    },
+
     /// Shutdown all actors
     Shutdown,
 }
@@ -352,6 +372,44 @@ impl<C: Connection> Actor for Coordinator<C> {
             CoordinatorMessage::IsNodeAuthenticated { node_id, response } => {
                 let is_auth = state.is_authenticated(&node_id);
                 let _ = response.send(is_auth);
+            }
+
+            CoordinatorMessage::ViewerSpaceReceived {
+                node_id,
+                space,
+                page_count,
+            } => {
+                info!(
+                    "Viewer received space {} from {} ({} pages)",
+                    space.id, node_id, page_count
+                );
+                Self::emit_event(
+                    state,
+                    CourierEvent::ViewerSpaceReceived {
+                        node_id: node_id.to_string(),
+                        space,
+                        page_count,
+                    },
+                );
+            }
+
+            CoordinatorMessage::ViewerSyncComplete {
+                node_id,
+                space_id,
+                pages_synced,
+            } => {
+                info!(
+                    "Viewer sync complete for space {} from {} ({} pages)",
+                    space_id, node_id, pages_synced
+                );
+                Self::emit_event(
+                    state,
+                    CourierEvent::ViewerSyncComplete {
+                        node_id: node_id.to_string(),
+                        space_id,
+                        pages_synced,
+                    },
+                );
             }
 
             CoordinatorMessage::Shutdown => {

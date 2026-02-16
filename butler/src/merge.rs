@@ -97,32 +97,52 @@ impl MergeService {
 
         if let Some(obj) = json_value.as_object() {
             let key_count = obj.len();
-            info!("📄 [{}] Document '{}' content: {} keys, {} chars total",
-                  context, doc_name, key_count, char_count);
+            info!(
+                "📄 [{}] Document '{}' content: {} keys, {} chars total",
+                context, doc_name, key_count, char_count
+            );
             let keys: Vec<&String> = obj.keys().collect();
             info!("📄 [{}] Document '{}' keys: {:?}", context, doc_name, keys);
 
             if let Some(comments_val) = obj.get("comments") {
                 if let Some(comments_arr) = comments_val.as_array() {
-                    info!("📄 [{}] Document '{}' has {} comments",
-                          context, doc_name, comments_arr.len());
+                    info!(
+                        "📄 [{}] Document '{}' has {} comments",
+                        context,
+                        doc_name,
+                        comments_arr.len()
+                    );
                 } else if let Some(comments_map) = comments_val.as_object() {
-                    info!("📄 [{}] Document '{}' has comments map with {} keys",
-                          context, doc_name, comments_map.len());
+                    info!(
+                        "📄 [{}] Document '{}' has comments map with {} keys",
+                        context,
+                        doc_name,
+                        comments_map.len()
+                    );
                 }
             }
         } else if let Some(arr) = json_value.as_array() {
-            info!("📄 [{}] Document '{}' content: array with {} items",
-                  context, doc_name, arr.len());
+            info!(
+                "📄 [{}] Document '{}' content: array with {} items",
+                context,
+                doc_name,
+                arr.len()
+            );
         }
 
         let preview = if char_count > 500 {
-            format!("{}... [truncated {} more chars]",
-                    &json_str[..500], char_count - 500)
+            format!(
+                "{}... [truncated {} more chars]",
+                &json_str[..500],
+                char_count - 500
+            )
         } else {
             json_str
         };
-        debug!("📄 [{}] Document '{}' JSON preview:\n{}", context, doc_name, preview);
+        debug!(
+            "📄 [{}] Document '{}' JSON preview:\n{}",
+            context, doc_name, preview
+        );
     }
 
     /// Merge multiple updates in sequence

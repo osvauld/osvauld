@@ -79,5 +79,4 @@ When reviewing changes, check for:
 ## Skills to Load
 
 Use `skill("architecture")` for complete system architecture.
-Use `skill("plan-layer")` for the future layer architecture direction.
-Read `docs/ARCHITECTURE.md` and `docs/PLAN_LAYER_ARCHITECTURE.md`.
+Read `docs/ARCHITECTURE.md` and `docs/SCRIBE_INTERNALS.md`.

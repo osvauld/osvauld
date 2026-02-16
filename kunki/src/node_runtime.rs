@@ -6,19 +6,11 @@
 use lua_runtime::{LuaCommand, LuaRuntime, LuaRuntimeConfig, ActorScribeHandle};
 use butler::{PageUpdate, ScribeMessage};
 use butler::Butler;
+use domains::AppManifest;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, info};
-
-/// Manifest structure for parsing entry_node
-#[derive(Debug, serde::Deserialize)]
-struct AppManifest {
-    #[allow(dead_code)]
-    name: String,
-    #[serde(default)]
-    entry_node: Option<String>,
-}
 
 /// Running node script instance
 struct NodeInstance {

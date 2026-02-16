@@ -6,10 +6,15 @@
 //!
 //! ## Authorization model
 //!
-//! Each LayerUnit owns its subscribers and their capabilities. Authorization is
-//! checked at broadcast time using per-subscriber state, not an eagerly-populated
-//! HashSet. The `subscribers` map is `Arc<RwLock<...>>` so the observer async task
-//! can read it for broadcast decisions.
+//! Each LayerUnit owns its subscribers and their write permissions. Authorization is
+//! checked at broadcast time using per-subscriber state. The `subscribers` map is
+//! `Arc<RwLock<...>>` so the observer async task can read it for broadcast decisions.
+//!
+//! ## Subscriber keying
+//!
+//! Subscribers are keyed by `(user_did, device_id)` tuple, allowing the same user
+//! to connect from multiple devices with independent version vectors and broadcast
+//! channels.
 //!
 //! Also contains dynamic layer management (schema validation, permit preparation).
 
@@ -23,35 +28,20 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use tokio::sync::mpsc;
+use tracing::instrument;
 
 use domains::Layer;
 
 use crate::BroadcastPayload;
 
-// === Capability types ===
-
-/// Cached capabilities from a layer permit
-///
-/// **Context**: Parsed from layer permit at subscription time.
-/// Each field maps to a specific authorization check.
-#[derive(Debug, Clone, Default)]
-pub struct Capabilities {
-    /// Can read layer data (receive broadcasts)
-    pub read: bool,
-    /// Can write to layer (send updates)
-    pub write: bool,
-    /// Can sync (bidirectional replication)
-    pub sync: bool,
-}
-
 /// Layer-level configuration derived from permit
 ///
-/// **Context**: Set once at layer creation, describes our own capabilities
-/// for this layer (viewer side) or default capabilities (node side).
+/// **Context**: Set once at layer creation, describes our own write permission
+/// for this layer (viewer side) or default permission (node side).
 #[derive(Debug, Clone)]
 pub struct LayerConfig {
-    /// Our capabilities for this layer
-    pub capabilities: Capabilities,
+    /// Can we write to this layer locally?
+    pub can_write: bool,
     /// sync: false — never broadcast to peers
     pub is_local_only: bool,
 }
@@ -59,11 +49,7 @@ pub struct LayerConfig {
 impl Default for LayerConfig {
     fn default() -> Self {
         Self {
-            capabilities: Capabilities {
-                read: true,
-                write: true,
-                sync: true,
-            },
+            can_write: true,
             is_local_only: false,
         }
     }
@@ -71,11 +57,11 @@ impl Default for LayerConfig {
 
 /// Per-subscriber state within a LayerUnit
 ///
-/// **Context**: Tracks what each subscriber can do with this specific layer.
+/// **Context**: Tracks a single (user, device) connection to this layer.
 /// Created when a peer subscribes and presents a layer permit.
 pub struct LayerSubscriber {
-    /// What this subscriber can do (from the layer permit we issued)
-    pub capabilities: Capabilities,
+    /// Whether this subscriber can write to the layer
+    pub can_write: bool,
     /// Their last known version vector for incremental sync
     pub version_vector: Vec<u8>,
     /// Channel to send broadcasts to this subscriber
@@ -85,7 +71,7 @@ pub struct LayerSubscriber {
 /// Per-layer compute unit — owns all state for a single layer
 ///
 /// **Design**: Self-contained authorization and broadcast. Scribe routes
-/// messages to LayerUnits; each unit knows its subscribers and their capabilities.
+/// messages to LayerUnits; each unit knows its subscribers and their permissions.
 pub struct LayerUnit {
     // === CRDT ===
     /// The CRDT document
@@ -96,15 +82,15 @@ pub struct LayerUnit {
     loro_sub: Option<loro::Subscription>,
 
     // === Authorization (from permit) ===
-    /// Cached layer configuration (our capabilities, local-only flag)
+    /// Cached layer configuration (our write permission, local-only flag)
     config: LayerConfig,
     /// Created via dynamic_layer_schema (not static template)
     pub is_dynamic: bool,
 
     // === Subscriber state ===
-    /// Per-subscriber state (did → subscriber)
+    /// Per-subscriber state ((user_did, device_id) → subscriber)
     /// Arc<RwLock> because the observer async task needs shared read access
-    subscribers: Arc<RwLock<HashMap<String, LayerSubscriber>>>,
+    subscribers: Arc<RwLock<HashMap<(String, String), LayerSubscriber>>>,
 }
 
 impl LayerUnit {
@@ -198,22 +184,28 @@ impl LayerUnit {
     // === Subscriber management ===
 
     /// Get shared reference to subscribers (for observer to clone the Arc)
-    pub fn subscribers(&self) -> &Arc<RwLock<HashMap<String, LayerSubscriber>>> {
+    pub fn subscribers(&self) -> &Arc<RwLock<HashMap<(String, String), LayerSubscriber>>> {
         &self.subscribers
     }
 
-    /// Add a subscriber with their capabilities and broadcast channel
+    /// Add a subscriber with their write permission and broadcast channel
+    ///
+    /// **Context**: Called when a peer subscribes to this layer after permit validation.
+    /// Key is (user_did, device_id) so the same user on multiple devices gets
+    /// independent version vectors and broadcast channels.
+    #[instrument(skip(self, broadcast_tx), fields(user_did = %user_did, device_id = %device_id, can_write = %can_write))]
     pub fn add_subscriber(
         &self,
-        did: String,
-        capabilities: Capabilities,
+        user_did: String,
+        device_id: String,
+        can_write: bool,
         broadcast_tx: mpsc::Sender<BroadcastPayload>,
     ) {
         if let Ok(mut subs) = self.subscribers.write() {
             subs.insert(
-                did,
+                (user_did, device_id),
                 LayerSubscriber {
-                    capabilities,
+                    can_write,
                     version_vector: Vec::new(),
                     broadcast_tx,
                 },
@@ -222,18 +214,21 @@ impl LayerUnit {
     }
 
     /// Remove a subscriber, returning their state if present
-    pub fn remove_subscriber(&self, did: &str) -> Option<LayerSubscriber> {
+    #[instrument(skip(self), fields(user_did = %user_did, device_id = %device_id))]
+    pub fn remove_subscriber(&self, user_did: &str, device_id: &str) -> Option<LayerSubscriber> {
         if let Ok(mut subs) = self.subscribers.write() {
-            subs.remove(did)
+            subs.remove(&(user_did.to_string(), device_id.to_string()))
         } else {
             None
         }
     }
 
     /// Update a subscriber's version vector after successful broadcast
-    pub fn update_subscriber_vector(&self, did: &str, vector: Vec<u8>) {
+    #[instrument(skip(self, vector), fields(user_did = %user_did, device_id = %device_id))]
+    pub fn update_subscriber_vector(&self, user_did: &str, device_id: &str, vector: Vec<u8>) {
         if let Ok(mut subs) = self.subscribers.write() {
-            if let Some(sub) = subs.get_mut(did) {
+            let key = (user_did.to_string(), device_id.to_string());
+            if let Some(sub) = subs.get_mut(&key) {
                 sub.version_vector = vector;
             }
         }
@@ -249,20 +244,24 @@ impl LayerUnit {
 
     // === Authorization checks ===
 
-    /// Can we push updates to this DID?
+    /// Can we push updates to this (user, device)?
     ///
-    /// **Context**: Checked at broadcast time. Subscriber must have read
-    /// capability and have given consent.
-    pub fn can_push_to(&self, did: &str) -> bool {
+    /// **Context**: Checked at broadcast time. Subscriber must be present in the map.
+    #[instrument(skip(self), fields(user_did = %user_did, device_id = %device_id))]
+    pub fn can_push_to(&self, user_did: &str, device_id: &str) -> bool {
         self.subscribers
             .read()
-            .map(|subs| subs.get(did).map(|s| s.capabilities.read).unwrap_or(false))
+            .map(|subs| {
+                let key = (user_did.to_string(), device_id.to_string());
+                subs.contains_key(&key)
+            })
             .unwrap_or(false)
     }
 
     /// Can WE write to this layer locally? (viewer side check)
+    #[instrument(skip(self))]
     pub fn can_local_write(&self) -> bool {
-        self.config.capabilities.write
+        self.config.can_write
     }
 }
 
@@ -384,19 +383,19 @@ mod tests {
         let unit = LayerUnit::new_empty();
         assert!(!unit.has_subscribers());
 
-        let caps = Capabilities {
-            read: true,
-            write: true,
-            sync: true,
-        };
-        unit.add_subscriber("did:key:alice".to_string(), caps, make_tx());
+        unit.add_subscriber(
+            "did:key:alice".to_string(),
+            "device-1".to_string(),
+            true,
+            make_tx(),
+        );
         assert!(unit.has_subscribers());
-        assert!(unit.can_push_to("did:key:alice"));
+        assert!(unit.can_push_to("did:key:alice", "device-1"));
 
-        let removed = unit.remove_subscriber("did:key:alice");
+        let removed = unit.remove_subscriber("did:key:alice", "device-1");
         assert!(removed.is_some());
         assert!(!unit.has_subscribers());
-        assert!(!unit.can_push_to("did:key:alice"));
+        assert!(!unit.can_push_to("did:key:alice", "device-1"));
     }
 
     #[test]
@@ -404,66 +403,130 @@ mod tests {
         let unit = LayerUnit::new_empty();
 
         // Not a subscriber
-        assert!(!unit.can_push_to("did:key:alice"));
+        assert!(!unit.can_push_to("did:key:alice", "device-1"));
 
-        // Subscriber with read
-        let caps = Capabilities {
-            read: true,
-            write: false,
-            sync: true,
-        };
-        unit.add_subscriber("did:key:alice".to_string(), caps, make_tx());
-        assert!(unit.can_push_to("did:key:alice"));
+        // Subscriber present — can_push_to just checks presence
+        unit.add_subscriber(
+            "did:key:alice".to_string(),
+            "device-1".to_string(),
+            false,
+            make_tx(),
+        );
+        assert!(unit.can_push_to("did:key:alice", "device-1"));
 
-        // Subscriber without read
-        let no_read = Capabilities {
-            read: false,
-            write: true,
-            sync: false,
-        };
-        unit.add_subscriber("did:key:bob".to_string(), no_read, make_tx());
-        assert!(!unit.can_push_to("did:key:bob"));
+        // Different device not subscribed
+        assert!(!unit.can_push_to("did:key:alice", "device-2"));
+
+        // Different user not subscribed
+        assert!(!unit.can_push_to("did:key:bob", "device-1"));
     }
 
     #[test]
     fn test_update_subscriber_vector() {
         let unit = LayerUnit::new_empty();
-        let caps = Capabilities {
-            read: true,
-            write: true,
-            sync: true,
-        };
-        unit.add_subscriber("did:key:alice".to_string(), caps, make_tx());
+        unit.add_subscriber(
+            "did:key:alice".to_string(),
+            "device-1".to_string(),
+            true,
+            make_tx(),
+        );
 
         // Initially empty
         {
             let subs = unit.subscribers().read().unwrap();
-            assert!(subs.get("did:key:alice").unwrap().version_vector.is_empty());
+            let key = ("did:key:alice".to_string(), "device-1".to_string());
+            assert!(subs.get(&key).unwrap().version_vector.is_empty());
         }
 
         let vv = vec![1, 2, 3, 4];
-        unit.update_subscriber_vector("did:key:alice", vv.clone());
+        unit.update_subscriber_vector("did:key:alice", "device-1", vv.clone());
         {
             let subs = unit.subscribers().read().unwrap();
-            assert_eq!(subs.get("did:key:alice").unwrap().version_vector, vv);
+            let key = ("did:key:alice".to_string(), "device-1".to_string());
+            assert_eq!(subs.get(&key).unwrap().version_vector, vv);
         }
     }
 
     #[test]
     fn test_can_local_write() {
         let mut unit = LayerUnit::new_empty();
-        // Default config has write: true
+        // Default config has can_write: true
         assert!(unit.can_local_write());
 
         // Override via config for read-only
         unit.config = LayerConfig {
-            capabilities: Capabilities {
-                read: true,
-                write: false,
-                sync: true,
-            },
+            can_write: false,
             is_local_only: false,
         };
         assert!(!unit.can_local_write());
+    }
+
+    #[test]
+    fn test_multi_device_subscriber() {
+        let unit = LayerUnit::new_empty();
+
+        // Same user, two devices
+        unit.add_subscriber(
+            "did:key:alice".to_string(),
+            "laptop".to_string(),
+            true,
+            make_tx(),
+        );
+        unit.add_subscriber(
+            "did:key:alice".to_string(),
+            "phone".to_string(),
+            false,
+            make_tx(),
+        );
+
+        // Both present
+        assert!(unit.can_push_to("did:key:alice", "laptop"));
+        assert!(unit.can_push_to("did:key:alice", "phone"));
+        assert!(unit.has_subscribers());
+
+        // Check independent can_write flags
+        {
+            let subs = unit.subscribers().read().unwrap();
+            let laptop_key = ("did:key:alice".to_string(), "laptop".to_string());
+            let phone_key = ("did:key:alice".to_string(), "phone".to_string());
+            assert!(subs.get(&laptop_key).unwrap().can_write);
+            assert!(!subs.get(&phone_key).unwrap().can_write);
+        }
+
+        // Independent version vectors
+        unit.update_subscriber_vector("did:key:alice", "laptop", vec![1, 2]);
+        unit.update_subscriber_vector("did:key:alice", "phone", vec![3, 4]);
+        {
+            let subs = unit.subscribers().read().unwrap();
+            let laptop_key = ("did:key:alice".to_string(), "laptop".to_string());
+            let phone_key = ("did:key:alice".to_string(), "phone".to_string());
+            assert_eq!(subs.get(&laptop_key).unwrap().version_vector, vec![1, 2]);
+            assert_eq!(subs.get(&phone_key).unwrap().version_vector, vec![3, 4]);
+        }
+
+        // Remove one device, other stays
+        let removed = unit.remove_subscriber("did:key:alice", "laptop");
+        assert!(removed.is_some());
+        assert!(!unit.can_push_to("did:key:alice", "laptop"));
+        assert!(unit.can_push_to("did:key:alice", "phone"));
+        assert!(unit.has_subscribers());
+
+        // Remove second device
+        unit.remove_subscriber("did:key:alice", "phone");
+        assert!(!unit.has_subscribers());
+    }
+
+    #[test]
+    fn test_remove_nonexistent_subscriber() {
+        let unit = LayerUnit::new_empty();
+        let removed = unit.remove_subscriber("did:key:nobody", "device-x");
+        assert!(removed.is_none());
+    }
+
+    #[test]
+    fn test_update_vector_nonexistent_subscriber() {
+        let unit = LayerUnit::new_empty();
+        // Should not panic — silently no-ops
+        unit.update_subscriber_vector("did:key:nobody", "device-x", vec![1, 2, 3]);
     }
 }

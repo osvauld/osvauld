@@ -395,110 +395,201 @@ python scripts/compare_perf.py results/v1.json results/v2.json
 - Check message counts match
 - Verify network conditions were similar
 
-## Baseline Findings (Feb 2026, commit 0c50d055)
+## Automated Benchmarking
 
-### CPU Profile (flamegraph, 50 messages, 4 instances)
+The `benchmark_full.sh` script runs the full pipeline: release build, perf test, heaptrack capture, profiling build, flamegraph capture, analysis, and consolidated JSON report.
 
-Application code uses <0.1% of total CPU. The system is **I/O-bound, not CPU-bound**.
+```bash
+# Run full benchmark (500 messages default)
+./scripts/benchmark_full.sh 500
 
-**Node application hotspots** (excluding networking idle loops):
+# Compare against baseline
+./scripts/benchmark_full.sh 500 results/baseline_cff2502a
+
+# Run and set result as new baseline
+./scripts/benchmark_full.sh 500 "" --set-baseline
+```
+
+Output: `results/benchmark_<timestamp>/report.json` — single JSON with perf metrics, heaptrack subsystem breakdown, and flamegraph hotspots. Suitable for AI analysis.
+
+Baseline directory: `results/baseline_cff2502a/`
+
+## Baseline Findings (Feb 2026, commit cff2502a)
+
+Post-refactor baseline after scribe actor refactor, permit flow simplification, and lua runtime cleanup.
+
+### Resource Profile (500 messages, release build, 3 shells + 1 node)
+
+| Metric | Value | Notes |
+|---|---|---|
+| Throughput | 8.7 msg/sec | ~2.4x faster than pre-refactor (3.7) |
+| Total duration | ~70s | For 500 messages |
+| Node memory (peak RSS) | ~68 MB | Steady growth 55 -> 68 MB over test |
+| Shell memory (peak RSS) | 177-206 MB | alice higher (owner), viewers ~177 MB |
+| Memory growth (shell) | 0.01-0.02 MB/msg | Healthy, O(1) per message |
+| Memory growth (node) | 0.02 MB/msg | Healthy |
+| Node CPU (avg) | ~9% | Under sustained load |
+| Shell CPU (avg) | 11-12% | Under sustained load |
+
+### Heap Profile (heaptrack, 500 messages)
+
+**Peak heap** is dominated by argon2 (~67 MB) which is temporary working memory for key derivation, freed after login. Actual application heap is ~23 MB per shell and ~0.4 MB for node beyond argon2.
+
+| Instance | Peak Heap | Peak RSS | Leaked | Allocs |
+|---|---|---|---|---|
+| alice (owner) | 90 MB | 293 MB | 59 MB | 20.6M |
+| bob (viewer) | 90 MB | 249 MB | 67 MB | 22.3M |
+| carol (viewer) | 90 MB | 245 MB | 58 MB | 20.0M |
+| node | 67 MB | 91 MB | 14 MB | 18.3M |
+
+**Shell subsystem breakdown (leaked = process-lifetime allocations):**
+
+| Subsystem | Peak | Leaked | Notes |
+|---|---|---|---|
+| argon2 | 67 MB | 0 | Temporary, freed after login |
+| slint/femtovg/wayland | — | ~20 MB each | GL context, renderer, compositor — overlapping stacks, single ~20 MB allocation |
+| glutin | 1.7 MB | 3.2 MB | EGL/OpenGL context |
+| iroh/tokio/quinn | — | ~3 MB each | QUIC transport — overlapping stacks, single ~3 MB allocation |
+| redb | — | 3.1 MB | Database file + cache |
+| loro | — | 1.0-1.2 MB | CRDT document history for 500 messages |
+| ractor | — | 0.8-1.1 MB | Actor framework state |
+| mlua | — | 0.3-0.4 MB | Lua VM state |
+| fontique | 0.3 MB | 0.3 MB | Font discovery |
+| serde_json | — | 0.01-0.3 MB | JSON serialization buffers |
+
+**Node subsystem breakdown:**
+
+| Subsystem | Peak | Leaked | Notes |
+|---|---|---|---|
+| argon2 | 67 MB | 0 | Temporary, freed after login |
+| iroh/tokio/quinn | — | ~3 MB | QUIC transport (overlapping stacks) |
+| loro | — | 1.0 MB | CRDT document history |
+| ractor | — | 0.9 MB | Actor state (more actors than shells: 3 peer actors) |
+| mlua | — | 0.2 MB | Lua VM (node apps) |
+| redb | — | 0.2 MB | Smaller than shells (no UI layers) |
+
+**Key observations:**
+
+- **RSS vs heap gap**: Shells show ~90 MB heap but ~250-293 MB RSS. The ~160-200 MB gap is GPU-mapped memory (Slint/femtovg GL textures, framebuffers) which isn't tracked by the allocator.
+- **argon2 dominates peak heap**: 67 MB temporary allocation during signup/login, properly freed (0 leaked). The `malloc_trim` optimization is working.
+- **Loro is efficient**: Only 1.0-1.2 MB leaked for 500 messages of CRDT history. Delta-first bindings are working.
+- **"Leaked" is mostly process-lifetime state**: The ~58-67 MB "leaked" per shell is dominated by the GL context (~20 MB), QUIC connections (~3 MB), database (~3 MB), and the rest is long-lived application state that lives until process exit.
+- **Node is lean**: 14 MB total leaked, mostly QUIC transport + Loro + ractor actor state.
+
+### CPU Profile (flamegraph, 500 messages)
+
+Application code (non-idle) represents a small fraction of total CPU time. Most time is spent in iroh networking idle loops (expected).
+
+**Category breakdown (% of total CPU including idle):**
+
+| Category | Alice (owner) | Bob (viewer) | Carol (viewer) | Node |
+|---|---|---|---|---|
+| iroh | 82.6% | 71.4% | 72.4% | 85.7% |
+| portmapper | 8.7% | 15.2% | 14.2% | 4.4% |
+| ractor | 6.6% | 12.0% | 12.1% | 9.4% |
+| courier | 2.7% | 9.4% | 9.8% | 8.9% |
+| scribe | 1.5% | 8.9% | 9.2% | 6.5% |
+| butler | 2.1% | 2.0% | 2.0% | 3.5% |
+| loro | 1.2% | 0.9% | 0.9% | 1.2% |
+| gurkha | 0.0% | 0.3% | 0.7% | 2.0% |
+
+**Node application hotspots (excluding idle loops):**
 
 | Function | % of app CPU | Notes |
 |---|---|---|
-| `iroh::router.accept` | 15.9% | QUIC connection acceptance |
-| `butler::auth_service::login` | 15.6% | Argon2 key derivation (by design) |
-| `iroh::transports::poll_send` | 9.1% | QUIC packet sending |
-| `ractor::actor::Actor` | 9.1% | Actor framework overhead |
-| `courier::handle_broadcast_received` | 8.8% | Processing sync broadcasts |
-| `scribe::actor::handle` | 5.8% | CRDT message processing |
-| `courier::send_message` | 4.4% | Sending protocol messages |
-| `loro::export` | 3.2% | CRDT state export for sync |
+| `gurkha::service::issue_layer_permit` | 15.4% | Permit issuance for each subscriber layer |
+| `iroh::protocol::router.accept` | 13.6% | QUIC connection acceptance |
+| `iroh::socket::transports::poll_send` | 7.4% | QUIC packet sending |
+| `courier::peer_actor::subscribe::on_layer_subscribe` | 7.2% | Processing layer subscription requests |
+| `scribe::sync::apply::get_peer_role` | 6.8% | Role lookup during update application |
+| `loro_internal::loro::export` | 4.7% | CRDT state export for sync/persistence |
+| `butler::auth_service::login` | 4.6% | Argon2 key derivation (by design) |
+| `courier::handle_broadcast_received` | 4.3% | Processing sync broadcasts from scribe |
+| `courier::handle_protocol_message` | 3.6% | Protocol message dispatch |
+| `courier::on_sync_offer` | 3.5% | Sync offer processing |
 
-**Scribe actor internals** (consistent across all instances):
+**Viewer hotspots — notable difference from owner/node:**
 
-| Function | % of scribe CPU | Notes |
-|---|---|---|
-| `handle_apply_update` | 74-86% | Applying incoming CRDT updates |
-| `handle_map_insert` / `handle_list_push` | 3-10% | Local mutations |
-| `handle_flush` | 2-7% | Persisting to disk |
-| `handle_reconcile_with_peers` | 7% (node only) | Reconciliation |
-| `handle_subscribe` | 2-3% | Setting up sync subscriptions |
+Viewers (bob, carol) show a distinctive pattern where `handle_layer_permit_ack` dominates at 35-37% of app CPU, and `on_layer_subscribe_ack` takes 5-6%. This is the initial subscription flow where viewers receive permits and set up layer sync for all layers. This is a one-time cost during connection, not per-message.
 
-**handle_flush breakdown** (persistence cost):
+**handle_flush breakdown (persistence cost, consistent across instances):**
 
 | Function | % of flush | Notes |
 |---|---|---|
-| `save_layer` (redb write) | ~42% | Serializing Loro doc to storage |
-| `loro::export` (snapshot) | ~43% | Exporting full CRDT snapshot |
-| `save_vectors` | ~14% | Persisting version vectors |
+| `loro::export` (snapshot) | 80-87% | Exporting full CRDT snapshot for persistence |
+| `save_layer` (redb write) | 10-18% | Writing serialized doc to database |
+| `save_vectors` | 2-3% | Persisting version vectors |
 
-### Resource Profile
+Flush is dominated by Loro snapshot export. This is expected — the snapshot includes full operation history for conflict resolution.
 
-| Metric | 500 msgs (release) | Notes |
-|---|---|---|
-| Throughput | 3.7 msg/sec | Constrained by 0.1s send delay |
-| Node memory | ~47 MB | Stable, healthy |
-| Shell memory (peak) | ~290 MB | After 500 messages |
-| Shell growth rate | ~0.1 MB/msg | Delta-first bindings, O(1) per message |
-| Node CPU | ~1% | Idle, healthy |
-| Shell CPU | 7-8% | Low |
+**Loro CRDT breakdown (% of non-idle CPU):**
 
-### Memory Growth: Optimizations Applied
+| Function | Alice | Bob/Carol | Node | Notes |
+|---|---|---|---|---|
+| `loro::export` | 2.8% | 2.6-2.8% | 4.7% | Snapshot for persistence + sync |
+| `diff_calc::CalcDiff` | 3.0% | 1.1% | 1.7% | Computing diffs for delta bindings |
+| `loro::commit_internal` | 2.3% | 0.9% | 1.2% | Committing local mutations |
+| `update_oplog_and_apply_delta` | 1.4% | 0.9% | 0.9% | Applying remote updates |
+| `loro::_import_with` | 0.6% | 0.4% | 0.4% | Importing remote state |
 
-The original shell memory grew **super-linearly** (~8 MB/msg at 100 msgs) due to the binding pipeline cloning the full array on every update (O(N^2)). This has been fixed.
+Node spends more on `loro::export` (4.7%) because it broadcasts updates to 3 peers.
 
-**Optimizations applied (Feb 2026):**
+### Notable Findings
 
-| Optimization | Effect | Result |
-|---|---|---|
-| Delta-first bindings | `process_bindings()` uses Loro delta for surgical `Insert`/`Remove` ops instead of full `Replace` | ~98% memory reduction per update |
-| Remove full_data from hot path | Skip `get_content()` (O(N) JSON serialization) when delta is available | Eliminates O(N) serialization per change |
-| Incremental peer broadcast | `export_updates(from_vv)` instead of `export_snapshot()` per subscriber | Node memory growth near zero |
-| Qt backend removal | `SLINT_NO_QT=1` in `.cargo/config.toml` | ~50% peak memory reduction |
-| `max_items` binding option | Caps UI model size, drops oldest items | Constant memory for growing layers |
-| `malloc_trim` after argon2 | Returns 64 MB argon2 working memory to OS | ~64 MB freed after login |
+1. **ractor overhead is significant**: `ractor::actor::Actor` consumes 37% of alice's non-idle CPU and 15-17% for viewers. This is the actor framework's internal message dispatch, not application logic. Worth monitoring — if this grows, consider batching actor messages or reducing call frequency.
 
-**Current results (500 messages, release build, 3 shells + 1 node):**
+2. **Viewer subscription flow is expensive**: `handle_layer_permit_ack` at 35-37% for viewers is the initial layer subscription handshake. This is a one-time cost per connection but dominates the flamegraph because the test includes connection setup in the measurement window.
 
-| Metric | Before | After | Change |
-|---|---|---|---|
-| Shell peak memory | ~1000 MB (100 msgs) | ~290 MB (500 msgs) | ~95% reduction |
-| Shell growth rate | ~8 MB/msg | ~0.1 MB/msg | ~98% reduction |
-| Node growth rate | ~0.33 MB/msg | ~0.01 MB/msg | ~97% reduction |
-| Shell CPU (avg) | 12-16% | 7-8% | ~50% reduction |
-| Throughput | 2.8 msg/sec | 3.7 msg/sec | +33% |
+3. **`get_peer_role` on node (6.8%)**: This function is called on every update application to determine the sender's role. If it involves a database lookup each time, caching the role per peer session could reduce this.
 
-**Remaining memory sources:**
+4. **`gurkha::issue_layer_permit` on node (15.4%)**: Permit issuance is the top node hotspot. This runs during the subscription flow when viewers connect and request layer access. Permit computation involves crypto operations.
 
-1. **Loro CRDT document**: Grows with history. The Loro doc retains full operation history for conflict resolution. This is inherent to CRDTs and proportional to data volume.
-2. **Slint/femtovg base cost**: ~180 MB fixed overhead for the GL context and font rendering (winit backend).
-3. **Argon2 working memory**: 64 MB allocated during login, freed via `malloc_trim(0)` after hashing.
+5. **Loro export dominates flush (80-87%)**: Persistence cost is almost entirely Loro snapshot serialization. If flush frequency is high, consider incremental export or reduced flush cadence.
 
-### Known Characteristics
+6. **Memory is well-controlled**: Growth rate of 0.01-0.02 MB/msg is excellent. The delta-first binding optimizations are holding. No evidence of memory leaks beyond process-lifetime state.
 
-1. **No CPU bottlenecks**. Application code uses <0.1% of total CPU. Argon2 login cost is by design. All other hotspots are proportional to work done.
+7. **RSS vs heap gap (~160-200 MB per shell)**: This is GPU-mapped memory from the Slint/femtovg renderer. Not actionable without changing the rendering backend.
 
-2. **Memory growth is now O(1) per message** in the binding/UI pipeline. Remaining growth (~0.1 MB/msg) comes from the Loro CRDT document retaining operation history.
+### Optimizations Previously Applied
 
-3. **Throughput** (3.7 msg/sec with 0.1s send delay) is constrained by test script pacing and relay round-trip latency, not CPU.
+| Optimization | Effect |
+|---|---|
+| Delta-first bindings | `process_bindings()` uses Loro delta for surgical `Insert`/`Remove` ops instead of full `Replace` |
+| Remove full_data from hot path | Skip `get_content()` (O(N) JSON serialization) when delta is available |
+| Incremental peer broadcast | `export_updates(from_vv)` instead of `export_snapshot()` per subscriber |
+| Qt backend removal | `SLINT_NO_QT=1` in `.cargo/config.toml` |
+| `max_items` binding option | Caps UI model size, drops oldest items |
+| `malloc_trim` after argon2 | Returns 67 MB argon2 working memory to OS |
 
-### Centralized Test + Analysis
+### Remaining Memory Sources
 
-The test script automatically runs flamegraph analysis when `--flame-only` or `--profile` is used:
+1. **GPU-mapped memory**: ~160-200 MB per shell from Slint/femtovg GL context, textures, framebuffers. Not heap-tracked. Inherent to the rendering backend.
+2. **Loro CRDT document**: ~1 MB per 500 messages. Grows with history (operation log for conflict resolution). Inherent to CRDTs.
+3. **QUIC transport**: ~3 MB per instance for iroh/quinn connection state. Fixed cost per peer connection.
+
+### Running the Benchmark
 
 ```bash
-# Single command: test + perf report + flamegraph analysis + JSON export
-python e2e_tests/test_chat_perf.py --release --flame-only -m 100 -o results/run.json
+# Full automated benchmark (builds, tests, analyzes, generates report.json)
+./scripts/benchmark_full.sh 500
 
-# The JSON output includes:
-# - throughput, memory, CPU, timeline (PerfReport)
-# - memory growth rate per instance
-# - flamegraph analysis (hotspots, scribe breakdown, etc.)
-```
+# Compare with baseline
+./scripts/benchmark_full.sh 500 results/baseline_cff2502a
 
-Compare runs:
+# Set new baseline
+./scripts/benchmark_full.sh 500 "" --set-baseline
 
-```bash
+# Manual: individual test types
+python e2e_tests/test_chat_perf.py --release -m 500 -o results/perf.json
+python e2e_tests/test_chat_perf.py --release --heaptrack -m 500
+python e2e_tests/test_chat_perf.py --flame-only -m 500
+
+# Manual: analysis
+python scripts/analyze_heaptrack.py /tmp/chat_perf/ -o results/heap.json
+python scripts/analyze_flamegraph.py /tmp/chat_perf/ -o results/flame.json --svg
 python scripts/compare_perf.py results/before.json results/after.json
-# Compares: throughput, memory peak, memory growth rate, CPU, latency
+
+# Interactive investigation
+heaptrack_gui /tmp/chat_perf/alice/alice.heaptrack.zst
+xdg-open results/alice_flame.svg
 ```

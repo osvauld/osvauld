@@ -2,6 +2,16 @@
 
 Osvauld supports two renderers: **Slint** (declarative UI) and **Raylib** (immediate-mode graphics).
 
+## Shared Manifest Contract
+
+Both renderers consume the same `domains::AppManifest` type parsed from `manifest.json`. Renderer selection happens via the `renderer` field (`"slint"` or `"raylib"`). Renderer-specific fields are:
+
+- **Slint**: `entry_ui` (path to .slint), `models` (VecModel pre-declarations)
+- **Raylib**: `width`, `height`, `target_fps` (window config)
+- **Both**: `entry_logic` (path to app.lua)
+
+The `renderer` field defaults to `"slint"` if omitted.
+
 ## When to Use Which
 
 | Use Slint | Use Raylib |
@@ -230,7 +240,6 @@ export component App inherits Rectangle {
 - **Must** have `export global AppAPI`
 - VecModels can be declared in manifest `models` field OR created lazily via `ui:set`
 - Keyboard input requires a `FocusScope` wrapping the area
-- `tick_enabled: true` in manifest needed for `tick()` callback
 
 ---
 
@@ -241,8 +250,8 @@ Raylib apps use immediate-mode rendering -- all drawing happens in Lua each fram
 ### How It Works
 
 - No `.slint` file needed -- all rendering in Lua
-- The game loop runs automatically (no `tick_enabled` needed)
-- Drawing happens via raylib API calls in `tick()` or the draw callback
+- The game loop runs automatically via `update(dt)` and `draw()` callbacks
+- Drawing happens via raylib API calls in `draw()`
 
 ### Manifest
 
@@ -281,7 +290,7 @@ function on_init()
     -- Initialize game state
 end
 
-function tick()
+function update(dt)
     -- Update game logic
     move_snake()
     check_collisions()
@@ -319,7 +328,7 @@ end
 
 - Requires `--features raylib` compile flag when building sthalam
 - No `.slint` file -- all rendering in Lua
-- Always has a game loop (no `tick_enabled` needed)
+- Always has a game loop (`update(dt)` + `draw()`)
 - `renderer: "raylib"` must be set in manifest
 - If `renderer` is omitted, it defaults to `"slint"`
 

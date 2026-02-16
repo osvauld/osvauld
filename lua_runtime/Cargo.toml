@@ -37,18 +37,11 @@ layout-rs = "0.1"
 # Emoji lookup by shortcode
 emojis = "0.6"
 
-# Content hashing for app versioning
-sha2 = "0.10"
-hex = "0.4"
-
 # Async executor for blocking contexts
 futures = "0.3"
 
 # Base64 for binary encoding
 base64 = "0.22"
-
-# Temp directory for Slint compilation
-tempfile = "3"
 
 # Domains for core types
 domains = { path = "../domains" }
@@ -59,10 +52,5 @@ scribe = { path = "../scribe" }
 # Butler for extension traits and LuaRuntime bindings (optional)
 butler = { path = "../butler" }
 
-# Optional Slint interpreter for UI apps
-slint-interpreter = { version = "1.9", optional = true }
-slint = { version = "1.9", optional = true }
-
 [features]
 default = []
-slint = ["dep:slint-interpreter", "dep:slint"]

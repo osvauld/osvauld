@@ -207,7 +207,7 @@ For real-time multiplayer games, `node.lua` runs active logic instead of just de
 local game = { enemies = {}, stage = 1, frame_count = 0 }
 local players = {}
 
--- Game tick at ~30fps
+-- Game step at ~30fps
 timer.setInterval(function()
     game.frame_count = game.frame_count + 1
 

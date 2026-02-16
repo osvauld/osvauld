@@ -34,10 +34,7 @@ pub enum CourierEvent {
     /// Peer disconnected
     PeerDisconnected { node_id: String },
     /// Connection/authentication failed
-    ConnectionFailed {
-        node_id: String,
-        error: String,
-    },
+    ConnectionFailed { node_id: String, error: String },
     /// Space published successfully
     SpacePublished { node_id: String, space_id: String },
     /// Publish failed
@@ -53,10 +50,7 @@ pub enum CourierEvent {
         pages_synced: usize,
     },
     /// Sync consent handshake completed (viewer received ack from node)
-    SyncConsentComplete {
-        node_id: String,
-        space_id: String,
-    },
+    SyncConsentComplete { node_id: String, space_id: String },
     /// Shareable link received from node
     ShareableLinkReceived {
         node_id: String,
@@ -66,10 +60,7 @@ pub enum CourierEvent {
     /// Connection requested - app should connect via transport
     ///
     /// **Context**: ConnectAndAuth was called, transport needs to connect
-    ConnectRequested {
-        node_id: String,
-        permit: String,
-    },
+    ConnectRequested { node_id: String, permit: String },
     /// Viewer received a space from node (emitted before pages stream)
     ViewerSpaceReceived {
         node_id: String,
@@ -128,7 +119,10 @@ impl CourierHandle {
         let (tx, rx) = oneshot::channel();
 
         self.coordinator
-            .cast(IrohCoordinatorMessage::GetPeerActor { node_id, response: tx })
+            .cast(IrohCoordinatorMessage::GetPeerActor {
+                node_id,
+                response: tx,
+            })
             .map_err(|e| format!("Failed to send GetPeerActor: {:?}", e))?;
 
         rx.await
@@ -144,7 +138,9 @@ impl CourierHandle {
 
         let peer_actor = self.get_peer_actor(node_id).await?;
         peer_actor
-            .cast(PeerMessage::PublishSpace { space_id: space_id.to_string() })
+            .cast(PeerMessage::PublishSpace {
+                space_id: space_id.to_string(),
+            })
             .map_err(|e| format!("Failed to send PublishSpace: {:?}", e))?;
 
         Ok(())
@@ -153,7 +149,11 @@ impl CourierHandle {
     /// Get shareable link for a space (sends request to PeerActor, awaits response)
     ///
     /// **Flow**: Sends GetShareableLinkRequest to node, waits for GetShareableLinkResponse
-    pub async fn get_shareable_link(&self, space_id: &str, node_id: &str) -> Result<String, String> {
+    pub async fn get_shareable_link(
+        &self,
+        space_id: &str,
+        node_id: &str,
+    ) -> Result<String, String> {
         let node_id: NodeId = node_id
             .parse()
             .map_err(|e| format!("Invalid node_id: {}", e))?;
@@ -219,7 +219,12 @@ impl CourierHandle {
     ///
     /// **Context**: Scribe detected new entries in creator's __sync_meta, needs to send
     /// LayerSubscribe to the creator to get authority.
-    pub fn subscribe_layers(&self, page_id: &str, creator_did: &str, layers: Vec<String>) -> Result<(), String> {
+    pub fn subscribe_layers(
+        &self,
+        page_id: &str,
+        creator_did: &str,
+        layers: Vec<String>,
+    ) -> Result<(), String> {
         self.coordinator
             .cast(IrohCoordinatorMessage::SubscribeLayers {
                 page_id: page_id.to_string(),
@@ -410,7 +415,16 @@ impl CourierRunner {
                 let (actor_ref, _) = Actor::spawn(
                     Some("coordinator".to_string()),
                     coordinator,
-                    (node_id, mode, butler.clone(), blob_store, Some(connect_tx), Some(event_tx), None, capture_tx),
+                    (
+                        node_id,
+                        mode,
+                        butler.clone(),
+                        blob_store,
+                        Some(connect_tx),
+                        Some(event_tx),
+                        None,
+                        capture_tx,
+                    ),
                 )
                 .await
                 .expect("Failed to spawn Coordinator");

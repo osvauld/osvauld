@@ -53,8 +53,13 @@ pub fn decide_delegation(
             // Resolve {page_id} in layer keys and nested issue_on templates
             crate::parser::resolve_page_id_in_facts(&mut facts, resource_id);
             None
-        },
-        _ => return Err(GurkhaError::ValidationError(format!("Unknown resource type: {}", resource_type))),
+        }
+        _ => {
+            return Err(GurkhaError::ValidationError(format!(
+                "Unknown resource type: {}",
+                resource_type
+            )))
+        }
     };
 
     let decision = DelegationDecision {
@@ -81,19 +86,16 @@ pub fn decide_delegation(
 ///
 /// # Returns
 /// * `DelegationTemplate` - The template for this action from `issue_on`
-pub fn extract_issue_template(
-    token_str: &str,
-    action: &str,
-) -> DecisionResult<DelegationTemplate> {
+pub fn extract_issue_template(token_str: &str, action: &str) -> DecisionResult<DelegationTemplate> {
     let permit = crate::parser::Permit::from_token(token_str)
         .map_err(|e| GurkhaError::ParseError(format!("Failed to parse token: {}", e)))?;
 
-    permit.get_issue_template(action)
-        .cloned()
-        .ok_or_else(|| GurkhaError::InvalidTemplate(format!(
+    permit.get_issue_template(action).cloned().ok_or_else(|| {
+        GurkhaError::InvalidTemplate(format!(
             "No issue_on template for action '{}'. Permit must define issue_on.{} to delegate.",
             action, action
-        )))
+        ))
+    })
 }
 
 /// Extract facts from token

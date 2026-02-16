@@ -20,9 +20,9 @@ const NONCE_SIZE: usize = 12;
 pub const SALT_SIZE: usize = 16;
 
 /// Default Argon2 parameters (OWASP 2024 recommendations)
-pub const DEFAULT_M_COST: u32 = 65536;  // 64 MB
-pub const DEFAULT_T_COST: u32 = 3;       // 3 iterations
-pub const DEFAULT_P_COST: u32 = 4;       // 4 parallel lanes
+pub const DEFAULT_M_COST: u32 = 65536; // 64 MB
+pub const DEFAULT_T_COST: u32 = 3; // 3 iterations
+pub const DEFAULT_P_COST: u32 = 4; // 4 parallel lanes
 
 /// Encrypted keys ready for storage
 ///
@@ -241,8 +241,8 @@ fn derive_key_argon2(
 }
 
 fn encrypt_aes_gcm(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>> {
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| HeraldError::KeyDerivation(e.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| HeraldError::KeyDerivation(e.to_string()))?;
 
     // Generate random nonce
     let mut nonce_bytes = [0u8; NONCE_SIZE];
@@ -267,8 +267,8 @@ fn decrypt_aes_gcm(key: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>> {
         return Err(HeraldError::KeyDerivation("Ciphertext too short".into()));
     }
 
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| HeraldError::KeyDerivation(e.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| HeraldError::KeyDerivation(e.to_string()))?;
 
     let nonce = Nonce::from_slice(&ciphertext[..NONCE_SIZE]);
     let ciphertext_with_tag = &ciphertext[NONCE_SIZE..];
@@ -277,4 +277,3 @@ fn decrypt_aes_gcm(key: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>> {
         .decrypt(nonce, ciphertext_with_tag)
         .map_err(|_| HeraldError::InvalidSignature) // Wrong passphrase
 }
-

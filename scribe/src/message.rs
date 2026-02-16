@@ -251,26 +251,20 @@ pub enum ScribeMessage {
     ///
     /// **Context**: User mode received SyncSnapshot after max resyncs exceeded
     /// **We do**: Replace local layer with authoritative snapshot from node
+    /// **We also**: Set sender's peer vector atomically (if provided)
     /// **Invariant**: Node is source of truth for divergence resolution
     ReplaceLayer {
         layer_name: String,
         snapshot: Vec<u8>,
+        /// Sender's peer info + state vector to set atomically after replacement.
+        /// Without this, the replaced layer has empty subscriber vectors and
+        /// the next broadcast would send a full snapshot unnecessarily.
+        from_peer: Option<(String, String, Vec<u8>)>, // (user_did, device_id, state_vector)
         reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
     },
 
     /// Flush dirty layers to storage
     Flush,
-
-    /// Update peer's cached state vector (from PeerActor after SyncAccept/SyncAck)
-    ///
-    /// **Context**: PeerActor received confirmation of peer's state
-    /// **We do**: Update in-memory vector cache (persistence via periodic flush)
-    UpdatePeerVector {
-        user_did: String,
-        device_id: String,
-        layer_name: String,
-        state_vector: Vec<u8>,
-    },
 
     /// Periodic reconciliation - check all subscribers for divergence
     ///
@@ -655,5 +649,17 @@ pub enum ScribeMessage {
     /// **We do**: Return count of current subscribers
     GetSubscriberCount {
         reply: tokio::sync::oneshot::Sender<usize>,
+    },
+
+    /// Update a peer's state vector on a specific layer (fire-and-forget)
+    ///
+    /// **Context**: PeerActor received SyncAccept with peer's current state vector
+    /// **We do**: Update the subscriber's version vector on the target LayerUnit
+    /// so subsequent broadcasts send only incremental diffs
+    UpdatePeerVector {
+        user_did: String,
+        device_id: String,
+        layer_name: String,
+        state_vector: Vec<u8>,
     },
 }

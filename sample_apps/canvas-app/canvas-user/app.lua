@@ -124,6 +124,11 @@ function on_init()
         rebuild_ui_projection()
         sync_full_ui()
     end)
+
+    -- Cursor cleanup/refresh (replaces legacy tick-based refresh)
+    timer.setInterval(250, function()
+        refresh_remote_cursors()
+    end)
 end
 
 function load_from_loro()
@@ -1279,11 +1284,6 @@ end
 function on_hover(screen_x, screen_y)
     local canvas_x, canvas_y = screen_to_canvas(screen_x, screen_y)
     send_cursor_update(canvas_x, canvas_y)
-end
-
--- Periodic tick for cursor cleanup (called if app supports tick)
-function tick()
-    refresh_remote_cursors()
 end
 
 -- =============================================================================

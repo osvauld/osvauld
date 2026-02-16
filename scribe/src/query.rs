@@ -5,10 +5,70 @@
 use tokio::sync::mpsc;
 use tracing::{debug, info, instrument, warn};
 
+use crate::message::PageUpdate;
+use crate::permit::glob_match;
 use crate::Result;
-use domains::{QuerySpec, QueryResult, QueryDelta, SortOrder};
+use crate::ScribeError;
+use domains::{QueryDelta, QueryResult, QuerySpec, SortOrder};
 
-use crate::state::{ScribeState, QuerySubscriberInfo};
+use crate::state::{QuerySubscriberInfo, ScribeState};
+
+// Page Update Subscription
+
+/// Handle SubscribeToPageUpdates message
+///
+/// **Context**: App opens a page and wants to receive all page-level events.
+/// **We do**: Send PeerSubscribed for all currently connected peers, then register the subscriber.
+#[instrument(skip_all, fields(page_id = %state.page_id))]
+pub fn handle_subscribe_to_page_updates(state: &mut ScribeState, tx: mpsc::Sender<PageUpdate>) {
+    // Send PeerSubscribed for all currently subscribed peers
+    // (peers that subscribed before this app opened)
+    if let Ok(subs) = state.subscribers.read() {
+        info!(page_id = %state.page_id, peer_count = subs.len(), "Sending existing peers as PeerSubscribed");
+        for ((user_did, _device_id), _info) in subs.iter() {
+            let _ = tx.try_send(PageUpdate::PeerSubscribed {
+                did: user_did.clone(),
+                username: None,
+            });
+        }
+    }
+
+    // Presence state is delivered via CRDT sync (presence layer snapshot)
+    // No need to send OnlinePeers event — apps read from LayerChanged on {page_id}/presence
+
+    if let Ok(mut subs) = state.page_update_subscribers.write() {
+        subs.push(tx);
+        info!(page_id = %state.page_id, subscriber_count = subs.len(), "PageUpdate subscriber added");
+    }
+}
+
+// Layer Listing and Data
+
+/// Handle ListLayers message
+///
+/// **Context**: Lua/UI wants to know which layers exist matching a glob pattern.
+/// **We do**: Match layer names against glob pattern, excluding protocol layers.
+pub fn handle_list_layers(state: &ScribeState, pattern: &str) -> Vec<String> {
+    state
+        .units
+        .keys()
+        .filter(|name| !crate::sync::sync_meta::is_protocol_layer(name))
+        .filter(|name| glob_match(pattern, name))
+        .cloned()
+        .collect()
+}
+
+/// Handle GetLayerData message
+///
+/// **Context**: Lua/UI wants the full content of a specific layer.
+/// **We do**: Return the layer's content as JSON, or error if not found.
+pub fn handle_get_layer_data(state: &ScribeState, layer_name: &str) -> Result<serde_json::Value> {
+    state
+        .units
+        .get(layer_name)
+        .map(|unit| unit.layer().get_content(layer_name))
+        .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))
+}
 
 // Query Handlers
 
@@ -49,11 +109,8 @@ pub fn handle_query(state: &ScribeState, spec: &QuerySpec) -> Result<QueryResult
     // Apply pagination
     let offset = spec.offset;
     let limit = spec.limit.unwrap_or(usize::MAX);
-    let paginated: Vec<serde_json::Value> = sorted_items
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .collect();
+    let paginated: Vec<serde_json::Value> =
+        sorted_items.into_iter().skip(offset).take(limit).collect();
 
     let has_more = offset + paginated.len() < total_count;
 
@@ -184,22 +241,23 @@ fn apply_sort(items: &[serde_json::Value], spec: &QuerySpec) -> Vec<serde_json::
         let b_val = b.get(sort_by);
 
         let cmp = match (a_val, b_val) {
-            (Some(serde_json::Value::Number(a)), Some(serde_json::Value::Number(b))) => {
-                a.as_f64().unwrap_or(0.0).partial_cmp(&b.as_f64().unwrap_or(0.0))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            }
-            (Some(serde_json::Value::String(a)), Some(serde_json::Value::String(b))) => {
-                a.cmp(b)
-            }
-            (Some(a), Some(b)) => {
-                a.to_string().cmp(&b.to_string())
-            }
+            (Some(serde_json::Value::Number(a)), Some(serde_json::Value::Number(b))) => a
+                .as_f64()
+                .unwrap_or(0.0)
+                .partial_cmp(&b.as_f64().unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal),
+            (Some(serde_json::Value::String(a)), Some(serde_json::Value::String(b))) => a.cmp(b),
+            (Some(a), Some(b)) => a.to_string().cmp(&b.to_string()),
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
             (None, None) => std::cmp::Ordering::Equal,
         };
 
-        if desc { cmp.reverse() } else { cmp }
+        if desc {
+            cmp.reverse()
+        } else {
+            cmp
+        }
     });
 
     sorted

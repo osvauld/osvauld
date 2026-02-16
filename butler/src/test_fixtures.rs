@@ -8,16 +8,15 @@ pub use gurkha::test_fixtures::*;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::storage::{RedbStore, LayerCache, AssetStore};
-use domains::{Space, Page, PageMeta};
+use crate::storage::{AssetStore, LayerCache, RedbStore};
+use domains::{Page, PageMeta, Space};
 
 // Test Store Creation
 
 /// Create an in-memory RedbStore for testing
 pub fn test_store() -> Arc<RedbStore> {
     // RedbStore requires a path, use temp file for tests
-    let temp_path = std::env::temp_dir()
-        .join(format!("butler_test_{}.redb", uuid::Uuid::new_v4()));
+    let temp_path = std::env::temp_dir().join(format!("butler_test_{}.redb", uuid::Uuid::new_v4()));
     Arc::new(RedbStore::open(&temp_path).expect("Failed to create test store"))
 }
 
@@ -90,14 +89,7 @@ pub fn test_space_with_pages(
     let pages: Vec<Page> = page_names
         .iter()
         .enumerate()
-        .map(|(i, name)| {
-            test_page(
-                &format!("{}_{}", space_id, i),
-                space_id,
-                name,
-                owner_did,
-            )
-        })
+        .map(|(i, name)| test_page(&format!("{}_{}", space_id, i), space_id, name, owner_did))
         .collect();
 
     (space, pages)

@@ -138,37 +138,31 @@ fn register_add_website(
                 return;
             }
 
-            // 6. Wait for handshake to complete, then request space
-            let auth_timeout = std::time::Duration::from_secs(15);
-            let poll_interval = std::time::Duration::from_millis(200);
+            // 6. Retry request_space_as_viewer until accepted or timeout
+            // PeerActor queues SpaceRequest until handshake completes, so we don't need
+            // to wait for authentication - just retry until the request is accepted.
+            let request_timeout = std::time::Duration::from_secs(15);
+            let retry_interval = std::time::Duration::from_millis(200);
             let start = std::time::Instant::now();
+            
             loop {
-                match courier_handle.is_node_authenticated(&node_id).await {
-                    Ok(true) => break,
-                    Ok(false) if start.elapsed() < auth_timeout => {
-                        tokio::time::sleep(poll_interval).await;
+                match courier_handle
+                    .request_space_as_viewer(&space_id, &node_id, &permit)
+                    .await
+                {
+                    Ok(_) => {
+                        println!("Space request sent, waiting for sync...");
+                        // UI update happens via ViewerSyncComplete event in events.rs
+                        break;
                     }
-                    Ok(false) => {
-                        println!("Timeout waiting for node authentication");
-                        let err_msg = "Connection timed out".to_string();
-                        slint::invoke_from_event_loop(move || {
-                            if let Some(shell) = shell_weak.upgrade() {
-                                shell.set_connecting_website(false);
-                                shell.set_toast_message(err_msg.into());
-                                shell.set_toast_is_error(true);
-                                shell.set_toast_visible(true);
-                            }
-                        })
-                        .ok();
-                        return;
-                    }
-                    Err(_) if start.elapsed() < auth_timeout => {
-                        // PeerActor not spawned yet, keep waiting
-                        tokio::time::sleep(poll_interval).await;
+                    Err(e) if start.elapsed() < request_timeout => {
+                        // Retry - PeerActor might not be spawned yet or handshake in progress
+                        println!("Space request failed ({}), retrying...", e);
+                        tokio::time::sleep(retry_interval).await;
                     }
                     Err(e) => {
-                        println!("Failed to check auth: {}", e);
-                        let err_msg = format!("Connection failed: {}", e);
+                        println!("Failed to request space after retries: {}", e);
+                        let err_msg = format!("Failed to request space: {}", e);
                         slint::invoke_from_event_loop(move || {
                             if let Some(shell) = shell_weak.upgrade() {
                                 shell.set_connecting_website(false);
@@ -180,29 +174,6 @@ fn register_add_website(
                         .ok();
                         return;
                     }
-                }
-            }
-
-            match courier_handle
-                .request_space_as_viewer(&space_id, &node_id, &permit)
-                .await
-            {
-                Ok(_) => {
-                    println!("Space request sent, waiting for sync...");
-                    // UI update happens via ViewerSyncComplete event in events.rs
-                }
-                Err(e) => {
-                    println!("Failed to request space: {}", e);
-                    let err_msg = format!("Failed to request space: {}", e);
-                    slint::invoke_from_event_loop(move || {
-                        if let Some(shell) = shell_weak.upgrade() {
-                            shell.set_connecting_website(false);
-                            shell.set_toast_message(err_msg.into());
-                            shell.set_toast_is_error(true);
-                            shell.set_toast_visible(true);
-                        }
-                    })
-                    .ok();
                 }
             }
         });

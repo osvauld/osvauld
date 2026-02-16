@@ -5,8 +5,8 @@
 //! - Store received published content
 //! - Track published state
 
-use crate::{Butler, Result, Space, Page, SpaceMeta, PageMeta, PreparedPage};
 use crate::services::{publish_service, space_service};
+use crate::{Butler, Page, PageMeta, PreparedPage, Result, Space, SpaceMeta};
 
 /// Publish API facade
 ///
@@ -16,12 +16,15 @@ pub struct PublishApi<'a> {
 }
 
 impl<'a> PublishApi<'a> {
-
     /// Prepare a space for publishing to a node
     ///
     /// **Context**: Owner wants to publish space to their node
     /// **Returns**: (SpaceMeta, delegated_permit) for transmission
-    pub async fn prepare_space(&self, space_id: &str, node_pubkey: &str) -> Result<(SpaceMeta, String)> {
+    pub async fn prepare_space(
+        &self,
+        space_id: &str,
+        node_pubkey: &str,
+    ) -> Result<(SpaceMeta, String)> {
         let identity = self.butler.get_identity().await?;
         let owner_did = identity.did().to_string();
         publish_service::prepare_space_for_publish(
@@ -30,7 +33,8 @@ impl<'a> PublishApi<'a> {
             &owner_did,
             node_pubkey,
             &identity.secret_signing_key(),
-        ).await
+        )
+        .await
     }
 
     /// Prepare a page for publishing to a node
@@ -58,7 +62,8 @@ impl<'a> PublishApi<'a> {
             node_enc_key,
             &identity.secret_signing_key(),
             &identity.secret_encryption_key(),
-        ).await
+        )
+        .await
     }
 
     /// Prepare a page for a viewer (Node mode)
@@ -84,7 +89,8 @@ impl<'a> PublishApi<'a> {
             viewer_enc_key,
             &identity.secret_signing_key(),
             &identity.secret_encryption_key(),
-        ).await
+        )
+        .await
     }
 
     /// Store a space received via publish (Node mode)
@@ -104,7 +110,12 @@ impl<'a> PublishApi<'a> {
         permit: &str,
         source_node_id: Option<&str>,
     ) -> Result<()> {
-        space_service::store_published_space_with_source(self.butler.store(), space, permit, source_node_id)
+        space_service::store_published_space_with_source(
+            self.butler.store(),
+            space,
+            permit,
+            source_node_id,
+        )
     }
 
     /// Store a page received via publish (Node/Viewer mode)
@@ -137,8 +148,6 @@ impl<'a> PublishApi<'a> {
     }
 
     /// Mark a space as published to a node
-    ///
-    /// DEPRECATED: Use spaces().store_permit() instead
     pub fn mark_space_published(&self, space_id: &str, node_id: &str) -> Result<()> {
         space_service::mark_space_published(self.butler.store(), space_id, node_id)
     }
@@ -159,11 +168,12 @@ impl<'a> PublishApi<'a> {
         use crate::ButlerError;
         let signing_key = self.butler.signing_key().await?;
 
-        let (permit, _cid) = gurkha::issue_space_node_to_owner(
-            &signing_key,
-            space_id,
-            owner_pubkey,
-        ).await.map_err(|e| ButlerError::permit_error(format!("Failed to issue permit: {:?}", e)))?;
+        let (permit, _cid) =
+            gurkha::issue_space_node_to_owner(&signing_key, space_id, owner_pubkey)
+                .await
+                .map_err(|e| {
+                    ButlerError::permit_error(format!("Failed to issue permit: {:?}", e))
+                })?;
 
         Ok(permit)
     }

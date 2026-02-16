@@ -76,8 +76,6 @@ impl RedbStore {
     /// List all layer names for a page
     ///
     /// Returns layer names WITHOUT the page_id prefix.
-    /// Handles legacy double-prefixed keys ({page_id}/{page_id}/layer) by
-    /// stripping both prefixes.
     #[instrument(skip_all)]
     pub fn list_layer_names(&self, page_id: &str) -> Result<Vec<String>> {
         let read_txn = self.db.begin_read()?;
@@ -90,15 +88,11 @@ impl RedbStore {
             let (key, _value) = result?;
             let key_str = key.value();
 
-            // Stop if we've passed the prefix
             if !key_str.starts_with(&prefix) {
                 break;
             }
 
-            // Extract layer_name from key
             if let Some(mut layer_name) = key_str.strip_prefix(&prefix) {
-                // Handle legacy double-prefix: if layer_name still starts with page_id/,
-                // strip it again to get the actual layer name
                 if let Some(fixed_name) = layer_name.strip_prefix(&prefix) {
                     layer_name = fixed_name;
                 }

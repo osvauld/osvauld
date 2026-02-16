@@ -1,0 +1,146 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/abe/osvauld/kunki/Cargo.toml
+workspace: /home/abe/osvauld/Cargo.toml
+warning: unused import: `std::sync::Arc`
+  --> butler/src/services/auth_service.rs:12:5
+   |
+12 | use std::sync::Arc;
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `ButlerError`
+ --> butler/src/storage/asset_store.rs:1:20
+  |
+1 | use crate::error::{ButlerError, Result};
+  |                    ^^^^^^^^^^^
+
+warning: unused import: `ReadableTable`
+ --> butler/src/storage/store/identity.rs:6:30
+  |
+6 | use redb::{ReadableDatabase, ReadableTable};
+  |                              ^^^^^^^^^^^^^
+
+warning: unused import: `ReadableTable`
+ --> butler/src/storage/store/layer.rs:7:30
+  |
+7 | use redb::{ReadableDatabase, ReadableTable};
+  |                              ^^^^^^^^^^^^^
+
+warning: function `delete_contact` is never used
+  --> butler/src/services/contact_service.rs:32:8
+   |
+32 | pub fn delete_contact(store: &RedbStore, user_did: &str) -> Result<bool> {
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `butler` (lib) generated 5 warnings (run `cargo fix --lib -p butler` to apply 2 suggestions)
+warning: sthalam_shell@0.1.0: padding-left only has effect on layout elements
+warning: sthalam_shell@0.1.0:    --> /home/abe/osvauld/sthalam_shell/src/components/cards.slint:245:39
+warning: sthalam_shell@0.1.0:     |
+warning: sthalam_shell@0.1.0: 245 |                         padding-left: 8px;
+warning: sthalam_shell@0.1.0:     |                                       ^
+warning: sthalam_shell@0.1.0: padding-right only has effect on layout elements
+warning: sthalam_shell@0.1.0:    --> /home/abe/osvauld/sthalam_shell/src/components/cards.slint:246:40
+warning: sthalam_shell@0.1.0:     |
+warning: sthalam_shell@0.1.0: 246 |                         padding-right: 8px;
+warning: sthalam_shell@0.1.0:     |                                        ^
+warning: methods `set_validation_handle` and `state` are never used
+   --> kunki/src/control_server.rs:96:18
+    |
+ 44 | impl KunkiHandler {
+    | ----------------- methods in this implementation
+...
+ 96 |     pub async fn set_validation_handle(&self, handle: ValidationHandle) {
+    |                  ^^^^^^^^^^^^^^^^^^^^^
+...
+106 |     pub fn state(&self) -> Arc<RwLock<Option<NodeState>>> {
+    |            ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `set_validation_handle` is never used
+   --> kunki/src/control_server.rs:244:18
+    |
+233 | impl KunkiControlServer {
+    | ----------------------- method in this implementation
+...
+244 |     pub async fn set_validation_handle(&self, handle: ValidationHandle) {
+    |                  ^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `cmd_tx` and `thread_handle` are never read
+  --> kunki/src/node_runtime.rs:17:5
+   |
+16 | struct NodeInstance {
+   |        ------------ fields in this struct
+17 |     cmd_tx: mpsc::Sender<LuaCommand>,
+   |     ^^^^^^
+18 |     thread_handle: Option<std::thread::JoinHandle<()>>,
+   |     ^^^^^^^^^^^^^
+
+warning: methods `stop_node_for_page`, `stop_all`, and `running_pages` are never used
+   --> kunki/src/node_runtime.rs:203:18
+    |
+ 28 | impl NodeRuntimeManager {
+    | ----------------------- methods in this implementation
+...
+203 |     pub async fn stop_node_for_page(&self, page_id: &str) -> Result<(), String> {
+    |                  ^^^^^^^^^^^^^^^^^^
+...
+221 |     pub async fn stop_all(&self) {
+    |                  ^^^^^^^^
+...
+237 |     pub async fn running_pages(&self) -> Vec<String> {
+    |                  ^^^^^^^^^^^^^
+
+warning: struct `ValidationService` is never constructed
+  --> kunki/src/validation_service.rs:17:12
+   |
+17 | pub struct ValidationService {
+   |            ^^^^^^^^^^^^^^^^^
+
+warning: associated items `new`, `spawn`, `handle_request`, `validate`, and `get_validation_code` are never used
+   --> kunki/src/validation_service.rs:23:12
+    |
+ 21 | impl ValidationService {
+    | ---------------------- associated items in this implementation
+ 22 |     /// Create validation service
+ 23 |     pub fn new(butler: Arc<Butler>) -> Self {
+    |            ^^^
+...
+ 31 |     pub fn spawn(self) -> ValidationHandle {
+    |            ^^^^^
+...
+ 51 |     async fn handle_request(
+    |              ^^^^^^^^^^^^^^
+...
+ 89 |     async fn validate(
+    |              ^^^^^^^^
+...
+173 |     async fn get_validation_code(
+    |              ^^^^^^^^^^^^^^^^^^^
+
+warning: method `set_capture_handle_blocking` is never used
+  --> sthalam/src/control_server.rs:83:12
+   |
+70 | impl ShellHandler {
+   | ----------------- method in this implementation
+...
+83 |     pub fn set_capture_handle_blocking(&self, handle: CaptureHandle) {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `set_capture_handle` is never used
+   --> sthalam/src/control_server.rs:585:12
+    |
+557 | impl ControlServer {
+    | ------------------ method in this implementation
+...
+585 |     pub fn set_capture_handle(&self, handle: CaptureHandle) {
+    |            ^^^^^^^^^^^^^^^^^^
+
+warning: `kunki` (bin "kunki") generated 6 warnings
+warning: `sthalam` (bin "sthalam") generated 2 warnings
+    Finished `profiling` profile [optimized + debuginfo] target(s) in 0.67s

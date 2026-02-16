@@ -1,0 +1,971 @@
+{
+  "timestamp": "2026-02-16T18:41:24.947460",
+  "git_commit": "cff2502a",
+  "instances": [
+    {
+      "file": "/tmp/chat_perf/alice/alice.folded",
+      "total_stacks": 1128775,
+      "app_stacks": 628648,
+      "total_time": 18394598558,
+      "non_idle_time": 7346416788,
+      "categories": {
+        "iroh": {
+          "time": 8984891718,
+          "percent": 48.8
+        },
+        "ractor": {
+          "time": 6191832825,
+          "percent": 33.7
+        },
+        "portmapper": {
+          "time": 2566752443,
+          "percent": 14.0
+        },
+        "courier": {
+          "time": 1039259676,
+          "percent": 5.6
+        },
+        "scribe": {
+          "time": 640825840,
+          "percent": 3.5
+        },
+        "butler": {
+          "time": 611818241,
+          "percent": 3.3
+        },
+        "loro": {
+          "time": 567846460,
+          "percent": 3.1
+        },
+        "gurkha": {
+          "time": 1184489,
+          "percent": 0.0
+        },
+        "other": {
+          "time": 300760,
+          "percent": 0.0
+        }
+      },
+      "hotspots": [
+        {
+          "function": " ractor::actor::Actor",
+          "time": 4988633861,
+          "percent": 67.9
+        },
+        {
+          "function": " iroh::endpoint::connect",
+          "time": 331024739,
+          "percent": 4.5
+        },
+        {
+          "function": " butler::services::auth_service::signup:butler",
+          "time": 214036476,
+          "percent": 2.9
+        },
+        {
+          "function": " loro_internal::diff_calc::CalcDiff",
+          "time": 188830299,
+          "percent": 2.6
+        },
+        {
+          "function": " butler::services::app_service::collect_app_files:butler",
+          "time": 176699371,
+          "percent": 2.4
+        },
+        {
+          "function": " iroh::socket::transports::poll_send",
+          "time": 152215622,
+          "percent": 2.1
+        },
+        {
+          "function": " loro_internal::loro::export",
+          "time": 150825161,
+          "percent": 2.1
+        },
+        {
+          "function": " courier::peer_actor::sync::protocol::on_sync_offer:courier",
+          "time": 128521013,
+          "percent": 1.7
+        },
+        {
+          "function": " loro_internal::loro::commit_internal",
+          "time": 125461215,
+          "percent": 1.7
+        },
+        {
+          "function": " courier::peer_actor::sync::subscription::handle_broadcast_received:courier",
+          "time": 118524622,
+          "percent": 1.6
+        },
+        {
+          "function": " butler::services::auth_service::login:butler",
+          "time": 104330428,
+          "percent": 1.4
+        },
+        {
+          "function": " courier::peer_actor::handle_protocol_message:courier",
+          "time": 89366310,
+          "percent": 1.2
+        },
+        {
+          "function": " courier::peer_actor::sync::protocol::on_sync_accept:courier",
+          "time": 56032916,
+          "percent": 0.8
+        },
+        {
+          "function": " courier::peer_actor::send_message:courier",
+          "time": 55849964,
+          "percent": 0.8
+        },
+        {
+          "function": " scribe::operations::handle_map_insert:scribe",
+          "time": 51723215,
+          "percent": 0.7
+        },
+        {
+          "function": " courier::peer_actor::handle:courier",
+          "time": 46047827,
+          "percent": 0.6
+        },
+        {
+          "function": " loro_internal::loro::update_oplog_and_apply_delta_to_state_if_needed",
+          "time": 37918287,
+          "percent": 0.5
+        },
+        {
+          "function": " scribe::sync::apply::update_sender_vector:scribe",
+          "time": 35842371,
+          "percent": 0.5
+        },
+        {
+          "function": " loro_internal::oplog::change_store::mut_inner_kv::change_store insert_change",
+          "time": 25036607,
+          "percent": 0.3
+        },
+        {
+          "function": " butler::services::app_service::scan_app_subdirectories:butler",
+          "time": 24052078,
+          "percent": 0.3
+        },
+        {
+          "function": " scribe::sync::apply::handle_apply_update:scribe",
+          "time": 21549534,
+          "percent": 0.3
+        },
+        {
+          "function": " butler::open_page:butler",
+          "time": 20360951,
+          "percent": 0.3
+        },
+        {
+          "function": " butler::services::app_service::load_page_templates:butler",
+          "time": 15118494,
+          "percent": 0.2
+        },
+        {
+          "function": " butler::scribe_manager::get:butler",
+          "time": 14090566,
+          "percent": 0.2
+        },
+        {
+          "function": " loro_internal::loro::_import_with",
+          "time": 13773427,
+          "percent": 0.2
+        }
+      ],
+      "scribe_breakdown": [],
+      "flush_breakdown": [
+        {
+          "function": " loro_internal::loro::export",
+          "time": 47697828,
+          "percent": 87.9
+        },
+        {
+          "function": " butler::scribe_storage::save_layer:butler",
+          "time": 6055851,
+          "percent": 11.2
+        },
+        {
+          "function": " butler::scribe_storage::save_vectors:butler",
+          "time": 484188,
+          "percent": 0.9
+        }
+      ],
+      "loro_breakdown": [
+        {
+          "function": " loro_internal::diff_calc::CalcDiff",
+          "time": 188830299,
+          "percent": 2.6
+        },
+        {
+          "function": " loro_internal::loro::export",
+          "time": 150825161,
+          "percent": 2.1
+        },
+        {
+          "function": " loro_internal::loro::commit_internal",
+          "time": 125461215,
+          "percent": 1.7
+        },
+        {
+          "function": " loro_internal::loro::update_oplog_and_apply_delta_to_state_if_needed",
+          "time": 37918287,
+          "percent": 0.5
+        },
+        {
+          "function": " loro_internal::oplog::change_store::mut_inner_kv::change_store insert_change",
+          "time": 25036607,
+          "percent": 0.3
+        },
+        {
+          "function": " loro_internal::loro::_import_with",
+          "time": 13773427,
+          "percent": 0.2
+        },
+        {
+          "function": " loro_internal::diff_calc::DiffCalc",
+          "time": 12144596,
+          "percent": 0.2
+        },
+        {
+          "function": " loro_internal::state::apply_diff",
+          "time": 5530603,
+          "percent": 0.1
+        },
+        {
+          "function": " loro_internal::oplog::loro_dag::handle_new_change",
+          "time": 5445312,
+          "percent": 0.1
+        },
+        {
+          "function": " loro_internal::state::apply diff on",
+          "time": 2880953,
+          "percent": 0.0
+        }
+      ]
+    },
+    {
+      "file": "/tmp/chat_perf/bob/bob.folded",
+      "total_stacks": 755892,
+      "app_stacks": 474445,
+      "total_time": 30345485331,
+      "non_idle_time": 6614231239,
+      "categories": {
+        "iroh": {
+          "time": 20491998528,
+          "percent": 67.5
+        },
+        "ractor": {
+          "time": 5638317710,
+          "percent": 18.6
+        },
+        "portmapper": {
+          "time": 3837885884,
+          "percent": 12.6
+        },
+        "courier": {
+          "time": 3157417306,
+          "percent": 10.4
+        },
+        "scribe": {
+          "time": 2576086957,
+          "percent": 8.5
+        },
+        "loro": {
+          "time": 694013130,
+          "percent": 2.3
+        },
+        "butler": {
+          "time": 536167824,
+          "percent": 1.8
+        },
+        "gurkha": {
+          "time": 106201915,
+          "percent": 0.3
+        },
+        "other": {
+          "time": 696689,
+          "percent": 0.0
+        }
+      },
+      "hotspots": [
+        {
+          "function": " ractor::actor::Actor",
+          "time": 2382881884,
+          "percent": 36.0
+        },
+        {
+          "function": " courier::peer_actor::subscribe::handle_layer_permit_ack:courier",
+          "time": 1049680676,
+          "percent": 15.9
+        },
+        {
+          "function": " iroh::endpoint::connect",
+          "time": 381310052,
+          "percent": 5.8
+        },
+        {
+          "function": " courier::peer_actor::sync::protocol::on_sync_offer:courier",
+          "time": 306731595,
+          "percent": 4.6
+        },
+        {
+          "function": " courier::peer_actor::subscribe::on_layer_subscribe_ack:courier",
+          "time": 226978226,
+          "percent": 3.4
+        },
+        {
+          "function": " butler::services::auth_service::signup:butler",
+          "time": 205125227,
+          "percent": 3.1
+        },
+        {
+          "function": " iroh::socket::transports::poll_send",
+          "time": 191808751,
+          "percent": 2.9
+        },
+        {
+          "function": " loro_internal::diff_calc::CalcDiff",
+          "time": 184194122,
+          "percent": 2.8
+        },
+        {
+          "function": " loro_internal::loro::export",
+          "time": 144151295,
+          "percent": 2.2
+        },
+        {
+          "function": " loro_internal::loro::commit_internal",
+          "time": 140714759,
+          "percent": 2.1
+        },
+        {
+          "function": " courier::peer_actor::handle_protocol_message:courier",
+          "time": 111904324,
+          "percent": 1.7
+        },
+        {
+          "function": " gurkha::service::issue_sync_layer_consent:gurkha",
+          "time": 105890788,
+          "percent": 1.6
+        },
+        {
+          "function": " loro_internal::loro::update_oplog_and_apply_delta_to_state_if_needed",
+          "time": 105188573,
+          "percent": 1.6
+        },
+        {
+          "function": " butler::services::auth_service::login:butler",
+          "time": 103431043,
+          "percent": 1.6
+        },
+        {
+          "function": " scribe::sync::apply::handle_apply_update:scribe",
+          "time": 98186347,
+          "percent": 1.5
+        },
+        {
+          "function": " butler::storage::store::layer::put_layer:butler",
+          "time": 73140346,
+          "percent": 1.1
+        },
+        {
+          "function": " scribe::sync::apply::handle_post_apply:scribe",
+          "time": 71897287,
+          "percent": 1.1
+        },
+        {
+          "function": " courier::peer_actor::handle:courier",
+          "time": 59266833,
+          "percent": 0.9
+        },
+        {
+          "function": " courier::peer_actor::send_message:courier",
+          "time": 52213815,
+          "percent": 0.8
+        },
+        {
+          "function": " courier::peer_actor::sync::subscription::handle_broadcast_received:courier",
+          "time": 46659316,
+          "percent": 0.7
+        },
+        {
+          "function": " scribe::sync::apply::update_sender_vector:scribe",
+          "time": 45870119,
+          "percent": 0.7
+        },
+        {
+          "function": " butler::scribe_storage::save_layer:butler",
+          "time": 42776010,
+          "percent": 0.6
+        },
+        {
+          "function": " loro_internal::loro::_import_with",
+          "time": 42126050,
+          "percent": 0.6
+        },
+        {
+          "function": " scribe::sync::apply::apply_update_core:scribe",
+          "time": 31780890,
+          "percent": 0.5
+        },
+        {
+          "function": " courier::peer_actor::sync::protocol::on_sync_ack:courier",
+          "time": 29747838,
+          "percent": 0.4
+        }
+      ],
+      "scribe_breakdown": [],
+      "flush_breakdown": [
+        {
+          "function": " loro_internal::loro::export",
+          "time": 55283587,
+          "percent": 88.0
+        },
+        {
+          "function": " butler::scribe_storage::save_layer:butler",
+          "time": 6986771,
+          "percent": 11.1
+        },
+        {
+          "function": " butler::scribe_storage::save_vectors:butler",
+          "time": 521844,
+          "percent": 0.8
+        }
+      ],
+      "loro_breakdown": [
+        {
+          "function": " loro_internal::diff_calc::CalcDiff",
+          "time": 184194122,
+          "percent": 2.8
+        },
+        {
+          "function": " loro_internal::loro::export",
+          "time": 144151295,
+          "percent": 2.2
+        },
+        {
+          "function": " loro_internal::loro::commit_internal",
+          "time": 140714759,
+          "percent": 2.1
+        },
+        {
+          "function": " loro_internal::loro::update_oplog_and_apply_delta_to_state_if_needed",
+          "time": 105188573,
+          "percent": 1.6
+        },
+        {
+          "function": " loro_internal::loro::_import_with",
+          "time": 42126050,
+          "percent": 0.6
+        },
+        {
+          "function": " loro_internal::oplog::change_store::mut_inner_kv::change_store insert_change",
+          "time": 27289473,
+          "percent": 0.4
+        },
+        {
+          "function": " loro_internal::diff_calc::DiffCalc",
+          "time": 22516854,
+          "percent": 0.3
+        },
+        {
+          "function": " loro_internal::state::apply_diff",
+          "time": 13362738,
+          "percent": 0.2
+        },
+        {
+          "function": " loro_internal::state::apply diff on",
+          "time": 7250038,
+          "percent": 0.1
+        },
+        {
+          "function": " loro_internal::oplog::loro_dag::handle_new_change",
+          "time": 7219228,
+          "percent": 0.1
+        }
+      ]
+    },
+    {
+      "file": "/tmp/chat_perf/carol/carol.folded",
+      "total_stacks": 752205,
+      "app_stacks": 449765,
+      "total_time": 36067021574,
+      "non_idle_time": 4952809056,
+      "categories": {
+        "iroh": {
+          "time": 27770124313,
+          "percent": 77.0
+        },
+        "ractor": {
+          "time": 4052775545,
+          "percent": 11.2
+        },
+        "portmapper": {
+          "time": 3875611079,
+          "percent": 10.7
+        },
+        "courier": {
+          "time": 1396208846,
+          "percent": 3.9
+        },
+        "scribe": {
+          "time": 885524522,
+          "percent": 2.5
+        },
+        "loro": {
+          "time": 631628186,
+          "percent": 1.8
+        },
+        "butler": {
+          "time": 384178367,
+          "percent": 1.1
+        },
+        "gurkha": {
+          "time": 8096830,
+          "percent": 0.0
+        },
+        "other": {
+          "time": 279769,
+          "percent": 0.0
+        }
+      },
+      "hotspots": [
+        {
+          "function": " ractor::actor::Actor",
+          "time": 2559056429,
+          "percent": 51.7
+        },
+        {
+          "function": " iroh::endpoint::connect",
+          "time": 340573105,
+          "percent": 6.9
+        },
+        {
+          "function": " courier::peer_actor::sync::protocol::on_sync_offer:courier",
+          "time": 281874212,
+          "percent": 5.7
+        },
+        {
+          "function": " butler::services::auth_service::signup:butler",
+          "time": 204076620,
+          "percent": 4.1
+        },
+        {
+          "function": " loro_internal::diff_calc::CalcDiff",
+          "time": 168926623,
+          "percent": 3.4
+        },
+        {
+          "function": " iroh::socket::transports::poll_send",
+          "time": 167256748,
+          "percent": 3.4
+        },
+        {
+          "function": " loro_internal::loro::commit_internal",
+          "time": 138654948,
+          "percent": 2.8
+        },
+        {
+          "function": " loro_internal::loro::export",
+          "time": 117287680,
+          "percent": 2.4
+        },
+        {
+          "function": " butler::services::auth_service::login:butler",
+          "time": 100307382,
+          "percent": 2.0
+        },
+        {
+          "function": " courier::peer_actor::handle_protocol_message:courier",
+          "time": 93082831,
+          "percent": 1.9
+        },
+        {
+          "function": " loro_internal::loro::update_oplog_and_apply_delta_to_state_if_needed",
+          "time": 89823453,
+          "percent": 1.8
+        },
+        {
+          "function": " courier::peer_actor::handle:courier",
+          "time": 54465066,
+          "percent": 1.1
+        },
+        {
+          "function": " scribe::sync::apply::handle_apply_update:scribe",
+          "time": 50772518,
+          "percent": 1.0
+        },
+        {
+          "function": " courier::peer_actor::send_message:courier",
+          "time": 42214314,
+          "percent": 0.9
+        },
+        {
+          "function": " scribe::sync::apply::update_sender_vector:scribe",
+          "time": 39929901,
+          "percent": 0.8
+        },
+        {
+          "function": " courier::peer_actor::sync::subscription::handle_broadcast_received:courier",
+          "time": 35550344,
+          "percent": 0.7
+        },
+        {
+          "function": " courier::peer_actor::subscribe::handle_layer_permit_ack:courier",
+          "time": 34174544,
+          "percent": 0.7
+        },
+        {
+          "function": " loro_internal::loro::_import_with",
+          "time": 33444237,
+          "percent": 0.7
+        },
+        {
+          "function": " loro_internal::oplog::change_store::mut_inner_kv::change_store insert_change",
+          "time": 28626589,
+          "percent": 0.6
+        },
+        {
+          "function": " courier::peer_actor::sync::protocol::on_sync_ack:courier",
+          "time": 27145601,
+          "percent": 0.5
+        },
+        {
+          "function": " loro_internal::diff_calc::DiffCalc",
+          "time": 26289162,
+          "percent": 0.5
+        },
+        {
+          "function": " scribe::sync::apply::apply_update_core:scribe",
+          "time": 25101646,
+          "percent": 0.5
+        },
+        {
+          "function": " scribe::sync::reconcile::emit_sync_events_for_missing_targets:scribe",
+          "time": 22553066,
+          "percent": 0.5
+        },
+        {
+          "function": " butler::open_page:butler",
+          "time": 20877486,
+          "percent": 0.4
+        },
+        {
+          "function": " scribe::sync::apply::apply_crdt_update:scribe",
+          "time": 20541995,
+          "percent": 0.4
+        }
+      ],
+      "scribe_breakdown": [],
+      "flush_breakdown": [
+        {
+          "function": " loro_internal::loro::export",
+          "time": 53605101,
+          "percent": 91.8
+        },
+        {
+          "function": " butler::scribe_storage::save_layer:butler",
+          "time": 4333259,
+          "percent": 7.4
+        },
+        {
+          "function": " butler::scribe_storage::save_vectors:butler",
+          "time": 453329,
+          "percent": 0.8
+        }
+      ],
+      "loro_breakdown": [
+        {
+          "function": " loro_internal::diff_calc::CalcDiff",
+          "time": 168926623,
+          "percent": 3.4
+        },
+        {
+          "function": " loro_internal::loro::commit_internal",
+          "time": 138654948,
+          "percent": 2.8
+        },
+        {
+          "function": " loro_internal::loro::export",
+          "time": 117287680,
+          "percent": 2.4
+        },
+        {
+          "function": " loro_internal::loro::update_oplog_and_apply_delta_to_state_if_needed",
+          "time": 89823453,
+          "percent": 1.8
+        },
+        {
+          "function": " loro_internal::loro::_import_with",
+          "time": 33444237,
+          "percent": 0.7
+        },
+        {
+          "function": " loro_internal::oplog::change_store::mut_inner_kv::change_store insert_change",
+          "time": 28626589,
+          "percent": 0.6
+        },
+        {
+          "function": " loro_internal::diff_calc::DiffCalc",
+          "time": 26289162,
+          "percent": 0.5
+        },
+        {
+          "function": " loro_internal::state::apply_diff",
+          "time": 14980135,
+          "percent": 0.3
+        },
+        {
+          "function": " loro_internal::state::apply diff on",
+          "time": 7142279,
+          "percent": 0.1
+        },
+        {
+          "function": " loro_internal::oplog::loro_dag::handle_new_change",
+          "time": 6453080,
+          "percent": 0.1
+        }
+      ]
+    },
+    {
+      "file": "/tmp/chat_perf/node/node.folded",
+      "total_stacks": 481645,
+      "app_stacks": 428172,
+      "total_time": 19744228513,
+      "non_idle_time": 5832053367,
+      "categories": {
+        "iroh": {
+          "time": 12724655002,
+          "percent": 64.4
+        },
+        "ractor": {
+          "time": 4317172807,
+          "percent": 21.9
+        },
+        "courier": {
+          "time": 4059306578,
+          "percent": 20.6
+        },
+        "scribe": {
+          "time": 2580539976,
+          "percent": 13.1
+        },
+        "portmapper": {
+          "time": 2573216686,
+          "percent": 13.0
+        },
+        "loro": {
+          "time": 926468104,
+          "percent": 4.7
+        },
+        "butler": {
+          "time": 774029861,
+          "percent": 3.9
+        },
+        "gurkha": {
+          "time": 192287756,
+          "percent": 1.0
+        }
+      },
+      "hotspots": [
+        {
+          "function": " iroh::protocol::router.accept",
+          "time": 860607412,
+          "percent": 14.8
+        },
+        {
+          "function": " scribe::sync::apply::get_peer_role:scribe",
+          "time": 689492801,
+          "percent": 11.8
+        },
+        {
+          "function": " iroh::socket::transports::poll_send",
+          "time": 489633527,
+          "percent": 8.4
+        },
+        {
+          "function": " courier::peer_actor::sync::subscription::handle_broadcast_received:courier",
+          "time": 408289553,
+          "percent": 7.0
+        },
+        {
+          "function": " loro_internal::loro::export",
+          "time": 403035610,
+          "percent": 6.9
+        },
+        {
+          "function": " courier::peer_actor::sync::protocol::on_sync_offer:courier",
+          "time": 256758517,
+          "percent": 4.4
+        },
+        {
+          "function": " courier::peer_actor::handle_protocol_message:courier",
+          "time": 233395343,
+          "percent": 4.0
+        },
+        {
+          "function": " butler::storage::store::permit::get_user_page_permit:butler",
+          "time": 224284175,
+          "percent": 3.8
+        },
+        {
+          "function": " loro_internal::diff_calc::CalcDiff",
+          "time": 218040735,
+          "percent": 3.7
+        },
+        {
+          "function": " ractor::actor::Actor",
+          "time": 198135006,
+          "percent": 3.4
+        },
+        {
+          "function": " gurkha::service::issue_layer_permit:gurkha",
+          "time": 191414950,
+          "percent": 3.3
+        },
+        {
+          "function": " courier::peer_actor::send_message:courier",
+          "time": 178289731,
+          "percent": 3.1
+        },
+        {
+          "function": " courier::peer_actor::sync::protocol::on_sync_accept:courier",
+          "time": 160095217,
+          "percent": 2.7
+        },
+        {
+          "function": " courier::peer_actor::handle:courier",
+          "time": 133317301,
+          "percent": 2.3
+        },
+        {
+          "function": " loro_internal::loro::commit_internal",
+          "time": 126173765,
+          "percent": 2.2
+        },
+        {
+          "function": " butler::services::auth_service::login:butler",
+          "time": 119281480,
+          "percent": 2.0
+        },
+        {
+          "function": " scribe::sync::apply::apply_update_core:scribe",
+          "time": 95585644,
+          "percent": 1.6
+        },
+        {
+          "function": " courier::peer_actor::subscribe::on_layer_subscribe:courier",
+          "time": 94091253,
+          "percent": 1.6
+        },
+        {
+          "function": " scribe::sync::apply::handle_apply_update:scribe",
+          "time": 72377242,
+          "percent": 1.2
+        },
+        {
+          "function": " loro_internal::loro::update_oplog_and_apply_delta_to_state_if_needed",
+          "time": 70146166,
+          "percent": 1.2
+        },
+        {
+          "function": " butler::open_page:butler",
+          "time": 54907308,
+          "percent": 0.9
+        },
+        {
+          "function": " scribe::sync::broadcast::broadcast_update:scribe",
+          "time": 51313035,
+          "percent": 0.9
+        },
+        {
+          "function": " butler::scribe_manager::get:butler",
+          "time": 39703240,
+          "percent": 0.7
+        },
+        {
+          "function": " courier::peer_actor::sync::protocol::on_sync_ack:courier",
+          "time": 33181475,
+          "percent": 0.6
+        },
+        {
+          "function": " loro_internal::loro::_import_with",
+          "time": 31525941,
+          "percent": 0.5
+        }
+      ],
+      "scribe_breakdown": [],
+      "flush_breakdown": [
+        {
+          "function": " loro_internal::loro::export",
+          "time": 47230248,
+          "percent": 91.1
+        },
+        {
+          "function": " butler::scribe_storage::save_layer:butler",
+          "time": 3921672,
+          "percent": 7.6
+        },
+        {
+          "function": " butler::scribe_storage::save_vectors:butler",
+          "time": 685770,
+          "percent": 1.3
+        }
+      ],
+      "loro_breakdown": [
+        {
+          "function": " loro_internal::loro::export",
+          "time": 403035610,
+          "percent": 6.9
+        },
+        {
+          "function": " loro_internal::diff_calc::CalcDiff",
+          "time": 218040735,
+          "percent": 3.7
+        },
+        {
+          "function": " loro_internal::loro::commit_internal",
+          "time": 126173765,
+          "percent": 2.2
+        },
+        {
+          "function": " loro_internal::loro::update_oplog_and_apply_delta_to_state_if_needed",
+          "time": 70146166,
+          "percent": 1.2
+        },
+        {
+          "function": " loro_internal::loro::_import_with",
+          "time": 31525941,
+          "percent": 0.5
+        },
+        {
+          "function": " loro_internal::diff_calc::DiffCalc",
+          "time": 25937972,
+          "percent": 0.4
+        },
+        {
+          "function": " loro_internal::oplog::change_store::mut_inner_kv::change_store insert_change",
+          "time": 24384659,
+          "percent": 0.4
+        },
+        {
+          "function": " loro_internal::state::apply_diff",
+          "time": 13099766,
+          "percent": 0.2
+        },
+        {
+          "function": " loro_internal::state::apply diff on",
+          "time": 8123866,
+          "percent": 0.1
+        },
+        {
+          "function": " loro_internal::oplog::loro_dag::handle_new_change",
+          "time": 5999624,
+          "percent": 0.1
+        }
+      ]
+    }
+  ],
+  "svg_paths": {}
+}

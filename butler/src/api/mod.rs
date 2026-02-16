@@ -24,22 +24,22 @@
 //! butler.assets().upload(page_id, data, filename, mime).await?;
 //! ```
 
-mod spaces;
-mod pages;
-mod nodes;
-mod contacts;
-mod permits;
 mod apps;
-mod files;
-mod publish;
 mod assets;
+mod contacts;
+mod files;
+mod nodes;
+mod pages;
+mod permits;
+mod publish;
+mod spaces;
 
-pub use spaces::SpacesApi;
-pub use pages::PagesApi;
-pub use nodes::NodesApi;
-pub use contacts::ContactsApi;
-pub use permits::PermitsApi;
 pub use apps::AppsApi;
-pub use files::FilesApi;
-pub use publish::PublishApi;
 pub use assets::AssetsApi;
+pub use contacts::ContactsApi;
+pub use files::FilesApi;
+pub use nodes::NodesApi;
+pub use pages::PagesApi;
+pub use permits::PermitsApi;
+pub use publish::PublishApi;
+pub use spaces::SpacesApi;

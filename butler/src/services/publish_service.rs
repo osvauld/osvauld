@@ -3,11 +3,9 @@
 //! Handles the complex encryption/decryption flows for P2P sync.
 
 use crate::error::{ButlerError, Result};
+use crate::models::{Page, PageData, PageMeta, PreparedPage, SpaceMeta};
 use crate::storage::RedbStore;
 use tracing::instrument;
-use crate::models::{
-    SpaceMeta, PageMeta, Page, PageData, PreparedPage,
-};
 
 /// Prepare space for publishing to node
 #[instrument(skip(store, owner_signing_key), fields(space_id = %space_id))]
@@ -19,22 +17,24 @@ pub async fn prepare_space_for_publish(
     owner_signing_key: &[u8; 32],
 ) -> Result<(SpaceMeta, String)> {
     // 1. Get space data
-    let space_data = store.get_space(space_id)?
+    let space_data = store
+        .get_space(space_id)?
         .ok_or_else(|| ButlerError::space_not_found(space_id))?;
 
     // 2. Get owner's permit from the space (MY permit)
-    let owner_permit = space_data.get_permit()
-        .ok_or_else(|| ButlerError::permit_not_found(
-            &format!("Owner permit not found for space {}", space_id)
-        ))?;
+    let owner_permit = space_data.get_permit().ok_or_else(|| {
+        ButlerError::permit_not_found(&format!("Owner permit not found for space {}", space_id))
+    })?;
 
     // 3. Issue space permit for node via gurkha
     let (node_permit, _cid) = gurkha::delegate_space(
         owner_signing_key,
         owner_permit,
-        "node",  // template_key from SPACE_TEMPLATE.delegation.node
+        "node", // template_key from SPACE_TEMPLATE.delegation.node
         node_public_key,
-    ).await.map_err(|e| ButlerError::permit_error(format!("Failed to issue space permit: {}", e)))?;
+    )
+    .await
+    .map_err(|e| ButlerError::permit_error(format!("Failed to issue space permit: {}", e)))?;
 
     Ok((space_data.meta, node_permit))
 }
@@ -51,14 +51,16 @@ pub async fn prepare_page_for_publish(
     owner_secret_key: &[u8; 32],
 ) -> Result<PreparedPage> {
     // 1. Find the page
-    let page_data = store.find_page_by_id(page_id)?
+    let page_data = store
+        .find_page_by_id(page_id)?
         .ok_or_else(|| ButlerError::page_not_found(page_id))?;
 
     // 2. Get owner's permit from the page (MY permit) - clone to avoid borrow issues
-    let owner_permit = page_data.get_permit()
-        .ok_or_else(|| ButlerError::permit_not_found(
-            &format!("Owner permit not found for page {}", page_id)
-        ))?
+    let owner_permit = page_data
+        .get_permit()
+        .ok_or_else(|| {
+            ButlerError::permit_not_found(&format!("Owner permit not found for page {}", page_id))
+        })?
         .clone();
 
     // 3. Parse permit to get local_only layers (for filtering)
@@ -70,15 +72,18 @@ pub async fn prepare_page_for_publish(
     let (node_permit, _cid) = gurkha::delegate_page(
         owner_signing_key,
         &owner_permit,
-        "node",  // template_key from PAGE_TEMPLATE.delegation.node
+        "node", // template_key from PAGE_TEMPLATE.delegation.node
         node_public_key,
-    ).await.map_err(|e| ButlerError::permit_error(format!("Failed to issue page permit: {}", e)))?;
+    )
+    .await
+    .map_err(|e| ButlerError::permit_error(format!("Failed to issue page permit: {}", e)))?;
 
     // 5. Decrypt AES key using owner's secret key
     let aes_key = herald::decrypt(owner_secret_key, &page_data.meta.encrypted_key)
         .map_err(|e| ButlerError::Encryption(format!("Failed to decrypt AES key: {}", e)))?;
 
-    let aes_key_arr: [u8; 32] = aes_key.try_into()
+    let aes_key_arr: [u8; 32] = aes_key
+        .try_into()
         .map_err(|_| ButlerError::Encryption("Invalid AES key length".to_string()))?;
 
     // 6. Get and decrypt all layers, filtering out local_only
@@ -92,10 +97,10 @@ pub async fn prepare_page_for_publish(
             continue;
         }
 
-        let decrypted_bytes = herald::decrypt_symmetric(&aes_key_arr, &encrypted_bytes)
-            .map_err(|e| ButlerError::Encryption(
-                format!("Failed to decrypt layer {}: {}", layer_name, e)
-            ))?;
+        let decrypted_bytes =
+            herald::decrypt_symmetric(&aes_key_arr, &encrypted_bytes).map_err(|e| {
+                ButlerError::Encryption(format!("Failed to decrypt layer {}: {}", layer_name, e))
+            })?;
         decrypted_layers.push((layer_name, decrypted_bytes));
     }
 
@@ -109,10 +114,12 @@ pub async fn prepare_page_for_publish(
     // Encrypt each layer with transit key
     let mut transit_layers = Vec::with_capacity(decrypted_layers.len());
     for (layer_name, plaintext) in decrypted_layers {
-        let encrypted = herald::encrypt_symmetric(&transit_key, &plaintext)
-            .map_err(|e| ButlerError::Encryption(
-                format!("Failed to transit-encrypt layer {}: {}", layer_name, e)
-            ))?;
+        let encrypted = herald::encrypt_symmetric(&transit_key, &plaintext).map_err(|e| {
+            ButlerError::Encryption(format!(
+                "Failed to transit-encrypt layer {}: {}",
+                layer_name, e
+            ))
+        })?;
         transit_layers.push((layer_name, encrypted));
     }
 
@@ -148,10 +155,12 @@ pub fn store_published_page(
     // 2. Decrypt all transit layers
     let mut decrypted_layers = Vec::with_capacity(transit_layers.len());
     for (layer_name, encrypted) in transit_layers {
-        let decrypted = herald::decrypt_symmetric(&transit_key, &encrypted)
-            .map_err(|e| ButlerError::Encryption(
-                format!("Failed to decrypt transit layer {}: {}", layer_name, e)
-            ))?;
+        let decrypted = herald::decrypt_symmetric(&transit_key, &encrypted).map_err(|e| {
+            ButlerError::Encryption(format!(
+                "Failed to decrypt transit layer {}: {}",
+                layer_name, e
+            ))
+        })?;
         decrypted_layers.push((layer_name, decrypted));
     }
 
@@ -159,15 +168,20 @@ pub fn store_published_page(
     let aes_key = herald::generate_aes_key();
 
     // 4. Re-encrypt layers with new AES key and store sender's state vectors
-    log::info!("store_published_page: page_id={} storing {} layers",
-        page_meta.id, decrypted_layers.len());
+    log::info!(
+        "store_published_page: page_id={} storing {} layers",
+        page_meta.id,
+        decrypted_layers.len()
+    );
     for (layer_name, plaintext) in &decrypted_layers {
-        log::info!("store_published_page: storing layer {} ({} bytes plaintext)",
-            layer_name, plaintext.len());
-        let encrypted = herald::encrypt_symmetric(&aes_key, plaintext)
-            .map_err(|e| ButlerError::Encryption(
-                format!("Failed to encrypt layer {}: {}", layer_name, e)
-            ))?;
+        log::info!(
+            "store_published_page: storing layer {} ({} bytes plaintext)",
+            layer_name,
+            plaintext.len()
+        );
+        let encrypted = herald::encrypt_symmetric(&aes_key, plaintext).map_err(|e| {
+            ButlerError::Encryption(format!("Failed to encrypt layer {}: {}", layer_name, e))
+        })?;
         store.put_layer(&page_meta.id, layer_name, &encrypted)?;
 
         // Store sender's state vector so we can send incremental updates later
@@ -206,8 +220,8 @@ pub fn store_published_page(
     // Register sender (owner) as authorized user for this page
     // This allows can_write() in Scribe to accept SyncOffer from owner
     // Compute CID from permit for revocation tracking
-    let permit_cid = gurkha::crypto::get_permit_cid(permit)
-        .unwrap_or_else(|_| "unknown".to_string());
+    let permit_cid =
+        gurkha::crypto::get_permit_cid(permit).unwrap_or_else(|_| "unknown".to_string());
     store.put_permit_cid(&meta.id, sender_did, &permit_cid)?;
 
     Ok(Page::from(meta))
@@ -224,14 +238,16 @@ pub async fn prepare_page_for_viewer(
     node_secret_key: &[u8; 32],
 ) -> Result<PreparedPage> {
     // 1. Find the page
-    let page_data = store.find_page_by_id(page_id)?
+    let page_data = store
+        .find_page_by_id(page_id)?
         .ok_or_else(|| ButlerError::page_not_found(page_id))?;
 
     // 2. Get node's permit from the page - clone to avoid borrow issues
-    let node_permit = page_data.get_permit()
-        .ok_or_else(|| ButlerError::permit_not_found(
-            &format!("Node permit not found for page {}", page_id)
-        ))?
+    let node_permit = page_data
+        .get_permit()
+        .ok_or_else(|| {
+            ButlerError::permit_not_found(&format!("Node permit not found for page {}", page_id))
+        })?
         .clone();
 
     // 3. Parse permit to get local_only layers (for filtering)
@@ -243,19 +259,23 @@ pub async fn prepare_page_for_viewer(
     let (viewer_permit, _cid) = gurkha::delegate_page(
         node_signing_key,
         &node_permit,
-        "viewer",  // template_key from PAGE_TEMPLATE.delegation.viewer
+        "viewer", // template_key from PAGE_TEMPLATE.delegation.viewer
         viewer_public_key,
-    ).await.map_err(|e| ButlerError::permit_error(format!("Failed to issue viewer permit: {}", e)))?;
+    )
+    .await
+    .map_err(|e| ButlerError::permit_error(format!("Failed to issue viewer permit: {}", e)))?;
 
     // 4a. Parse viewer permit for pattern-based filtering
-    let viewer_permit_parsed = gurkha::Permit::from_token(&viewer_permit)
-        .map_err(|e| ButlerError::permit_error(format!("Failed to parse viewer permit: {:?}", e)))?;
+    let viewer_permit_parsed = gurkha::Permit::from_token(&viewer_permit).map_err(|e| {
+        ButlerError::permit_error(format!("Failed to parse viewer permit: {:?}", e))
+    })?;
 
     // 5. Decrypt AES key using node's secret key
     let aes_key = herald::decrypt(node_secret_key, &page_data.meta.encrypted_key)
         .map_err(|e| ButlerError::Encryption(format!("Failed to decrypt AES key: {}", e)))?;
 
-    let aes_key_arr: [u8; 32] = aes_key.try_into()
+    let aes_key_arr: [u8; 32] = aes_key
+        .try_into()
         .map_err(|_| ButlerError::Encryption("Invalid AES key length".to_string()))?;
 
     // 5a. Auto-create viewer's namespace layers from layer_patterns with create=true
@@ -281,16 +301,22 @@ pub async fn prepare_page_for_viewer(
                 if store.get_layer(page_id, &expanded)?.is_none() {
                     tracing::info!(
                         "Auto-creating viewer namespace layer '{}' for viewer {}",
-                        expanded, viewer_did
+                        expanded,
+                        viewer_did
                     );
                     // Create empty LoroDoc for the layer
                     let empty_doc = loro::LoroDoc::new();
-                    let empty_bytes = empty_doc.export(loro::ExportMode::Snapshot)
-                        .map_err(|e| ButlerError::Database(format!("Failed to create empty layer: {}", e)))?;
-                    let encrypted = herald::encrypt_symmetric(&aes_key_arr, &empty_bytes)
-                        .map_err(|e| ButlerError::Encryption(
-                            format!("Failed to encrypt auto-created layer {}: {}", expanded, e)
-                        ))?;
+                    let empty_bytes =
+                        empty_doc.export(loro::ExportMode::Snapshot).map_err(|e| {
+                            ButlerError::Database(format!("Failed to create empty layer: {}", e))
+                        })?;
+                    let encrypted =
+                        herald::encrypt_symmetric(&aes_key_arr, &empty_bytes).map_err(|e| {
+                            ButlerError::Encryption(format!(
+                                "Failed to encrypt auto-created layer {}: {}",
+                                expanded, e
+                            ))
+                        })?;
                     store.put_layer(page_id, &expanded, &encrypted)?;
                 }
             }
@@ -314,15 +340,16 @@ pub async fn prepare_page_for_viewer(
         if !gurkha::can_access_layer(&viewer_permit_parsed, &layer_name, "sync") {
             tracing::debug!(
                 "Filtering out layer '{}' - viewer {} doesn't have sync access",
-                layer_name, viewer_did
+                layer_name,
+                viewer_did
             );
             continue;
         }
 
-        let decrypted_bytes = herald::decrypt_symmetric(&aes_key_arr, &encrypted_bytes)
-            .map_err(|e| ButlerError::Encryption(
-                format!("Failed to decrypt layer {}: {}", layer_name, e)
-            ))?;
+        let decrypted_bytes =
+            herald::decrypt_symmetric(&aes_key_arr, &encrypted_bytes).map_err(|e| {
+                ButlerError::Encryption(format!("Failed to decrypt layer {}: {}", layer_name, e))
+            })?;
         decrypted_layers.push((layer_name, decrypted_bytes));
     }
 
@@ -336,17 +363,19 @@ pub async fn prepare_page_for_viewer(
     // Encrypt each layer with transit key
     let mut transit_layers = Vec::with_capacity(decrypted_layers.len());
     for (layer_name, plaintext) in decrypted_layers {
-        let encrypted = herald::encrypt_symmetric(&transit_key, &plaintext)
-            .map_err(|e| ButlerError::Encryption(
-                format!("Failed to transit-encrypt layer {}: {}", layer_name, e)
-            ))?;
+        let encrypted = herald::encrypt_symmetric(&transit_key, &plaintext).map_err(|e| {
+            ButlerError::Encryption(format!(
+                "Failed to transit-encrypt layer {}: {}",
+                layer_name, e
+            ))
+        })?;
         transit_layers.push((layer_name, encrypted));
     }
 
     Ok(PreparedPage {
         meta: page_data.meta,
         permit: viewer_permit,
-        owner_permit: node_permit,  // Node's permit - used for sync authorization
+        owner_permit: node_permit, // Node's permit - used for sync authorization
         ephemeral_public,
         layers: transit_layers,
     })
@@ -355,7 +384,8 @@ pub async fn prepare_page_for_viewer(
 /// Mark a page as published to a specific node
 #[instrument(skip(store), fields(page_id = %page_id, node_id = %node_id))]
 pub fn mark_page_published(store: &RedbStore, page_id: &str, node_id: &str) -> Result<()> {
-    let mut page = store.find_page_by_id(page_id)?
+    let mut page = store
+        .find_page_by_id(page_id)?
         .ok_or_else(|| ButlerError::page_not_found(page_id))?;
 
     // Add node_id to shares list to track publishing (using "published:{node_id}" prefix)

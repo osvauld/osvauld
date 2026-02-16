@@ -33,6 +33,7 @@ from typing import Dict, List, Optional
 @dataclass
 class PerfSample:
     """A single performance sample with memory and CPU usage."""
+
     timestamp: float
     memory_mb: Dict[str, float] = field(default_factory=dict)
     cpu_percent: Dict[str, float] = field(default_factory=dict)
@@ -66,19 +67,21 @@ class PerfReport:
         if not pids:
             return
 
-        pid_list = ','.join(str(p) for p in pids.values() if p)
+        pid_list = ",".join(str(p) for p in pids.values() if p)
         if not pid_list:
             return
 
         try:
             result = subprocess.run(
-                ['ps', '-o', 'pid=,rss=,pcpu=', '-p', pid_list],
-                capture_output=True, text=True, timeout=2
+                ["ps", "-o", "pid=,rss=,pcpu=", "-p", pid_list],
+                capture_output=True,
+                text=True,
+                timeout=2,
             )
 
             sample = PerfSample(timestamp=time.time() - self.start_time)
 
-            for line in result.stdout.strip().split('\n'):
+            for line in result.stdout.strip().split("\n"):
                 if not line.strip():
                     continue
                 parts = line.split()
@@ -104,8 +107,8 @@ class PerfReport:
 
     def _calc_throughput(self) -> Optional[float]:
         """Calculate message throughput."""
-        if 'messages_start' in self.events and 'messages_done' in self.events:
-            duration = self.events['messages_done'] - self.events['messages_start']
+        if "messages_start" in self.events and "messages_done" in self.events:
+            duration = self.events["messages_done"] - self.events["messages_start"]
             if duration > 0 and self.message_count > 0:
                 return self.message_count / duration
         return None
@@ -134,12 +137,14 @@ class PerfReport:
         """Get current git commit hash."""
         try:
             result = subprocess.run(
-                ['git', 'rev-parse', '--short', 'HEAD'],
-                capture_output=True, text=True, timeout=5
+                ["git", "rev-parse", "--short", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             return result.stdout.strip()
         except Exception:
-            return 'unknown'
+            return "unknown"
 
     def print_report(self):
         """Print formatted performance report to stdout."""
@@ -161,7 +166,9 @@ class PerfReport:
         # Throughput
         throughput = self._calc_throughput()
         if throughput:
-            duration = self.events.get('messages_done', 0) - self.events.get('messages_start', 0)
+            duration = self.events.get("messages_done", 0) - self.events.get(
+                "messages_start", 0
+            )
             print(f"\n  Message Throughput: {throughput:.1f} msg/sec")
             print(f"  Total Messages: {self.message_count}")
             print(f"  Duration: {duration:.1f}s")
@@ -186,17 +193,25 @@ class PerfReport:
             print("\n  Memory Growth:")
             for name in sorted(growth.keys()):
                 g = growth[name]
-                per_msg = f" ({g['growth_per_msg_mb']:.2f} MB/msg)" if 'growth_per_msg_mb' in g else ""
-                print(f"    {name:12s}: {g['start_mb']:.0f} -> {g['end_mb']:.0f} MB (+{g['growth_mb']:.0f} MB{per_msg})")
+                per_msg = (
+                    f" ({g['growth_per_msg_mb']:.2f} MB/msg)"
+                    if "growth_per_msg_mb" in g
+                    else ""
+                )
+                print(
+                    f"    {name:12s}: {g['start_mb']:.0f} -> {g['end_mb']:.0f} MB (+{g['growth_mb']:.0f} MB{per_msg})"
+                )
 
         # Latency / idle stats
         if self.latencies:
             print("\n  Latency / Idle Metrics:")
             for name, value in sorted(self.latencies.items()):
-                if 'memory' in name or '_mb' in name:
+                if "memory" in name or "_mb" in name:
                     print(f"    {name}: {value:.1f} MB")
-                elif 'cpu' in name or '_pct' in name:
+                elif "cpu" in name or "_pct" in name:
                     print(f"    {name}: {value:.1f}%")
+                elif "throughput" in name or "_msg_per_sec" in name:
+                    print(f"    {name}: {value:.1f} msg/sec")
                 else:
                     print(f"    {name}: {value:.1f}ms")
 
@@ -218,27 +233,27 @@ class PerfReport:
     def to_dict(self) -> dict:
         """Convert report to JSON-serializable dict."""
         result = {
-            'timestamp': datetime.now().isoformat(),
-            'git_commit': self._get_git_commit(),
-            'build_profile': self.build_profile,
-            'timeline': self.events,
-            'message_count': self.message_count,
-            'throughput_msg_per_sec': self._calc_throughput(),
-            'memory_peak_mb': self._calc_peak_memory(),
-            'memory_growth': self._calc_memory_growth(),
-            'cpu_avg_percent': self._calc_avg_cpu(),
-            'latency': self.latencies,
-            'samples': [
+            "timestamp": datetime.now().isoformat(),
+            "git_commit": self._get_git_commit(),
+            "build_profile": self.build_profile,
+            "timeline": self.events,
+            "message_count": self.message_count,
+            "throughput_msg_per_sec": self._calc_throughput(),
+            "memory_peak_mb": self._calc_peak_memory(),
+            "memory_growth": self._calc_memory_growth(),
+            "cpu_avg_percent": self._calc_avg_cpu(),
+            "latency": self.latencies,
+            "samples": [
                 {
-                    'time': s.timestamp,
-                    'memory_mb': s.memory_mb,
-                    'cpu_percent': s.cpu_percent,
+                    "time": s.timestamp,
+                    "memory_mb": s.memory_mb,
+                    "cpu_percent": s.cpu_percent,
                 }
                 for s in self.samples
             ],
         }
         if self.flamegraph_analysis:
-            result['flamegraph'] = self.flamegraph_analysis
+            result["flamegraph"] = self.flamegraph_analysis
         return result
 
     def _calc_memory_growth(self) -> Dict[str, dict]:
@@ -276,7 +291,7 @@ class PerfReport:
     def save_json(self, path: str):
         """Save report to JSON file."""
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'w') as f:
+        with open(path, "w") as f:
             json.dump(self.to_dict(), f, indent=2)
         print(f"  Results saved to: {path}")
 

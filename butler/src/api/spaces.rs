@@ -1,7 +1,7 @@
 //! Spaces API - Space CRUD and publishing operations
 
-use crate::{Butler, ButlerError, Result, Space, SpaceData};
 use crate::services::space_service;
+use crate::{Butler, ButlerError, Result, Space, SpaceData};
 
 /// Spaces API facade
 ///
@@ -12,9 +12,21 @@ pub struct SpacesApi<'a> {
 
 impl<'a> SpacesApi<'a> {
     /// Create a new space
-    pub async fn create(&self, name: String, owner_did: String, permit_template: &str) -> Result<Space> {
+    pub async fn create(
+        &self,
+        name: String,
+        owner_did: String,
+        permit_template: &str,
+    ) -> Result<Space> {
         let signing_key = self.butler.signing_key().await?;
-        space_service::create_space(self.butler.store(), name, owner_did, &signing_key, permit_template).await
+        space_service::create_space(
+            self.butler.store(),
+            name,
+            owner_did,
+            &signing_key,
+            permit_template,
+        )
+        .await
     }
 
     /// Get a space by ID
@@ -59,16 +71,21 @@ impl<'a> SpacesApi<'a> {
         let signing_key = self.butler.signing_key().await?;
 
         // Get the space with permit data
-        let space_data = self.butler.store().get_space(id)?
+        let space_data = self
+            .butler
+            .store()
+            .get_space(id)?
             .ok_or_else(|| ButlerError::NotFound(format!("Space {} not found", id)))?;
 
-        let space_permit = space_data.permit
+        let space_permit = space_data
+            .permit
             .ok_or_else(|| ButlerError::permit_error("Space has no permit"))?;
 
         // Delegate to node using the "node" template
-        let (delegated, _cid) = gurkha::delegate_space(&signing_key, &space_permit, "node", node_pubkey)
-            .await
-            .map_err(|e| ButlerError::permit_error(format!("Failed to delegate: {:?}", e)))?;
+        let (delegated, _cid) =
+            gurkha::delegate_space(&signing_key, &space_permit, "node", node_pubkey)
+                .await
+                .map_err(|e| ButlerError::permit_error(format!("Failed to delegate: {:?}", e)))?;
 
         Ok(delegated)
     }
@@ -80,23 +97,26 @@ impl<'a> SpacesApi<'a> {
         let signing_key = self.butler.signing_key().await?;
 
         // Get the space with permit data
-        let space_data = self.butler.store().get_space(id)?
+        let space_data = self
+            .butler
+            .store()
+            .get_space(id)?
             .ok_or_else(|| ButlerError::NotFound(format!("Space {} not found", id)))?;
 
-        let space_permit = space_data.permit
+        let space_permit = space_data
+            .permit
             .ok_or_else(|| ButlerError::permit_error("Space has no permit"))?;
 
         // Delegate to viewer using the "viewer" template
-        let (delegated, _cid) = gurkha::delegate_space(&signing_key, &space_permit, "viewer", viewer_pubkey)
-            .await
-            .map_err(|e| ButlerError::permit_error(format!("Failed to delegate: {:?}", e)))?;
+        let (delegated, _cid) =
+            gurkha::delegate_space(&signing_key, &space_permit, "viewer", viewer_pubkey)
+                .await
+                .map_err(|e| ButlerError::permit_error(format!("Failed to delegate: {:?}", e)))?;
 
         Ok(delegated)
     }
 
     /// Mark space as published on a specific node
-    ///
-    /// DEPRECATED: Use store_permit instead for permit-based tracking
     pub fn mark_published(&self, id: &str, node_id: &str) -> Result<()> {
         space_service::mark_space_published(self.butler.store(), id, node_id)
     }
@@ -105,12 +125,16 @@ impl<'a> SpacesApi<'a> {
     ///
     /// **Context**: Owner receives permit from node after PublishSpaceAck.
     pub fn store_permit(&self, space_id: &str, node_did: &str, permit: &str) -> Result<()> {
-        self.butler.store().put_user_space_permit(space_id, node_did, permit)
+        self.butler
+            .store()
+            .put_user_space_permit(space_id, node_did, permit)
     }
 
     /// Get a node's permit for a space (Owner mode - check if published)
     pub fn get_permit(&self, space_id: &str, node_did: &str) -> Result<Option<String>> {
-        self.butler.store().get_user_space_permit(space_id, node_did)
+        self.butler
+            .store()
+            .get_user_space_permit(space_id, node_did)
     }
 
     /// List all nodes that have issued permits for a space (= published nodes)

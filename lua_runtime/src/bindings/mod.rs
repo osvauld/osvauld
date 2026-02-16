@@ -31,4 +31,4 @@ pub(crate) mod ui;
 pub use scribe::ScribeBindings;
 
 // Public exports
-pub use convert::json_to_lua;
+pub use convert::{json_to_lua, lua_to_json_err};

@@ -39,32 +39,30 @@
 //! - Protocol layer is dumb - just routes opaque bytes by page_id
 //! - Ephemeral data goes directly to Scribe via page_subscriptions
 
+mod handle;
 mod message;
 mod state;
-mod handle;
 
 pub mod coordinator;
-pub mod peer_actor;
 pub mod handshake;
+pub mod peer_actor;
 pub mod trace;
 
+pub use coordinator::{ConnectRequest, Coordinator, CoordinatorMessage, CourierMode};
+pub use handle::{
+    Courier, CourierEvent, CourierHandle, HandshakeServices, IrohCoordinator,
+    IrohCoordinatorMessage,
+};
 pub use message::{
-    Message, ErrorCode, PublishedSpace, PublishedPageMeta, ConnectionString, EphemeralDatagram,
-    LayerType, PermitScope, PROTOCOL_VERSION,
-    HelloMsg, WelcomeMsg, PermitGrantMsg, RejectedMsg,
-    SyncOfferMsg, SyncAcceptMsg, SyncAckMsg, SyncResetMsg, SyncSnapshotMsg,
-    PublishSpaceMsg, PublishSpaceAckMsg, PageAnnounceMsg, PageAnnounceAckMsg,
-    PermitUpdateMsg, PublishErrorMsg,
-    SpaceRequestMsg, SpaceDataMsg, SpaceDataAckMsg, SpaceRequestErrorMsg,
-    GetShareableLinkRequestMsg, GetShareableLinkResponseMsg,
-    AssetPrepareMsg, AssetReadyMsg, AssetAckMsg,
-    SyncConsentGrantMsg, SyncConsentAckMsg,
-    ErrorMsg,
+    AssetAckMsg, AssetPrepareMsg, AssetReadyMsg, ConnectionString, EphemeralDatagram, ErrorCode,
+    ErrorMsg, GetShareableLinkRequestMsg, GetShareableLinkResponseMsg, HelloMsg, LayerType,
+    Message, PageAnnounceAckMsg, PageAnnounceMsg, PermitGrantMsg, PermitScope, PermitUpdateMsg,
+    PublishErrorMsg, PublishSpaceAckMsg, PublishSpaceMsg, PublishedPageMeta, PublishedSpace,
+    RejectedMsg, SpaceDataAckMsg, SpaceDataMsg, SpaceRequestErrorMsg, SpaceRequestMsg,
+    SyncAcceptMsg, SyncAckMsg, SyncConsentAckMsg, SyncConsentGrantMsg, SyncOfferMsg, SyncResetMsg,
+    SyncSnapshotMsg, WelcomeMsg, PROTOCOL_VERSION,
 };
 pub use state::PeerState;
-pub use coordinator::{Coordinator, CoordinatorMessage, CourierMode, ConnectRequest};
-pub use handle::{CourierHandle, CourierEvent, Courier, HandshakeServices, IrohCoordinator, IrohCoordinatorMessage};
-pub use peer_actor::{OutboundUpdate, OutboundUpdateTx};
 pub use trace::{MessageTrace, TraceDirection};
 
 // Re-export transport types for P2P initialization

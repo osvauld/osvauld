@@ -8,8 +8,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::{Butler, ButlerError, Result, Page, Layer};
 use crate::services;
+use crate::{Butler, ButlerError, Layer, Page, Result};
 
 /// Apps API facade
 ///
@@ -19,7 +19,6 @@ pub struct AppsApi<'a> {
 }
 
 impl<'a> AppsApi<'a> {
-
     /// List all apps in a page
     ///
     /// **Context**: Find all `app:*` layers in a page
@@ -42,9 +41,9 @@ impl<'a> AppsApi<'a> {
         let data_layers: Vec<String> = layers
             .into_iter()
             .filter(|name| {
-                !name.starts_with("app:") &&
-                !name.starts_with("file:") &&
-                !name.starts_with("static:")
+                !name.starts_with("app:")
+                    && !name.starts_with("file:")
+                    && !name.starts_with("static:")
             })
             .collect();
         Ok(data_layers)
@@ -54,15 +53,20 @@ impl<'a> AppsApi<'a> {
     ///
     /// **Context**: Load app files from `app:{app_name}` LoroMap layer
     /// **Returns**: HashMap of file_path -> content
-    pub async fn get_files(&self, page_id: &str, app_name: &str) -> Result<HashMap<String, String>> {
+    pub async fn get_files(
+        &self,
+        page_id: &str,
+        app_name: &str,
+    ) -> Result<HashMap<String, String>> {
         let layer_name = format!("app:{}", app_name);
 
         // Get decrypted page data
         let (decrypted, _aes_key) = self.butler.pages().get_decrypted(page_id).await?;
 
         // Check if app layer exists
-        let layer_bytes = decrypted.docs.get(&layer_name)
-            .ok_or_else(|| ButlerError::NotFound(format!("App '{}' not found in page", app_name)))?;
+        let layer_bytes = decrypted.docs.get(&layer_name).ok_or_else(|| {
+            ButlerError::NotFound(format!("App '{}' not found in page", app_name))
+        })?;
 
         if layer_bytes.is_empty() {
             return Ok(HashMap::new());
@@ -88,7 +92,12 @@ impl<'a> AppsApi<'a> {
     ///
     /// **Context**: Load specific file from `app:{app_name}` LoroMap layer
     /// **Returns**: File content or None if not found
-    pub async fn get_file(&self, page_id: &str, app_name: &str, path: &str) -> Result<Option<String>> {
+    pub async fn get_file(
+        &self,
+        page_id: &str,
+        app_name: &str,
+        path: &str,
+    ) -> Result<Option<String>> {
         let files = self.get_files(page_id, app_name).await?;
         Ok(files.get(path).cloned())
     }
@@ -110,11 +119,15 @@ impl<'a> AppsApi<'a> {
             .map_err(|e| ButlerError::Database(format!("Failed to read manifest.json: {}", e)))?;
         let manifest: serde_json::Value = serde_json::from_str(&manifest_content)
             .map_err(|e| ButlerError::Serialization(format!("Invalid manifest.json: {}", e)))?;
-        let app_name = manifest.get("name")
+        let app_name = manifest
+            .get("name")
             .and_then(|n| n.as_str())
-            .ok_or_else(|| ButlerError::Database("manifest.json missing 'name' field".to_string()))?;
+            .ok_or_else(|| {
+                ButlerError::Database("manifest.json missing 'name' field".to_string())
+            })?;
 
-        services::app_service::refresh_app_from_directory(self.butler, page_id, app_name, app_dir).await?;
+        services::app_service::refresh_app_from_directory(self.butler, page_id, app_name, app_dir)
+            .await?;
         Ok(())
     }
 
@@ -138,7 +151,11 @@ impl<'a> AppsApi<'a> {
     /// **Behavior**:
     /// - Updates existing apps (files changed on disk)
     /// - Adds new apps (new subdirectories with manifest.json)
-    pub async fn reload_page(&self, page_id: &str, page_dir: &Path) -> Result<services::app_service::PageReloadResult> {
+    pub async fn reload_page(
+        &self,
+        page_id: &str,
+        page_dir: &Path,
+    ) -> Result<services::app_service::PageReloadResult> {
         services::app_service::reload_page_from_directory(self.butler, page_id, page_dir).await
     }
 }

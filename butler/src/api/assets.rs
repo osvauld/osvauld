@@ -3,8 +3,8 @@
 //! Handles asset upload for pages (images, PDFs, etc.)
 //! Assets are encrypted with the page's AES key and stored in the filesystem.
 
-use crate::{Butler, ButlerError, Result, ScribeMessage};
 use crate::services;
+use crate::{Butler, ButlerError, Result, ScribeMessage};
 
 /// Assets API facade
 ///
@@ -34,7 +34,13 @@ impl<'a> AssetsApi<'a> {
     ///
     /// # Returns
     /// Content hash of the uploaded asset
-    pub async fn upload(&self, page_id: &str, data: &[u8], filename: &str, mime_type: &str) -> Result<String> {
+    pub async fn upload(
+        &self,
+        page_id: &str,
+        data: &[u8],
+        filename: &str,
+        mime_type: &str,
+    ) -> Result<String> {
         // Get page's AES key
         let (_decrypted, aes_key) = self.butler.pages().get_decrypted(page_id).await?;
 
@@ -60,12 +66,14 @@ impl<'a> AssetsApi<'a> {
             .map_err(|e| ButlerError::Database(format!("Failed to serialize metadata: {}", e)))?;
 
         // Send MapInsert to add metadata to assets layer (key = hash)
-        scribe.cast(ScribeMessage::MapInsert {
-            layer_name: assets_layer_name,
-            path: "root".to_string(),
-            key: metadata.hash.clone(),
-            value: metadata_json,
-        }).map_err(|e| ButlerError::Database(format!("Failed to send to scribe: {}", e)))?;
+        scribe
+            .cast(ScribeMessage::MapInsert {
+                layer_name: assets_layer_name,
+                path: "root".to_string(),
+                key: metadata.hash.clone(),
+                value: metadata_json,
+            })
+            .map_err(|e| ButlerError::Database(format!("Failed to send to scribe: {}", e)))?;
 
         tracing::info!(
             hash = %metadata.hash,
@@ -81,7 +89,13 @@ impl<'a> AssetsApi<'a> {
     ///
     /// **Note**: Requires a tokio runtime to be available on current thread.
     /// Use `upload()` if calling from an async context or spawned task.
-    pub fn upload_sync(&self, page_id: &str, data: &[u8], filename: &str, mime_type: &str) -> Result<String> {
+    pub fn upload_sync(
+        &self,
+        page_id: &str,
+        data: &[u8],
+        filename: &str,
+        mime_type: &str,
+    ) -> Result<String> {
         let rt = tokio::runtime::Handle::try_current()
             .map_err(|_| ButlerError::Database("No tokio runtime".to_string()))?;
 

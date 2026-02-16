@@ -176,8 +176,14 @@ mod tests {
 
     #[test]
     fn test_peer_type_extraction() {
-        assert_eq!(make_auth(PeerType::Owner).peer_type(), Some(PeerType::Owner));
-        assert_eq!(make_auth(PeerType::Viewer).peer_type(), Some(PeerType::Viewer));
+        assert_eq!(
+            make_auth(PeerType::Owner).peer_type(),
+            Some(PeerType::Owner)
+        );
+        assert_eq!(
+            make_auth(PeerType::Viewer).peer_type(),
+            Some(PeerType::Viewer)
+        );
         assert_eq!(PeerState::Connected.peer_type(), None);
         assert_eq!(PeerState::fail("reason").peer_type(), None);
     }

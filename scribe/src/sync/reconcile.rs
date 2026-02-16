@@ -2,7 +2,7 @@
 //!
 //! Handles periodic reconciliation with peers and sync target resolution.
 
-use tracing::{debug, warn, instrument};
+use tracing::{debug, instrument, warn};
 
 use super::broadcast::broadcast_update;
 use crate::message::SyncEvent;
@@ -19,11 +19,14 @@ pub async fn handle_reconcile_with_peers(state: &mut ScribeState) {
         let needs_sync = match state.units.get(&layer_name) {
             Some(unit) => {
                 let our_vector = unit.layer().version_vector();
-                unit.subscribers().read()
+                unit.subscribers()
+                    .read()
                     .map(|subs| {
                         subs.values().any(|sub| {
-                            if !sub.capabilities.read { return false; }
-                            if sub.version_vector.is_empty() { return true; }
+                            // Presence in subscriber map = can read
+                            if sub.version_vector.is_empty() {
+                                return true;
+                            }
                             sub.version_vector != our_vector
                         })
                     })
@@ -50,14 +53,17 @@ pub fn get_sync_targets(state: &ScribeState) -> Vec<String> {
     match state.sync_config.as_ref().map(|c| c.mode) {
         Some(SyncMode::ToSource) => {
             // User mode: single target (the node's DID)
-            state.sync_config.as_ref()
+            state
+                .sync_config
+                .as_ref()
                 .and_then(|c| c.sync_target.as_ref())
                 .map(|node_did| vec![node_did.clone()])
                 .unwrap_or_default()
         }
         Some(SyncMode::Broadcast) | None => {
             // Node mode: query storage for authorized user_dids
-            state.peer_resolver
+            state
+                .peer_resolver
                 .as_ref()
                 .map(|r| r.list_authorized_users())
                 .unwrap_or_default()
@@ -67,7 +73,9 @@ pub fn get_sync_targets(state: &ScribeState) -> Vec<String> {
 
 /// Check if a user is connected (present in connections map)
 pub fn is_user_subscribed(state: &ScribeState, user_did: &str) -> bool {
-    state.subscribers.read()
+    state
+        .subscribers
+        .read()
         .map(|subs| subs.keys().any(|(did, _device)| did == user_did))
         .unwrap_or(false)
 }
@@ -89,7 +97,9 @@ pub fn emit_sync_events_for_missing_targets(state: &ScribeState) {
         // User not subscribed - emit EnsureSync
         // Coordinator will handle: device resolution, connection, subscription
         if let Some(ref sync_event_tx) = state.sync_event_tx {
-            let event = SyncEvent::EnsureSync { user_did: user_did.clone() };
+            let event = SyncEvent::EnsureSync {
+                user_did: user_did.clone(),
+            };
 
             state.emit_sync_event_capture(&event);
             if let Err(e) = sync_event_tx.try_send(event) {

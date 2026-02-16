@@ -1,0 +1,144 @@
+
+============================================================
+  chat_perf
+============================================================
+  All instances ready
+
+  alice: signup, create space...
+  Space: 36d4467b..., Page: b28cc3ea...
+  alice: connect to node...
+    Waiting for node authentication...
+    Node authenticated
+  alice: publish space to node...
+  Published and synced to node
+
+  Connecting viewers (parallel)...
+  bob synced in 0.5s
+  carol synced in 0.6s
+  All viewers connected and synced
+
+  Opening apps (parallel)...
+  bob app 'Group Chat' synced in 0.0s
+  carol app 'Group Chat' synced in 0.1s
+    alice app ready
+    bob app ready
+    carol app ready
+  All apps opened and ready
+
+  Building peer handles...
+
+  Ready! Peers: ['alice', 'bob', 'carol']
+============================================================
+
+
+[Phase 1] Send-path benchmark: alice sends 1000 messages (no delay)...
+  [1/1000 | 0%] elapsed=0.0s rate=257.6 msg/s eval_p50(last100)=3.9ms
+  [2/1000 | 0%] elapsed=0.0s rate=252.2 msg/s eval_p50(last100)=3.9ms
+  [3/1000 | 0%] elapsed=0.0s rate=272.9 msg/s eval_p50(last100)=3.9ms
+  [50/1000 | 5%] elapsed=0.1s rate=362.1 msg/s eval_p50(last100)=2.4ms
+  [100/1000 | 10%] elapsed=0.3s rate=343.4 msg/s eval_p50(last100)=2.5ms
+  [150/1000 | 15%] elapsed=0.4s rate=336.1 msg/s eval_p50(last100)=2.6ms
+  [200/1000 | 20%] elapsed=0.6s rate=327.0 msg/s eval_p50(last100)=2.8ms
+  [250/1000 | 25%] elapsed=0.8s rate=329.1 msg/s eval_p50(last100)=2.8ms
+  [300/1000 | 30%] elapsed=0.9s rate=329.5 msg/s eval_p50(last100)=2.5ms
+  [350/1000 | 35%] elapsed=1.0s rate=335.0 msg/s eval_p50(last100)=2.5ms
+  [400/1000 | 40%] elapsed=1.2s rate=333.7 msg/s eval_p50(last100)=2.4ms
+  [450/1000 | 45%] elapsed=1.3s rate=336.7 msg/s eval_p50(last100)=2.4ms
+  [500/1000 | 50%] elapsed=1.5s rate=335.0 msg/s eval_p50(last100)=2.3ms
+  [550/1000 | 55%] elapsed=1.6s rate=337.7 msg/s eval_p50(last100)=2.3ms
+  [600/1000 | 60%] elapsed=1.8s rate=341.5 msg/s eval_p50(last100)=2.2ms
+  [650/1000 | 65%] elapsed=1.9s rate=348.0 msg/s eval_p50(last100)=2.1ms
+  [700/1000 | 70%] elapsed=2.0s rate=352.3 msg/s eval_p50(last100)=2.0ms
+  [750/1000 | 75%] elapsed=2.1s rate=354.7 msg/s eval_p50(last100)=2.0ms
+  [800/1000 | 80%] elapsed=2.2s rate=356.6 msg/s eval_p50(last100)=2.1ms
+  [850/1000 | 85%] elapsed=2.4s rate=359.2 msg/s eval_p50(last100)=2.1ms
+  [900/1000 | 90%] elapsed=2.5s rate=360.6 msg/s eval_p50(last100)=1.9ms
+  [950/1000 | 95%] elapsed=2.6s rate=364.4 msg/s eval_p50(last100)=1.9ms
+  [1000/1000 | 100%] elapsed=2.7s rate=365.6 msg/s eval_p50(last100)=2.0ms
+  Sent 1000 messages in 2.86s (350.1 msg/s)
+  Send eval latency: p50=2.3ms p95=5.2ms
+
+[Phase 2] Distributed send: 1000 messages with 0.0s delay...
+  [1/1000 | 0%] bob: "Nature us half."
+  [2/1000 | 0%] carol: "Sport thus popular."
+  [3/1000 | 0%] alice: "Thought positive despite really next pas..."
+  [4/1000 | 0%] bob: "Reach citizen official."
+  [5/1000 | 0%] bob: "Activity evening employee argue."
+  [50/1000 | 5%] carol: "Military art nice two win hot yourself s..."
+  [100/1000 | 10%] carol: "Rather rock this nature state imagine fi..."
+  [150/1000 | 15%] carol: "Day method base believe other each must."
+  [200/1000 | 20%] alice: "Thus like term stop plan to system write..."
+  [250/1000 | 25%] alice: "Laugh as help represent final too ahead ..."
+  [300/1000 | 30%] carol: "Piece could management against child hot..."
+  [350/1000 | 35%] bob: "Notice story administration."
+  [400/1000 | 40%] carol: "Girl political standard second participa..."
+  [450/1000 | 45%] bob: "My sign item."
+  [500/1000 | 50%] carol: "Executive against three."
+  [550/1000 | 55%] bob: "Street step right."
+  [600/1000 | 60%] bob: "Amount Congress board guess public idea ..."
+  [650/1000 | 65%] carol: "Recent hand marriage wish."
+  [700/1000 | 70%] bob: "Use middle relationship."
+  [750/1000 | 75%] bob: "Same event part sport."
+  [800/1000 | 80%] carol: "Laugh quite operation position member ci..."
+  [850/1000 | 85%] bob: "Husband almost glass accept house page d..."
+  [900/1000 | 90%] carol: "Even part red cause."
+  [950/1000 | 95%] bob: "Modern rise evening tonight scientist ac..."
+  [1000/1000 | 100%] carol: "Great attorney happen respond so decide."
+  Sent 1000 messages
+
+Checking message sync (expected 2000)...
+  alice: 1470 messages [WARN expected 2000]
+  bob: 420 messages [WARN expected 2000]
+  carol: 429 messages [WARN expected 2000]
+
+Burst: 10 messages at 50ms...
+  After burst (expected 2010):
+    alice: 1480
+    bob: 427
+    carol: 434
+
+================================================================
+  PERFORMANCE REPORT
+================================================================
+
+  Build: release
+  Git: cff2502a
+
+  Timeline:
+        9.8s (+  9.8s)  setup_complete
+        9.9s (+  0.1s)  send_phase_start
+       12.7s (+  2.9s)  send_phase_done
+       12.7s (+  0.0s)  messages_start
+       20.1s (+  7.3s)  messages_done
+       22.1s (+  2.0s)  sync_wait_done
+       24.7s (+  2.6s)  test_complete
+
+  Message Throughput: 273.2 msg/sec
+  Total Messages: 2000
+  Duration: 7.3s
+
+  Memory Usage (peak):
+    alice       :    363 MB
+    bob         :    298 MB
+    carol       :    303 MB
+    node        :     73 MB
+
+  CPU Usage (avg):
+    alice       :  80.2%
+    bob         :  58.7%
+    carol       :  61.4%
+    node        :  51.0%
+
+  Memory Growth:
+    alice       : 353 -> 363 MB (+11 MB (0.01 MB/msg))
+    bob         : 288 -> 298 MB (+10 MB (0.00 MB/msg))
+    carol       : 288 -> 303 MB (+15 MB (0.01 MB/msg))
+    node        : 70 -> 73 MB (+3 MB (0.00 MB/msg))
+
+  Latency / Idle Metrics:
+    send_avg_latency_ms: 2.9ms
+    send_eval_p50_ms: 2.3ms
+    send_eval_p95_ms: 5.2ms
+    send_throughput_msg_per_sec: 350.1 msg/sec
+
+================================================================

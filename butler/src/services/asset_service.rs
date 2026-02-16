@@ -64,10 +64,8 @@ pub fn upload_asset(
     // 2. Sign the hash with user's signing key
     let hash_bytes = hash.as_bytes();
     let signature_bytes = identity.sign(hash_bytes);
-    let signature = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        signature_bytes,
-    );
+    let signature =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, signature_bytes);
 
     // 3. Derive asset-specific encryption key
     let asset_key = derive_asset_key(page_key, &hash);
@@ -112,13 +110,10 @@ pub fn upload_asset(
 /// # Returns
 /// Decrypted plaintext bytes
 #[instrument(skip(asset_store, page_key), fields(hash = %hash))]
-pub fn get_asset(
-    asset_store: &AssetStore,
-    page_key: &[u8; 32],
-    hash: &str,
-) -> Result<Vec<u8>> {
+pub fn get_asset(asset_store: &AssetStore, page_key: &[u8; 32], hash: &str) -> Result<Vec<u8>> {
     // 1. Read encrypted bytes
-    let ciphertext = asset_store.get(hash)?
+    let ciphertext = asset_store
+        .get(hash)?
         .ok_or_else(|| ButlerError::NotFound(format!("Asset not found: {}", hash)))?;
 
     // 2. Derive asset-specific key
@@ -205,15 +200,15 @@ fn verify_asset_signature(metadata: &AssetMetadata) -> Result<bool> {
     let signature_bytes = base64::Engine::decode(
         &base64::engine::general_purpose::STANDARD,
         &metadata.signature,
-    ).map_err(|e| ButlerError::verification_failed(format!("Invalid signature encoding: {}", e)))?;
+    )
+    .map_err(|e| ButlerError::verification_failed(format!("Invalid signature encoding: {}", e)))?;
 
     if signature_bytes.len() != 64 {
-        return Err(ButlerError::verification_failed(
-            "Invalid signature length",
-        ));
+        return Err(ButlerError::verification_failed("Invalid signature length"));
     }
 
-    let signature: [u8; 64] = signature_bytes.try_into()
+    let signature: [u8; 64] = signature_bytes
+        .try_into()
         .map_err(|_| ButlerError::verification_failed("Invalid signature length"))?;
 
     // Get public key from creator's DID
@@ -222,7 +217,11 @@ fn verify_asset_signature(metadata: &AssetMetadata) -> Result<bool> {
 
     // Verify signature
     let hash_bytes = metadata.hash.as_bytes();
-    Ok(Identity::verify_with_key(&public_key, hash_bytes, &signature))
+    Ok(Identity::verify_with_key(
+        &public_key,
+        hash_bytes,
+        &signature,
+    ))
 }
 
 /// Re-sign an asset with node's key (for relaying to viewers)
@@ -240,10 +239,7 @@ fn verify_asset_signature(metadata: &AssetMetadata) -> Result<bool> {
 /// # Returns
 /// New AssetMetadata with node's signature
 #[instrument(skip_all)]
-pub fn resign_asset(
-    metadata: &AssetMetadata,
-    node_identity: &Identity,
-) -> Result<AssetMetadata> {
+pub fn resign_asset(metadata: &AssetMetadata, node_identity: &Identity) -> Result<AssetMetadata> {
     // Verify original signature first
     if !verify_asset_signature(metadata)? {
         return Err(ButlerError::verification_failed(
@@ -254,10 +250,8 @@ pub fn resign_asset(
     // Sign with node's key
     let hash_bytes = metadata.hash.as_bytes();
     let signature_bytes = node_identity.sign(hash_bytes);
-    let new_signature = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        signature_bytes,
-    );
+    let new_signature =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, signature_bytes);
 
     // Create new metadata with node's signature
     Ok(AssetMetadata {
@@ -347,7 +341,8 @@ pub fn get_assets_from_layer(layer: &Layer) -> HashMap<String, AssetMetadata> {
 
     // Check for nested "root" structure (from MapInsert with path="root")
     // If assets_map["root"] exists and is an object, use that instead
-    let final_map = assets_map.get("root")
+    let final_map = assets_map
+        .get("root")
         .and_then(|v| v.as_object())
         .unwrap_or(assets_map);
 
@@ -377,8 +372,9 @@ pub fn add_to_assets_layer(layer: &Layer, metadata: &AssetMetadata) -> Result<()
     let map = layer.loro().get_map("root");
 
     // Serialize metadata to JSON, then to LoroValue
-    let json_value = serde_json::to_value(metadata)
-        .map_err(|e| ButlerError::Internal(format!("Layer: Failed to serialize metadata: {}", e)))?;
+    let json_value = serde_json::to_value(metadata).map_err(|e| {
+        ButlerError::Internal(format!("Layer: Failed to serialize metadata: {}", e))
+    })?;
 
     // Convert JSON to LoroValue and insert
     let loro_value = domains::json_to_loro_value(&json_value);
@@ -451,10 +447,7 @@ pub fn find_missing_assets_from_layer(
 /// # Returns
 /// List of hashes that are missing locally
 #[instrument(skip_all)]
-pub fn find_missing_asset_hashes(
-    asset_store: &AssetStore,
-    layer: &Layer,
-) -> Vec<String> {
+pub fn find_missing_asset_hashes(asset_store: &AssetStore, layer: &Layer) -> Vec<String> {
     let all_assets = get_assets_from_layer(layer);
 
     all_assets

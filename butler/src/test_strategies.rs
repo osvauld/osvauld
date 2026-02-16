@@ -7,11 +7,13 @@
 
 #![allow(dead_code)]
 
+use domains::{Page, PageMeta, Space};
 use proptest::prelude::*;
-use domains::{Space, Page, PageMeta};
 
 // Re-export shared primitives from gurkha
-pub use gurkha::test_strategies::{did_strategy, segment_strategy, page_id_strategy, expand_pattern_concrete};
+pub use gurkha::test_strategies::{
+    did_strategy, expand_pattern_concrete, page_id_strategy, segment_strategy,
+};
 
 /// Valid ID (UUID-like hex string)
 pub fn id_strategy() -> impl Strategy<Value = String> {
@@ -32,7 +34,12 @@ pub fn timestamp_strategy() -> impl Strategy<Value = i64> {
 
 /// Space strategy
 pub fn space_strategy() -> impl Strategy<Value = Space> {
-    (id_strategy(), name_strategy(), did_strategy(), timestamp_strategy())
+    (
+        id_strategy(),
+        name_strategy(),
+        did_strategy(),
+        timestamp_strategy(),
+    )
         .prop_map(|(id, name, owner_did, created_at)| Space {
             id,
             name,
@@ -47,7 +54,13 @@ pub fn space_strategy() -> impl Strategy<Value = Space> {
 
 /// Page strategy
 pub fn page_strategy() -> impl Strategy<Value = Page> {
-    (id_strategy(), id_strategy(), name_strategy(), did_strategy(), timestamp_strategy())
+    (
+        id_strategy(),
+        id_strategy(),
+        name_strategy(),
+        did_strategy(),
+        timestamp_strategy(),
+    )
         .prop_map(|(id, space_id, name, owner_did, created_at)| Page {
             id,
             space_id,
@@ -69,16 +82,18 @@ pub fn page_meta_strategy() -> impl Strategy<Value = PageMeta> {
         timestamp_strategy(),
         prop::collection::vec(any::<u8>(), 32..=32),
     )
-        .prop_map(|(id, space_id, name, owner_did, created_at, encrypted_key)| PageMeta {
-            id,
-            space_id,
-            name,
-            encrypted_key,
-            owner_did,
-            is_private: false,
-            created_at,
-            updated_at: created_at,
-        })
+        .prop_map(
+            |(id, space_id, name, owner_did, created_at, encrypted_key)| PageMeta {
+                id,
+                space_id,
+                name,
+                encrypted_key,
+                owner_did,
+                is_private: false,
+                created_at,
+                updated_at: created_at,
+            },
+        )
 }
 
 /// Generate a space with N pages
@@ -99,6 +114,7 @@ pub fn space_with_pages_strategy(max_pages: usize) -> impl Strategy<Value = (Spa
                 updated_at: created_at,
             }),
             0..max_pages,
-        ).prop_map(move |pages| (space.clone(), pages))
+        )
+        .prop_map(move |pages| (space.clone(), pages))
     })
 }

@@ -628,8 +628,6 @@ pub fn init_rich_tracing(
         return Err("At least one logging destination must be enabled".into());
     }
 
-    // Forward log crate to tracing (for legacy log:: calls)
-    // Use try_init to allow multiple initializations (won't error if already set)
     let _ = tracing_log::LogTracer::init();
 
     Ok(guard)

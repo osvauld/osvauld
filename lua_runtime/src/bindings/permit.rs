@@ -47,10 +47,7 @@ impl UserData for PermitBindings {
         // Example: permit:my_layer("orders") -> "orders/did:key:xyz"
         // Note: Scribe uses bare layer names (no page_id/ prefix)
         methods.add_method("my_layer", |_, this, layer_type: String| {
-            Ok(format!(
-                "{}/{}",
-                layer_type, this.our_did
-            ))
+            Ok(format!("{}/{}", layer_type, this.our_did))
         });
     }
 }

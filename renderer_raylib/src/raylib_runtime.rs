@@ -5,12 +5,11 @@
 //! Receives: Sync updates via channel
 
 use butler::{Butler, ScribeMessage};
+use domains::AppManifest;
 use ractor::ActorRef;
-use raylib::prelude::*;
 use std::sync::Arc;
 
 use crate::game_loop::GameLoop;
-use crate::GameManifest;
 
 /// Raylib runtime state
 pub struct RaylibRuntime {
@@ -31,7 +30,7 @@ impl RaylibRuntime {
         app_name: &str,
         butler: Arc<Butler>,
         scribe_ref: ActorRef<ScribeMessage>,
-        manifest: GameManifest,
+        manifest: AppManifest,
         lua_code: String,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {

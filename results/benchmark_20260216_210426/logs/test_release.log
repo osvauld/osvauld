@@ -1,0 +1,45 @@
+
+============================================================
+  chat_perf
+============================================================
+  All instances ready
+
+  alice: signup, create space...
+  Space: f521feba..., Page: 0d74a4c3...
+  alice: connect to node...
+    Waiting for node authentication...
+    Node authenticated
+  alice: publish space to node...
+  Published and synced to node
+
+  Connecting viewers (parallel)...
+  carol synced in 0.9s
+  bob synced in 0.8s
+  All viewers connected and synced
+
+  Opening apps (parallel)...
+  bob app 'Group Chat' synced in 0.0s
+  carol app 'Group Chat' synced in 0.0s
+    alice app ready
+    bob app ready
+    carol app ready
+  All apps opened and ready
+
+  Building peer handles...
+
+  Ready! Peers: ['alice', 'bob', 'carol']
+============================================================
+
+
+[Phase 1] Send-path benchmark: alice sends 5000 messages (no delay)...
+  [1/5000 | 0%] elapsed=0.0s rate=575.0 msg/s eval_p50(last100)=1.7ms
+  [2/5000 | 0%] elapsed=0.0s rate=519.9 msg/s eval_p50(last100)=1.9ms
+  [3/5000 | 0%] elapsed=0.0s rate=532.5 msg/s eval_p50(last100)=1.7ms
+  [250/5000 | 5%] elapsed=2.2s rate=113.1 msg/s eval_p50(last100)=12.7ms
+  [500/5000 | 10%] elapsed=8.1s rate=61.7 msg/s eval_p50(last100)=27.8ms
+  [750/5000 | 15%] elapsed=17.9s rate=41.9 msg/s eval_p50(last100)=44.1ms
+  [1000/5000 | 20%] elapsed=31.8s rate=31.4 msg/s eval_p50(last100)=61.4ms
+  [1250/5000 | 25%] elapsed=49.9s rate=25.1 msg/s eval_p50(last100)=76.0ms
+  [1500/5000 | 30%] elapsed=72.0s rate=20.8 msg/s eval_p50(last100)=94.3ms
+  [1750/5000 | 35%] elapsed=100.5s rate=17.4 msg/s eval_p50(last100)=121.9ms
+  [2000/5000 | 40%] elapsed=136.3s rate=14.7 msg/s eval_p50(last100)=152.5ms

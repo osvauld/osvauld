@@ -4,8 +4,8 @@
 //! as they flow through PeerActor. Production code passes `None`
 //! for the trace channel; test code passes `Some(tx)`.
 
-use std::time::Instant;
 use serde::Serialize;
+use std::time::Instant;
 use transport::NodeId;
 
 /// Direction of a traced protocol message
@@ -50,7 +50,9 @@ impl MessageTrace {
             node_id,
             peer_node_id,
             timestamp: Instant::now(),
-            ts: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            ts: chrono::Utc::now()
+                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string(),
             page_id: None,
             layer_name: None,
         }

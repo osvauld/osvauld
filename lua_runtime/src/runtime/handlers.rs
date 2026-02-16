@@ -8,15 +8,26 @@ use crate::ui_types::UiMutation;
 use super::LuaRuntime;
 
 impl LuaRuntime {
+    fn call_cached_handler<A: mlua::IntoLuaMulti>(&self, enabled: bool, name: &str, args: A) {
+        if !enabled {
+            return;
+        }
+
+        if let Err(e) = self.call_handler(name, args) {
+            warn!(page_id = %self.page_id, handler = %name, error = %e, "Lua handler error");
+        }
+    }
+
     /// Handle layer discovered.
     ///
     /// Context: new layer arriving via sync (e.g., derived/orders_summary first appearance)
     /// We do: process bindings for the discovered layer, then call Lua callback.
     pub(super) fn handle_layer_discovered(&self, layer_name: &str) -> Result<(), String> {
         if self.ui_enabled {
+            let normalized_layer = self.normalize_layer_name_for_lookup(layer_name);
             let has_bindings = {
                 let manager = self.binding_manager.lock();
-                !manager.get_bindings_for_layer(layer_name).is_empty()
+                !manager.get_bindings_for_layer(&normalized_layer).is_empty()
             };
 
             if has_bindings {
@@ -119,22 +130,16 @@ impl LuaRuntime {
     /// Handle peer joined.
     pub(super) fn handle_peer_joined(&self, user_did: &str) {
         if self.handler_cache.on_peer_joined {
-            if let Err(e) = self.call_handler("on_peer_joined", user_did.to_string()) {
-                warn!(page_id = %self.page_id, user = %user_did, error = %e, "on_peer_joined error");
-            } else {
-                info!(page_id = %self.page_id, user = %user_did, "on_peer_joined executed");
-            }
+            self.call_cached_handler(true, "on_peer_joined", user_did.to_string());
+            info!(page_id = %self.page_id, user = %user_did, "on_peer_joined executed");
         }
     }
 
     /// Handle peer left.
     pub(super) fn handle_peer_left(&self, user_did: &str) {
         if self.handler_cache.on_peer_left {
-            if let Err(e) = self.call_handler("on_peer_left", user_did.to_string()) {
-                warn!(page_id = %self.page_id, user = %user_did, error = %e, "on_peer_left error");
-            } else {
-                info!(page_id = %self.page_id, user = %user_did, "on_peer_left executed");
-            }
+            self.call_cached_handler(true, "on_peer_left", user_did.to_string());
+            info!(page_id = %self.page_id, user = %user_did, "on_peer_left executed");
         }
     }
 
@@ -195,18 +200,10 @@ impl LuaRuntime {
     pub(super) fn handle_ui_event(&self, event: UiEventType) -> Result<(), String> {
         match event {
             UiEventType::KeyPressed { key } => {
-                if self.handler_cache.on_key_pressed {
-                    if let Err(e) = self.call_handler("on_key_pressed", key) {
-                        warn!(error = %e, "on_key_pressed error");
-                    }
-                }
+                self.call_cached_handler(self.handler_cache.on_key_pressed, "on_key_pressed", key);
             }
             UiEventType::TextChanged { element: _, text } => {
-                if self.handler_cache.on_text_input {
-                    if let Err(e) = self.call_handler("on_text_input", text) {
-                        warn!(error = %e, "on_text_input error");
-                    }
-                }
+                self.call_cached_handler(self.handler_cache.on_text_input, "on_text_input", text);
             }
         }
         Ok(())

@@ -9,7 +9,7 @@
 //! Each Page can have multiple Layers (e.g., content_layer, comments_layer).
 
 use loro::{ExportMode, LoroDoc};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 /// Protocol-level layer classification
 ///
@@ -106,8 +106,8 @@ impl Layer {
 
     /// Export updates since a version vector (for incremental sync)
     pub fn export_updates(&self, from_version: &[u8]) -> Result<Vec<u8>, LayerError> {
-        let vv =
-            loro::VersionVector::decode(from_version).map_err(|e| LayerError::Decode(e.to_string()))?;
+        let vv = loro::VersionVector::decode(from_version)
+            .map_err(|e| LayerError::Decode(e.to_string()))?;
         Ok(self
             .inner
             .export(ExportMode::updates(&vv))
@@ -178,7 +178,9 @@ impl Layer {
         let json = loro_value_to_json(full);
 
         if let serde_json::Value::Object(map) = json {
-            map.get(container_name).cloned().unwrap_or(serde_json::Value::Null)
+            map.get(container_name)
+                .cloned()
+                .unwrap_or(serde_json::Value::Null)
         } else {
             serde_json::Value::Null
         }
@@ -242,7 +244,11 @@ impl Layer {
     ///
     /// **Context**: Used by derivation to fetch full item for field-level updates
     /// **Note**: This uses the layer_name as the list container name (not path in root map)
-    pub fn list_get(&self, layer_name: &str, index: usize) -> Result<serde_json::Value, LayerError> {
+    pub fn list_get(
+        &self,
+        layer_name: &str,
+        index: usize,
+    ) -> Result<serde_json::Value, LayerError> {
         let list = self.inner.get_list(layer_name);
 
         let value = list
@@ -335,8 +341,6 @@ impl Layer {
         self.inner.commit();
         Ok(())
     }
-
-    // Legacy JSON Operations
 
     /// Set a value at a path from JSON (for UI commits)
     ///
@@ -455,7 +459,8 @@ impl Layer {
         let root = self.inner.get_map("files");
         let mut files = std::collections::HashMap::new();
         for key in root.keys() {
-            if let Some(loro::ValueOrContainer::Value(loro::LoroValue::String(s))) = root.get(&key) {
+            if let Some(loro::ValueOrContainer::Value(loro::LoroValue::String(s))) = root.get(&key)
+            {
                 files.insert(key.to_string(), s.to_string());
             }
         }
@@ -530,108 +535,116 @@ impl Layer {
 
         // Subscribe to pre-commit events to capture operations
         // Subscription callback fires synchronously during import()
-        let subscription = temp_doc.subscribe_root(Arc::new(move |event: loro::event::DiffEvent| {
-            let mut collected_ops = ops_clone.lock().unwrap();
+        let subscription =
+            temp_doc.subscribe_root(Arc::new(move |event: loro::event::DiffEvent| {
+                let mut collected_ops = ops_clone.lock().unwrap();
 
-            // Convert DiffEvent to JsonOp format
-            for container_diff in event.events {
-                // Build path with "/" separator to avoid confusion with keys containing dots
-                // Escape "/" in keys to ensure path is unambiguous
-                let path = container_diff.path.iter()
-                    .map(|(_, key)| {
-                        let key_str = key.to_string();
-                        // Escape slashes in keys: "/" -> "\/"
-                        key_str.replace('\\', "\\\\").replace('/', "\\/")
-                    })
-                    .collect::<Vec<_>>()
-                    .join("/");
-                let path = if path.is_empty() { "root".to_string() } else { path };
+                // Convert DiffEvent to JsonOp format
+                for container_diff in event.events {
+                    // Build path with "/" separator to avoid confusion with keys containing dots
+                    // Escape "/" in keys to ensure path is unambiguous
+                    let path = container_diff
+                        .path
+                        .iter()
+                        .map(|(_, key)| {
+                            let key_str = key.to_string();
+                            // Escape slashes in keys: "/" -> "\/"
+                            key_str.replace('\\', "\\\\").replace('/', "\\/")
+                        })
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    let path = if path.is_empty() {
+                        "root".to_string()
+                    } else {
+                        path
+                    };
 
-                // Process different container types
-                match &container_diff.diff {
-                    loro::event::Diff::List(list_diff) => {
-                        // Track current position to calculate insert/delete indices
-                        let mut current_index: usize = 0;
+                    // Process different container types
+                    match &container_diff.diff {
+                        loro::event::Diff::List(list_diff) => {
+                            // Track current position to calculate insert/delete indices
+                            let mut current_index: usize = 0;
 
-                        for delta in list_diff.iter() {
-                            match delta {
-                                loro::event::ListDiffItem::Retain { retain } => {
-                                    // Advance position by retain count
-                                    current_index += *retain;
-                                }
-                                loro::event::ListDiffItem::Insert { insert, .. } => {
-                                    // Insert at current position
-                                    let insert_index = current_index;
-                                    let insert_count = insert.len();
+                            for delta in list_diff.iter() {
+                                match delta {
+                                    loro::event::ListDiffItem::Retain { retain } => {
+                                        // Advance position by retain count
+                                        current_index += *retain;
+                                    }
+                                    loro::event::ListDiffItem::Insert { insert, .. } => {
+                                        // Insert at current position
+                                        let insert_index = current_index;
+                                        let insert_count = insert.len();
 
-                                    collected_ops.push(JsonOp {
-                                        op: "insert".to_string(),
-                                        path: path.clone(),
-                                        key: None,
-                                        index: Some(insert_index),
-                                        value: Some(loro_values_to_json(insert)),
-                                        old_value: None,
-                                    });
+                                        collected_ops.push(JsonOp {
+                                            op: "insert".to_string(),
+                                            path: path.clone(),
+                                            key: None,
+                                            index: Some(insert_index),
+                                            value: Some(loro_values_to_json(insert)),
+                                            old_value: None,
+                                        });
 
-                                    // Advance position past inserted items
-                                    current_index += insert_count;
-                                }
-                                loro::event::ListDiffItem::Delete { delete } => {
-                                    // Delete at current position
-                                    collected_ops.push(JsonOp {
-                                        op: "delete".to_string(),
-                                        path: path.clone(),
-                                        key: None,
-                                        index: Some(current_index),
-                                        value: None,
-                                        old_value: None,
-                                    });
+                                        // Advance position past inserted items
+                                        current_index += insert_count;
+                                    }
+                                    loro::event::ListDiffItem::Delete { delete } => {
+                                        // Delete at current position
+                                        collected_ops.push(JsonOp {
+                                            op: "delete".to_string(),
+                                            path: path.clone(),
+                                            key: None,
+                                            index: Some(current_index),
+                                            value: None,
+                                            old_value: None,
+                                        });
 
-                                    // Position doesn't advance on delete (items removed)
-                                    let _ = delete; // Silence unused warning
+                                        // Position doesn't advance on delete (items removed)
+                                        let _ = delete; // Silence unused warning
+                                    }
                                 }
                             }
                         }
-                    }
-                    loro::event::Diff::Map(map_diff) => {
-                        for (key, value_opt) in map_diff.updated.iter() {
-                            let new_value = value_opt.as_ref().map(|v| {
-                                let deep = v.get_deep_value();
-                                loro_value_to_json(deep)
-                            });
+                        loro::event::Diff::Map(map_diff) => {
+                            for (key, value_opt) in map_diff.updated.iter() {
+                                let new_value = value_opt.as_ref().map(|v| {
+                                    let deep = v.get_deep_value();
+                                    loro_value_to_json(deep)
+                                });
 
-                            let op_type = if new_value.is_some() {
-                                "update"  // Map updates (insert or modify)
-                            } else {
-                                "delete"  // None means deleted
-                            };
+                                let op_type = if new_value.is_some() {
+                                    "update" // Map updates (insert or modify)
+                                } else {
+                                    "delete" // None means deleted
+                                };
 
-                            collected_ops.push(JsonOp {
-                                op: op_type.to_string(),
-                                path: path.clone(),
-                                key: Some(key.to_string()),
-                                index: None,
-                                value: new_value,
-                                old_value: None, // Old value not available in map diff
-                            });
+                                collected_ops.push(JsonOp {
+                                    op: op_type.to_string(),
+                                    path: path.clone(),
+                                    key: Some(key.to_string()),
+                                    index: None,
+                                    value: new_value,
+                                    old_value: None, // Old value not available in map diff
+                                });
+                            }
+                        }
+                        loro::event::Diff::Text(_text_diff) => {
+                            // Text diffs not used for validation yet
+                            // Could be added in future for rich text validation
+                        }
+                        loro::event::Diff::Tree(_tree_diff) => {
+                            // Tree diffs not used for validation
+                        }
+                        _ => {
+                            // Other container types not used for validation
                         }
                     }
-                    loro::event::Diff::Text(_text_diff) => {
-                        // Text diffs not used for validation yet
-                        // Could be added in future for rich text validation
-                    }
-                    loro::event::Diff::Tree(_tree_diff) => {
-                        // Tree diffs not used for validation
-                    }
-                    _ => {
-                        // Other container types not used for validation
-                    }
                 }
-            }
-        }));
+            }));
 
         // Import the update into temp doc (triggers subscription callback synchronously)
-        temp_doc.import(update)
+        temp_doc
+            .import(update)
             .map_err(|e| LayerError::Import(format!("Failed to import update: {}", e)))?;
 
         // Explicitly drop subscription after import to ensure callback ran
@@ -671,10 +684,13 @@ pub struct JsonOp {
 /// Helper: Convert Vec<ValueOrContainer> to JSON array (for list inserts)
 fn loro_values_to_json(values: &[loro::ValueOrContainer]) -> serde_json::Value {
     serde_json::Value::Array(
-        values.iter().map(|v| {
-            let deep = v.get_deep_value();
-            loro_value_to_json(deep)
-        }).collect()
+        values
+            .iter()
+            .map(|v| {
+                let deep = v.get_deep_value();
+                loro_value_to_json(deep)
+            })
+            .collect(),
     )
 }
 
@@ -774,7 +790,9 @@ mod tests {
         let layer = Layer::new();
         layer.set_from_json(key, &value).unwrap();
         // Export updates from empty version (contains all changes)
-        layer.inner.export(loro::ExportMode::updates(&loro::VersionVector::new()))
+        layer
+            .inner
+            .export(loro::ExportMode::updates(&loro::VersionVector::new()))
             .expect("Failed to export updates")
     }
 
@@ -784,7 +802,9 @@ mod tests {
         for item in items {
             layer.list_push(path, &item).unwrap();
         }
-        layer.inner.export(loro::ExportMode::updates(&loro::VersionVector::new()))
+        layer
+            .inner
+            .export(loro::ExportMode::updates(&loro::VersionVector::new()))
             .expect("Failed to export updates")
     }
 
@@ -806,10 +826,13 @@ mod tests {
 
     #[test]
     fn test_extract_ops_map_insert_object() {
-        let update = create_map_update("user", serde_json::json!({
-            "name": "Alice",
-            "age": 30
-        }));
+        let update = create_map_update(
+            "user",
+            serde_json::json!({
+                "name": "Alice",
+                "age": 30
+            }),
+        );
         let ops = Layer::extract_ops_from_bytes(&update).unwrap();
 
         assert!(!ops.is_empty());
@@ -850,20 +873,28 @@ mod tests {
         layer.inner.commit();
 
         // Incremental update (from non-empty version) - may not capture well
-        let incremental_update = layer.inner.export(loro::ExportMode::updates(&version_after_insert))
+        let incremental_update = layer
+            .inner
+            .export(loro::ExportMode::updates(&version_after_insert))
             .expect("Failed to export updates");
 
         let incremental_ops = Layer::extract_ops_from_bytes(&incremental_update).unwrap();
 
         // Full update (from empty version) - captures all changes
-        let full_update = layer.inner.export(loro::ExportMode::updates(&loro::VersionVector::new()))
+        let full_update = layer
+            .inner
+            .export(loro::ExportMode::updates(&loro::VersionVector::new()))
             .expect("Failed to export updates");
 
         let full_ops = Layer::extract_ops_from_bytes(&full_update).unwrap();
 
         // Full update should have the field
         let full_has_field = full_ops.iter().any(|op| op.key.as_deref() == Some("field"));
-        assert!(full_has_field, "Full update should capture field, got: {:?}", full_ops);
+        assert!(
+            full_has_field,
+            "Full update should capture field, got: {:?}",
+            full_ops
+        );
 
         // Document: incremental updates may or may not capture changes
         eprintln!("Incremental ops: {:?}", incremental_ops);
@@ -872,17 +903,18 @@ mod tests {
 
     #[test]
     fn test_extract_ops_list_insert_with_index() {
-        let update = create_list_update("messages", vec![
-            serde_json::json!({"text": "hello"}),
-            serde_json::json!({"text": "world"}),
-        ]);
+        let update = create_list_update(
+            "messages",
+            vec![
+                serde_json::json!({"text": "hello"}),
+                serde_json::json!({"text": "world"}),
+            ],
+        );
 
         let ops = Layer::extract_ops_from_bytes(&update).unwrap();
 
         // Should have insert operations
-        let insert_ops: Vec<_> = ops.iter()
-            .filter(|op| op.op == "insert")
-            .collect();
+        let insert_ops: Vec<_> = ops.iter().filter(|op| op.op == "insert").collect();
 
         assert!(!insert_ops.is_empty(), "Should have insert operations");
 
@@ -904,21 +936,28 @@ mod tests {
         layer.inner.commit();
 
         // Export full update from empty version
-        let update = layer.inner.export(loro::ExportMode::updates(&loro::VersionVector::new()))
+        let update = layer
+            .inner
+            .export(loro::ExportMode::updates(&loro::VersionVector::new()))
             .expect("Failed to export updates");
 
         let ops = Layer::extract_ops_from_bytes(&update).unwrap();
 
-        let insert_ops: Vec<_> = ops.iter()
-            .filter(|op| op.op == "insert")
-            .collect();
+        let insert_ops: Vec<_> = ops.iter().filter(|op| op.op == "insert").collect();
 
-        assert!(!insert_ops.is_empty(),
-            "Should have insert operations, got ops: {:?}", ops);
+        assert!(
+            !insert_ops.is_empty(),
+            "Should have insert operations, got ops: {:?}",
+            ops
+        );
 
         // At least one insert should have index tracked
         let has_index = insert_ops.iter().any(|op| op.index.is_some());
-        assert!(has_index, "Insert ops should have index tracked, ops: {:?}", insert_ops);
+        assert!(
+            has_index,
+            "Insert ops should have index tracked, ops: {:?}",
+            insert_ops
+        );
     }
 
     /// Note: Delete operations are NOT captured by extract_ops_from_bytes
@@ -945,20 +984,22 @@ mod tests {
         list.delete(0, 1).unwrap();
         layer.inner.commit();
 
-        let update = layer.inner.export(loro::ExportMode::updates(&version_after_insert))
+        let update = layer
+            .inner
+            .export(loro::ExportMode::updates(&version_after_insert))
             .expect("Failed to export updates");
 
         let ops = Layer::extract_ops_from_bytes(&update).unwrap();
 
         // LIMITATION: Delete ops are NOT captured because temp doc is empty
         // This is expected behavior - validation focuses on what's being added
-        let delete_ops: Vec<_> = ops.iter()
-            .filter(|op| op.op == "delete")
-            .collect();
+        let delete_ops: Vec<_> = ops.iter().filter(|op| op.op == "delete").collect();
 
         // Document that delete ops are empty (this is the limitation)
-        assert!(delete_ops.is_empty(),
-            "Delete ops are not captured by extract_ops_from_bytes (empty temp doc limitation)");
+        assert!(
+            delete_ops.is_empty(),
+            "Delete ops are not captured by extract_ops_from_bytes (empty temp doc limitation)"
+        );
     }
 
     #[test]
@@ -972,8 +1013,11 @@ mod tests {
         for op in &ops {
             // The key itself can contain dots, but path separator should be "/"
             if op.path != "root" {
-                assert!(op.path.contains('/') || !op.path.contains('.'),
-                    "Path should use / as separator, not .: {}", op.path);
+                assert!(
+                    op.path.contains('/') || !op.path.contains('.'),
+                    "Path should use / as separator, not .: {}",
+                    op.path
+                );
             }
         }
     }
@@ -982,7 +1026,9 @@ mod tests {
     fn test_extract_ops_empty_update() {
         // Create empty layer and export (should be minimal/empty update)
         let layer = Layer::new();
-        let update = layer.inner.export(loro::ExportMode::updates(&loro::VersionVector::new()))
+        let update = layer
+            .inner
+            .export(loro::ExportMode::updates(&loro::VersionVector::new()))
             .expect("Failed to export");
 
         // Empty update should return empty ops (or succeed with no ops)
@@ -1007,19 +1053,23 @@ mod tests {
     fn test_extract_ops_multiple_changes() {
         // Multiple changes in one update
         let layer = Layer::new();
-        layer.set_from_json("key1", &serde_json::json!("value1")).unwrap();
+        layer
+            .set_from_json("key1", &serde_json::json!("value1"))
+            .unwrap();
         layer.set_from_json("key2", &serde_json::json!(42)).unwrap();
-        layer.set_from_json("key3", &serde_json::json!(true)).unwrap();
+        layer
+            .set_from_json("key3", &serde_json::json!(true))
+            .unwrap();
 
-        let update = layer.inner.export(loro::ExportMode::updates(&loro::VersionVector::new()))
+        let update = layer
+            .inner
+            .export(loro::ExportMode::updates(&loro::VersionVector::new()))
             .expect("Failed to export");
 
         let ops = Layer::extract_ops_from_bytes(&update).unwrap();
 
         // Should have ops for all three keys
-        let keys: Vec<_> = ops.iter()
-            .filter_map(|op| op.key.as_deref())
-            .collect();
+        let keys: Vec<_> = ops.iter().filter_map(|op| op.key.as_deref()).collect();
 
         assert!(keys.contains(&"key1"), "Should have key1");
         assert!(keys.contains(&"key2"), "Should have key2");

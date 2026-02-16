@@ -41,6 +41,7 @@ When someone proposes a feature that seems to need request-response, the correct
 | debug, tracing, JSONL, sync divergence, flamegraph, heaptrack | `@debug` |
 | documentation, docs update, doc accuracy | `@docs` |
 | architecture, crate boundaries, design review, dependency analysis | `@architect` |
+| architecture, crate boundaries, design review, dependency analysis | `@architect` |
 
 For multi-domain tasks, coordinate multiple subagents. Example: "Add a new dynamic layer type" involves `@permit-template` (design the schema), `@scribe` (implement layer handling), `@lua` (add Lua bindings), and `@integration-test` (write tests).
 

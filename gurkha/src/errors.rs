@@ -79,7 +79,9 @@ impl From<crate::parser::PermitError> for GurkhaError {
         match err {
             crate::parser::PermitError::InvalidTokenType(msg) => GurkhaError::InvalidToken(msg),
             crate::parser::PermitError::ParsingFailed(msg) => GurkhaError::ParseError(msg),
-            crate::parser::PermitError::MissingField(msg) => GurkhaError::ParseError(format!("Missing field: {}", msg)),
+            crate::parser::PermitError::MissingField(msg) => {
+                GurkhaError::ParseError(format!("Missing field: {}", msg))
+            }
             crate::parser::PermitError::ValidationFailed(msg) => GurkhaError::ValidationError(msg),
         }
     }

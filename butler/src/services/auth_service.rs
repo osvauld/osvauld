@@ -6,9 +6,9 @@
 //! - Recovery: Restore from mnemonic, encrypt with new passphrase
 
 use crate::error::{ButlerError, Result};
+use crate::models::{Argon2Params, EncryptedKeyStore, IdentityData};
 use crate::storage::RedbStore;
-use herald::{keystore, Identity, EncryptedKeys};
-use crate::models::{IdentityData, EncryptedKeyStore, Argon2Params};
+use herald::{keystore, EncryptedKeys, Identity};
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -27,11 +27,7 @@ pub struct SignupResult {
 /// 3. Stores IdentityData + EncryptedKeyStore in redb
 /// 4. Returns Identity + mnemonic (for user backup)
 #[instrument(skip(store, passphrase), fields(username = %username))]
-pub fn signup(
-    store: &RedbStore,
-    username: &str,
-    passphrase: &str,
-) -> Result<SignupResult> {
+pub fn signup(store: &RedbStore, username: &str, passphrase: &str) -> Result<SignupResult> {
     // Check if already signed up
     if store.is_signed_up()? {
         return Err(ButlerError::already_signed_up());
@@ -79,11 +75,13 @@ pub fn signup(
 #[instrument(skip_all)]
 pub fn login(store: &RedbStore, passphrase: &str) -> Result<Identity> {
     // Load identity data
-    let identity_data = store.get_identity()?
+    let identity_data = store
+        .get_identity()?
         .ok_or_else(ButlerError::not_signed_up)?;
 
     // Load encrypted keystore
-    let keystore = store.get_keystore()?
+    let keystore = store
+        .get_keystore()?
         .ok_or_else(ButlerError::not_signed_up)?;
 
     // Convert to Herald's EncryptedKeys format
@@ -91,11 +89,20 @@ pub fn login(store: &RedbStore, passphrase: &str) -> Result<Identity> {
         encrypted_signing_key: keystore.encrypted_signing_key,
         encrypted_encryption_key: keystore.encrypted_encryption_key,
         encrypted_device_key: keystore.encrypted_device_key,
-        public_signing_key: identity_data.signing_public_key.clone().try_into()
+        public_signing_key: identity_data
+            .signing_public_key
+            .clone()
+            .try_into()
             .map_err(|_| ButlerError::crypto_error("Invalid public signing key length"))?,
-        public_encryption_key: identity_data.encryption_public_key.clone().try_into()
+        public_encryption_key: identity_data
+            .encryption_public_key
+            .clone()
+            .try_into()
             .map_err(|_| ButlerError::crypto_error("Invalid public encryption key length"))?,
-        public_device_key: identity_data.device_public_key.clone().try_into()
+        public_device_key: identity_data
+            .device_public_key
+            .clone()
+            .try_into()
             .map_err(|_| ButlerError::crypto_error("Invalid public device key length"))?,
         did: identity_data.did.clone(),
         salt: keystore.salt,
@@ -190,11 +197,13 @@ pub fn change_passphrase(
     new_passphrase: &str,
 ) -> Result<()> {
     // Load identity data
-    let identity_data = store.get_identity()?
+    let identity_data = store
+        .get_identity()?
         .ok_or_else(ButlerError::not_signed_up)?;
 
     // Load encrypted keystore
-    let keystore = store.get_keystore()?
+    let keystore = store
+        .get_keystore()?
         .ok_or_else(ButlerError::not_signed_up)?;
 
     // Convert to Herald format
@@ -202,11 +211,20 @@ pub fn change_passphrase(
         encrypted_signing_key: keystore.encrypted_signing_key,
         encrypted_encryption_key: keystore.encrypted_encryption_key,
         encrypted_device_key: keystore.encrypted_device_key,
-        public_signing_key: identity_data.signing_public_key.clone().try_into()
+        public_signing_key: identity_data
+            .signing_public_key
+            .clone()
+            .try_into()
             .map_err(|_| ButlerError::crypto_error("Invalid public signing key length"))?,
-        public_encryption_key: identity_data.encryption_public_key.clone().try_into()
+        public_encryption_key: identity_data
+            .encryption_public_key
+            .clone()
+            .try_into()
             .map_err(|_| ButlerError::crypto_error("Invalid public encryption key length"))?,
-        public_device_key: identity_data.device_public_key.clone().try_into()
+        public_device_key: identity_data
+            .device_public_key
+            .clone()
+            .try_into()
             .map_err(|_| ButlerError::crypto_error("Invalid public device key length"))?,
         did: identity_data.did.clone(),
         salt: keystore.salt,
@@ -216,8 +234,9 @@ pub fn change_passphrase(
     };
 
     // Change passphrase
-    let new_encrypted = keystore::change_passphrase(&encrypted_keys, old_passphrase, new_passphrase)
-        .map_err(|_| ButlerError::invalid_passphrase())?;
+    let new_encrypted =
+        keystore::change_passphrase(&encrypted_keys, old_passphrase, new_passphrase)
+            .map_err(|_| ButlerError::invalid_passphrase())?;
 
     // Update keystore
     let new_keystore = EncryptedKeyStore::with_params(

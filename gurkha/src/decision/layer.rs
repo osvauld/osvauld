@@ -16,7 +16,8 @@
 /// # Returns
 /// `true` if the permit authorizes this layer access
 pub fn can_access_layer(permit: &crate::parser::Permit, layer_name: &str, operation: &str) -> bool {
-    let page_id = permit.get_fact("page_id")
+    let page_id = permit
+        .get_fact("page_id")
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
@@ -307,11 +308,21 @@ mod tests {
         let page_permit = test_fixtures::shop_owner("shop1", "did:key:owner");
         // Page permit has static layers (products, etc.)
         assert!(can_access_with_layer_permits(
-            &page_permit, &[], "shop1/products", "shop1", "did:key:owner", "read"
+            &page_permit,
+            &[],
+            "shop1/products",
+            "shop1",
+            "did:key:owner",
+            "read"
         ));
         // Dynamic layer not in page permit → no access without layer permit
         assert!(!can_access_with_layer_permits(
-            &page_permit, &[], "shop1/channels/did:key:bob/general/messages", "shop1", "did:key:owner", "read"
+            &page_permit,
+            &[],
+            "shop1/channels/did:key:bob/general/messages",
+            "shop1",
+            "did:key:owner",
+            "read"
         ));
     }
 
@@ -322,20 +333,40 @@ mod tests {
 
         // Creator can access dynamic layer matching their DID via schema fallback
         assert!(can_access_with_layer_permits(
-            &owner, &[], "shop1/orders/did:key:owner/uuid-123", "shop1", "did:key:owner", "read"
+            &owner,
+            &[],
+            "shop1/orders/did:key:owner/uuid-123",
+            "shop1",
+            "did:key:owner",
+            "read"
         ));
         assert!(can_access_with_layer_permits(
-            &owner, &[], "shop1/orders/did:key:owner/uuid-123", "shop1", "did:key:owner", "write"
+            &owner,
+            &[],
+            "shop1/orders/did:key:owner/uuid-123",
+            "shop1",
+            "did:key:owner",
+            "write"
         ));
 
         // Non-matching DID in path → denied
         assert!(!can_access_with_layer_permits(
-            &owner, &[], "shop1/orders/did:key:other/uuid-123", "shop1", "did:key:owner", "read"
+            &owner,
+            &[],
+            "shop1/orders/did:key:other/uuid-123",
+            "shop1",
+            "did:key:owner",
+            "read"
         ));
 
         // Non-matching schema path → denied
         assert!(!can_access_with_layer_permits(
-            &owner, &[], "shop1/invalid_schema/did:key:owner/foo", "shop1", "did:key:owner", "read"
+            &owner,
+            &[],
+            "shop1/invalid_schema/did:key:owner/foo",
+            "shop1",
+            "did:key:owner",
+            "read"
         ));
     }
 
@@ -343,23 +374,33 @@ mod tests {
     fn test_matches_dynamic_path() {
         // orders/{id} with DID inserted
         assert!(matches_dynamic_path(
-            "orders/did:key:alice/uuid-123", "orders/{id}", "did:key:alice"
+            "orders/did:key:alice/uuid-123",
+            "orders/{id}",
+            "did:key:alice"
         ));
         // channels/{id}/messages with DID inserted
         assert!(matches_dynamic_path(
-            "channels/did:key:alice/general/messages", "channels/{id}/messages", "did:key:alice"
+            "channels/did:key:alice/general/messages",
+            "channels/{id}/messages",
+            "did:key:alice"
         ));
         // Wrong DID
         assert!(!matches_dynamic_path(
-            "channels/did:key:bob/general/messages", "channels/{id}/messages", "did:key:alice"
+            "channels/did:key:bob/general/messages",
+            "channels/{id}/messages",
+            "did:key:alice"
         ));
         // Wrong prefix
         assert!(!matches_dynamic_path(
-            "wrong/did:key:alice/general/messages", "channels/{id}/messages", "did:key:alice"
+            "wrong/did:key:alice/general/messages",
+            "channels/{id}/messages",
+            "did:key:alice"
         ));
         // Different segment count
         assert!(!matches_dynamic_path(
-            "channels/did:key:alice/messages", "channels/{id}/messages", "did:key:alice"
+            "channels/did:key:alice/messages",
+            "channels/{id}/messages",
+            "did:key:alice"
         ));
     }
 
@@ -367,22 +408,27 @@ mod tests {
     fn test_matches_dynamic_path_any_did() {
         // Matches with any DID in position 1
         assert!(matches_dynamic_path_any_did(
-            "channels/did:key:alice/general/messages", "channels/{id}/messages"
+            "channels/did:key:alice/general/messages",
+            "channels/{id}/messages"
         ));
         assert!(matches_dynamic_path_any_did(
-            "channels/did:key:bob/project-x/messages", "channels/{id}/messages"
+            "channels/did:key:bob/project-x/messages",
+            "channels/{id}/messages"
         ));
         // Wrong prefix
         assert!(!matches_dynamic_path_any_did(
-            "wrong/did:key:alice/general/messages", "channels/{id}/messages"
+            "wrong/did:key:alice/general/messages",
+            "channels/{id}/messages"
         ));
         // Wrong suffix
         assert!(!matches_dynamic_path_any_did(
-            "channels/did:key:alice/general/wrong", "channels/{id}/messages"
+            "channels/did:key:alice/general/wrong",
+            "channels/{id}/messages"
         ));
         // Different segment count
         assert!(!matches_dynamic_path_any_did(
-            "channels/did:key:alice/messages", "channels/{id}/messages"
+            "channels/did:key:alice/messages",
+            "channels/{id}/messages"
         ));
     }
 
@@ -393,20 +439,32 @@ mod tests {
 
         // Any peer can access via permissions { sync: true, write: true }
         assert!(matches_dynamic_schema(
-            &owner, "orders/did:key:customer/uuid-123", "shop1", "write"
+            &owner,
+            "orders/did:key:customer/uuid-123",
+            "shop1",
+            "write"
         ));
         assert!(matches_dynamic_schema(
-            &owner, "orders/did:key:customer/uuid-123", "shop1", "read"
+            &owner,
+            "orders/did:key:customer/uuid-123",
+            "shop1",
+            "read"
         ));
 
         // Non-matching schema path → denied
         assert!(!matches_dynamic_schema(
-            &owner, "invalid/did:key:customer/uuid-123", "shop1", "write"
+            &owner,
+            "invalid/did:key:customer/uuid-123",
+            "shop1",
+            "write"
         ));
 
         // Works with page_id prefix stripped
         assert!(matches_dynamic_schema(
-            &owner, "shop1/orders/did:key:customer/uuid-123", "shop1", "write"
+            &owner,
+            "shop1/orders/did:key:customer/uuid-123",
+            "shop1",
+            "write"
         ));
     }
 
@@ -417,10 +475,16 @@ mod tests {
 
         // All peers can read but not write (same permissions for everyone)
         assert!(matches_dynamic_schema(
-            &admin, "orders/did:key:customer/uuid-123", "shop1", "read"
+            &admin,
+            "orders/did:key:customer/uuid-123",
+            "shop1",
+            "read"
         ));
         assert!(!matches_dynamic_schema(
-            &admin, "orders/did:key:customer/uuid-123", "shop1", "write"
+            &admin,
+            "orders/did:key:customer/uuid-123",
+            "shop1",
+            "write"
         ));
     }
 }

@@ -270,7 +270,7 @@ timer.clearTimeout(timeout_id)
 - Delayed actions: `timer.setTimeout(action, 1000)`
 - Periodic UI updates: `timer.setInterval(refresh_status, 1000)`
 
-**Note:** For game loops (~60fps), use the raylib renderer with `tick()` callback instead of timers. See [RENDERERS.md](RENDERERS.md).
+**Note:** For game loops (~60fps), use the raylib renderer with `update(dt)` + `draw()` callbacks. See [RENDERERS.md](RENDERERS.md).
 
 ---
 
@@ -347,8 +347,12 @@ function on_peer_left(user_did)
     -- Peer disconnected
 end
 
-function tick()
-    -- Game loop (~60fps, requires tick_enabled in manifest)
+function update(dt)
+    -- Raylib game update loop (~target_fps)
+end
+
+function draw()
+    -- Raylib draw callback
 end
 
 function on_datagram(data)

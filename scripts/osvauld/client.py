@@ -28,7 +28,9 @@ class ControlClient:
         self._id_counter = 0
 
     @classmethod
-    def discover(cls, instance_name: str = None, timeout: float = 30.0) -> "ControlClient":
+    def discover(
+        cls, instance_name: str = None, timeout: float = 30.0
+    ) -> "ControlClient":
         """Auto-discover a running instance by name.
 
         Args:
@@ -57,7 +59,7 @@ class ControlClient:
         condition: Callable[[], bool],
         timeout: float = 10.0,
         poll: float = 0.1,
-        desc: str = None
+        desc: str = None,
     ) -> bool:
         """Wait for a condition to become true.
 
@@ -84,10 +86,7 @@ class ControlClient:
         raise TimeoutError(desc or "Condition not met within timeout")
 
     def wait_for_sync(
-        self,
-        other: "ControlClient",
-        check_code: str,
-        timeout: float = 10.0
+        self, other: "ControlClient", check_code: str, timeout: float = 10.0
     ) -> bool:
         """Wait for data to sync to another instance.
 
@@ -105,7 +104,7 @@ class ControlClient:
         return self.wait_until(
             lambda: other.eval(check_code),
             timeout=timeout,
-            desc=f"Sync to {other.socket_path}"
+            desc=f"Sync to {other.socket_path}",
         )
 
     def send(self, method: str, params: Optional[Dict] = None) -> Any:
@@ -130,7 +129,7 @@ class ControlClient:
         try:
             sock.connect(self.socket_path)
             sock.settimeout(self.timeout)
-            sock.send((json.dumps(cmd) + '\n').encode())
+            sock.send((json.dumps(cmd) + "\n").encode())
 
             # Read response (may be large)
             chunks = []
@@ -141,12 +140,12 @@ class ControlClient:
                 chunks.append(chunk.decode())
                 # Check if we have complete JSON
                 try:
-                    response = json.loads(''.join(chunks))
+                    response = json.loads("".join(chunks))
                     break
                 except json.JSONDecodeError:
                     continue
 
-            response = json.loads(''.join(chunks))
+            response = json.loads("".join(chunks))
         except socket.error as e:
             raise ConnectionError(f"Socket error: {e}")
         finally:
@@ -177,7 +176,9 @@ class ControlClient:
         """Login with passphrase."""
         return self.send("login", {"passphrase": passphrase})
 
-    def signup_or_login(self, username: str, passphrase: str = "test", wait_p2p: bool = True) -> Dict:
+    def signup_or_login(
+        self, username: str, passphrase: str = "test", wait_p2p: bool = True
+    ) -> Dict:
         """Sign up if new user, then login.
 
         Args:
@@ -199,6 +200,7 @@ class ControlClient:
         # Wait for P2P to initialize
         if wait_p2p:
             import time
+
             for _ in range(60):  # Up to 30 seconds (polling at 0.5s)
                 status = self.p2p_status()
                 if status.get("p2p_ready"):
@@ -224,6 +226,7 @@ class ControlClient:
         Note: Slint files are validated server-side before import.
         """
         from pathlib import Path as P
+
         app_path = P(path)
 
         # Derive name from path if not provided
@@ -295,12 +298,14 @@ class ControlClient:
         Returns:
             Dict with node_id and connection info
         """
-        if hasattr(node, 'connection_string') and node.connection_string:
+        if hasattr(node, "connection_string") and node.connection_string:
             conn_str = node.connection_string
-        elif hasattr(node, 'get_connection_string'):
+        elif hasattr(node, "get_connection_string"):
             conn_str = node.get_connection_string()
         else:
-            raise ValueError("node must have connection_string or get_connection_string()")
+            raise ValueError(
+                "node must have connection_string or get_connection_string()"
+            )
         return self.add_node(conn_str)
 
     def list_nodes(self) -> list:
@@ -324,6 +329,7 @@ class ControlClient:
             True if authenticated, False if timeout
         """
         import time
+
         start = time.time()
         while time.time() - start < timeout:
             if self.is_node_authenticated(node_id):
@@ -349,13 +355,17 @@ class ControlClient:
         if not nodes:
             raise RuntimeError("No nodes connected")
         if node_index >= len(nodes):
-            raise RuntimeError(f"Node index {node_index} out of range (have {len(nodes)})")
+            raise RuntimeError(
+                f"Node index {node_index} out of range (have {len(nodes)})"
+            )
         node_id = nodes[node_index].get("node_id")
         return self.publish_space(space_id, node_id)
 
     def get_shareable_link(self, space_id: str, node_id: str) -> str:
         """Get a shareable viewer link for a space."""
-        result = self.send("get_shareable_link", {"space_id": space_id, "node_id": node_id})
+        result = self.send(
+            "get_shareable_link", {"space_id": space_id, "node_id": node_id}
+        )
         return result.get("connection_string", "") if isinstance(result, dict) else ""
 
     def get_viewer_link(self, space_id: str, node_index: int = 0) -> str:
@@ -372,7 +382,9 @@ class ControlClient:
         if not nodes:
             raise RuntimeError("No nodes connected")
         if node_index >= len(nodes):
-            raise RuntimeError(f"Node index {node_index} out of range (have {len(nodes)})")
+            raise RuntimeError(
+                f"Node index {node_index} out of range (have {len(nodes)})"
+            )
         node_id = nodes[node_index].get("node_id")
         return self.get_shareable_link(space_id, node_id)
 
@@ -380,61 +392,38 @@ class ControlClient:
         """Connect to a space as viewer."""
         return self.send("add_website", {"connection_string": connection_string})
 
-    def add_website_with_wait(self, connection_string: str, timeout: float = 10.0) -> Dict:
-        """Connect to a space as viewer, waiting for authentication first.
+    def add_website_with_wait(
+        self, connection_string: str, timeout: float = 10.0
+    ) -> Dict:
+        """Connect to a space as viewer.
+
+        This is now a thin wrapper over add_website() for backward compatibility.
+        The redundant authentication polling has been removed - callers should use
+        _wait_for_space_sync() or _wait_for_app_sync() as readiness gates instead.
 
         Args:
             connection_string: Viewer link from owner
-            timeout: Max seconds to wait for auth
+            timeout: Unused (kept for API compatibility)
 
         Returns:
             Result from add_website
         """
-        import time
-        import base64
-        import json
+        return self.add_website(connection_string)
 
-        # Parse connection string to get node_id
-        node_id = None
-        try:
-            decoded = json.loads(base64.b64decode(connection_string))
-            node_public_key = decoded.get("node_public_key", "")
-            # Convert base64 public key to hex node_id
-            key_bytes = base64.b64decode(node_public_key)
-            node_id = key_bytes.hex()
-        except Exception as e:
-            pass  # Will skip auth wait if parsing fails
-
-        # First call add_website to initiate connection
-        result = self.send("add_website", {"connection_string": connection_string})
-
-        # Wait for authentication with node (if we have node_id)
-        if node_id:
-            start = time.time()
-            while time.time() - start < timeout:
-                try:
-                    if self.is_node_authenticated(node_id):
-                        return result
-                except Exception:
-                    pass
-                time.sleep(0.3)
-
-        return result
-
-    def add_viewer(self, viewer: "ControlClient", space_id: str, wait_for_auth: bool = True) -> Dict:
+    def add_viewer(
+        self, viewer: "ControlClient", space_id: str, wait_for_auth: bool = True
+    ) -> Dict:
         """Add a viewer to a space.
 
         Args:
             viewer: ControlClient for the viewer (must be logged in)
             space_id: Space ID to share
-            wait_for_auth: If True, wait for authentication before returning
+            wait_for_auth: Deprecated (kept for API compatibility, no longer used)
 
         Returns:
             Result from viewer's add_website (includes space_id)
         """
         link = self.get_viewer_link(space_id)
-        if wait_for_auth:
-            return viewer.add_website_with_wait(link)
         return viewer.add_website(link)
 
     def get_connection_string(self) -> str:
@@ -530,7 +519,9 @@ class ControlClient:
         Returns:
             Dict with status and file_path
         """
-        return self.send("capture_start", {"file_path": file_path, "include_logs": include_logs})
+        return self.send(
+            "capture_start", {"file_path": file_path, "include_logs": include_logs}
+        )
 
     def capture_end(self) -> Dict:
         """Stop capturing events.

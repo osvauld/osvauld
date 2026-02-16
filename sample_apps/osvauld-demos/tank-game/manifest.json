@@ -5,7 +5,6 @@
     "entry_ui": "app.slint",
     "entry_logic": "app.lua",
     "entry_node": "node.lua",
-    "tick_enabled": true,
     "models": ["enemies", "bullets", "obstacles", "leaderboard", "players"],
     "renderer": "slint"
 }

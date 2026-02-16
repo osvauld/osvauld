@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use tokio::time::{interval, Duration};
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, info, instrument, warn};
 
 use domains::Layer;
 
@@ -175,10 +175,12 @@ impl Actor for Scribe {
             ScribeMessage::ReplaceLayer {
                 layer_name,
                 snapshot,
+                from_peer,
                 reply,
             } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result = sync::handle_replace_layer(state, &layer_name, &snapshot);
+                let result =
+                    sync::handle_replace_layer(state, &layer_name, &snapshot, from_peer);
                 let _ = reply.send(result);
             }
 
@@ -295,19 +297,6 @@ impl Actor for Scribe {
             ScribeMessage::GetLayerData { layer_name, reply } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
                 let _ = reply.send(query::handle_get_layer_data(state, &layer_name));
-            }
-
-            ScribeMessage::UpdatePeerVector {
-                user_did,
-                device_id,
-                layer_name,
-                state_vector,
-            } => {
-                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                if let Some(unit) = state.units.get(&layer_name) {
-                    unit.update_subscriber_vector(&user_did, &device_id, state_vector);
-                    trace!(user_did = %user_did, device_id = %device_id, layer_name = %layer_name, "Updated in-memory peer vector");
-                }
             }
 
             ScribeMessage::ReconcileWithPeers => {
@@ -599,6 +588,23 @@ impl Actor for Scribe {
                 let count = state.subscribers.read().map(|s| s.len()).unwrap_or(0);
                 let _ = reply.send(count);
             }
+
+            ScribeMessage::UpdatePeerVector {
+                user_did,
+                device_id,
+                layer_name,
+                state_vector,
+            } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                if let Some(unit) = state.units.get(&layer_name) {
+                    unit.update_subscriber_vector(&user_did, &device_id, state_vector);
+                } else {
+                    debug!(
+                        page_id = %state.page_id, layer = %layer_name,
+                        user_did = %user_did, "UpdatePeerVector: layer not found, ignoring"
+                    );
+                }
+            }
         }
 
         Ok(())
@@ -731,6 +737,7 @@ fn build_initial_state(
         our_permit,
         our_did: args.our_did.clone(),
         node_script_shutdown: None,
+        peer_role_cache: HashMap::new(),
     };
 
     // Set is_local_only on each unit based on permit

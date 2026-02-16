@@ -3,11 +3,9 @@
 //! All functions take store as first parameter. Butler injects dependencies.
 
 use crate::error::{ButlerError, Result};
+use crate::models::{Space, SpaceData, SpaceMeta};
 use crate::storage::RedbStore;
 use tracing::instrument;
-use crate::models::{
-    SpaceData, SpaceMeta, Space,
-};
 
 /// Create a new space with owner permit
 #[instrument(skip(store, signing_key, permit_template_json), fields(name = %name, owner_did = %owner_did))]
@@ -21,11 +19,10 @@ pub async fn create_space(
     let meta = SpaceMeta::new(name, owner_did);
 
     // Issue space owner permit via gurkha
-    let (owner_permit, _cid) = gurkha::issue_space_owner_token(
-        signing_key,
-        &meta.id,
-        permit_template_json,
-    ).await.map_err(|e| ButlerError::permit_error(e.to_string()))?;
+    let (owner_permit, _cid) =
+        gurkha::issue_space_owner_token(signing_key, &meta.id, permit_template_json)
+            .await
+            .map_err(|e| ButlerError::permit_error(e.to_string()))?;
 
     // Store space with owner's permit
     let mut data = SpaceData::new(meta.clone());
@@ -69,7 +66,8 @@ pub fn get_space_with_shares(store: &RedbStore, space_id: &str) -> Result<Option
 /// List all root spaces
 #[instrument(skip_all)]
 pub fn list_root_spaces(store: &RedbStore) -> Result<Vec<Space>> {
-    Ok(store.list_root_spaces()?
+    Ok(store
+        .list_root_spaces()?
         .into_iter()
         .map(Space::from)
         .collect())
@@ -78,7 +76,8 @@ pub fn list_root_spaces(store: &RedbStore) -> Result<Vec<Space>> {
 /// List child spaces of a parent
 #[instrument(skip(store), fields(parent_id = %parent_id))]
 pub fn list_child_spaces(store: &RedbStore, parent_id: &str) -> Result<Vec<Space>> {
-    Ok(store.list_child_spaces(parent_id)?
+    Ok(store
+        .list_child_spaces(parent_id)?
         .into_iter()
         .map(Space::from)
         .collect())
@@ -87,10 +86,7 @@ pub fn list_child_spaces(store: &RedbStore, parent_id: &str) -> Result<Vec<Space
 /// List all spaces
 #[instrument(skip_all)]
 pub fn list_all_spaces(store: &RedbStore) -> Result<Vec<Space>> {
-    Ok(store.list_spaces()?
-        .into_iter()
-        .map(Space::from)
-        .collect())
+    Ok(store.list_spaces()?.into_iter().map(Space::from).collect())
 }
 
 /// Delete a space (and optionally its pages)
@@ -114,7 +110,8 @@ pub fn delete_space(store: &RedbStore, space_id: &str, delete_pages: bool) -> Re
 /// Note: Actual permits are stored elsewhere (Contact.shares on Node-side)
 #[instrument(skip(store), fields(space_id = %space_id))]
 pub fn share_space(store: &RedbStore, space_id: &str, user_pubkey: String) -> Result<()> {
-    let mut space = store.get_space(space_id)?
+    let mut space = store
+        .get_space(space_id)?
         .ok_or_else(|| ButlerError::space_not_found(space_id))?;
     space.add_share(user_pubkey);
     store.put_space(&space)?;
@@ -124,7 +121,8 @@ pub fn share_space(store: &RedbStore, space_id: &str, user_pubkey: String) -> Re
 /// Remove share tracking for a user from space
 #[instrument(skip(store), fields(space_id = %space_id, user_pubkey = %user_pubkey))]
 pub fn unshare_space(store: &RedbStore, space_id: &str, user_pubkey: &str) -> Result<bool> {
-    let mut space = store.get_space(space_id)?
+    let mut space = store
+        .get_space(space_id)?
         .ok_or_else(|| ButlerError::space_not_found(space_id))?;
     let removed = space.remove_share(user_pubkey);
     store.put_space(&space)?;
@@ -134,7 +132,8 @@ pub fn unshare_space(store: &RedbStore, space_id: &str, user_pubkey: &str) -> Re
 /// Set permit for a space (stores MY permit)
 #[instrument(skip(store, permit), fields(space_id = %space_id))]
 pub fn set_space_permit(store: &RedbStore, space_id: &str, permit: String) -> Result<()> {
-    let mut space = store.get_space(space_id)?
+    let mut space = store
+        .get_space(space_id)?
         .ok_or_else(|| ButlerError::space_not_found(space_id))?;
     space.set_permit(permit);
     store.put_space(&space)?;
@@ -179,7 +178,8 @@ pub fn store_published_space_with_source(
 /// Mark a space as published to a specific node
 #[instrument(skip(store), fields(space_id = %space_id, node_id = %node_id))]
 pub fn mark_space_published(store: &RedbStore, space_id: &str, node_id: &str) -> Result<()> {
-    let mut space = store.get_space(space_id)?
+    let mut space = store
+        .get_space(space_id)?
         .ok_or_else(|| ButlerError::space_not_found(space_id))?;
 
     // Add node_id to published_to list (using shares for now - could add separate field)

@@ -139,8 +139,6 @@ impl RedbStore {
             let _ = write_txn.open_table(DYNAMIC_LAYER_META)?;
             let _ = write_txn.open_table(VIEWER_LAYER_CONSENTS)?;
             let _ = write_txn.open_table(LAYER_AUTHORITY_PERMITS)?;
-
-            // Legacy tables
             let _ = write_txn.open_table(DEVICES)?;
         }
         write_txn.commit()?;

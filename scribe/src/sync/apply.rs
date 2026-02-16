@@ -12,18 +12,20 @@
 //! - `ApplyOutcome`: Result of applying an update (Applied or Rejected)
 
 use logging_utils::ShortLayer;
-use tracing::{debug, error, info, warn, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use domains::Layer;
 
 use super::broadcast::{broadcast_update, notify_layer_discovered};
 use crate::layer_unit::LayerUnit;
-use crate::loro_observer::{set_pending_update_source, clear_pending_update_source, setup_layer_observer};
+use crate::loro_observer::{
+    clear_pending_update_source, set_pending_update_source, setup_layer_observer,
+};
 use crate::message::SyncEvent;
 use crate::permit::Permissions;
+use crate::state::normalize_layer_name;
 use crate::state::ScribeState;
 use crate::JsonOp;
-use crate::state::normalize_layer_name;
 
 // Update Context - Centralized Decision Logic
 
@@ -57,11 +59,7 @@ impl UpdateContext {
     ///
     /// **Context**: Computes all decisions based on state and update metadata
     /// **Note**: Permission checks are done separately (may reject before context is useful)
-    pub fn new(
-        state: &ScribeState,
-        layer_name: &str,
-        from_peer: Option<(String, String)>,
-    ) -> Self {
+    pub fn new(state: &mut ScribeState, layer_name: &str, from_peer: Option<(String, String)>) -> Self {
         let is_remote = from_peer.is_some();
         let is_local_only = Permissions::is_local_only(state, layer_name);
         let is_new_layer = !state.units.contains_key(layer_name);
@@ -147,7 +145,11 @@ pub async fn handle_apply_update(
     // Step 2: Handle the outcome
     let from_peer_did = ctx.from_peer.as_ref().map(|(d, _)| d.as_str());
     match outcome {
-        ApplyOutcome::Applied { layer_name, ops: _, created_layer } => {
+        ApplyOutcome::Applied {
+            layer_name,
+            ops: _,
+            created_layer,
+        } => {
             // Mark layer as dirty for persistence
             if let Some(unit) = state.units.get_mut(&layer_name) {
                 unit.mark_dirty();
@@ -308,7 +310,11 @@ async fn validate_update_with_context(
     }
 
     // Extract actual DID from from_peer, not the role
-    let from_did = ctx.from_peer.as_ref().map(|(d, _)| d.as_str()).unwrap_or("local");
+    let from_did = ctx
+        .from_peer
+        .as_ref()
+        .map(|(d, _)| d.as_str())
+        .unwrap_or("local");
 
     // Use ValidationHandle (kunki mode with presence_lib)
     let Some(ref validation_handle) = state.validation_handle else {
@@ -366,12 +372,16 @@ fn create_layer_from_peer(state: &mut ScribeState, layer_name: &str) {
 
     // Add existing subscribers to this new layer
     if let Ok(subs) = state.subscribers.read() {
-        for ((did, _), info) in subs.iter() {
+        for ((did, device_id), info) in subs.iter() {
             if info.can_receive_layer(layer_name, &state.page_id) {
                 if let Some(unit) = state.units.get(layer_name) {
                     let can_write = info.can_write_layer(layer_name, &state.page_id);
-                    let caps = crate::layer_unit::Capabilities { read: true, write: can_write, sync: true };
-                    unit.add_subscriber(did.clone(), caps, info.broadcast_tx.clone());
+                    unit.add_subscriber(
+                        did.clone(),
+                        device_id.clone(),
+                        can_write,
+                        info.broadcast_tx.clone(),
+                    );
                     state.emit_layer_auth_capture(layer_name, did, "subscriber_added_from_peer");
                 }
             }
@@ -454,13 +464,9 @@ async fn handle_post_apply(
 #[instrument(skip_all, fields(page_id = %state.page_id, layer = %layer_name))]
 fn update_sender_vector(state: &mut ScribeState, peer: &(String, String), layer_name: &str) {
     if let Some(unit) = state.units.get(layer_name) {
-        if let Ok(mut subs) = state.subscribers.write() {
-            if let Some(info) = subs.get_mut(peer) {
-                let current_vector = unit.layer().version_vector();
-                info.vectors.insert(layer_name.to_string(), current_vector);
-                debug!(user_did = %peer.0, "Updated sender's peer vector");
-            }
-        }
+        let current_vector = unit.layer().version_vector();
+        unit.update_subscriber_vector(&peer.0, &peer.1, current_vector);
+        debug!(user_did = %peer.0, "Updated sender's peer vector");
     }
 }
 
@@ -475,11 +481,11 @@ fn ensure_sender_subscribed(
     from_peer: Option<&(String, String)>,
 ) {
     let Some(peer) = from_peer else { return };
-    let (peer_did, _device_id) = peer;
+    let (peer_did, device_id) = peer;
 
     // Check if already subscribed at the layer level
     if let Some(unit) = state.units.get(layer_name) {
-        if unit.can_push_to(peer_did) {
+        if unit.can_push_to(peer_did, device_id) {
             return;
         }
     }
@@ -490,30 +496,41 @@ fn ensure_sender_subscribed(
             if info.can_receive_layer(layer_name, &state.page_id) {
                 if let Some(unit) = state.units.get(layer_name) {
                     let can_write = info.can_write_layer(layer_name, &state.page_id);
-                    let caps = crate::layer_unit::Capabilities {
-                        read: true,
-                        write: can_write,
-                        sync: true,
-                    };
-                    unit.add_subscriber(peer_did.clone(), caps, info.broadcast_tx.clone());
-                    state.emit_layer_auth_capture(
-                        layer_name, peer_did, "sender_added_post_apply",
+                    unit.add_subscriber(
+                        peer_did.clone(),
+                        device_id.clone(),
+                        can_write,
+                        info.broadcast_tx.clone(),
                     );
+                    state.emit_layer_auth_capture(layer_name, peer_did, "sender_added_post_apply");
                 }
             }
         }
     }
 }
 
-/// Get role for a peer from their stored permit
+/// Get role for a peer from their stored permit, with per-session caching
 ///
 /// **Context**: Determining role for Lua validation
 /// **Checks**:
-/// 1. Sync target (owner/viewer mode) -> our role's counterpart
-/// 2. Stored permit (node mode) -> extract role from permit
-/// 3. Default -> "peer"
+/// 1. Cache hit → return cached role
+/// 2. Sync target (owner/viewer mode) → our role's counterpart
+/// 3. Stored permit (node mode) → extract role from permit
+/// 4. Default → "peer"
+/// **Performance**: Without cache, each call does redb read + UCAN parse (12% of node CPU at 5k msgs)
 #[instrument(skip(state), fields(page_id = %state.page_id))]
-fn get_peer_role(state: &ScribeState, peer_did: &str) -> String {
+fn get_peer_role(state: &mut ScribeState, peer_did: &str) -> String {
+    // Check cache first
+    if let Some(cached) = state.peer_role_cache.get(peer_did) {
+        return cached.clone();
+    }
+
+    let role = get_peer_role_uncached(state, peer_did);
+    state.peer_role_cache.insert(peer_did.to_string(), role.clone());
+    role
+}
+
+fn get_peer_role_uncached(state: &ScribeState, peer_did: &str) -> String {
     // If peer is our sync target, they are the "node" from our perspective
     if let Some(ref config) = state.sync_config {
         if let Some(ref sync_target) = config.sync_target {

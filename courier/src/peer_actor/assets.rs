@@ -6,7 +6,7 @@
 //! - AssetAck: Confirm transfer success/failure with retry
 //! - trigger_asset_sync_after_layer_sync: Request missing blobs after metadata sync
 
-use tracing::{debug, info, warn, instrument};
+use tracing::{debug, info, instrument, warn};
 
 use crate::message::*;
 use transport::Connection;
@@ -16,13 +16,23 @@ use super::{PeerActor, PeerActorState, MAX_ASSET_TRANSFER_ATTEMPTS};
 impl<C: Connection> PeerActor<C> {
     /// Send AssetAck with error
     #[instrument(skip_all, fields(page_id = %page_id, hash = %hash))]
-    async fn send_asset_error(&self, page_id: &str, hash: &str, error: &str, state: &PeerActorState<C>) {
-        self.send_message(&Message::AssetAck(AssetAckMsg {
-            page_id: page_id.to_string(),
-            hash: hash.to_string(),
-            success: false,
-            error: Some(error.to_string()),
-        }), state).await;
+    async fn send_asset_error(
+        &self,
+        page_id: &str,
+        hash: &str,
+        error: &str,
+        state: &PeerActorState<C>,
+    ) {
+        self.send_message(
+            &Message::AssetAck(AssetAckMsg {
+                page_id: page_id.to_string(),
+                hash: hash.to_string(),
+                success: false,
+                error: Some(error.to_string()),
+            }),
+            state,
+        )
+        .await;
     }
     /// Handle AssetPrepare request from peer
     ///
@@ -47,7 +57,8 @@ impl<C: Connection> PeerActor<C> {
             Ok(result) => result,
             Err(e) => {
                 warn!(page_id = %page_id, error = ?e, "Failed to get page key for asset");
-                self.send_asset_error(page_id, hash, &format!("Page not found: {}", e), state).await;
+                self.send_asset_error(page_id, hash, &format!("Page not found: {}", e), state)
+                    .await;
                 return;
             }
         };
@@ -61,7 +72,8 @@ impl<C: Connection> PeerActor<C> {
             Ok(data) => data,
             Err(e) => {
                 warn!(hash = %hash, error = ?e, "Failed to get asset for transfer");
-                self.send_asset_error(page_id, hash, &format!("Asset not found: {}", e), state).await;
+                self.send_asset_error(page_id, hash, &format!("Asset not found: {}", e), state)
+                    .await;
                 return;
             }
         };
@@ -85,11 +97,15 @@ impl<C: Connection> PeerActor<C> {
         );
 
         // 4. Send AssetReady with iroh_hash
-        self.send_message(&Message::AssetReady(AssetReadyMsg {
-            page_id: page_id.to_string(),
-            hash: hash.to_string(),
-            iroh_hash: iroh_hash_bytes,
-        }), state).await;
+        self.send_message(
+            &Message::AssetReady(AssetReadyMsg {
+                page_id: page_id.to_string(),
+                hash: hash.to_string(),
+                iroh_hash: iroh_hash_bytes,
+            }),
+            state,
+        )
+        .await;
     }
 
     /// Handle AssetReady notification from peer
@@ -112,7 +128,11 @@ impl<C: Connection> PeerActor<C> {
         );
 
         // 1. Download blob from peer
-        let plaintext = match state.blob_store.download_blob(iroh_hash_bytes, self.node_id).await {
+        let plaintext = match state
+            .blob_store
+            .download_blob(iroh_hash_bytes, self.node_id)
+            .await
+        {
             Ok(data) => data,
             Err(e) => {
                 warn!(hash = %hash, error = %e, "Failed to download blob");
@@ -126,23 +146,34 @@ impl<C: Connection> PeerActor<C> {
             Ok(result) => result,
             Err(e) => {
                 warn!(page_id = %page_id, error = ?e, "Failed to get page key for storing asset");
-                self.send_asset_error(page_id, hash, &format!("Page not found: {}", e), state).await;
+                self.send_asset_error(page_id, hash, &format!("Page not found: {}", e), state)
+                    .await;
                 return;
             }
         };
 
         // 3. Get metadata from Loro-synced assets layer (for signature verification)
         let assets_layer_name = "assets".to_string();
-        let metadata = match self.get_asset_metadata_from_layer(page_id, &assets_layer_name, hash, state).await {
+        let metadata = match self
+            .get_asset_metadata_from_layer(page_id, &assets_layer_name, hash, state)
+            .await
+        {
             Ok(Some(m)) => m,
             Ok(None) => {
                 warn!(hash = %hash, "Asset metadata not found in layer - cannot verify");
-                self.send_asset_error(page_id, hash, "Metadata not synced yet", state).await;
+                self.send_asset_error(page_id, hash, "Metadata not synced yet", state)
+                    .await;
                 return;
             }
             Err(e) => {
                 warn!(hash = %hash, error = %e, "Failed to get asset metadata from layer");
-                self.send_asset_error(page_id, hash, &format!("Metadata lookup failed: {}", e), state).await;
+                self.send_asset_error(
+                    page_id,
+                    hash,
+                    &format!("Metadata lookup failed: {}", e),
+                    state,
+                )
+                .await;
                 return;
             }
         };
@@ -155,7 +186,8 @@ impl<C: Connection> PeerActor<C> {
             &plaintext,
         ) {
             warn!(hash = %hash, error = ?e, "Failed to store received asset");
-            self.send_asset_error(page_id, hash, &format!("Storage failed: {}", e), state).await;
+            self.send_asset_error(page_id, hash, &format!("Storage failed: {}", e), state)
+                .await;
             return;
         }
 
@@ -167,12 +199,16 @@ impl<C: Connection> PeerActor<C> {
         );
 
         // 5. Send AssetAck
-        self.send_message(&Message::AssetAck(AssetAckMsg {
-            page_id: page_id.to_string(),
-            hash: hash.to_string(),
-            success: true,
-            error: None,
-        }), state).await;
+        self.send_message(
+            &Message::AssetAck(AssetAckMsg {
+                page_id: page_id.to_string(),
+                hash: hash.to_string(),
+                success: true,
+                error: None,
+            }),
+            state,
+        )
+        .await;
     }
 
     /// Handle AssetAck from peer
@@ -240,10 +276,14 @@ impl<C: Connection> PeerActor<C> {
 
             if should_retry {
                 // Re-send AssetPrepare for retry
-                self.send_message(&Message::AssetPrepare(AssetPrepareMsg {
-                    page_id: page_id.to_string(),
-                    hash: hash.to_string(),
-                }), state).await;
+                self.send_message(
+                    &Message::AssetPrepare(AssetPrepareMsg {
+                        page_id: page_id.to_string(),
+                        hash: hash.to_string(),
+                    }),
+                    state,
+                )
+                .await;
             } else {
                 // Clean up
                 state.pending_asset_transfers.remove(hash);
@@ -271,12 +311,10 @@ impl<C: Connection> PeerActor<C> {
         // Get Scribe
         let scribe = match state.page_subscriptions.get(page_id) {
             Some(sub) => sub.scribe.clone(),
-            None => {
-                match state.butler.open_page(page_id).await {
-                    Ok(s) => s,
-                    Err(e) => return Err(format!("Failed to open page: {}", e)),
-                }
-            }
+            None => match state.butler.open_page(page_id).await {
+                Ok(s) => s,
+                Err(e) => return Err(format!("Failed to open page: {}", e)),
+            },
         };
 
         // Get layer snapshot
@@ -328,7 +366,10 @@ impl<C: Connection> PeerActor<C> {
                 match state.butler.open_page(page_id).await {
                     Ok(s) => s,
                     Err(e) => {
-                        warn!("Cannot trigger asset sync - page {} not open: {}", page_id, e);
+                        warn!(
+                            "Cannot trigger asset sync - page {} not open: {}",
+                            page_id, e
+                        );
                         return;
                     }
                 }
@@ -386,7 +427,8 @@ impl<C: Connection> PeerActor<C> {
 
         // Send AssetPrepare for each missing asset (tracked for retry)
         for metadata in missing {
-            self.send_asset_prepare(page_id, &metadata.hash, state).await;
+            self.send_asset_prepare(page_id, &metadata.hash, state)
+                .await;
         }
     }
 }

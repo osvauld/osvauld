@@ -1,0 +1,139 @@
+
+============================================================
+  chat_perf
+============================================================
+  All instances ready
+
+  alice: signup, create space...
+  Space: 18e3a5df..., Page: 2b88f68f...
+  alice: connect to node...
+    Waiting for node authentication...
+    Node authenticated
+  alice: publish space to node...
+  Published and synced to node
+
+  Connecting viewers (parallel)...
+  bob synced in 0.7s
+  carol synced in 0.9s
+  All viewers connected and synced
+
+  Opening apps (parallel)...
+  bob app 'Group Chat' synced in 0.0s
+  carol app 'Group Chat' synced in 0.0s
+    alice app ready
+    bob app ready
+    carol app ready
+  All apps opened and ready
+
+  Building peer handles...
+
+  Ready! Peers: ['alice', 'bob', 'carol']
+============================================================
+
+Sending 500 messages...
+  [1/500] alice: "Compare large."
+  [2/500] alice: "People certain public than response clai..."
+  [3/500] bob: "Heart leader."
+  [4/500] alice: "Specific well every expert radio wrong."
+  [5/500] bob: "Smile exist suffer walk religious sudden..."
+  [11/500] alice: "Reason war prevent listen you eight let ..."
+  [21/500] alice: "Can yard huge choice factor leg high."
+  [31/500] alice: "Impact color reflect stock."
+  [41/500] carol: "Debate imagine society land add high."
+  [51/500] alice: "Their turn simple worry want animal writ..."
+  [61/500] alice: "Hit beat candidate oil yourself offer ne..."
+  [71/500] alice: "Week story general."
+  [81/500] carol: "Speak over."
+  [91/500] bob: "Surface son morning sport million recogn..."
+  [101/500] bob: "Friend point window offer food just note..."
+  [111/500] alice: "Head recognize prepare evening war time ..."
+  [121/500] carol: "Amount behavior down skill marriage pare..."
+  [131/500] alice: "Word person leave read different industr..."
+  [141/500] alice: "The son report woman condition."
+  [151/500] alice: "Wonder boy here weight exactly."
+  [161/500] carol: "Suggest question seven."
+  [171/500] carol: "Mouth foot physical season because door ..."
+  [181/500] bob: "Parent level easy."
+  [191/500] carol: "Close other address idea term modern los..."
+  [201/500] carol: "Including capital factor current suddenl..."
+  [211/500] alice: "Class white service treat democratic PM ..."
+  [221/500] alice: "Pressure book detail paper prove all."
+  [231/500] carol: "Sound in already option stay man budget ..."
+  [241/500] carol: "Speak assume free point hour mission ins..."
+  [251/500] alice: "Probably use itself happy common situati..."
+  [261/500] carol: "Someone degree history service senior pu..."
+  [271/500] alice: "Though particular yard hold their level ..."
+  [281/500] alice: "Third candidate room."
+  [291/500] alice: "Safe simply bill amount write worry catc..."
+  [301/500] alice: "Decide itself road week."
+  [311/500] carol: "Bank administration like easy player con..."
+  [321/500] bob: "Doctor woman certainly media."
+  [331/500] alice: "Western capital firm receive to another ..."
+  [341/500] alice: "Range let between your try drug."
+  [351/500] carol: "Investment add hot debate a require usua..."
+  [361/500] bob: "Sound mean teach easy gun glass away adm..."
+  [371/500] carol: "Task type down successful which across t..."
+  [381/500] carol: "Fight then under local we clearly rule t..."
+  [391/500] bob: "Door out since but moment able deal."
+  [401/500] alice: "Decide analysis major be letter man sist..."
+  [411/500] carol: "They local can within thus friend though..."
+  [421/500] alice: "Order public daughter recent discover de..."
+  [431/500] bob: "Environmental build quickly avoid these ..."
+  [441/500] bob: "Role score operation against magazine me..."
+  [451/500] bob: "Serve born notice against what leg might..."
+  [461/500] alice: "Assume leader."
+  [471/500] alice: "Stop hour month discover test cell size ..."
+  [481/500] bob: "According three out."
+  [491/500] bob: "Call its inside operation water then dur..."
+  Sent 500 messages
+
+Checking message sync...
+  alice: 500 messages [OK]
+  bob: 500 messages [OK]
+  carol: 500 messages [OK]
+  [PASS] All peers synced to 500 messages
+
+Burst: 10 messages at 50ms...
+  After burst (expected 510):
+    alice: 510
+    bob: 510
+    carol: 510
+
+================================================================
+  PERFORMANCE REPORT
+================================================================
+
+  Build: release
+  Git: cff2502a
+
+  Timeline:
+        7.3s (+  7.3s)  setup_complete
+        7.4s (+  0.1s)  messages_start
+       64.7s (+ 57.3s)  messages_done
+       66.7s (+  2.0s)  sync_wait_done
+       69.5s (+  2.8s)  test_complete
+
+  Message Throughput: 8.7 msg/sec
+  Total Messages: 500
+  Duration: 57.3s
+
+  Memory Usage (peak):
+    alice       :    206 MB
+    bob         :    178 MB
+    carol       :    177 MB
+    node        :     68 MB
+
+  CPU Usage (avg):
+    alice       :  12.2%
+    bob         :  11.6%
+    carol       :  11.4%
+    node        :   8.9%
+
+  Memory Growth:
+    alice       : 206 -> 189 MB (+-17 MB (-0.03 MB/msg))
+    bob         : 171 -> 178 MB (+7 MB (0.01 MB/msg))
+    carol       : 167 -> 177 MB (+10 MB (0.02 MB/msg))
+    node        : 56 -> 68 MB (+12 MB (0.02 MB/msg))
+
+================================================================
+  Results saved to: /home/abe/osvauld/results/benchmark_20260216_135843/perf_release.json

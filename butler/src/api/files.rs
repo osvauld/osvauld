@@ -14,7 +14,6 @@ pub struct FilesApi<'a> {
 }
 
 impl<'a> FilesApi<'a> {
-
     /// Save an app file to page storage
     ///
     /// **Context**: User uploads a multi-file app (e.g., .slint, .lua files)
@@ -29,7 +28,9 @@ impl<'a> FilesApi<'a> {
 
         // Store with prefixed layer name to avoid collisions
         let layer_name = format!("file:{}", path);
-        self.butler.store().put_layer(page_id, &layer_name, &encrypted)?;
+        self.butler
+            .store()
+            .put_layer(page_id, &layer_name, &encrypted)?;
 
         tracing::info!(page_id = %page_id, file_path = %path, size = content.len(), "Saved app file to page");
         Ok(())
@@ -89,7 +90,9 @@ impl<'a> FilesApi<'a> {
 
         // Store with static: prefix
         let layer_name = format!("static:{}", path);
-        self.butler.store().put_layer(page_id, &layer_name, &encrypted)?;
+        self.butler
+            .store()
+            .put_layer(page_id, &layer_name, &encrypted)?;
 
         tracing::info!(page_id = %page_id, file_path = %path, size = content.len(), "Saved static file");
         Ok(())

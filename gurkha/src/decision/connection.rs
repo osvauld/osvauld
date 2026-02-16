@@ -30,9 +30,9 @@ static CONNECTION_TEMPLATES: LazyLock<serde_json::Value> = LazyLock::new(|| {
 /// Template keys ("node_owner", "viewer_node", etc.) are just lookup keys.
 /// The protocol never checks these keys - it checks the capabilities inside.
 fn load_connection_template(key: &str) -> Result<&'static serde_json::Value, GurkhaError> {
-    CONNECTION_TEMPLATES
-        .get(key)
-        .ok_or_else(|| GurkhaError::ValidationError(format!("Unknown connection template: {}", key)))
+    CONNECTION_TEMPLATES.get(key).ok_or_else(|| {
+        GurkhaError::ValidationError(format!("Unknown connection template: {}", key))
+    })
 }
 
 /// Build TokenDecision from a connection template

@@ -69,10 +69,14 @@ function on_init()
     -- Init channels — callback fires on every channel switch (including initial "general")
     local messages_bound = false
     channels.init(page_id, my_did, my_name, function(channel_id, layer_path)
+        -- Reset pagination state for the new channel
+        messages.reset_pagination(channel_id)
+
         -- First call: create binding. Subsequent calls: rebind to new layer.
         if not messages_bound then
             scribe:bind("messages", layer_path, {
                 key = "id",
+                max_items = 100,
                 transform = function(msg)
                     if not msg then
                         return nil
@@ -158,7 +162,28 @@ function refresh_messages()
     channels.refresh_channel_list()
 end
 
+local function fast_mark_active_channel_read()
+    if view_mode ~= "channels" then return end
+    local channel_id = channels.get_active_channel()
+    if channel_id and read_tracker then
+        read_tracker.mark_read_now(channel_id, os.time())
+    end
+end
+
 function on_click(target)
+    -- Load older messages (pagination)
+    if target == "load_older" then
+        local channel_id = channels.get_active_channel()
+        local layer = get_active_messages_layer()
+        if channel_id and layer then
+            local loaded = messages.load_older(channel_id, layer)
+            if loaded == 0 then
+                ui:set("has_older_messages", false)
+            end
+        end
+        return
+    end
+
     -- Sidebar collapse toggles
     if target == "toggle_channels" then
         ui:set("channels_collapsed", not ui:get("channels_collapsed"))
@@ -444,7 +469,6 @@ function on_submit()
         ui:set("draft_text", "")
         ui:set("replying_to_id", "")
         ui:set("replying_to_text", "")
-        refresh_messages()
         return
     end
 
@@ -458,7 +482,7 @@ function on_submit()
     ui:set("replying_to_text", "")
     ui:set("selected_message_id", "")
 
-    refresh_messages()
+    fast_mark_active_channel_read()
 end
 
 function on_text_input(text)
@@ -515,7 +539,7 @@ function on_asset_uploaded(asset)
             asset.hash,
             asset.filename or "file"
         )
-        refresh_messages()
+        fast_mark_active_channel_read()
     end
 end
 
@@ -542,7 +566,7 @@ end)
 -- API exports
 api.export("send_message", function(text)
     messages.send(channels.get_messages_layer(), text)
-    refresh_messages()
+    fast_mark_active_channel_read()
 end)
 api.export("create_channel", function(name) channels.create_channel(name) end)
 api.export("switch_channel", function(id) channels.switch_channel(id) end)
@@ -551,6 +575,14 @@ api.export("get_message_count", function()
     local layer = channels.get_messages_layer()
     if not layer then return 0 end
     return layer:length()
+end)
+api.export("load_older_messages", function()
+    local channel_id = channels.get_active_channel()
+    local layer = channels.get_messages_layer()
+    if channel_id and layer then
+        return messages.load_older(channel_id, layer)
+    end
+    return 0
 end)
 
 -- DM API exports

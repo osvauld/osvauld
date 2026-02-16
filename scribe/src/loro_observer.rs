@@ -6,13 +6,13 @@
 //! We set up observers for all layers at startup so that both UI notifications and
 //! peer broadcasts are handled through the observer pattern (no manual callbacks needed).
 
+use base64::Engine;
 use loro::event::{Diff, DiffEvent, ListDiffItem};
 use loro::{LoroValue, ValueOrContainer};
 use tokio::sync::mpsc;
 use tracing::{debug, info, instrument, warn};
-use base64::Engine;
 
-use crate::message::{BroadcastPayload, LoroDelta, ListOp, PageUpdate};
+use crate::message::{BroadcastPayload, ListOp, LoroDelta, PageUpdate};
 use crate::state::ScribeState;
 use domains::JsonOp;
 
@@ -82,8 +82,7 @@ pub fn diff_event_to_ops(diff_event: &DiffEvent) -> Vec<JsonOp> {
 
             Diff::Map(map_delta) => {
                 for (key, value) in map_delta.updated.iter() {
-                    let json_value = value.as_ref()
-                        .map(|v| value_or_container_to_json(v));
+                    let json_value = value.as_ref().map(|v| value_or_container_to_json(v));
 
                     if let Some(val) = json_value {
                         // Could be insert or update - we use "set" for both
@@ -93,7 +92,7 @@ pub fn diff_event_to_ops(diff_event: &DiffEvent) -> Vec<JsonOp> {
                             key: Some(key.to_string()),
                             index: None,
                             value: Some(val),
-                            old_value: None,  // TODO: Could track old values if needed
+                            old_value: None,
                         });
                     } else {
                         // Value is None = deletion
@@ -130,32 +129,33 @@ pub fn diff_event_to_ops(diff_event: &DiffEvent) -> Vec<JsonOp> {
 pub fn convert_loro_diff_to_delta(diff: &Diff) -> Option<LoroDelta> {
     match diff {
         Diff::List(items) => {
-            let ops = items.iter().map(|item| {
-                match item {
-                    ListDiffItem::Insert { insert, .. } => {
-                        // Convert ValueOrContainer to JSON values
-                        let values = insert.iter()
-                            .map(|v| value_or_container_to_json(v))
-                            .collect();
-                        ListOp::Insert { values }
+            let ops = items
+                .iter()
+                .map(|item| {
+                    match item {
+                        ListDiffItem::Insert { insert, .. } => {
+                            // Convert ValueOrContainer to JSON values
+                            let values = insert
+                                .iter()
+                                .map(|v| value_or_container_to_json(v))
+                                .collect();
+                            ListOp::Insert { values }
+                        }
+                        ListDiffItem::Delete { delete } => ListOp::Delete { count: *delete },
+                        ListDiffItem::Retain { retain } => ListOp::Retain { count: *retain },
                     }
-                    ListDiffItem::Delete { delete } => {
-                        ListOp::Delete { count: *delete }
-                    }
-                    ListDiffItem::Retain { retain } => {
-                        ListOp::Retain { count: *retain }
-                    }
-                }
-            }).collect();
+                })
+                .collect();
 
             Some(LoroDelta::List { ops })
         }
 
         Diff::Map(map_delta) => {
-            let updated = map_delta.updated.iter()
+            let updated = map_delta
+                .updated
+                .iter()
                 .map(|(k, v)| {
-                    let value = v.as_ref()
-                        .map(|v| value_or_container_to_json(v));
+                    let value = v.as_ref().map(|v| value_or_container_to_json(v));
                     (k.to_string(), value)
                 })
                 .collect();
@@ -191,17 +191,13 @@ pub fn loro_value_to_json(value: &LoroValue) -> serde_json::Value {
         LoroValue::Double(f) => serde_json::json!(*f),
         LoroValue::String(s) => serde_json::Value::String(s.to_string()),
         LoroValue::List(arr) => {
-            serde_json::Value::Array(
-                arr.iter().map(loro_value_to_json).collect()
-            )
+            serde_json::Value::Array(arr.iter().map(loro_value_to_json).collect())
         }
-        LoroValue::Map(map) => {
-            serde_json::Value::Object(
-                map.iter()
-                    .map(|(k, v)| (k.to_string(), loro_value_to_json(v)))
-                    .collect()
-            )
-        }
+        LoroValue::Map(map) => serde_json::Value::Object(
+            map.iter()
+                .map(|(k, v)| (k.to_string(), loro_value_to_json(v)))
+                .collect(),
+        ),
         LoroValue::Binary(bytes) => {
             // Encode binary as base64 string
             serde_json::Value::String(base64::engine::general_purpose::STANDARD.encode(&**bytes))
@@ -286,104 +282,130 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
         while let Some(signal) = signal_rx.recv().await {
             let state_vector = layer_for_task.version_vector();
 
-            // Prepare ops for reactive bindings (Some if non-empty, None otherwise)
-            let ops = if signal.ops.is_empty() { None } else { Some(signal.ops) };
-
-            // Skip expensive get_content() only for List deltas (surgical conversion always works).
-            // For Map/Text deltas, always provide full_data so non-keyed Map bindings can
-            // fall back to Replace when delta conversion returns empty.
-            let full_data = if matches!(&signal.delta, Some(LoroDelta::List { .. })) {
-                None
-            } else {
-                Some(layer_for_task.get_content(&layer_name_for_task))
-            };
-
-            let page_update = PageUpdate::LayerChanged {
-                layer: layer_name_for_task.clone(),
-                from_peer: None,  // Local change
-                ops,
-                delta: signal.delta,
-                state_vector,
-                full_data,
-                created: false,
-            };
-            // Emit to capture channel (pre-serialized JSON line)
-            if let Some(ref capture_tx) = capture_tx_for_task {
-                let ts = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or(0);
-                if let Ok(json) = serde_json::to_string(&serde_json::json!({
-                    "type": "page_update",
-                    "ts": ts,
-                    "page_id": &page_id_for_task,
-                    "data": &page_update,
-                })) {
-                    let _ = capture_tx.send(json);
-                }
-            }
-            // Filter protocol layers from Lua/UI callbacks
-            if !crate::sync::sync_meta::is_protocol_layer(&layer_name_for_task) {
-                if let Ok(subs) = page_update_subscribers_for_task.read() {
-                    for tx in subs.iter() {
-                        let _ = tx.try_send(page_update.clone());
-                    }
-                    if !subs.is_empty() {
-                        debug!(
-                            layer_name = %layer_name_for_task,
-                            subscriber_count = subs.len(),
-                            "Sent PageUpdate::LayerChanged"
-                        );
-                    }
-                }
-            }
-
-            // Check if layer is local-only (sync: false in permit)
-            // Captured as bool at observer setup time — static per layer
+            // Early exit: local-only layers never broadcast to peers
             if is_local_only {
                 if let Some(ref ctx) = capture_tx_for_task {
                     let ts = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_millis())
                         .unwrap_or(0);
-                    let _ = ctx.send(serde_json::json!({
-                        "type": "broadcast_decision",
-                        "ts": ts,
-                        "page_id": &page_id_for_task,
-                        "layer": &layer_name_for_task,
-                        "decision": "skip",
-                        "reason": "local_only",
-                    }).to_string());
+                    let _ = ctx.send(
+                        serde_json::json!({
+                            "type": "broadcast_decision",
+                            "ts": ts,
+                            "page_id": &page_id_for_task,
+                            "layer": &layer_name_for_task,
+                            "decision": "skip",
+                            "reason": "local_only",
+                        })
+                        .to_string(),
+                    );
                 }
                 debug!(
                     layer_name = %layer_name_for_task,
                     "Skipping peer broadcast for local-only layer (sync: false)"
                 );
-                continue;
             }
 
-            // Skip peer broadcast for remote updates (sender exclusion)
-            // Remote updates are forwarded via broadcast_update() in apply.rs which has proper sender exclusion
-            // Broadcasting here would send the update back to the original sender, causing a sync storm
-            if signal.from_peer.is_some() {
+            // Early exit: remote updates are forwarded via broadcast_update() in apply.rs
+            // which has proper sender exclusion. Broadcasting here would cause a sync storm.
+            let is_remote = signal.from_peer.is_some();
+            if is_remote {
                 if let Some(ref ctx) = capture_tx_for_task {
                     let ts = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_millis())
                         .unwrap_or(0);
-                    let _ = ctx.send(serde_json::json!({
-                        "type": "broadcast_decision",
-                        "ts": ts,
-                        "page_id": &page_id_for_task,
-                        "layer": &layer_name_for_task,
-                        "decision": "skip",
-                        "reason": "remote_handled_by_apply",
-                    }).to_string());
+                    let _ = ctx.send(
+                        serde_json::json!({
+                            "type": "broadcast_decision",
+                            "ts": ts,
+                            "page_id": &page_id_for_task,
+                            "layer": &layer_name_for_task,
+                            "decision": "skip",
+                            "reason": "remote_handled_by_apply",
+                        })
+                        .to_string(),
+                    );
                 }
                 debug!(
                     layer_name = %layer_name_for_task,
                     "Skipping observer peer broadcast for remote update (handled by broadcast_update)"
                 );
+            }
+
+            // Check if there are page_update subscribers (Lua/UI) that need notification
+            let has_page_subscribers = if crate::sync::sync_meta::is_protocol_layer(&layer_name_for_task) {
+                false
+            } else {
+                page_update_subscribers_for_task
+                    .read()
+                    .map(|subs| !subs.is_empty())
+                    .unwrap_or(false)
+            };
+
+            // If no subscribers need notification AND we won't broadcast, skip all expensive work
+            let will_broadcast = !is_local_only && !is_remote;
+            if !has_page_subscribers && !will_broadcast {
+                continue;
+            }
+
+            // Notify page_update subscribers (Lua/UI) if any
+            // Only compute expensive full_data when subscribers exist
+            if has_page_subscribers {
+                let ops = if signal.ops.is_empty() {
+                    None
+                } else {
+                    Some(signal.ops.clone())
+                };
+
+                // Only compute expensive get_content() when there's no delta available.
+                // When delta is present, the binding system uses surgical updates (Insert/Set/Delete).
+                // full_data is only needed as a Replace fallback when delta is None.
+                let full_data = if signal.delta.is_some() {
+                    None
+                } else {
+                    Some(layer_for_task.get_content(&layer_name_for_task))
+                };
+
+                let page_update = PageUpdate::LayerChanged {
+                    layer: layer_name_for_task.clone(),
+                    from_peer: None,
+                    ops,
+                    delta: signal.delta.clone(),
+                    state_vector: state_vector.clone(),
+                    full_data,
+                    created: false,
+                };
+                // Emit to capture channel (pre-serialized JSON line)
+                if let Some(ref capture_tx) = capture_tx_for_task {
+                    let ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0);
+                    if let Ok(json) = serde_json::to_string(&serde_json::json!({
+                        "type": "page_update",
+                        "ts": ts,
+                        "page_id": &page_id_for_task,
+                        "data": &page_update,
+                    })) {
+                        let _ = capture_tx.send(json);
+                    }
+                }
+                if let Ok(subs) = page_update_subscribers_for_task.read() {
+                    for tx in subs.iter() {
+                        let _ = tx.try_send(page_update.clone());
+                    }
+                    debug!(
+                        layer_name = %layer_name_for_task,
+                        subscriber_count = subs.len(),
+                        "Sent PageUpdate::LayerChanged"
+                    );
+                }
+            }
+
+            // Skip peer broadcast if local-only or remote
+            if !will_broadcast {
                 continue;
             }
 
@@ -391,38 +413,21 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
             // Uses per-subscriber version_vector for incremental export
             let current_vector = layer_for_task.version_vector();
 
-            if let Ok(layer_subs) = layer_subscribers_for_task.read() {
+            if let Ok(mut layer_subs) = layer_subscribers_for_task.write() {
                 info!(
                     page_id = %page_id_for_task,
                     layer_name = %layer_name_for_task,
                     subscriber_count = layer_subs.len(),
                     "Observer broadcasting local write to layer subscribers"
                 );
-                for (did, sub) in layer_subs.iter() {
-                    // Check read capability (replaces authorized_dids check)
-                    if !sub.capabilities.read {
-                        if let Some(ref ctx) = capture_tx_for_task {
-                            let ts = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_millis())
-                                .unwrap_or(0);
-                            let _ = ctx.send(serde_json::json!({
-                                "type": "broadcast_decision",
-                                "ts": ts,
-                                "page_id": &page_id_for_task,
-                                "layer": &layer_name_for_task,
-                                "peer_did": did,
-                                "decision": "skip",
-                                "reason": "no_read_capability",
-                            }).to_string());
-                        }
-                        continue;
-                    }
+                for ((user_did, device_id), sub) in layer_subs.iter_mut() {
+                    // Presence in subscriber map = can read (no separate capability check)
 
                     // Incremental export: use subscriber's last known vector
                     // Falls back to full snapshot for first sync (no vector cached)
                     let update = if !sub.version_vector.is_empty() {
-                        layer_for_task.export_updates(&sub.version_vector)
+                        layer_for_task
+                            .export_updates(&sub.version_vector)
                             .unwrap_or_else(|_| layer_for_task.export_snapshot())
                     } else {
                         layer_for_task.export_snapshot()
@@ -439,18 +444,20 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
 
                     match sub.broadcast_tx.try_send(payload) {
                         Ok(()) => {
+                            sub.version_vector = current_vector.clone();
                             debug!(
-                                user_did = %did,
+                                user_did = %user_did,
+                                device_id = %device_id,
                                 layer_name = %layer_name_for_task,
                                 update_size = update_size,
                                 "Sent incremental broadcast to layer subscriber"
                             );
                         }
                         Err(mpsc::error::TrySendError::Full(_)) => {
-                            warn!(user_did = %did, "Peer broadcast channel full");
+                            warn!(user_did = %user_did, device_id = %device_id, "Peer broadcast channel full");
                         }
                         Err(mpsc::error::TrySendError::Closed(_)) => {
-                            warn!(user_did = %did, layer_name = %layer_name_for_task, "Peer broadcast channel closed — receiver dropped");
+                            warn!(user_did = %user_did, device_id = %device_id, layer_name = %layer_name_for_task, "Peer broadcast channel closed — receiver dropped");
                         }
                     }
                 }
@@ -461,18 +468,22 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
 
     // Subscribe to Loro changes - extract ops and delta for reactive bindings
     let subscription = layer_clone.subscribe_root(move |diff_event: loro::event::DiffEvent| {
-        // Extract structured ops for reactive Lua bindings (surgical UI updates)
         let ops = diff_event_to_ops(&diff_event);
 
-        // Extract delta for legacy VecModel operations
-        let delta = diff_event.events.first()
+        let delta = diff_event
+            .events
+            .first()
             .and_then(|container_diff| convert_loro_diff_to_delta(&container_diff.diff));
 
         // Read pending_update_source to determine if this is a remote update
         // Remote updates should not trigger peer broadcast (handled by broadcast_update with sender exclusion)
         let from_peer = pending_update_source.lock().ok().and_then(|g| g.clone());
 
-        let _ = signal_tx.send(ObserverSignal { delta, ops, from_peer });
+        let _ = signal_tx.send(ObserverSignal {
+            delta,
+            ops,
+            from_peer,
+        });
     });
 
     // Store subscription in the LayerUnit

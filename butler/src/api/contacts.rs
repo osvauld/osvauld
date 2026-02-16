@@ -1,7 +1,7 @@
 //! Contacts API - Contact and device resolution operations
 
-use crate::{Butler, Result, ContactData, ConnectionDeviceInfo};
 use crate::services::{contact_service, node_service};
+use crate::{Butler, ConnectionDeviceInfo, ContactData, Result};
 
 /// Contacts API facade
 ///
@@ -11,7 +11,6 @@ pub struct ContactsApi<'a> {
 }
 
 impl<'a> ContactsApi<'a> {
-
     /// Get a contact by DID
     pub fn get(&self, user_did: &str) -> Result<Option<ContactData>> {
         contact_service::get_contact(self.butler.store(), user_did)
@@ -28,8 +27,22 @@ impl<'a> ContactsApi<'a> {
     }
 
     /// Add a node contact (viewer side - for tracking nodes viewer is subscribed to)
-    pub fn add_node(&self, did: &str, encryption_key: &str, name: &str, node_id: &str, permit: &str) -> Result<ContactData> {
-        contact_service::upsert_node_contact(self.butler.store(), did, encryption_key, name, node_id, permit)
+    pub fn add_node(
+        &self,
+        did: &str,
+        encryption_key: &str,
+        name: &str,
+        node_id: &str,
+        permit: &str,
+    ) -> Result<ContactData> {
+        contact_service::upsert_node_contact(
+            self.butler.store(),
+            did,
+            encryption_key,
+            name,
+            node_id,
+            permit,
+        )
     }
 
     /// List node contacts only (viewer side)
@@ -79,12 +92,18 @@ impl<'a> ContactsApi<'a> {
     ) -> Result<()> {
         // Store space consent (only if not empty)
         if !space_consent_permit.is_empty() {
-            self.butler.store().put_viewer_space_consent(viewer_did, space_id, space_consent_permit)?;
+            self.butler.store().put_viewer_space_consent(
+                viewer_did,
+                space_id,
+                space_consent_permit,
+            )?;
         }
 
         // Store page consents
         for (page_id, permit) in page_consent_permits {
-            self.butler.store().put_viewer_page_consent(viewer_did, page_id, permit)?;
+            self.butler
+                .store()
+                .put_viewer_page_consent(viewer_did, page_id, permit)?;
         }
 
         Ok(())
@@ -93,14 +112,26 @@ impl<'a> ContactsApi<'a> {
     /// Get viewer's space consent permit
     ///
     /// **Context**: Node needs consent permit to send sync updates
-    pub fn get_viewer_space_consent(&self, viewer_did: &str, space_id: &str) -> Result<Option<String>> {
-        self.butler.store().get_viewer_space_consent(viewer_did, space_id)
+    pub fn get_viewer_space_consent(
+        &self,
+        viewer_did: &str,
+        space_id: &str,
+    ) -> Result<Option<String>> {
+        self.butler
+            .store()
+            .get_viewer_space_consent(viewer_did, space_id)
     }
 
     /// Get viewer's page consent permit
     ///
     /// **Context**: Node needs consent permit to send layer updates
-    pub fn get_viewer_page_consent(&self, viewer_did: &str, page_id: &str) -> Result<Option<String>> {
-        self.butler.store().get_viewer_page_consent(viewer_did, page_id)
+    pub fn get_viewer_page_consent(
+        &self,
+        viewer_did: &str,
+        page_id: &str,
+    ) -> Result<Option<String>> {
+        self.butler
+            .store()
+            .get_viewer_page_consent(viewer_did, page_id)
     }
 }

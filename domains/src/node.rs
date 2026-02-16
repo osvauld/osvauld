@@ -50,8 +50,7 @@ impl ConnectionString {
             .map_err(|e| format!("Invalid base64: {}", e))?;
 
         // Parse JSON
-        let json_str =
-            String::from_utf8(decoded).map_err(|e| format!("Invalid UTF-8: {}", e))?;
+        let json_str = String::from_utf8(decoded).map_err(|e| format!("Invalid UTF-8: {}", e))?;
 
         serde_json::from_str(&json_str).map_err(|e| format!("Invalid JSON: {}", e))
     }

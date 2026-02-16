@@ -3,12 +3,12 @@
 //! Handles viewer issuing consent permits to node, and node receiving/storing them.
 //! Consent permits authorize the node to send sync updates to the viewer.
 
-use tracing::{error, info, warn, instrument};
+use tracing::{error, info, instrument, warn};
 
 use crate::message::*;
 use transport::Connection;
 
-use super::guards::{require_user_mode, require_auth, parse_permit};
+use super::guards::{parse_permit, require_auth, require_user_mode};
 use super::{PeerActor, PeerActorState};
 
 // Used for automatic consent issuance when viewer receives space/pages.
@@ -24,9 +24,7 @@ pub(in crate::peer_actor) const DEFAULT_SPACE_CONSENT_TEMPLATE: &str = r#"{
   }
 }"#;
 
-
 impl<C: Connection> PeerActor<C> {
-
     /// Issue sync consent permits and send to node (User/Viewer mode)
     ///
     /// **Context**: Viewer received space + pages, now issues consent permits
@@ -78,7 +76,10 @@ impl<C: Connection> PeerActor<C> {
         let node_space_permit = match space_data.get_permit() {
             Some(permit) => permit.clone(),
             None => {
-                error!("No permit found for space {} - cannot issue consent", space_id);
+                error!(
+                    "No permit found for space {} - cannot issue consent",
+                    space_id
+                );
                 return;
             }
         };
@@ -90,7 +91,9 @@ impl<C: Connection> PeerActor<C> {
             space_id,
             &node_space_permit,
             space_template,
-        ).await {
+        )
+        .await
+        {
             Ok(result) => result,
             Err(e) => {
                 error!("Failed to issue space consent permit: {}", e);
@@ -140,7 +143,9 @@ impl<C: Connection> PeerActor<C> {
                 &page.id,
                 &node_page_permit,
                 page_template,
-            ).await {
+            )
+            .await
+            {
                 Ok(result) => result,
                 Err(e) => {
                     warn!("Failed to issue page consent permit for {}: {}", page.id, e);
@@ -210,7 +215,9 @@ impl<C: Connection> PeerActor<C> {
             space_id,
             node_space_permit,
             space_template,
-        ).await {
+        )
+        .await
+        {
             Ok(result) => result,
             Err(e) => {
                 error!("Failed to issue space consent permit: {}", e);
@@ -254,7 +261,10 @@ impl<C: Connection> PeerActor<C> {
             match parse_permit(space_consent_permit) {
                 Ok(permit) => permit.parsed().issuer().to_string(),
                 Err(e) => {
-                    error!("Cannot process SyncConsentGrant: failed to parse space consent permit: {}", e);
+                    error!(
+                        "Cannot process SyncConsentGrant: failed to parse space consent permit: {}",
+                        e
+                    );
                     return;
                 }
             }
@@ -262,7 +272,10 @@ impl<C: Connection> PeerActor<C> {
             match parse_permit(permit) {
                 Ok(permit) => permit.parsed().issuer().to_string(),
                 Err(e) => {
-                    error!("Cannot process SyncConsentGrant: failed to parse page consent permit: {}", e);
+                    error!(
+                        "Cannot process SyncConsentGrant: failed to parse page consent permit: {}",
+                        e
+                    );
                     return;
                 }
             }
@@ -273,21 +286,31 @@ impl<C: Connection> PeerActor<C> {
 
         info!(
             "SyncConsentGrant: space={} from viewer={} ({} page consents)",
-            space_id, viewer_did, page_consent_permits.len()
+            space_id,
+            viewer_did,
+            page_consent_permits.len()
         );
 
         // Store viewer consent permits via Butler
-        if let Err(e) = state.butler.contacts().store_viewer_consent(
-            &viewer_did,
-            space_id,
-            space_consent_permit,
-            page_consent_permits,
-        ).await {
+        if let Err(e) = state
+            .butler
+            .contacts()
+            .store_viewer_consent(
+                &viewer_did,
+                space_id,
+                space_consent_permit,
+                page_consent_permits,
+            )
+            .await
+        {
             error!("Failed to store viewer consent permits: {}", e);
             return;
         }
 
-        info!("Stored viewer consent permits for {} space={}", viewer_did, space_id);
+        info!(
+            "Stored viewer consent permits for {} space={}",
+            viewer_did, space_id
+        );
 
         // Send acknowledgment
         let msg = Message::SyncConsentAck(SyncConsentAckMsg {
@@ -338,11 +361,12 @@ impl<C: Connection> PeerActor<C> {
     ) {
         let msg = Message::PermitUpdate(PermitUpdateMsg {
             permit: permit.to_string(),
-            scope: PermitScope::Page { page_id: page_id.to_string() },
+            scope: PermitScope::Page {
+                page_id: page_id.to_string(),
+            },
         });
 
         self.send_message(&msg, state).await;
         info!("Sent PermitUpdate for page={}", page_id);
     }
-
 }

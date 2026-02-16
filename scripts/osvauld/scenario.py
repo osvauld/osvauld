@@ -697,6 +697,9 @@ class AppTestScenario:
         heaptrack: bool = False,
         keep: bool = False,
         debug: bool = False,
+        fresh: bool = True,
+        reuse_space_id: Optional[str] = None,
+        reuse_page_id: Optional[str] = None,
     ):
         """
         Args:
@@ -711,6 +714,9 @@ class AppTestScenario:
             heaptrack: Wrap binaries with heaptrack for heap profiling
             keep: Keep session alive after test (block until Ctrl+C)
             debug: Keep session on failure for debugging
+            fresh: If True, clean data directories before starting (default: True)
+            reuse_space_id: Reuse existing space ID instead of creating new (requires fresh=False)
+            reuse_page_id: Reuse existing page ID instead of creating new (requires fresh=False)
         """
         self.name = name
         self.app_path = str(Path(app_path).resolve())
@@ -722,6 +728,13 @@ class AppTestScenario:
         self.heaptrack = heaptrack
         self.keep = keep
         self.debug = debug
+        self.fresh = fresh
+        self.reuse_space_id = reuse_space_id
+        self.reuse_page_id = reuse_page_id
+
+        # Validate reuse mode
+        if (reuse_space_id or reuse_page_id) and fresh:
+            raise ValueError("Cannot reuse space/page with fresh=True")
 
         self._tm: Optional[TmuxManager] = None
         self._handles: Dict[str, PeerHandle] = {}
@@ -784,6 +797,14 @@ class AppTestScenario:
             "--debug", action="store_true", help="Keep session on failure for debugging"
         )
         parser.add_argument("--release", action="store_true", help="Use release builds")
+        parser.add_argument(
+            "--flame-only",
+            action="store_true",
+            help="Enable flame graphs (no tokio-console)",
+        )
+        parser.add_argument(
+            "--heaptrack", action="store_true", help="Wrap binaries with heaptrack"
+        )
 
     def __enter__(self) -> "AppTestScenario":
         self._setup()
@@ -855,22 +876,34 @@ class AppTestScenario:
         self._tm.add_shell(owner_name)
         for pname, _ in viewer_peers:
             self._tm.add_shell(pname)
-        self._tm.start()
+        startup_timeout = (
+            90.0 if (self.profiling or self.flame_only or self.heaptrack) else 30.0
+        )
+        self._tm.start(fresh=self.fresh, timeout=startup_timeout)
 
         node = self._tm.get_client("node")
         owner_client = self._tm.get_client(owner_name)
         print("  All instances ready")
 
-        # 2. Owner: signup, create space
-        print(f"\n  {owner_name}: signup, create space...")
+        # 2. Owner: signup, create or reuse space
         owner_client.signup_or_login(owner_name)
-        space = owner_client.create_space_with_pages(self.app_path)
-        self._space_id = space["id"]
 
-        pages = owner_client.list_pages(self._space_id)
-        assert pages, "No pages after create_space_with_pages"
-        self._page_id = pages[0]["id"]
-        print(f"  Space: {self._space_id[:8]}..., Page: {self._page_id[:8]}...")
+        if self.reuse_space_id and self.reuse_page_id:
+            # Reuse mode: use existing space/page from persisted data
+            print(f"\n  {owner_name}: reusing existing space/page...")
+            self._space_id = self.reuse_space_id
+            self._page_id = self.reuse_page_id
+            print(f"  Space: {self._space_id[:8]}..., Page: {self._page_id[:8]}...")
+        else:
+            # Fresh mode: create new space
+            print(f"\n  {owner_name}: signup, create space...")
+            space = owner_client.create_space_with_pages(self.app_path)
+            self._space_id = space["id"]
+
+            pages = owner_client.list_pages(self._space_id)
+            assert pages, "No pages after create_space_with_pages"
+            self._page_id = pages[0]["id"]
+            print(f"  Space: {self._space_id[:8]}..., Page: {self._page_id[:8]}...")
 
         # 3. Connect to node (conditional wait, not fixed sleep)
         print(f"  {owner_name}: connect to node...")
@@ -902,11 +935,9 @@ class AppTestScenario:
             def connect_viewer(pname):
                 viewer_client = self._tm.get_client(pname)
                 viewer_client.signup_or_login(pname)
-                # Connect exactly once per viewer. add_viewer(wait_for_auth=False)
-                # already calls viewer.add_website(link), so calling
-                # add_website_with_wait afterward duplicates the connect flow and
-                # can race/timestamp out during auth.
-                viewer_client.add_website_with_wait(viewer_link, timeout=10.0)
+                # Connect once and rely on _wait_for_space_sync as readiness gate.
+                # No redundant auth polling - sync wait is the proper gate.
+                viewer_client.add_website(viewer_link)
                 page_id = self._wait_for_space_sync(viewer_client, pname, timeout=10.0)
                 if page_id is None:
                     raise RuntimeError(f"{pname} failed to sync space within 10s")
@@ -928,6 +959,10 @@ class AppTestScenario:
         print("  All viewers connected and synced")
 
         # 6. PARALLEL: Open apps on all peers
+        # Profiling wrappers (heaptrack/flame) slow startup; allow more time for Lua eval readiness.
+        open_app_timeout = (
+            15.0 if (self.profiling or self.flame_only or self.heaptrack) else 5.0
+        )
         print(f"\n  Opening apps (parallel)...")
 
         with ThreadPoolExecutor(max_workers=len(self.peers_config)) as executor:
@@ -951,7 +986,9 @@ class AppTestScenario:
                             f"{peer_name} failed to sync app '{app_name}' within 10s"
                         )
 
-                self._open_app_ready(client, page_id, app_name, timeout=5.0)
+                self._open_app_ready(
+                    client, page_id, app_name, timeout=open_app_timeout
+                )
                 return peer_name
 
             future_to_peer = {

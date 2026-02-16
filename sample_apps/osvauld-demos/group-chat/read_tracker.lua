@@ -41,6 +41,19 @@ function M.get_last_read(channel_id)
     return my_positions.channels[channel_id] or 0
 end
 
+-- Mark channel as read up to a known timestamp without scanning all messages.
+-- Useful on local send paths to avoid O(N) rescans on every message.
+function M.mark_read_now(channel_id, ts)
+    if not read_positions_layer or not channel_id then return end
+    local read_ts = ts or os.time()
+    local my_positions = read_positions_layer:get(my_did) or { channels = {} }
+    local prev = my_positions.channels[channel_id] or 0
+    if read_ts > prev then
+        my_positions.channels[channel_id] = read_ts
+        read_positions_layer:set(my_did, my_positions)
+    end
+end
+
 -- Count unread messages and detect @mentions in a channel
 function M.count_unread(channel_id, messages_layer)
     if not messages_layer then return 0, false end

@@ -514,6 +514,7 @@ mod tests {
             our_permit: None,
             our_did: "did:key:node".to_string(),
             node_script_shutdown: None,
+            peer_role_cache: HashMap::new(),
         }
     }
 

@@ -592,6 +592,30 @@ pub fn convert_delta_for_binding(
                 }
             }
 
+            // Enforce max_items: remove oldest items from front
+            if let Some(max) = binding.options.max_items {
+                while model_len > max {
+                    // Remove from index 0 (oldest)
+                    result.push(VecModelOp::Remove {
+                        model_name: binding.ui_property.clone(),
+                        index: 0,
+                    });
+                    // Shift all cached indices down by 1
+                    let mut evicted_key = None;
+                    for (k, idx) in cache.iter_mut() {
+                        if *idx == 0 {
+                            evicted_key = Some(k.clone());
+                        } else {
+                            *idx -= 1;
+                        }
+                    }
+                    if let Some(k) = evicted_key {
+                        cache.remove(&k);
+                    }
+                    model_len -= 1;
+                }
+            }
+
             binding.model_len.set(model_len);
             result
         }

@@ -3,8 +3,8 @@
 //! All functions take store as first parameter - Butler injects this.
 
 use crate::error::Result;
+use crate::models::{ConnectionString, ConnectionType, OwnerInfo, SovereignNode, SovereignNodeExt};
 use crate::storage::RedbStore;
-use crate::models::{OwnerInfo, SovereignNode, ConnectionString, ConnectionType, SovereignNodeExt};
 use tracing::instrument;
 
 /// Add a sovereign node from a connection string
@@ -19,7 +19,8 @@ pub fn add_sovereign_node(
 
     // Create and store sovereign node
     let node = SovereignNode::from_connection_string(&conn, connection_type);
-    store.put_sovereign_node(&node)
+    store
+        .put_sovereign_node(&node)
         .map_err(|e| format!("Failed to store sovereign node: {}", e))?;
 
     Ok(node)
@@ -45,7 +46,11 @@ pub fn list_connected_sovereign_nodes(store: &RedbStore) -> Result<Vec<Sovereign
 
 /// Update sovereign node connection status
 #[instrument(skip(store), fields(node_id = %node_id, connected = %connected))]
-pub fn set_sovereign_node_connected(store: &RedbStore, node_id: &str, connected: bool) -> Result<bool> {
+pub fn set_sovereign_node_connected(
+    store: &RedbStore,
+    node_id: &str,
+    connected: bool,
+) -> Result<bool> {
     store.set_sovereign_node_connected(node_id, connected)
 }
 

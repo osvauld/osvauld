@@ -88,4 +88,4 @@ All Scribe operations are local-first. Data is written to LoroDoc immediately, m
 
 Use `skill("data-model")` for the Space/Page/Layer hierarchy and encryption model.
 Use `skill("protocol")` for understanding sync message flows.
-Read `docs/DATA_MODEL.md` and `docs/ARCHITECTURE.md` for deeper context.
+Read `docs/SCRIBE_INTERNALS.md`, `docs/ARCHITECTURE.md`, and `docs/DATA_MODEL.md` for deeper context.

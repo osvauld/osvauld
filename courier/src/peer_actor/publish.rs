@@ -686,8 +686,77 @@ impl<C: Connection> PeerActor<C> {
                     error!("Failed to set page permit on PageData: {}", e);
                 }
 
+                // Track viewer initial sync progress (viewer mode only)
+                self.track_viewer_permit_received(page_id, state);
+
                 // Layer discovery for viewer happens via LayerSync protocol:
                 // Node detects dynamic layers and sends LayerSync with data + permit.
+            }
+        }
+    }
+
+    /// Track viewer permit received and emit ViewerSyncComplete when all expected permits arrive
+    ///
+    /// **Context**: Viewer mode - PermitUpdate(Page) received from node
+    /// **We do**: Mark page as received, check if all expected permits arrived
+    /// **Emit**: ViewerSyncComplete when all expected page permits received
+    #[instrument(skip_all, fields(page_id = %page_id))]
+    fn track_viewer_permit_received(&self, page_id: &str, state: &mut PeerActorState<C>) {
+        use crate::coordinator::CourierMode;
+
+        // Only track in User mode (viewers)
+        if state.mode != CourierMode::User {
+            return;
+        }
+
+        // Find which space this page belongs to
+        let space_id = match state.butler.pages().get(page_id) {
+            Ok(Some(page_data)) => page_data.meta.space_id.clone(),
+            Ok(None) => {
+                debug!("Page {} not found for viewer sync tracking", page_id);
+                return;
+            }
+            Err(e) => {
+                warn!("Failed to get page {} for sync tracking: {}", page_id, e);
+                return;
+            }
+        };
+
+        // Check if we're tracking this space
+        if let Some((expected, received)) = state.viewer_initial_sync.get_mut(&space_id) {
+            // Mark this page as received
+            received.insert(page_id.to_string());
+            debug!(
+                "Viewer permit received for page {} ({}/{})",
+                page_id,
+                received.len(),
+                expected.len()
+            );
+
+            // Check if all expected permits received
+            if received.len() == expected.len() {
+                info!(
+                    "Viewer initial sync complete for space {} ({} pages)",
+                    space_id,
+                    expected.len()
+                );
+
+                // Emit ViewerSyncComplete event
+                if let Err(e) = state.coordinator.cast(
+                    crate::coordinator::CoordinatorMessage::ViewerSyncComplete {
+                        node_id: self.node_id,
+                        space_id: space_id.clone(),
+                        pages_synced: expected.len(),
+                    },
+                ) {
+                    warn!(
+                        "Failed to notify coordinator of ViewerSyncComplete: {:?}",
+                        e
+                    );
+                }
+
+                // Clear tracking state
+                state.viewer_initial_sync.remove(&space_id);
             }
         }
     }

@@ -137,6 +137,167 @@ pub fn emit_structured_ephemeral(
     );
 }
 
+// Remote Ephemeral Dispatch
+
+/// Handle RemoteEphemeral message
+///
+/// **Context**: Remote peer sent ephemeral data via datagram.
+/// **We do**: Route structured ephemerals to app subscribers, emit raw for unrecognized,
+/// and relay to other subscribers (node mode).
+#[instrument(skip(state, payload), fields(page_id = %state.page_id))]
+pub fn handle_remote_ephemeral_message(
+    state: &mut ScribeState,
+    user_did: Option<&str>,
+    device_id: Option<&str>,
+    payload: &[u8],
+) {
+    let payload_str = std::str::from_utf8(payload).unwrap_or("<binary>");
+    debug!(
+        page_id = %state.page_id,
+        user_did = ?user_did,
+        device_id = ?device_id,
+        payload_len = payload.len(),
+        payload = %payload_str,
+        our_did = %state.our_did,
+        "Scribe received RemoteEphemeral"
+    );
+
+    // 1. Forward to local app layer (if we have sender info)
+    if let Some(did) = user_did {
+        let handled = route_remote_ephemeral(state, did, payload);
+        debug!(page_id = %state.page_id, handled = handled, our_did = %state.our_did, "route_remote_ephemeral returned");
+        if !handled {
+            let dev_id = device_id.unwrap_or_default();
+            emit_raw_ephemeral(state, did, dev_id, payload);
+        }
+    } else {
+        debug!(page_id = %state.page_id, "RemoteEphemeral without user_did - not emitting to local app");
+    }
+
+    // 2. Relay to other subscribers (node mode relay) - exclude sender
+    let exclude = match (user_did, device_id) {
+        (Some(d), Some(dev)) => Some((d, dev)),
+        _ => None,
+    };
+    broadcast_ephemeral_to_subscribers(state, payload, exclude);
+}
+
+// Structured Ephemeral Handlers
+
+/// Handle SendStructuredEphemeral message
+///
+/// **Context**: Local Lua app wants to send a structured ephemeral (e.g., typing indicator).
+/// **We do**: Validate func against our permit's ephemeral_funcs, emit to local app subscribers,
+/// and broadcast to remote peers via ephemeral channels.
+///
+/// **Returns**: true if the ephemeral was sent, false if rejected by permit.
+#[instrument(skip(state, args), fields(page_id = %state.page_id, func = %func))]
+pub fn handle_send_structured_ephemeral(
+    state: &ScribeState,
+    func: &str,
+    args: &serde_json::Value,
+) -> bool {
+    // Log the incoming request
+    let has_permit = state.our_permit.is_some();
+    let ephemeral_funcs = state
+        .our_permit
+        .as_ref()
+        .map(|p| p.ephemeral_funcs().to_vec())
+        .unwrap_or_default();
+    debug!(
+        page_id = %state.page_id,
+        func = %func,
+        has_permit = has_permit,
+        ephemeral_funcs = ?ephemeral_funcs,
+        our_did = %state.our_did,
+        "SendStructuredEphemeral received"
+    );
+
+    // Validate func against our permit's ephemeral_funcs (if set)
+    // Empty ephemeral_funcs list means all funcs allowed
+    let can_send = state
+        .our_permit
+        .as_ref()
+        .map(|p| p.can_send_ephemeral(func))
+        .unwrap_or(true); // No permit = allow (local mode)
+
+    if !can_send {
+        warn!(page_id = %state.page_id, func = %func, "Structured ephemeral func not allowed by permit");
+        return false;
+    }
+
+    // Broadcast as StructuredEphemeral to app subscribers (local UI)
+    let our_did = state.our_did.clone();
+    emit_structured_ephemeral(state, &our_did, func, args);
+
+    // Also broadcast via ephemeral channel for remote peers
+    // PeerActor should be subscribed to this Scribe with ephemeral_tx
+    // Include from_did so relayed messages preserve original sender identity
+    let payload = serde_json::json!({
+        "type": "structured",
+        "from_did": our_did,
+        "func": func,
+        "args": args
+    });
+    if let Ok(bytes) = serde_json::to_vec(&payload) {
+        debug!(
+            page_id = %state.page_id,
+            func = %func,
+            "Broadcasting structured ephemeral to PeerActor subscribers"
+        );
+        broadcast_ephemeral_to_subscribers(state, &bytes, None);
+    }
+
+    true
+}
+
+/// Handle RemoteStructuredEphemeral message
+///
+/// **Context**: Remote peer sent a structured ephemeral via relay.
+/// **We do**: Validate func against sender's permit, then emit to local app subscribers.
+///
+/// **Returns**: true if the ephemeral was accepted, false if rejected.
+#[instrument(skip(state, args), fields(page_id = %state.page_id, from_did = %from_did, func = %func))]
+pub fn handle_remote_structured_ephemeral(
+    state: &ScribeState,
+    from_did: &str,
+    device_id: &str,
+    func: &str,
+    args: &serde_json::Value,
+) -> bool {
+    // Validate func against sender's permit
+    let can_send = {
+        let subs = state.subscribers.read().ok();
+        subs.and_then(|s| {
+            s.get(&(from_did.to_string(), device_id.to_string()))
+                .map(|info| info.permit.can_send_ephemeral(func))
+        })
+        .unwrap_or(false) // Unknown sender = reject
+    };
+
+    if !can_send {
+        warn!(
+            page_id = %state.page_id,
+            from_did = %from_did,
+            func = %func,
+            "Remote structured ephemeral rejected - func not allowed"
+        );
+        return false;
+    }
+
+    // Emit to local app subscribers
+    emit_structured_ephemeral(state, from_did, func, args);
+
+    debug!(
+        page_id = %state.page_id,
+        from_did = %from_did,
+        func = %func,
+        "Processed remote structured ephemeral"
+    );
+
+    true
+}
+
 // Peer Broadcast via Ephemeral Channels
 
 /// Broadcast ephemeral data to all subscribed PeerActors (via their ephemeral channels)
