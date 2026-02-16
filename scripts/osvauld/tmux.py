@@ -35,6 +35,7 @@ from .client import ControlClient
 # Default paths
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
+
 def get_binary_paths(release: bool = False, profiling: bool = False) -> tuple:
     """Get binary paths based on build profile.
 
@@ -53,6 +54,7 @@ def get_binary_paths(release: bool = False, profiling: bool = False) -> tuple:
         target_dir = PROJECT_ROOT / "target" / "debug"
 
     return (target_dir / "kunki", target_dir / "sthalam")
+
 
 DEFAULT_KUNKI_BINARY, DEFAULT_SHELL_BINARY = get_binary_paths()
 
@@ -83,7 +85,9 @@ class Instance:
         """Get control client (creates connection if needed)."""
         if self._client is None:
             if not self.socket_path.exists():
-                raise RuntimeError(f"Instance '{self.name}' not started (socket not found)")
+                raise RuntimeError(
+                    f"Instance '{self.name}' not started (socket not found)"
+                )
             self._client = ControlClient(str(self.socket_path))
         return self._client
 
@@ -138,7 +142,9 @@ class TmuxManager:
             self.shell_binary = shell_binary
             self.kunki_binary = kunki_binary
         else:
-            self.kunki_binary, self.shell_binary = get_binary_paths(release, profiling or flame_only)
+            self.kunki_binary, self.shell_binary = get_binary_paths(
+                release, profiling or flame_only or heaptrack
+            )
 
         self._instances: Dict[str, Instance] = {}
         self._instance_order: List[str] = []
@@ -329,25 +335,27 @@ class TmuxManager:
         try:
             # Find all processes matching the socket path
             result = subprocess.run(
-                ['pgrep', '-f', str(inst.socket_path)],
-                capture_output=True, text=True, timeout=2
+                ["pgrep", "-f", str(inst.socket_path)],
+                capture_output=True,
+                text=True,
+                timeout=2,
             )
             if result.returncode != 0 or not result.stdout.strip():
                 return None
 
             # Check each candidate PID — pick the actual binary, not wrappers
             binary_name = Path(inst.binary).name  # "sthalam" or "kunki"
-            for pid_str in result.stdout.strip().split('\n'):
+            for pid_str in result.stdout.strip().split("\n"):
                 pid = int(pid_str.strip())
                 try:
-                    comm = Path(f'/proc/{pid}/comm').read_text().strip()
+                    comm = Path(f"/proc/{pid}/comm").read_text().strip()
                     if comm == binary_name:
                         return pid
                 except (OSError, ValueError):
                     continue
 
             # Fallback: return newest PID if no binary name match
-            pids = [int(p.strip()) for p in result.stdout.strip().split('\n')]
+            pids = [int(p.strip()) for p in result.stdout.strip().split("\n")]
             return max(pids)
         except Exception:
             pass
@@ -383,10 +391,13 @@ class TmuxManager:
         result = subprocess.run(
             [
                 str(inst.binary),
-                "--db-path", str(inst.data_dir / inst.name),
+                "--db-path",
+                str(inst.data_dir / inst.name),
                 "init",
-                "--username", f"{inst.name}_user",
-                "--passphrase", self.passphrase,
+                "--username",
+                f"{inst.name}_user",
+                "--passphrase",
+                self.passphrase,
             ],
             capture_output=True,
             text=True,
@@ -399,20 +410,18 @@ class TmuxManager:
         """Create tmux session with separate windows (tabs) for each instance."""
         # Create session with first window named after first instance
         first_name = self._instance_order[0]
-        subprocess.run([
-            "tmux", "new-session", "-d", "-s", self.session_name, "-n", first_name
-        ])
+        subprocess.run(
+            ["tmux", "new-session", "-d", "-s", self.session_name, "-n", first_name]
+        )
 
         # Set large scrollback buffer for debugging
-        subprocess.run([
-            "tmux", "set-option", "-t", self.session_name, "history-limit", "200000"
-        ])
+        subprocess.run(
+            ["tmux", "set-option", "-t", self.session_name, "history-limit", "200000"]
+        )
 
         # Create additional windows for remaining instances
         for name in self._instance_order[1:]:
-            subprocess.run([
-                "tmux", "new-window", "-t", self.session_name, "-n", name
-            ])
+            subprocess.run(["tmux", "new-window", "-t", self.session_name, "-n", name])
 
     def _start_instance_in_window(self, inst: Instance, window_index: int) -> None:
         """Start an instance in a specific tmux window."""
@@ -447,7 +456,7 @@ class TmuxManager:
         # Heaptrack wrapper: saves heap profile to instance data dir
         heaptrack_prefix = ""
         if self.heaptrack:
-            heaptrack_output = inst.data_dir / f"{inst.name}"
+            heaptrack_output = inst.data_dir / f"{inst.name}.heaptrack"
             heaptrack_prefix = f"heaptrack -o {heaptrack_output} "
 
         log_file = inst.data_dir / f"{inst.name}.log"
@@ -470,9 +479,16 @@ class TmuxManager:
                 f"2>&1 | tee {log_file}"
             )
 
-        subprocess.run([
-            "tmux", "send-keys", "-t", f"{self.session_name}:{window_index}", cmd, "Enter"
-        ])
+        subprocess.run(
+            [
+                "tmux",
+                "send-keys",
+                "-t",
+                f"{self.session_name}:{window_index}",
+                cmd,
+                "Enter",
+            ]
+        )
 
     def _wait_for_ready(self, timeout: float) -> None:
         """Wait for all instances to be ready."""
@@ -505,13 +521,15 @@ class TmuxManager:
         # Check if tokio-console is available
         result = subprocess.run(["which", "tokio-console"], capture_output=True)
         if result.returncode != 0:
-            print("  [WARN] tokio-console not found. Install with: cargo install tokio-console")
+            print(
+                "  [WARN] tokio-console not found. Install with: cargo install tokio-console"
+            )
             return
 
         # Create a new window for all tokio-consoles
-        subprocess.run([
-            "tmux", "new-window", "-t", self.session_name, "-n", "consoles"
-        ])
+        subprocess.run(
+            ["tmux", "new-window", "-t", self.session_name, "-n", "consoles"]
+        )
 
         # Get the window index (it's the last one)
         console_window = len(self._instance_order)
@@ -520,9 +538,16 @@ class TmuxManager:
         first_inst = self._instances[self._instance_order[0]]
         if first_inst.console_port:
             cmd = f"tokio-console http://localhost:{first_inst.console_port}"
-            subprocess.run([
-                "tmux", "send-keys", "-t", f"{self.session_name}:{console_window}", cmd, "Enter"
-            ])
+            subprocess.run(
+                [
+                    "tmux",
+                    "send-keys",
+                    "-t",
+                    f"{self.session_name}:{console_window}",
+                    cmd,
+                    "Enter",
+                ]
+            )
 
         # Split and add remaining consoles
         for i, name in enumerate(self._instance_order[1:], 1):
@@ -530,18 +555,37 @@ class TmuxManager:
             if inst.console_port:
                 # Split horizontally for 2nd, vertically for others to make grid
                 split_flag = "-h" if i == 1 else "-v"
-                subprocess.run([
-                    "tmux", "split-window", split_flag, "-t", f"{self.session_name}:{console_window}"
-                ])
+                subprocess.run(
+                    [
+                        "tmux",
+                        "split-window",
+                        split_flag,
+                        "-t",
+                        f"{self.session_name}:{console_window}",
+                    ]
+                )
                 cmd = f"tokio-console http://localhost:{inst.console_port}"
-                subprocess.run([
-                    "tmux", "send-keys", "-t", f"{self.session_name}:{console_window}", cmd, "Enter"
-                ])
+                subprocess.run(
+                    [
+                        "tmux",
+                        "send-keys",
+                        "-t",
+                        f"{self.session_name}:{console_window}",
+                        cmd,
+                        "Enter",
+                    ]
+                )
 
         # Even out the pane layout
-        subprocess.run([
-            "tmux", "select-layout", "-t", f"{self.session_name}:{console_window}", "tiled"
-        ])
+        subprocess.run(
+            [
+                "tmux",
+                "select-layout",
+                "-t",
+                f"{self.session_name}:{console_window}",
+                "tiled",
+            ]
+        )
 
     def __enter__(self) -> "TmuxManager":
         self.start()

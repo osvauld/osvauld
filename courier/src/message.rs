@@ -117,7 +117,6 @@ pub struct SyncOfferMsg {
     pub layer_type: LayerType,
     pub data: Vec<u8>,
     pub state_vector: Vec<u8>,
-    pub ephemeral_public: [u8; 32],
     #[serde(default)]
     pub authority_permit: Option<String>,
 }
@@ -149,7 +148,6 @@ pub struct SyncSnapshotMsg {
     pub layer_type: LayerType,
     pub snapshot: Vec<u8>,
     pub state_vector: Vec<u8>,
-    pub ephemeral_public: [u8; 32],
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -310,7 +308,6 @@ pub struct LayerSubscribeAckMsg {
     pub reason: Option<String>,
     pub data: Vec<u8>,
     pub state_vector: Vec<u8>,
-    pub ephemeral_public: [u8; 32],
     pub layer_permit: String,
 }
 
@@ -689,7 +686,6 @@ mod tests {
             layer_type: LayerType::Data,
             data: vec![1, 2, 3],
             state_vector: vec![4, 5],
-            ephemeral_public: [6u8; 32],
             authority_permit: None,
         });
 
@@ -760,7 +756,6 @@ mod tests {
             _ => panic!("Wrong message type"),
         }
     }
-
 
     #[test]
     fn test_unknown_tag_returns_error() {
@@ -839,7 +834,6 @@ mod tests {
                 layer_type: LayerType::Data,
                 data: vec![],
                 state_vector: vec![],
-                ephemeral_public: [0; 32],
                 authority_permit: None,
             }),
             Message::SyncAccept(SyncAcceptMsg {
@@ -912,12 +906,11 @@ mod tests {
             layer_name in "[a-z0-9/_]{4,20}",
             data in prop::collection::vec(any::<u8>(), 0..100),
             state_vector in prop::collection::vec(any::<u8>(), 0..50),
-            ephemeral_public in prop::array::uniform32(any::<u8>()),
         ) -> Message {
             Message::SyncOffer(SyncOfferMsg {
                 page_id, layer_name,
                 layer_type: LayerType::Data,
-                data, state_vector, ephemeral_public,
+                data, state_vector,
                 authority_permit: None,
             })
         }
@@ -961,7 +954,6 @@ mod tests {
                 prop_assert_eq!(&m1.layer_type, &m2.layer_type);
                 prop_assert_eq!(&m1.data, &m2.data);
                 prop_assert_eq!(&m1.state_vector, &m2.state_vector);
-                prop_assert_eq!(&m1.ephemeral_public, &m2.ephemeral_public);
             } else {
                 prop_assert!(false, "Deserialization changed message type");
             }

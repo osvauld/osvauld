@@ -42,7 +42,9 @@ Osvauld uses a layered P2P protocol built on QUIC (via iroh) with capability-bas
 
 ## Connection Flow
 
-### 1. User → Node (First Connection)
+### 1. First Connection (4-step)
+
+When a user connects to a node for the first time, both sides exchange and store new permits.
 
 ```
 User                                    Node
@@ -57,7 +59,12 @@ User                                    Node
   │  - permit (one_time_connection)       │
   │──────────────────────────────────────>│
   │                                       │
-  │                           Validate permit
+  │                           decide_hello_response()
+  │                           ✓ Validate permit signature
+  │                           ✓ Check first_connection flag
+  │                           ✓ Verify no existing owner
+  │                           → AcceptFirstConnection
+  │                           
   │                           Store OwnerInfo
   │                           Issue permit_for_user
   │                                       │
@@ -68,24 +75,83 @@ User                                    Node
   │  - permit_for_peer                    │
   │<──────────────────────────────────────│
   │                                       │
-  │  Validate permit audience             │
+  │  decide_welcome_response()            │
+  │  ✓ Validate node pubkey matches       │
+  │  ✓ Validate permit audience (our DID) │
+  │  → AcceptWelcome                      │
+  │                                       │
   │  Issue permit_for_node                │
   │                                       │
   │  PermitGrant                          │
   │  - permit_for_node                    │
   │──────────────────────────────────────>│
   │                                       │
-  │                           Validate & store
+  │                           Validate & store permit
   │                                       │
   │  Ack                                  │
   │<──────────────────────────────────────│
   │                                       │
   │  [AUTHENTICATED]                      │
+  │  Subscribe to active scribes          │
 ```
 
-### 2. Reconnection
+### 2. Reconnection (3-step)
 
-Same flow but with stored `owner_connection` permit instead of `one_time_connection`.
+When reconnecting with stored permits, PermitGrant is skipped.
+
+```
+User                                    Node
+  │                                       │
+  │  QUIC connect (iroh)                  │
+  │──────────────────────────────────────>│
+  │                                       │
+  │  Hello                                │
+  │  - did, username                      │
+  │  - public_key, encryption_key         │
+  │  - signature, timestamp               │
+  │  - permit (owner_connection)          │
+  │──────────────────────────────────────>│
+  │                                       │
+  │                           decide_hello_response()
+  │                           ✓ Validate permit signature
+  │                           ✓ Check !first_connection flag
+  │                           ✓ Verify owner DID matches stored
+  │                           → AcceptReconnection(stored_permit)
+  │                           
+  │                           Update last_connected timestamp
+  │                                       │
+  │  Welcome                              │
+  │  - node_id, node_public_key           │
+  │  - signature, timestamp               │
+  │  - permit_for_peer (from storage)     │
+  │<──────────────────────────────────────│
+  │                                       │
+  │  decide_welcome_response()            │
+  │  ✓ Permit matches stored permit       │
+  │  → Skip PermitGrant step              │
+  │                                       │
+  │  Ack                                  │
+  │──────────────────────────────────────>│
+  │                                       │
+  │  [AUTHENTICATED]                      │
+  │  Subscribe to active scribes          │
+```
+
+### 3. Rejection Paths
+
+The handshake includes validation at each step with explicit rejection reasons.
+
+**Hello Decision Rejections** (`courier/src/handshake/decision.rs:96-124`):
+- `RejectAlreadyHasOwner`: First-connection permit but owner already exists
+- `RejectOwnerMismatch`: Reconnection permit but DID doesn't match stored owner
+- `RejectNoOwnerForReconnection`: Reconnection permit but no owner stored
+- `RejectInvalidPermit`: Signature invalid or permit malformed
+
+**Welcome Decision Rejections** (`courier/src/handshake/decision.rs:130-162`):
+- `RejectNodeMismatch`: Node pubkey doesn't match expected
+- `RejectAudienceMismatch`: Permit audience doesn't match our DID
+
+When rejection occurs, a `Rejected` message is sent with the reason.
 
 ---
 
@@ -110,8 +176,7 @@ Owner                                   Node
   │  PublishPage (for each page)          │
   │  - page metadata                      │
   │  - page_permit, owner_permit          │
-  │  - ephemeral_public (ECDH key)        │
-  │  - layers (transit encrypted)         │
+  │  - layers (session encrypted)         │
   │──────────────────────────────────────>│
   │                                       │
   │                           Decrypt layers
@@ -198,9 +263,8 @@ Sender                                  Receiver
   │                                       │
   │  SyncOffer                            │
   │  - page_id, layer_name                │
-  │  - data (ECDH encrypted)              │
+  │  - data (session encrypted)           │
   │  - state_vector (sender's)            │
-  │  - ephemeral_public                   │
   │  - permit (consent)                   │
   │──────────────────────────────────────>│
   │                                       │
@@ -224,9 +288,10 @@ Sender                                  Receiver
 
 ### Encryption
 
-- Sender generates ephemeral X25519 keypair
-- ECDH: ephemeral_private × receiver_public = shared_secret
-- ChaCha20Poly1305 encrypt: nonce (12) || ciphertext || tag (16)
+Session-based symmetric encryption (derived once per connection):
+- During handshake: `session_key = HKDF(ECDH(our_static, peer_static), "herald-session-v1")`
+- Per message: `AES-256-GCM(session_key, data)` with random 12-byte nonce
+- Wire format: nonce (12) || ciphertext || tag (16)
 
 ---
 
@@ -283,9 +348,17 @@ struct EphemeralDatagram {
 |---------|-----------|---------|
 | `Hello` | Initiator → Acceptor | Introduce identity, present permit |
 | `Welcome` | Acceptor → Initiator | Accept connection, issue permit |
-| `PermitGrant` | Initiator → Acceptor | Grant capabilities to peer |
+| `PermitGrant` | Initiator → Acceptor | Grant capabilities to peer (first-connection only) |
 | `Ack` | Either | Acknowledge |
-| `Rejected` | Either | Reject with reason |
+| `Rejected` | Either | Reject with reason (see rejection types below) |
+
+**Rejection Types**:
+- `AlreadyHasOwner`: Node rejects first-connection when owner exists
+- `OwnerMismatch`: Node rejects reconnection with wrong DID
+- `NoOwnerForReconnection`: Node rejects reconnection with no stored owner
+- `InvalidPermit`: Permit signature or format invalid
+- `NodeMismatch`: User rejects Welcome with wrong node pubkey
+- `AudienceMismatch`: User rejects Welcome with wrong permit audience
 
 ### Publishing
 | Message | Direction | Purpose |

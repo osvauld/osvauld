@@ -25,13 +25,13 @@
 //!   [Authenticated]                    [Authenticated]
 //! ```
 
+mod assets;
+mod consent;
 mod guards;
 mod handshake;
 mod publish;
-mod sync;
-mod consent;
-mod assets;
 mod subscribe;
+mod sync;
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -40,14 +40,14 @@ use std::time::Instant;
 use logging_utils::short;
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use tokio::io::AsyncReadExt;
-use tracing::{debug, error, info, warn, instrument};
+use tracing::{debug, error, info, instrument, warn};
 use transport::{BiStream, Connection, NodeId};
 
 use crate::coordinator::{CoordinatorMessage, CourierMode};
 use crate::message::*;
 use crate::state::{PeerState, PeerType};
 use crate::trace::{MessageTrace, TraceDirection};
-use butler::{Butler, BroadcastPayload, ScribeMessage};
+use butler::{BroadcastPayload, Butler, ScribeMessage};
 
 /// Messages received by PeerActor
 #[derive(Debug)]
@@ -56,19 +56,13 @@ pub enum PeerMessage {
     Protocol(Message),
 
     /// Internal: Initiate handshake by sending Hello (User mode)
-    InitiateHandshake {
-        permit: String,
-    },
+    InitiateHandshake { permit: String },
 
     /// Internal: Publish a space to this peer (User mode)
-    PublishSpace {
-        space_id: String,
-    },
+    PublishSpace { space_id: String },
 
     /// Internal: Publish a page to this peer (User mode)
-    PublishPage {
-        page_id: String,
-    },
+    PublishPage { page_id: String },
 
     /// Internal: Request shareable link for a space (User mode)
     ///
@@ -92,10 +86,7 @@ pub enum PeerMessage {
     ///
     /// **Context**: After handshake, we want live updates for pages we have access to
     /// **We do**: Subscribe to Scribe, spawn broadcast listener task
-    SubscribeToPage {
-        page_id: String,
-        permit: String,
-    },
+    SubscribeToPage { page_id: String, permit: String },
 
     /// Internal: Broadcast payload received from Scribe
     ///
@@ -132,27 +123,19 @@ pub enum PeerMessage {
     ///
     /// **Context**: PeerActor owns the datagram read loop
     /// **We do**: Deserialize, route to Scribe via page_subscriptions
-    Datagram {
-        data: Vec<u8>,
-    },
+    Datagram { data: Vec<u8> },
 
     /// Internal: Send updated page permit to this peer (Node mode)
     ///
     /// **Context**: Page permit reissued with new app layers
     /// **We do**: Send PermitUpdate message to peer
-    SendPermitUpdate {
-        page_id: String,
-        permit: String,
-    },
+    SendPermitUpdate { page_id: String, permit: String },
 
     /// Internal: Request an asset from the peer
     ///
     /// **Context**: External component (e.g., Coordinator) wants to fetch an asset
     /// **We do**: Send AssetPrepare message to peer
-    RequestAsset {
-        page_id: String,
-        hash: String,
-    },
+    RequestAsset { page_id: String, hash: String },
 
     /// Scribe initiates connection to receive messages
     ///
@@ -178,27 +161,32 @@ impl BlobStore {
     /// Add blob to store, returns iroh hash bytes
     pub async fn add_blob(&self, data: &[u8]) -> Result<[u8; 32], String> {
         match self {
-            BlobStore::Real(transport) => {
-                transport.add_blob(data).await
-                    .map(|h| *h.as_bytes())
-                    .map_err(|e| format!("Blob store error: {}", e))
-            }
+            BlobStore::Real(transport) => transport
+                .add_blob(data)
+                .await
+                .map(|h| *h.as_bytes())
+                .map_err(|e| format!("Blob store error: {}", e)),
             BlobStore::Mock(mock) => Ok(mock.add_blob(data)),
         }
     }
 
     /// Download blob from peer, returns plaintext bytes
-    pub async fn download_blob(&self, iroh_hash: &[u8; 32], node_id: NodeId) -> Result<Vec<u8>, String> {
+    pub async fn download_blob(
+        &self,
+        iroh_hash: &[u8; 32],
+        node_id: NodeId,
+    ) -> Result<Vec<u8>, String> {
         match self {
             BlobStore::Real(transport) => {
                 let hash = transport::BlobHash::from_bytes(*iroh_hash);
-                transport.download_blob(hash, node_id).await
+                transport
+                    .download_blob(hash, node_id)
+                    .await
                     .map_err(|e| format!("Download failed: {}", e))
             }
-            BlobStore::Mock(mock) => {
-                mock.download_blob(iroh_hash)
-                    .ok_or_else(|| "Blob not found in mock store".to_string())
-            }
+            BlobStore::Mock(mock) => mock
+                .download_blob(iroh_hash)
+                .ok_or_else(|| "Blob not found in mock store".to_string()),
         }
     }
 }
@@ -222,32 +210,6 @@ pub struct PeerActorArgs<C: Connection> {
     /// Broadcast channel for capture system (pre-serialized JSON lines)
     pub capture_tx: Option<tokio::sync::broadcast::Sender<String>>,
 }
-
-// Unified Outbound Update (replaces BroadcastPayload + EphemeralOutbound)
-
-/// Unified update enum for outbound sync/ephemeral data
-///
-/// **Context**: Single channel replaces separate broadcast_tx + ephemeral_tx
-/// **Benefits**: One listener task instead of two per subscription
-/// **Migration**: Use this to replace BroadcastPayload/EphemeralOutbound channels
-#[derive(Debug, Clone)]
-pub enum OutboundUpdate {
-    /// CRDT sync update (3-step protocol)
-    Sync {
-        page_id: String,
-        layer: String,
-        update: Vec<u8>,
-        state_vector: Vec<u8>,
-    },
-    /// Ephemeral data (cursor, typing, presence)
-    Ephemeral {
-        page_id: String,
-        payload: Vec<u8>,
-    },
-}
-
-/// Type alias for unified outbound update channel
-pub type OutboundUpdateTx = tokio::sync::mpsc::Sender<OutboundUpdate>;
 
 // Pending Operations
 
@@ -331,6 +293,7 @@ pub struct BufferedScribeMessage {
 
 /// Maximum retry attempts for asset transfers
 const MAX_ASSET_TRANSFER_ATTEMPTS: u8 = 3;
+const MAX_BUFFERED_EPHEMERAL_PER_PAGE: usize = 128;
 
 /// Actor state for PeerActor
 ///
@@ -351,9 +314,9 @@ pub struct PeerActorState<C: Connection> {
     /// Pending viewer syncs by request_id (Node mode only)
     /// Stored when we send SpaceData, used when we receive SpaceDataAck
     pending_viewer_syncs: std::collections::HashMap<String, PendingViewerSync>,
-    /// Peer's encryption key (set after handshake)
-    /// Used for ECDH when sending SyncOffer messages
-    peer_encryption_key: Option<[u8; 32]>,
+    /// Session key derived from ECDH during handshake (set after Hello/Welcome)
+    /// Used for symmetric encryption of all messages in this session
+    session_key: Option<[u8; 32]>,
     /// Cached parsed permit from handshake (Hello/Welcome/PermitGrant)
     /// Avoids re-parsing the permit on every message flow
     cached_peer_permit: Option<gurkha::Permit>,
@@ -368,7 +331,8 @@ pub struct PeerActorState<C: Connection> {
     pending_asset_transfers: std::collections::HashMap<String, PendingAssetTransfer>,
     /// Pending shareable link requests: request_id -> response channel
     /// Tracks outgoing GetShareableLinkRequest waiting for response
-    pending_shareable_link_requests: std::collections::HashMap<String, tokio::sync::oneshot::Sender<Result<String, String>>>,
+    pending_shareable_link_requests:
+        std::collections::HashMap<String, tokio::sync::oneshot::Sender<Result<String, String>>>,
     /// Direct Scribe connections: page_id -> Scribe actor ref
     ///
     /// **Context**: Scribe calls ScribeConnect on spawn, we store the connection here.
@@ -386,7 +350,18 @@ pub struct PeerActorState<C: Connection> {
     ///
     /// **Context**: Viewer sends SpaceRequest before Ack arrives (race condition).
     /// Queued here and drained in on_ack after handshake completes.
-    pending_space_request: Option<(String, String)>,  // (space_id, viewer_permit)
+    pending_space_request: Option<(String, String)>, // (space_id, viewer_permit)
+
+    /// Viewer initial sync tracking: space_id -> (expected_page_ids, received_page_ids)
+    ///
+    /// **Context**: Viewer mode - track which page permits we're expecting from node
+    /// **Flow**: SpaceData arrives -> store expected page IDs -> PermitUpdate arrives -> mark received
+    /// **Emit**: ViewerSyncComplete when all expected permits received
+    viewer_initial_sync: std::collections::HashMap<String, (Vec<String>, std::collections::HashSet<String>)>,
+
+    /// Cached authority permits: (page_id, layer_name, peer_did) -> Option<permit_token>
+    /// Avoids repeated redb lookups for the same layer authority permit per peer
+    authority_permit_cache: std::collections::HashMap<(String, String, String), Option<String>>,
 
     /// Optional trace channel for protocol message capture (tests only)
     message_tx: Option<tokio::sync::mpsc::UnboundedSender<MessageTrace>>,
@@ -409,35 +384,32 @@ pub struct PeerActor<C: Connection> {
 
 impl<C: Connection> PeerActor<C> {
     pub fn new(node_id: NodeId) -> Self {
-        Self { node_id, _phantom: PhantomData }
+        Self {
+            node_id,
+            _phantom: PhantomData,
+        }
     }
 
-    /// Send a message to the peer
-    #[instrument(skip_all, fields(node = %short(&self.node_id), msg = %msg.name()))]
-    async fn send_message(&self, msg: &Message, state: &PeerActorState<C>) {
-        let bytes = match msg.to_bytes() {
-            Ok(b) => b,
-            Err(e) => {
-                error!("Failed to serialize message: {}", e);
-                return;
-            }
-        };
-
-        // Emit to trace channel (tests) and capture channel (observability)
-        let mut trace = MessageTrace::new(
-            TraceDirection::Sent,
-            msg.name(),
-            state.our_node_id,
-            self.node_id,
-        );
+    fn emit_message_trace(
+        &self,
+        direction: TraceDirection,
+        msg: &Message,
+        state: &PeerActorState<C>,
+    ) {
+        let mut trace = MessageTrace::new(direction, msg.name(), state.our_node_id, self.node_id);
         let (ctx_page_id, ctx_layer) = msg.context();
         trace.page_id = ctx_page_id.map(String::from);
         trace.layer_name = ctx_layer.map(String::from);
+
         if let Some(tx) = &state.capture_tx {
+            let direction_label = match direction {
+                TraceDirection::Sent => "Sent",
+                TraceDirection::Received => "Received",
+            };
             let mut json = serde_json::json!({
                 "type": "message_trace",
                 "ts": &trace.ts,
-                "direction": "Sent",
+                "direction": direction_label,
                 "msg": trace.msg_name,
                 "node_id": trace.node_id.to_string(),
                 "peer_node_id": trace.peer_node_id.to_string(),
@@ -453,6 +425,51 @@ impl<C: Connection> PeerActor<C> {
         if let Some(tx) = &state.message_tx {
             let _ = tx.send(trace);
         }
+    }
+
+    pub(in crate::peer_actor) fn flush_buffered_messages(
+        &self,
+        page_id: &str,
+        scribe: &ActorRef<ScribeMessage>,
+        state: &mut PeerActorState<C>,
+        context: &str,
+    ) {
+        if let Some(buffered) = state.pending_scribe_messages.remove(page_id) {
+            let count = buffered.len();
+            info!(
+                page_id = %page_id,
+                buffered_count = count,
+                "{}: flushing {} buffered messages",
+                context,
+                count
+            );
+
+            for msg in buffered {
+                if let Err(e) = scribe.cast(ScribeMessage::RemoteEphemeral {
+                    user_did: msg.user_did,
+                    device_id: msg.device_id,
+                    payload: msg.payload,
+                }) {
+                    warn!(page_id = %page_id, error = %e, "Failed to flush buffered message");
+                } else {
+                    debug!(page_id = %page_id, "Flushed buffered message to Scribe");
+                }
+            }
+        }
+    }
+
+    /// Send a message to the peer
+    #[instrument(skip_all, fields(node = %short(&self.node_id), msg = %msg.name()))]
+    async fn send_message(&self, msg: &Message, state: &PeerActorState<C>) {
+        let bytes = match msg.to_bytes() {
+            Ok(b) => b,
+            Err(e) => {
+                error!("Failed to serialize message: {}", e);
+                return;
+            }
+        };
+
+        self.emit_message_trace(TraceDirection::Sent, msg, state);
 
         if let Err(e) = state.conn.send_bytes(&bytes).await {
             error!("Failed to send message to {}: {}", self.node_id, e);
@@ -464,7 +481,12 @@ impl<C: Connection> PeerActor<C> {
     /// **Context**: We want to request an asset from peer
     /// **We do**: Track the request, send AssetPrepare message
     #[instrument(skip_all, fields(node = %short(&self.node_id), page_id = %page_id, hash = %hash))]
-    pub async fn send_asset_prepare(&self, page_id: &str, hash: &str, state: &mut PeerActorState<C>) {
+    pub async fn send_asset_prepare(
+        &self,
+        page_id: &str,
+        hash: &str,
+        state: &mut PeerActorState<C>,
+    ) {
         // Track the transfer for retry logic
         state.pending_asset_transfers.insert(
             hash.to_string(),
@@ -476,10 +498,14 @@ impl<C: Connection> PeerActor<C> {
         );
 
         // Send the request
-        self.send_message(&Message::AssetPrepare(AssetPrepareMsg {
-            page_id: page_id.to_string(),
-            hash: hash.to_string(),
-        }), state).await;
+        self.send_message(
+            &Message::AssetPrepare(AssetPrepareMsg {
+                page_id: page_id.to_string(),
+                hash: hash.to_string(),
+            }),
+            state,
+        )
+        .await;
 
         debug!(page_id = %page_id, hash = %hash, "Sent AssetPrepare (tracked for retry)");
     }
@@ -488,7 +514,13 @@ impl<C: Connection> PeerActor<C> {
     #[instrument(skip_all, fields(node = %short(&self.node_id), reason = %reason))]
     async fn reject(&self, reason: &str, state: &mut PeerActorState<C>) {
         warn!("Rejecting peer {}: {}", self.node_id, reason);
-        self.send_message(&Message::Rejected(RejectedMsg { reason: reason.to_string() }), state).await;
+        self.send_message(
+            &Message::Rejected(RejectedMsg {
+                reason: reason.to_string(),
+            }),
+            state,
+        )
+        .await;
         state.state = PeerState::fail(reason);
         self.notify_failed(state, reason);
     }
@@ -511,35 +543,51 @@ impl<C: Connection> PeerActor<C> {
     }
 
     /// Notify coordinator of authentication
-    fn notify_authenticated(&self, state: &PeerActorState<C>, peer_type: PeerType, did: &str, username: &str) {
+    fn notify_authenticated(
+        &self,
+        state: &PeerActorState<C>,
+        peer_type: PeerType,
+        did: &str,
+        username: &str,
+    ) {
         // Emit peer_identity event for capture system (DID → human-readable mapping)
         if let Some(ref tx) = state.capture_tx {
             let short_did = &did[did.len().saturating_sub(12)..];
-            let _ = tx.send(serde_json::json!({
-                "type": "peer_identity",
-                "ts": chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-                "node_id": self.node_id.to_string(),
-                "peer_type": format!("{:?}", peer_type),
-                "did": did,
-                "short_did": short_did,
-                "username": username,
-            }).to_string());
+            let _ = tx.send(
+                serde_json::json!({
+                    "type": "peer_identity",
+                    "ts": chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                    "node_id": self.node_id.to_string(),
+                    "peer_type": format!("{:?}", peer_type),
+                    "did": did,
+                    "short_did": short_did,
+                    "username": username,
+                })
+                .to_string(),
+            );
         }
 
-        let _ = state.coordinator.cast(CoordinatorMessage::PeerAuthenticated {
-            node_id: self.node_id,
-            peer_type,
-            did: did.to_string(),
-            username: username.to_string(),
-        });
+        if let Err(e) = state
+            .coordinator
+            .cast(CoordinatorMessage::PeerAuthenticated {
+                node_id: self.node_id,
+                peer_type,
+                did: did.to_string(),
+                username: username.to_string(),
+            })
+        {
+            warn!(node = %self.node_id, error = ?e, "Failed to notify coordinator: PeerAuthenticated");
+        }
     }
 
     /// Notify coordinator of failure
     fn notify_failed(&self, state: &PeerActorState<C>, reason: &str) {
-        let _ = state.coordinator.cast(CoordinatorMessage::PeerFailed {
+        if let Err(e) = state.coordinator.cast(CoordinatorMessage::PeerFailed {
             node_id: self.node_id,
             reason: reason.to_string(),
-        });
+        }) {
+            warn!(node = %self.node_id, error = ?e, "Failed to notify coordinator: PeerFailed");
+        }
     }
 }
 
@@ -554,7 +602,10 @@ impl<C: Connection> Actor for PeerActor<C> {
         myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        info!("PeerActor started for {} in {:?} mode", self.node_id, args.mode);
+        info!(
+            "PeerActor started for {} in {:?} mode",
+            self.node_id, args.mode
+        );
 
         // Spawn datagram read loop - routes ephemeral data to self
         let conn_for_datagrams = args.conn.clone();
@@ -566,14 +617,25 @@ impl<C: Connection> Actor for PeerActor<C> {
                 match conn_for_datagrams.read_datagram().await {
                     Ok(data) => {
                         debug!(node_id = %node_id, data_len = data.len(), "Datagram read loop: received datagram");
-                        if myself_for_datagrams.cast(PeerMessage::Datagram { data: data.to_vec() }).is_err() {
-                            debug!("PeerActor gone, stopping datagram read loop for {}", node_id);
+                        if myself_for_datagrams
+                            .cast(PeerMessage::Datagram {
+                                data: data.to_vec(),
+                            })
+                            .is_err()
+                        {
+                            debug!(
+                                "PeerActor gone, stopping datagram read loop for {}",
+                                node_id
+                            );
                             break;
                         }
                     }
                     Err(_) => {
                         // Connection closed
-                        debug!("Datagram read loop ending for {} (connection closed)", node_id);
+                        debug!(
+                            "Datagram read loop ending for {} (connection closed)",
+                            node_id
+                        );
                         break;
                     }
                 }
@@ -591,7 +653,7 @@ impl<C: Connection> Actor for PeerActor<C> {
                     Ok(streams) => streams,
                     Err(_) => {
                         let _ = coordinator_for_disconnect.cast(CoordinatorMessage::Disconnected {
-                            node_id: node_id_for_streams
+                            node_id: node_id_for_streams,
                         });
                         break;
                     }
@@ -643,7 +705,7 @@ impl<C: Connection> Actor for PeerActor<C> {
             butler: args.butler,
             blob_store: args.blob_store,
             pending_viewer_syncs: std::collections::HashMap::new(),
-            peer_encryption_key: None,
+            session_key: None,
             cached_peer_permit: None,
             page_subscriptions: std::collections::HashMap::new(),
             pending_sync_offers: std::collections::HashMap::new(),
@@ -652,6 +714,8 @@ impl<C: Connection> Actor for PeerActor<C> {
             scribe_connections: std::collections::HashMap::new(),
             pending_scribe_messages: std::collections::HashMap::new(),
             pending_space_request: None,
+            viewer_initial_sync: std::collections::HashMap::new(),
+            authority_permit_cache: std::collections::HashMap::new(),
             message_tx: args.message_tx,
             our_node_id: args.our_node_id,
             capture_tx: args.capture_tx,
@@ -682,30 +746,47 @@ impl<C: Connection> Actor for PeerActor<C> {
                 self.initiate_page_announce(&page_id, state).await;
             }
 
-            PeerMessage::GetShareableLink { space_id, response_tx } => {
-                self.initiate_get_shareable_link(&space_id, response_tx, state).await;
+            PeerMessage::GetShareableLink {
+                space_id,
+                response_tx,
+            } => {
+                self.initiate_get_shareable_link(&space_id, response_tx, state)
+                    .await;
             }
 
-            PeerMessage::RequestSpace { space_id, viewer_permit } => {
+            PeerMessage::RequestSpace {
+                space_id,
+                viewer_permit,
+            } => {
                 // Queue if handshake not complete yet (race: SpaceRequest sent before Ack)
                 if !matches!(state.state, PeerState::Authenticated { .. }) {
-                    info!("Queueing SpaceRequest for {} until handshake completes", space_id);
+                    info!(
+                        "Queueing SpaceRequest for {} until handshake completes",
+                        space_id
+                    );
                     state.pending_space_request = Some((space_id, viewer_permit));
                 } else {
-                    self.initiate_request_space_as_viewer(&space_id, &viewer_permit, state).await;
+                    self.initiate_request_space_as_viewer(&space_id, &viewer_permit, state)
+                        .await;
                 }
             }
 
             PeerMessage::SubscribeToPage { page_id, permit } => {
-                self.subscribe_to_page(myself, &page_id, &permit, state).await;
+                self.subscribe_to_page(myself, &page_id, &permit, state)
+                    .await;
             }
 
             PeerMessage::BroadcastReceived(payload) => {
                 self.handle_broadcast_received(payload, state).await;
             }
 
-            PeerMessage::IssueSyncConsent { space_id, space_template, page_template } => {
-                self.issue_sync_consent(&space_id, &space_template, &page_template, state).await;
+            PeerMessage::IssueSyncConsent {
+                space_id,
+                space_template,
+                page_template,
+            } => {
+                self.issue_sync_consent(&space_id, &space_template, &page_template, state)
+                    .await;
             }
 
             PeerMessage::SubscribeLayers { page_id, layers } => {
@@ -747,6 +828,11 @@ impl<C: Connection> Actor for PeerActor<C> {
         _myself: ActorRef<Self::Msg>,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
+        // Clear session key material
+        if let Some(ref mut key) = state.session_key {
+            key.fill(0);
+        }
+
         let subscription_count = state.page_subscriptions.len();
         let scribe_connection_count = state.scribe_connections.len();
 
@@ -757,22 +843,45 @@ impl<C: Connection> Actor for PeerActor<C> {
             subscription.ephemeral_listener_handle.abort();
 
             // Send Unsubscribe to Scribe
-            if let Err(e) = subscription.scribe.cast(butler::ScribeMessage::Unsubscribe {
-                user_did: subscription.user_did.clone(),
-                device_id: subscription.device_id.clone(),
-            }) {
+            if let Err(e) = subscription
+                .scribe
+                .cast(butler::ScribeMessage::Unsubscribe {
+                    user_did: subscription.user_did.clone(),
+                    device_id: subscription.device_id.clone(),
+                })
+            {
                 warn!("Failed to send Unsubscribe for page {}: {}", page_id, e);
             } else {
-                debug!("Unsubscribed from page {} (user: {}, device: {})",
-                    page_id, subscription.user_did, subscription.device_id);
+                debug!(
+                    "Unsubscribed from page {} (user: {}, device: {})",
+                    page_id, subscription.user_did, subscription.device_id
+                );
             }
         }
 
         // Clear direct Scribe connections
         state.scribe_connections.clear();
 
-        info!("PeerActor stopped for {} ({} subscriptions, {} scribe connections cleaned up)",
-            self.node_id, subscription_count, scribe_connection_count);
+        // Fail any pending shareable link requests now that connection is gone.
+        let pending_link_requests = state.pending_shareable_link_requests.len();
+        for (_, tx) in state.pending_shareable_link_requests.drain() {
+            let _ = tx.send(Err("Peer connection closed".to_string()));
+        }
+
+        // Clear pending transfer/sync state to avoid stale entries on reconnect.
+        let pending_asset_transfers = state.pending_asset_transfers.len();
+        state.pending_asset_transfers.clear();
+        state.pending_sync_offers.clear();
+        state.pending_viewer_syncs.clear();
+
+        info!(
+            "PeerActor stopped for {} ({} subscriptions, {} scribe connections, {} pending link requests, {} pending asset transfers cleaned up)",
+            self.node_id,
+            subscription_count,
+            scribe_connection_count,
+            pending_link_requests,
+            pending_asset_transfers
+        );
         Ok(())
     }
 }
@@ -786,48 +895,35 @@ impl<C: Connection> PeerActor<C> {
         message: Message,
         state: &mut PeerActorState<C>,
     ) {
-        // Emit to trace channel (tests) and capture channel (observability)
-        let mut trace = MessageTrace::new(
-            TraceDirection::Received,
-            message.name(),
-            state.our_node_id,
-            self.node_id,
-        );
-        let (ctx_page_id, ctx_layer) = message.context();
-        trace.page_id = ctx_page_id.map(String::from);
-        trace.layer_name = ctx_layer.map(String::from);
-        if let Some(tx) = &state.capture_tx {
-            let mut json = serde_json::json!({
-                "type": "message_trace",
-                "ts": &trace.ts,
-                "direction": "Received",
-                "msg": trace.msg_name,
-                "node_id": trace.node_id.to_string(),
-                "peer_node_id": trace.peer_node_id.to_string(),
-            });
-            if let Some(ref pid) = trace.page_id {
-                json["page_id"] = serde_json::json!(pid);
-            }
-            if let Some(ref ln) = trace.layer_name {
-                json["layer"] = serde_json::json!(ln);
-            }
-            let _ = tx.send(json.to_string());
-        }
-        if let Some(tx) = &state.message_tx {
-            let _ = tx.send(trace);
-        }
+        self.emit_message_trace(TraceDirection::Received, &message, state);
 
         match message {
             Message::Hello(m) => {
-                self.on_hello(&m.did, &m.username, &m.public_key, &m.encryption_key, &m.permit, state).await;
+                self.on_hello(
+                    &m.did,
+                    &m.username,
+                    &m.public_key,
+                    &m.encryption_key,
+                    &m.permit,
+                    state,
+                )
+                .await;
             }
 
             Message::Welcome(m) => {
-                self.on_welcome(myself.clone(), &m.permit_for_peer, &m.node_public_key, &m.node_encryption_key, state).await;
+                self.on_welcome(
+                    myself.clone(),
+                    &m.permit_for_peer,
+                    &m.node_public_key,
+                    &m.node_encryption_key,
+                    state,
+                )
+                .await;
             }
 
             Message::PermitGrant(m) => {
-                self.on_permit_grant(myself.clone(), &m.permit_for_node, state).await;
+                self.on_permit_grant(myself.clone(), &m.permit_for_node, state)
+                    .await;
             }
 
             Message::Ack => {
@@ -843,19 +939,35 @@ impl<C: Connection> PeerActor<C> {
 
             // Publishing messages
             Message::PublishSpace(m) => {
-                self.on_publish_space(&m.request_id, &m.space, &m.space_permit, state).await;
+                self.on_publish_space(&m.request_id, &m.space, &m.space_permit, state)
+                    .await;
             }
 
             Message::PageAnnounce(m) => {
-                self.on_page_announce(&m.request_id, &m.page, &m.page_permit, &m.owner_permit, state).await;
+                self.on_page_announce(
+                    &m.request_id,
+                    &m.page,
+                    &m.page_permit,
+                    &m.owner_permit,
+                    state,
+                )
+                .await;
             }
 
             Message::PageAnnounceAck(m) => {
-                self.on_page_announce_ack(myself.clone(), &m.request_id, &m.page_id, &m.permit, state).await;
+                self.on_page_announce_ack(
+                    myself.clone(),
+                    &m.request_id,
+                    &m.page_id,
+                    &m.permit,
+                    state,
+                )
+                .await;
             }
 
             Message::PublishSpaceAck(m) => {
-                self.on_publish_space_ack(&m.request_id, &m.permit, &m.pages, state).await;
+                self.on_publish_space_ack(&m.request_id, &m.permit, &m.pages, state)
+                    .await;
             }
 
             Message::PublishError(m) => {
@@ -874,7 +986,6 @@ impl<C: Connection> PeerActor<C> {
                     &m.layer_name,
                     &m.data,
                     &m.state_vector,
-                    &m.ephemeral_public,
                     m.authority_permit.as_deref(),
                     state,
                 )
@@ -882,11 +993,13 @@ impl<C: Connection> PeerActor<C> {
             }
 
             Message::SyncAccept(m) => {
-                self.on_sync_accept(&m.page_id, &m.layer_name, &m.state_vector, state).await;
+                self.on_sync_accept(&m.page_id, &m.layer_name, &m.state_vector, state)
+                    .await;
             }
 
             Message::SyncAck(m) => {
-                self.on_sync_ack(&m.page_id, &m.layer_name, &m.state_vector, state).await;
+                self.on_sync_ack(&m.page_id, &m.layer_name, &m.state_vector, state)
+                    .await;
             }
 
             Message::SyncReset(m) => {
@@ -894,56 +1007,113 @@ impl<C: Connection> PeerActor<C> {
             }
 
             Message::SyncSnapshot(m) => {
-                self.on_sync_snapshot(&m.page_id, &m.layer_name, &m.snapshot, &m.state_vector, &m.ephemeral_public, state).await;
+                self.on_sync_snapshot(
+                    &m.page_id,
+                    &m.layer_name,
+                    &m.snapshot,
+                    &m.state_vector,
+                    state,
+                )
+                .await;
             }
 
             // Shareable link messages
             Message::GetShareableLinkRequest(m) => {
-                self.on_get_shareable_link_request(&m.request_id, &m.space_id, state).await;
+                self.on_get_shareable_link_request(&m.request_id, &m.space_id, state)
+                    .await;
             }
 
             Message::GetShareableLinkResponse(m) => {
-                self.on_get_shareable_link_response(&m.request_id, &m.space_id, &m.permit, state).await;
+                self.on_get_shareable_link_response(&m.request_id, &m.space_id, &m.permit, state)
+                    .await;
             }
 
             // Viewer space request messages
             Message::SpaceRequest(m) => {
-                self.on_space_request(&m.request_id, &m.space_id, &m.viewer_did, &m.viewer_public_key, &m.viewer_encryption_key, &m.viewer_permit, state).await;
+                self.on_space_request(
+                    &m.request_id,
+                    &m.space_id,
+                    &m.viewer_did,
+                    &m.viewer_public_key,
+                    &m.viewer_encryption_key,
+                    &m.viewer_permit,
+                    state,
+                )
+                .await;
             }
 
             Message::SpaceData(m) => {
-                self.on_space_data(&m.request_id, &m.space_id, &m.delegated_permit, &m.space, &m.pages, state).await;
+                self.on_space_data(
+                    &m.request_id,
+                    &m.space_id,
+                    &m.delegated_permit,
+                    &m.space,
+                    &m.pages,
+                    state,
+                )
+                .await;
             }
 
             Message::SpaceDataAck(m) => {
-                self.on_space_data_ack(myself.clone(), &m.request_id, &m.space_id, &m.delegated_permit, state).await;
+                self.on_space_data_ack(
+                    myself.clone(),
+                    &m.request_id,
+                    &m.space_id,
+                    &m.delegated_permit,
+                    state,
+                )
+                .await;
             }
 
             Message::SpaceRequestError(m) => {
-                error!("SpaceRequestError: request={} error={}", m.request_id, m.error);
+                error!(
+                    "SpaceRequestError: request={} error={}",
+                    m.request_id, m.error
+                );
             }
 
             // Sync consent messages
             Message::SyncConsentGrant(m) => {
-                self.on_sync_consent_grant(&m.request_id, &m.space_id, &m.space_consent_permit, &m.page_consent_permits, state).await;
+                self.on_sync_consent_grant(
+                    &m.request_id,
+                    &m.space_id,
+                    &m.space_consent_permit,
+                    &m.page_consent_permits,
+                    state,
+                )
+                .await;
             }
 
             Message::SyncConsentAck(m) => {
-                self.on_sync_consent_ack(&m.request_id, &m.space_id, state).await;
+                self.on_sync_consent_ack(&m.request_id, &m.space_id, state)
+                    .await;
             }
 
             // Layer Subscribe (pull-based via __sync_meta)
             Message::LayerSubscribe(m) => {
-                self.on_layer_subscribe(&m.request_id, &m.page_id, &m.layer_name, &m.consent_permit, state).await;
+                self.on_layer_subscribe(
+                    &m.request_id,
+                    &m.page_id,
+                    &m.layer_name,
+                    &m.consent_permit,
+                    state,
+                )
+                .await;
             }
 
             Message::LayerSubscribeAck(m) => {
                 self.on_layer_subscribe_ack(
-                    &m.request_id, &m.page_id, &m.layer_name,
-                    m.accepted, m.reason.as_deref(),
-                    &m.data, &m.state_vector, &m.ephemeral_public,
-                    &m.layer_permit, state,
-                ).await;
+                    &m.request_id,
+                    &m.page_id,
+                    &m.layer_name,
+                    m.accepted,
+                    m.reason.as_deref(),
+                    &m.data,
+                    &m.state_vector,
+                    &m.layer_permit,
+                    state,
+                )
+                .await;
             }
 
             // Asset sync messages
@@ -952,11 +1122,13 @@ impl<C: Connection> PeerActor<C> {
             }
 
             Message::AssetReady(m) => {
-                self.on_asset_ready(&m.page_id, &m.hash, &m.iroh_hash, state).await;
+                self.on_asset_ready(&m.page_id, &m.hash, &m.iroh_hash, state)
+                    .await;
             }
 
             Message::AssetAck(m) => {
-                self.on_asset_ack(&m.page_id, &m.hash, m.success, m.error.as_deref(), state).await;
+                self.on_asset_ack(&m.page_id, &m.hash, m.success, m.error.as_deref(), state)
+                    .await;
             }
 
             Message::Error(m) => {
@@ -981,7 +1153,10 @@ impl<C: Connection> PeerActor<C> {
         let datagram = match EphemeralDatagram::from_bytes(data) {
             Ok(d) => d,
             Err(e) => {
-                warn!("Failed to deserialize ephemeral datagram from {}: {}", self.node_id, e);
+                warn!(
+                    "Failed to deserialize ephemeral datagram from {}: {}",
+                    self.node_id, e
+                );
                 return;
             }
         };
@@ -1029,14 +1204,25 @@ impl<C: Connection> PeerActor<C> {
             "No Scribe connection - buffering ephemeral for later delivery"
         );
 
-        state.pending_scribe_messages
+        let buffer = state
+            .pending_scribe_messages
             .entry(datagram.page_id.clone())
-            .or_default()
-            .push(BufferedScribeMessage {
-                payload: datagram.payload,
-                user_did,
-                device_id,
-            });
+            .or_default();
+        buffer.push(BufferedScribeMessage {
+            payload: datagram.payload,
+            user_did,
+            device_id,
+        });
+        if buffer.len() > MAX_BUFFERED_EPHEMERAL_PER_PAGE {
+            let drop_count = buffer.len() - MAX_BUFFERED_EPHEMERAL_PER_PAGE;
+            buffer.drain(0..drop_count);
+            debug!(
+                page_id = %datagram.page_id,
+                dropped = drop_count,
+                max = MAX_BUFFERED_EPHEMERAL_PER_PAGE,
+                "Dropped oldest buffered ephemeral messages"
+            );
+        }
     }
 
     /// Handle Scribe connection request
@@ -1051,30 +1237,7 @@ impl<C: Connection> PeerActor<C> {
         scribe: ractor::ActorRef<butler::ScribeMessage>,
         state: &mut PeerActorState<C>,
     ) {
-        // Flush any buffered messages for this page
-        if let Some(buffered) = state.pending_scribe_messages.remove(page_id) {
-            let count = buffered.len();
-            info!(
-                page_id = %page_id,
-                buffered_count = count,
-                "ScribeConnect received, flushing {} buffered messages",
-                count
-            );
-
-            for msg in buffered {
-                if let Err(e) = scribe.cast(ScribeMessage::RemoteEphemeral {
-                    user_did: msg.user_did,
-                    device_id: msg.device_id,
-                    payload: msg.payload,
-                }) {
-                    warn!(page_id = %page_id, error = %e, "Failed to flush buffered message");
-                } else {
-                    debug!(page_id = %page_id, "Flushed buffered message to Scribe");
-                }
-            }
-        } else {
-            info!(page_id = %page_id, "ScribeConnect received, no buffered messages");
-        }
+        self.flush_buffered_messages(page_id, &scribe, state, "ScribeConnect received");
 
         // Store the connection for future messages
         state.scribe_connections.insert(page_id.to_string(), scribe);

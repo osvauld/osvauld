@@ -34,7 +34,6 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        // Check if already subscribed
         if state.page_subscriptions.contains_key(page_id) {
             debug!("Already subscribed to page {}", page_id);
             return;
@@ -104,13 +103,9 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        // Create CRDT broadcast channel
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<butler::BroadcastPayload>(32);
-
-        // Create ephemeral broadcast channel (for cursor/typing/presence)
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<butler::BroadcastPayload>(4096);
         let (eph_tx, mut eph_rx) = tokio::sync::mpsc::channel::<butler::EphemeralOutbound>(64);
 
-        // Subscribe to Scribe with both CRDT and ephemeral channels
         let device_id = self.node_id.to_string();
         if let Err(e) = scribe.cast(butler::ScribeMessage::Subscribe {
             user_did: peer_did.clone(),
@@ -188,28 +183,9 @@ impl<C: Connection> PeerActor<C> {
             .page_subscriptions
             .insert(page_id.to_string(), subscription);
 
-        // Register direct Scribe connection and flush any buffered messages
-        // This implements the receiver-initiates pattern for reliable message delivery
-        if let Some(buffered) = state.pending_scribe_messages.remove(page_id) {
-            let count = buffered.len();
-            info!(
-                page_id = %page_id,
-                buffered_count = count,
-                "Flushing {} buffered messages to Scribe on subscription",
-                count
-            );
-            for msg in buffered {
-                if let Err(e) = scribe.cast(butler::ScribeMessage::RemoteEphemeral {
-                    user_did: msg.user_did,
-                    device_id: msg.device_id,
-                    payload: msg.payload,
-                }) {
-                    warn!(page_id = %page_id, error = %e, "Failed to flush buffered message");
-                } else {
-                    debug!(page_id = %page_id, "Flushed buffered message to Scribe");
-                }
-            }
-        }
+        // Register direct Scribe connection and flush any buffered messages.
+        // This implements the receiver-initiates pattern for reliable message delivery.
+        self.flush_buffered_messages(page_id, &scribe, state, "SubscribeToPage");
         state
             .scribe_connections
             .insert(page_id.to_string(), scribe.clone());
@@ -286,20 +262,18 @@ impl<C: Connection> PeerActor<C> {
 
         // Resubscribe to dead subscriptions
         for page_id in dead_subscriptions {
-            // Remove the dead subscription first
             if let Some(sub) = state.page_subscriptions.remove(&page_id) {
-                // Abort any still-running handles to clean up
                 sub.listener_handle.abort();
                 sub.ephemeral_listener_handle.abort();
 
-                // Send unsubscribe to clean up Scribe state
                 let _ = sub.scribe.cast(butler::ScribeMessage::Unsubscribe {
                     user_did: sub.user_did,
                     device_id: sub.device_id,
                 });
             }
 
-            // Resubscribe (uses empty permit - will look up stored permit)
+            state.scribe_connections.remove(&page_id);
+
             self.subscribe_to_page(myself.clone(), &page_id, "", state)
                 .await;
         }
@@ -308,7 +282,7 @@ impl<C: Connection> PeerActor<C> {
     /// Handle broadcast received from Scribe - encrypt and send as SyncOffer
     ///
     /// **Context**: Scribe sent us an update to forward to this peer
-    /// **We do**: ECDH encrypt with peer's key, send as SyncOffer
+    /// **We do**: Encrypt with session key, send as SyncOffer
     /// **3-Step**: This initiates the sync protocol; we wait for SyncAccept
     #[instrument(skip(self, state, payload), fields(page_id = %payload.page_id, layer_name = %payload.layer_name))]
     pub(in crate::peer_actor) async fn handle_broadcast_received(
@@ -324,24 +298,23 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        // Need peer's encryption key
-        let peer_encryption_key = match state.peer_encryption_key {
+        // Need session key
+        let session_key = match state.session_key {
             Some(key) => key,
             None => {
-                warn!("Cannot send SyncOffer: peer encryption key not set");
+                warn!("Cannot send SyncOffer: session key not set");
                 return;
             }
         };
 
-        // Encrypt update using ECDH
-        let (ephemeral_public, encrypted_data) =
-            match herald::encrypt_for_transfer(&peer_encryption_key, &payload.update) {
-                Ok(result) => result,
-                Err(e) => {
-                    error!("Failed to encrypt update for SyncOffer: {}", e);
-                    return;
-                }
-            };
+        // Encrypt update using session key
+        let encrypted_data = match herald::encrypt_symmetric(&session_key, &payload.update) {
+            Ok(result) => result,
+            Err(e) => {
+                error!("Failed to encrypt update for SyncOffer: {}", e);
+                return;
+            }
+        };
 
         // Fire-and-forget: Don't track pending sync offers for real-time broadcasts.
         // Trust CRDTs to converge. This avoids false divergence detection when
@@ -356,23 +329,30 @@ impl<C: Connection> PeerActor<C> {
             format!("{}/{}", payload.page_id, payload.layer_name)
         };
 
-        let authority_permit = match state.butler.permits().authority().get(
-            &payload.page_id,
-            &full_layer_name,
-            &peer_did,
-        ) {
-            Ok(Some((_version, permit))) => Some(permit),
-            Ok(None) => None,
-            Err(e) => {
-                warn!(
-                    page_id = %payload.page_id,
-                    layer_name = %full_layer_name,
-                    audience = %peer_did,
-                    error = %e,
-                    "Failed to look up layer authority permit for SyncOffer"
-                );
-                None
-            }
+        let cache_key = (payload.page_id.clone(), full_layer_name.clone(), peer_did.clone());
+        let authority_permit = if let Some(cached) = state.authority_permit_cache.get(&cache_key) {
+            cached.clone()
+        } else {
+            let result = match state.butler.permits().authority().get(
+                &payload.page_id,
+                &full_layer_name,
+                &peer_did,
+            ) {
+                Ok(Some((_version, permit))) => Some(permit),
+                Ok(None) => None,
+                Err(e) => {
+                    warn!(
+                        page_id = %payload.page_id,
+                        layer_name = %full_layer_name,
+                        audience = %peer_did,
+                        error = %e,
+                        "Failed to look up layer authority permit for SyncOffer"
+                    );
+                    None
+                }
+            };
+            state.authority_permit_cache.insert(cache_key, result.clone());
+            result
         };
 
         // Send SyncOffer with our state vector
@@ -382,7 +362,6 @@ impl<C: Connection> PeerActor<C> {
             layer_type: LayerType::from_layer_name(&payload.layer_name),
             data: encrypted_data,
             state_vector: payload.state_vector,
-            ephemeral_public,
             authority_permit,
         });
 

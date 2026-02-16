@@ -335,15 +335,15 @@ impl<C: Connection> PeerActor<C> {
         };
 
         // Encrypt snapshot for transfer
-        let peer_encryption_key = match state.peer_encryption_key {
+        let session_key = match state.session_key {
             Some(key) => key,
             None => {
-                warn!("Cannot send LayerSubscribeAck: peer encryption key not set");
+                warn!("Cannot send LayerSubscribeAck: session key not set");
                 self.send_layer_subscribe_reject(
                     request_id,
                     page_id,
                     layer_name,
-                    "no encryption key",
+                    "no session key",
                     state,
                 )
                 .await;
@@ -351,22 +351,21 @@ impl<C: Connection> PeerActor<C> {
             }
         };
 
-        let (ephemeral_public, encrypted_data) =
-            match herald::encrypt_for_transfer(&peer_encryption_key, &snapshot_data) {
-                Ok(result) => result,
-                Err(e) => {
-                    error!("Failed to encrypt LayerSubscribeAck data: {}", e);
-                    self.send_layer_subscribe_reject(
-                        request_id,
-                        page_id,
-                        layer_name,
-                        "encryption failed",
-                        state,
-                    )
-                    .await;
-                    return;
-                }
-            };
+        let encrypted_data = match herald::encrypt_symmetric(&session_key, &snapshot_data) {
+            Ok(result) => result,
+            Err(e) => {
+                error!("Failed to encrypt LayerSubscribeAck data: {}", e);
+                self.send_layer_subscribe_reject(
+                    request_id,
+                    page_id,
+                    layer_name,
+                    "encryption failed",
+                    state,
+                )
+                .await;
+                return;
+            }
+        };
 
         // Ensure peer is a per-layer subscriber for future broadcasts.
         // HandleLayerSubscribe attempts this internally, but as a belt-and-suspenders
@@ -390,7 +389,6 @@ impl<C: Connection> PeerActor<C> {
             reason: None,
             data: encrypted_data,
             state_vector,
-            ephemeral_public,
             layer_permit,
         });
 
@@ -418,7 +416,6 @@ impl<C: Connection> PeerActor<C> {
             reason: Some(reason.to_string()),
             data: Vec::new(),
             state_vector: Vec::new(),
-            ephemeral_public: [0u8; 32],
             layer_permit: String::new(),
         });
         self.send_message(&msg, state).await;
@@ -430,7 +427,7 @@ impl<C: Connection> PeerActor<C> {
     /// **Permit-driven**: Detects permit type to determine handling:
     ///   - `layer_authority` → We're the node, creator sent authority. Store + fan out.
     ///   - `layer_permit` → We're the user, node sent access permit. Store + apply.
-    #[instrument(skip(self, state, data, state_vector, ephemeral_public, layer_permit), fields(page_id = %page_id, layer = %layer_name))]
+    #[instrument(skip(self, state, data, state_vector, layer_permit), fields(page_id = %page_id, layer = %layer_name))]
     pub(in crate::peer_actor) async fn on_layer_subscribe_ack(
         &self,
         _request_id: &str,
@@ -440,7 +437,6 @@ impl<C: Connection> PeerActor<C> {
         reason: Option<&str>,
         data: &[u8],
         state_vector: &[u8],
-        ephemeral_public: &[u8; 32],
         layer_permit: &str,
         state: &mut PeerActorState<C>,
     ) {
@@ -482,22 +478,21 @@ impl<C: Connection> PeerActor<C> {
         );
 
         // Decrypt data
-        let our_secret = match state.butler.encryption_key().await {
-            Ok(key) => key,
-            Err(e) => {
-                error!("Failed to get encryption key for LayerSubscribeAck: {}", e);
+        let session_key = match state.session_key {
+            Some(key) => key,
+            None => {
+                error!("Cannot decrypt LayerSubscribeAck: session key not set");
                 return;
             }
         };
 
-        let decrypted_data =
-            match herald::decrypt_from_transfer(&our_secret, ephemeral_public, data) {
-                Ok(plaintext) => plaintext,
-                Err(e) => {
-                    error!("Failed to decrypt LayerSubscribeAck data: {}", e);
-                    return;
-                }
-            };
+        let decrypted_data = match herald::decrypt_symmetric(&session_key, data) {
+            Ok(plaintext) => plaintext,
+            Err(e) => {
+                error!("Failed to decrypt LayerSubscribeAck data: {}", e);
+                return;
+            }
+        };
 
         // Detect permit type to determine handling path
         let is_authority = gurkha::Permit::from_token(layer_permit)

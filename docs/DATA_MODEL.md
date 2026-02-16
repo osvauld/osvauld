@@ -210,6 +210,72 @@ Loro handles conflicts automatically:
 - **List**: Interleaving for concurrent inserts
 - **Text**: Character-level merging
 
+### sync_meta Protocol Layer
+
+Each peer has a `__sync_meta:{did}` layer that serves as:
+- **Discovery catalog**: What layers exist and should be synced
+- **Access intent**: Which layers a peer should discover (written by node for users)
+- **Sync status tracker**: `false` = discovered but not synced, `true` = synced
+
+#### Ownership and Node/User Modes
+
+| Layer | Created By | Written By | Syncs To |
+|-------|------------|------------|----------|
+| `__sync_meta:{creator_did}` | Node | Creator | Creator→Node |
+| `__sync_meta:{user_did}` | Node | Node | Node→User |
+
+**Creator**: The owner who creates dynamic layers. Their `__sync_meta` layer is created by the Node but written to by themselves.
+
+**Node**: Creates `__sync_meta` layers for both creators and users. For creators, it subscribes to the creator's `__sync_meta`. For users, it writes entries to their `__sync_meta`.
+
+**User**: Has their `__sync_meta` layer created and written by the Node. They subscribe to it to discover layers.
+
+#### Flow Example: Creator → Node → User
+
+```
+Creator                         Node                        User
+  │                              │                           │
+  │ create_dynamic_layer()       │                           │
+  │ ────────────────────────────>│                           │
+  │   writes to __sync_meta:self │                           │
+  │   (synced=false)             │                           │
+  │                              │                           │
+  │    SyncOffer(__sync_meta)    │                           │
+  │ ────────────────────────────>│                           │
+  │                              │ detect_new_dynamic_layers()│
+  │                              │ issue LayerSubscribe ─────>│
+  │                              │                           │
+  │ <──── LayerSubscribe ────────│                           │
+  │   (from Node)                │                           │
+  │                              │                           │
+  │ LayerSubscribeAck ──────────>│                           │
+  │   (authority permit)         │                           │
+  │                              │ store authority           │
+  │                              │ mark creator's entry synced│
+  │                              │ fan out to users ────────>│
+  │                              │   writes to __sync_meta:user│
+  │                              │                           │
+  │                              │<──── SyncOffer ────────────│
+  │                              │    (user's __sync_meta)   │
+  │                              │                           │
+  │                              │  check_sync_meta_and_subscribe()
+  │                              │<──── LayerSubscribe ──────│
+  │                              │                           │
+  │                              │ LayerSubscribeAck ────────>│
+  │                              │   (layer_permit)          │
+  │                              │                           │
+  │                              │           mark own entry synced
+```
+
+#### Entry Marking Responsibility
+
+- **Creator's `__sync_meta`**: Node marks entries synced in `handle_store_layer_authority`
+- **User's `__sync_meta`**: User marks entries synced in `handle_layer_permit_ack` via `MarkSyncMetaSynced`
+
+The same `scribe` crate code runs on both Nodes and Users (Creator-side), with behavior switching based on:
+- **Node mode**: Creates `__sync_meta` layers for others, writes to users' layers
+- **User mode**: Subscribes to their own `__sync_meta`, marks entries synced upon reception
+
 ## Encryption
 
 ### At Rest
@@ -229,8 +295,32 @@ All data is encrypted before storage:
 
 ### In Transit
 
-Sync data is encrypted per-message using ephemeral ECDH:
+Sync data is encrypted using per-connection session keys:
 
+```
+Handshake (once per connection)
+  │
+  │  Both sides derive session key:
+  │  session_key = HKDF(
+  │    ECDH(our_static_secret, peer_static_public),
+  │    "herald-session-v1"
+  │  )
+  │
+Per-message (reuses session key)
+  │
+Sender                            Receiver
+  │                                  │
+  │  encrypted = AES-GCM(            │
+  │    session_key,                  │
+  │    random_nonce,                 │
+  │    plaintext                     │
+  │  )                               │
+  │  - nonce || ciphertext || tag    │
+  │─────────────────────────────────>│
+  │                                  │
+  │              Uses same session_key  │
+  │              (derived at handshake) │
+  │              decrypt                │
 ```
 Sender                              Receiver
   │                                     │
@@ -261,6 +351,27 @@ Identity Key (long-term)
             │
             └── Layer Key (derived per layer)
 ```
+
+## AppManifest
+
+Every app directory contains a `manifest.json` that is deserialized as `domains::AppManifest`:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | (required) | Display name |
+| `version` | string | (required) | Semver version |
+| `entry_logic` | string | (required) | Path to app.lua |
+| `renderer` | string | `"slint"` | `"slint"` or `"raylib"` |
+| `entry_ui` | string | `None` | Path to .slint file (Slint only) |
+| `models` | string[] | `[]` | VecModel names (Slint only) |
+| `width` | u32 | `800` | Window width (Raylib) |
+| `height` | u32 | `600` | Window height (Raylib) |
+| `target_fps` | u32 | `60` | Target FPS (Raylib) |
+| `entry_node` | string | `None` | Path to node.lua (kunki/headless runtime) |
+
+The `domains::AppManifest` type is shared across sthalam (desktop app), kunki (headless node runtime), and both renderers (renderer_slint, renderer_raylib). See [MANIFEST.md](app-dev/MANIFEST.md) for usage patterns.
+
+---
 
 ## Derivations
 
