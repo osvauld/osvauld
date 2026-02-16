@@ -1,0 +1,10 @@
+{
+    "name": "Snake Raylib",
+    "version": "1.0.0",
+    "description": "Classic snake game using Raylib renderer",
+    "entry_logic": "app.lua",
+    "renderer": "raylib",
+    "width": 600,
+    "height": 440,
+    "target_fps": 60
+}

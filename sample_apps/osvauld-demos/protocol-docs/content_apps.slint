@@ -1,0 +1,378 @@
+// Content: Building Apps — Getting started, Lua API, Scribe, Permits, Renderers, Validation
+
+import { Theme } from "theme.slint";
+import { SectionCard, CodeBlock, InfoCard, DiagramBox, TableRow } from "components.slint";
+
+export component ContentApps inherits VerticalLayout {
+    in property<int> subsection: 0;
+    spacing: 20px;
+
+    // ── Getting Started (subsection 0) ──
+    if subsection == 0: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Getting Started";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Every Sthalam app is three files: a manifest, a Slint UI file, and a Lua logic file. The runtime handles everything else.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "App Structure";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Directory Layout";
+            code: "sample_apps/osvauld-demos/my-app/\n  manifest.json   # App metadata + config\n  app.slint       # UI (declarative Slint)\n  app.lua         # Logic (Lua scripting)";
+        }
+
+        CodeBlock {
+            label: "manifest.json";
+            code: "{\n  \"name\": \"My App\",\n  \"version\": \"1.0.0\",\n  \"description\": \"A simple demo app\",\n  \"entry_ui\": \"app.slint\",\n  \"entry_logic\": \"app.lua\",\n  \"renderer\": \"slint\"\n}";
+        }
+
+        Text {
+            text: "Minimal App";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "app.slint";
+            code: "export global AppAPI {\n  in-out property<string> greeting: \"Hello!\";\n  callback on_click(string);\n}\n\nexport component App inherits Rectangle {\n  background: #1a1a2e;\n\n  Text {\n    text: AppAPI.greeting;\n    font-size: 24px;\n    color: white;\n  }\n\n  TouchArea {\n    clicked => { AppAPI.on_click(\"hello\"); }\n  }\n}";
+        }
+
+        CodeBlock {
+            label: "app.lua";
+            code: "function on_init()\n  ui:set(\"greeting\", \"Welcome!\")\nend\n\nfunction on_click(target)\n  if target == \"hello\" then\n    ui:set(\"greeting\", \"You clicked!\")\n  end\nend";
+        }
+
+        Text {
+            text: "Registration";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "page.lua (parent page definition)";
+            code: "-- Define roles\nrole(\"owner\", { can_share = true })\nrole(\"collaborator\", { parent = \"owner\" })\n\n-- Define layers\nlayer(\"messages\", \"map\", {\n  owner = {\"read\", \"write\", \"sync\"},\n  collaborator = {\"read\", \"write\", \"sync\"}\n})\n\n-- Register app\napp(\"My App\", {\n  client = {\n    ui = \"my-app/app.slint\",\n    logic = \"my-app/app.lua\"\n  },\n  for_role = {\"owner\", \"collaborator\"}\n})";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Lua API (subsection 1) ──
+    if subsection == 1: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Lua API Reference";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Eight core modules available in every Lua app. The runtime injects these globals — no require() needed.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "UI Module";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "ui:set(\"prop\", value)     -- Set UI property\nui:get(\"prop\")            -- Get UI property\nui:push(\"list\", item)     -- Append to VecModel\nui:update(\"list\", i, val) -- Update at index\nui:insert(\"list\", i, val) -- Insert at index\nui:remove(\"list\", i)      -- Remove at index\nui:clear(\"list\")          -- Clear VecModel";
+        }
+
+        Text {
+            text: "Event Handlers";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: 4px;
+
+                TableRow { key: "HANDLER"; value: "TRIGGER"; is-header: true; }
+                TableRow { key: "on_init()"; value: "App loaded, run setup code"; }
+                TableRow { key: "on_click(target)"; value: "TouchArea or button clicked"; }
+                TableRow { key: "on_submit()"; value: "TextInput accepted (Enter)"; }
+                TableRow { key: "on_text_input(text)"; value: "TextInput changed"; }
+                TableRow { key: "on_loro_change(layer)"; value: "CRDT layer data changed"; }
+                TableRow { key: "on_ephemeral(did,fn,args)"; value: "Ephemeral message received"; }
+                TableRow { key: "on_peer_joined(did)"; value: "Peer connected"; }
+                TableRow { key: "on_peer_left(did)"; value: "Peer disconnected"; }
+                TableRow { key: "on_key_pressed(key)"; value: "Keyboard input (games)"; }
+                TableRow { key: "tick()"; value: "~60fps game loop (if enabled)"; }
+            }
+        }
+
+        Text {
+            text: "Timer Module";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "-- Periodic callback\ntimer.setInterval(1000, function()\n  refresh_ui()\nend)\n\n-- One-shot callback\ntimer.setTimeout(5000, function()\n  ui:set(\"status\", \"Ready\")\nend)";
+        }
+
+        Text {
+            text: "API Export Module";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "-- Export function for external callers\napi.export(\"send_message\", function(text)\n  messages:push({ text = text, sender = my_did })\nend)\n\n-- Call from Python/control server:\n-- client.eval('api.call(\"send_message\", \"Hello\")')";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Scribe API (subsection 2) ──
+    if subsection == 2: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Scribe API";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Scribe is the unified data layer — identity, CRDT storage, bindings, and ephemeral messaging all through one interface.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "Identity";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "local page_id = scribe:page_id()  -- Current page ID\nlocal my_did = scribe:my_did()    -- My DID (public key)\nlocal my_name = scribe:my_name()  -- My display name";
+        }
+
+        Text {
+            text: "Layer Access";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "-- Get typed layer handles\nlocal products = scribe:map(\"products\")\nlocal messages = scribe:list(\"messages\")\n\n-- Dynamic layer names\nlocal orders = scribe:map(\"orders/\" .. my_did)\nlocal channel_msgs = scribe:list(\n  \"channels/\" .. channel_id .. \"/messages\"\n)";
+        }
+
+        Text {
+            text: "Declarative Bindings";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Auto-sync layer → UI";
+            code: "-- Bind layer data to UI model\nscribe:bind(\"products\", \"products\", {\n  key = \"id\",\n  transform = function(p)\n    return {\n      id = p.id,\n      name = p.name,\n      price = \"$\" .. p.price\n    }\n  end\n})\n\n-- Per-user binding with {me} placeholder\nscribe:bind(\"my_orders\", \"orders/{me}\")\n\n-- Change listener\nscribe:on_change(\"messages\", function()\n  refresh_messages()\nend)\n\n-- Wildcard listener\nscribe:on_change(\"channels/*/messages\", function()\n  refresh_messages()\nend)";
+        }
+
+        Text {
+            text: "Ephemeral Messaging";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "-- Send ephemeral (no persistence, ~1200B)\nscribe:send(\"cursor\", { x = 100, y = 200 })\nscribe:send(\"typing\", { user = my_name })\n\n-- Receive in handler\nfunction on_ephemeral(did, func, args)\n  if func == \"cursor\" then\n    update_cursor(did, args.x, args.y)\n  end\nend";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Permits (subsection 3) ──
+    if subsection == 3: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Permits";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "UCAN-based permits control who can access what. Permits are delegatable tokens embedded in the protocol handshake.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "Defining Roles";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "page.lua";
+            code: "role(\"owner\", {\n  can_share = true,\n  can_delegate = true\n})\n\nrole(\"collaborator\", {\n  parent = \"owner\"  -- inherits from owner\n})\n\nrole(\"node\", {\n  parent = \"owner\",\n  can_relay = true\n})";
+        }
+
+        Text {
+            text: "Layer Permissions";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Per-role layer access";
+            code: "layer(\"messages\", \"map\", {\n  owner =        {\"read\", \"write\", \"sync\"},\n  collaborator = {\"read\", \"write\", \"sync\"},\n  node =         {\"read\", \"write\", \"sync\"}\n})\n\n-- Dynamic layers with create permission\nlayer(\"channels/{channel_id}/messages\", \"map\", {\n  owner =        {\"read\", \"write\", \"sync\"},\n  collaborator = {\"read\", \"write\", \"sync\"},\n  node =         {\"read\", \"write\", \"sync\", \"create\"}\n})";
+        }
+
+        Text {
+            text: "Checking Permits in Lua";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "-- Check current user's role\nlocal role = permit:role()\n\n-- Check specific permissions\nif permit:can_write(\"messages\") then\n  -- allow editing\nend\n\nif permit:can_sync(\"messages\") then\n  -- layer will sync to peers\nend";
+        }
+
+        InfoCard {
+            title: "Facts-Only Architecture";
+            content: "Osvauld uses UCAN v3 with a facts-only design — capabilities are always empty, facts carry the actual authorization data. This simplifies parsing while maintaining UCAN's delegation chain.";
+            accent-color: Theme.accent-purple;
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Renderers (subsection 4) ──
+    if subsection == 4: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Renderers";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Sthalam supports two renderers: Slint for standard UI apps and Raylib for games and graphics-heavy applications.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        InfoCard {
+            title: "Slint Renderer";
+            content: "Declarative UI framework. Best for: forms, dashboards, chat apps, documentation. Features: reactive data binding, VecModel for lists, styled components, keyboard/mouse input.";
+            accent-color: Theme.accent;
+        }
+
+        CodeBlock {
+            label: "Slint Example";
+            code: "export component App inherits Rectangle {\n  background: #1a1a2e;\n\n  VerticalLayout {\n    padding: 16px;\n    spacing: 8px;\n\n    Text {\n      text: AppAPI.title;\n      font-size: 24px;\n      color: white;\n    }\n\n    for item in AppAPI.items: Rectangle {\n      Text { text: item.name; }\n    }\n  }\n}";
+        }
+
+        InfoCard {
+            title: "Raylib Renderer";
+            content: "Immediate-mode graphics. Best for: games, simulations, visualizations. Features: draw primitives (rect, circle, line, text), keyboard polling, update(dt)/draw() loop.";
+            accent-color: Theme.accent-green;
+        }
+
+        CodeBlock {
+            label: "Raylib manifest.json";
+            code: "{\n  \"name\": \"Tank Game\",\n  \"renderer\": \"raylib\",\n  \"entry_logic\": \"app.lua\"\n}";
+        }
+
+        SectionCard {
+            title: "Choosing a Renderer";
+            content: "Use Slint for anything with forms, lists, or standard UI elements. Use Raylib when you need a game loop, direct pixel control, or real-time animation at 60fps.";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Validation (subsection 5) ──
+    if subsection == 5: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Validation";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Layer validation runs on the node to enforce business rules. Validation functions can reject invalid operations before they sync to other peers.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        CodeBlock {
+            label: "Validation in page.lua";
+            code: "layer(\"channels/{id}/messages\", \"map\", {\n  owner = {\"read\", \"write\", \"sync\"},\n  collaborator = {\"read\", \"write\", \"sync\"},\n  node = {\"read\", \"write\", \"sync\", \"create\"},\n\n  validate = function(ops, ctx)\n    for _, op in ipairs(ops) do\n      -- Only sender can edit their own messages\n      if op.op == \"update\" and op.old_value then\n        if op.value.text ~= op.old_value.text\n           and ctx.from_did ~= op.old_value.sender_did\n        then\n          return false, \"Only sender can edit\"\n        end\n      end\n    end\n    return true, nil\n  end\n})";
+        }
+
+        InfoCard {
+            title: "Validation Context";
+            content: "The ctx parameter provides: from_did (who sent the change), role (their role), layer_name, page_id. Use this to enforce ownership rules and access patterns.";
+            accent-color: Theme.accent;
+        }
+
+        SectionCard {
+            title: "Node-Only Execution";
+            content: "Validation only runs on the node (kunki). If validation fails, the operation is rejected and not synced to other peers. The sender receives an error.";
+        }
+
+        SectionCard {
+            title: "Common Patterns";
+            content: "Ownership checks (only author can edit), state machine transitions (order status: pending → confirmed → shipped), rate limiting, content validation (max length, required fields).";
+        }
+
+        Rectangle { height: 32px; }
+    }
+}

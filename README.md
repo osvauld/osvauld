@@ -13,14 +13,14 @@
 Osvauld is a platform for building truly decentralized applications. Write your app logic in **Lua**, design your UI in **Slint**, and osvauld handles identity, encryption, P2P sync, and offline-first storage automatically.
 
 ```
-Your App (Lua + Slint)
+Your App (Lua + Slint/Raylib)
         │
         ▼
 ┌─────────────────────────────────────┐
 │         osvauld Runtime             │
 │  ┌─────────┐  ┌─────────────────┐   │
 │  │ Identity │  │ Loro CRDT Sync │   │
-│  │ (Herald) │  │    (Butler)    │   │
+│  │ (Herald) │  │ (Scribe/Butler)│   │
 │  └─────────┘  └─────────────────┘   │
 │  ┌─────────────────────────────────┐│
 │  │  P2P Network (Courier + QUIC)  ││
@@ -38,7 +38,7 @@ Your App (Lua + Slint)
 | **UCAN-Based Permits** | Fine-grained, delegatable authorization. Share access without a central authority. |
 | **QUIC Transport** | Fast, encrypted connections via iroh. NAT traversal and relay built-in. |
 | **Loro CRDT Sync** | Conflict-free data sync. Works offline, merges automatically when peers reconnect. |
-| **Dynamic Apps** | Hot-load Lua + Slint apps. No recompilation needed. |
+| **Dynamic Apps** | Hot-load Lua apps with Slint or Raylib UI. No recompilation needed. |
 | **Sovereign Nodes** | Optional always-on nodes (Raspberry Pi, VPS) for relay and offline sync. |
 
 ## Architecture
@@ -46,10 +46,13 @@ Your App (Lua + Slint)
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  Application Layer                                               │
-│  Lua apps, UI state, business logic                             │
+│  Lua apps, Slint/Raylib UI, business logic                      │
+├─────────────────────────────────────────────────────────────────┤
+│  Scribe                                                          │
+│  CRDT document actors (Loro), per-document sync state            │
 ├─────────────────────────────────────────────────────────────────┤
 │  Butler                                                          │
-│  Storage, services, Scribe actors (Loro CRDT)                   │
+│  Storage, services, data layer                                   │
 ├─────────────────────────────────────────────────────────────────┤
 │  Courier                                                         │
 │  P2P orchestration, handshakes, sync protocol                   │

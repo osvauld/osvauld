@@ -29,7 +29,6 @@ pub fn decide_delegation(
     resource_id: &str,
     resource_type: &str,
     audience_pubkey: &str,
-    parent_token: Option<&str>,
 ) -> DecisionResult<DelegationDecision> {
     debug!(
         "📋 Deciding delegation: resource_type={}, id={}, audience={}",
@@ -49,27 +48,19 @@ pub fn decide_delegation(
     // Add ID based on type (space or page only)
     match resource_type {
         "space" => facts.insert("space_id".to_string(), json!(resource_id)),
-        "page" => facts.insert("page_id".to_string(), json!(resource_id)),
-        _ => return Err(GurkhaError::ValidationError(format!("Unknown resource type: {}", resource_type))),
-    };
-
-    // Copy delegation templates from parent token (for further delegation)
-    if let Some(parent_token_str) = parent_token {
-        let parent_ucan = crate::parser::Permit::from_token(parent_token_str)
-            .map_err(|e| GurkhaError::ParseError(format!("Failed to parse parent token: {}", e)))?;
-
-        let delegation_templates = parent_ucan.delegation_templates();
-        if !delegation_templates.is_empty() {
-            // Convert delegation templates to JSON
-            let mut delegation_json = serde_json::Map::new();
-            for (key, template_obj) in delegation_templates {
-                let template_facts = template_obj.to_facts();
-                delegation_json.insert(key.clone(), json!(template_facts));
-            }
-            facts.insert("delegation".to_string(), json!(delegation_json));
-            trace!("✓ Copied {} delegation templates from parent token", delegation_templates.len());
+        "page" => {
+            facts.insert("page_id".to_string(), json!(resource_id));
+            // Resolve {page_id} in layer keys and nested issue_on templates
+            crate::parser::resolve_page_id_in_facts(&mut facts, resource_id);
+            None
         }
-    }
+        _ => {
+            return Err(GurkhaError::ValidationError(format!(
+                "Unknown resource type: {}",
+                resource_type
+            )))
+        }
+    };
 
     let decision = DelegationDecision {
         audience: audience_pubkey.to_string(),
@@ -95,19 +86,16 @@ pub fn decide_delegation(
 ///
 /// # Returns
 /// * `DelegationTemplate` - The template for this action from `issue_on`
-pub fn extract_issue_template(
-    token_str: &str,
-    action: &str,
-) -> DecisionResult<DelegationTemplate> {
+pub fn extract_issue_template(token_str: &str, action: &str) -> DecisionResult<DelegationTemplate> {
     let permit = crate::parser::Permit::from_token(token_str)
         .map_err(|e| GurkhaError::ParseError(format!("Failed to parse token: {}", e)))?;
 
-    permit.get_issue_template(action)
-        .cloned()
-        .ok_or_else(|| GurkhaError::InvalidTemplate(format!(
+    permit.get_issue_template(action).cloned().ok_or_else(|| {
+        GurkhaError::InvalidTemplate(format!(
             "No issue_on template for action '{}'. Permit must define issue_on.{} to delegate.",
             action, action
-        )))
+        ))
+    })
 }
 
 /// Extract facts from token

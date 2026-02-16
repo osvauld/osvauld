@@ -1,0 +1,26 @@
+[package]
+name = "domains"
+version = "0.1.0"
+edition = "2021"
+description = "Core domain models for Osvauld (no external dependencies)"
+license = "MIT"
+
+[dependencies]
+# CRDT support
+loro = "1.5"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Time
+chrono = "0.4"
+
+# UUID generation
+uuid = { version = "1", features = ["v4"] }
+
+# Base64 encoding
+base64 = "0.22"
+
+# Hashing
+sha2 = "0.10"

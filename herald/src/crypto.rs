@@ -28,9 +28,7 @@ pub const TAG_SIZE: usize = 16;
 /// Size of ephemeral public key in sealed messages
 pub const EPHEMERAL_KEY_SIZE: usize = 32;
 
-// =============================================================================
 // Key Generation
-// =============================================================================
 
 /// Generate a random AES-256 key
 ///
@@ -42,9 +40,7 @@ pub fn generate_aes_key() -> [u8; KEY_SIZE] {
     key
 }
 
-// =============================================================================
 // Symmetric Encryption (AES-256-GCM)
-// =============================================================================
 
 /// Encrypt data using AES-256-GCM
 ///
@@ -52,8 +48,8 @@ pub fn generate_aes_key() -> [u8; KEY_SIZE] {
 ///
 /// The nonce is randomly generated and prepended to the output.
 pub fn encrypt_symmetric(key: &[u8; KEY_SIZE], plaintext: &[u8]) -> Result<Vec<u8>> {
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| HeraldError::EncryptionFailed(e.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| HeraldError::EncryptionFailed(e.to_string()))?;
 
     // Generate random nonce
     let mut nonce_bytes = [0u8; NONCE_SIZE];
@@ -81,8 +77,8 @@ pub fn encrypt_with_nonce(
     nonce: &[u8; NONCE_SIZE],
     plaintext: &[u8],
 ) -> Result<Vec<u8>> {
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| HeraldError::EncryptionFailed(e.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| HeraldError::EncryptionFailed(e.to_string()))?;
 
     cipher
         .encrypt(Nonce::from_slice(nonce), plaintext)
@@ -97,8 +93,8 @@ pub fn decrypt_symmetric(key: &[u8; KEY_SIZE], ciphertext: &[u8]) -> Result<Vec<
         return Err(HeraldError::CiphertextTooShort);
     }
 
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| HeraldError::DecryptionFailed(e.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| HeraldError::DecryptionFailed(e.to_string()))?;
 
     let nonce = Nonce::from_slice(&ciphertext[..NONCE_SIZE]);
     let ciphertext_with_tag = &ciphertext[NONCE_SIZE..];
@@ -120,17 +116,15 @@ pub fn decrypt_with_nonce(
         return Err(HeraldError::CiphertextTooShort);
     }
 
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| HeraldError::DecryptionFailed(e.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| HeraldError::DecryptionFailed(e.to_string()))?;
 
     cipher
         .decrypt(Nonce::from_slice(nonce), ciphertext)
         .map_err(|e| HeraldError::DecryptionFailed(e.to_string()))
 }
 
-// =============================================================================
 // Key Exchange (X25519 ECDH)
-// =============================================================================
 
 /// Perform X25519 ECDH key exchange
 ///
@@ -153,9 +147,7 @@ pub fn generate_ephemeral_keypair() -> ([u8; 32], [u8; 32]) {
     (secret_bytes, public.to_bytes())
 }
 
-// =============================================================================
 // Key Derivation (HKDF-SHA256)
-// =============================================================================
 
 /// Derive a key using HKDF-SHA256
 ///
@@ -173,11 +165,7 @@ pub fn derive_key(ikm: &[u8], salt: Option<&[u8]>, info: &[u8]) -> [u8; 32] {
 /// Derive multiple keys using HKDF-SHA256
 ///
 /// Useful for deriving encryption key + MAC key in one go
-pub fn derive_keys<const N: usize>(
-    ikm: &[u8],
-    salt: Option<&[u8]>,
-    info: &[u8],
-) -> [u8; N] {
+pub fn derive_keys<const N: usize>(ikm: &[u8], salt: Option<&[u8]>, info: &[u8]) -> [u8; N] {
     let hk = Hkdf::<Sha256>::new(salt, ikm);
     let mut output = [0u8; N];
     hk.expand(info, &mut output)
@@ -185,9 +173,7 @@ pub fn derive_keys<const N: usize>(
     output
 }
 
-// =============================================================================
 // High-level: Encrypt for recipient (ECIES-style)
-// =============================================================================
 
 /// Context for ECIES key derivation
 const SEAL_CONTEXT: &[u8] = b"herald-seal-v1";
@@ -259,9 +245,7 @@ pub fn decrypt(recipient_secret: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>
     Ok(plaintext)
 }
 
-// =============================================================================
 // Transit Encryption (Ephemeral ECDH for peer-to-peer transfer)
-// =============================================================================
 
 /// Context for transit encryption key derivation
 const TRANSIT_CONTEXT: &[u8] = b"herald-transit-v1";
@@ -324,6 +308,25 @@ pub fn decrypt_from_transfer(
     transit_key.zeroize();
 
     Ok(plaintext)
+}
+
+// Session Key Derivation (Per-Connection)
+
+/// Context for session key derivation
+const SESSION_CONTEXT: &[u8] = b"herald-session-v1";
+
+/// Derive a session key for a peer connection using ECDH
+///
+/// Performs ECDH between our secret key and peer's public key, then derives
+/// a session-specific encryption key using HKDF with domain separation.
+///
+/// Returns: 32-byte session key for use with encrypt_symmetric/decrypt_symmetric
+///
+/// **Use case**: Courier derives session key once per connection during handshake,
+/// reuses for all messages in that session (no per-message ephemeral keys).
+pub fn derive_session_key(our_secret: &[u8; 32], peer_public: &[u8; 32]) -> [u8; 32] {
+    let shared_secret = ecdh(our_secret, peer_public);
+    derive_key(&shared_secret, None, SESSION_CONTEXT)
 }
 
 #[cfg(test)]
@@ -461,7 +464,10 @@ mod tests {
         let sealed = encrypt(&public, plaintext).unwrap();
 
         // ephemeral_public (32) + nonce (12) + plaintext (5) + tag (16) = 65
-        assert_eq!(sealed.len(), EPHEMERAL_KEY_SIZE + NONCE_SIZE + plaintext.len() + TAG_SIZE);
+        assert_eq!(
+            sealed.len(),
+            EPHEMERAL_KEY_SIZE + NONCE_SIZE + plaintext.len() + TAG_SIZE
+        );
     }
 
     #[test]

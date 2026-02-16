@@ -1,0 +1,223 @@
+// Content: Deployment — Running Nodes, Relay Setup, IoT & Future
+
+import { Theme } from "theme.slint";
+import { SectionCard, CodeBlock, InfoCard, DiagramBox, TableRow } from "components.slint";
+
+export component ContentDeploy inherits VerticalLayout {
+    in property<int> subsection: 0;
+    spacing: 20px;
+
+    // ── Running Nodes (subsection 0) ──
+    if subsection == 0: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Running Nodes";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Nodes (kunki) are always-on peers that relay data, validate operations, and store encrypted backups. They run headless — no UI needed.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "Quick Start";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Build and run";
+            code: "# Build kunki (node runtime)\ncargo build --release -p kunki\n\n# Run with default config\ncargo run --release -p kunki\n\n# Run with custom config\ncargo run --release -p kunki -- \\\n  --config node-config.toml\n\n# With logging\nRUST_LOG=info,courier=debug \\\n  cargo run --release -p kunki";
+        }
+
+        Text {
+            text: "Desktop Shell (Sthalam)";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Build and run";
+            code: "# Build desktop shell\ncargo build --release -p sthalam\n\n# Run\ncargo run --release -p sthalam\n\n# First run creates identity at:\n# ~/.local/share/osvauld/";
+        }
+
+        InfoCard {
+            title: "Identity Backup";
+            content: "First run generates your BIP39 seed phrase and derives Ed25519/X25519 keypairs. Back up the seed phrase! It's your cryptographic identity — losing it means losing access to all your spaces.";
+            accent-color: Theme.accent-red;
+        }
+
+        Text {
+            text: "Keep Node Running";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "tmux (simple)";
+            code: "# Start in tmux session\ntmux new -s osvauld\ncargo run --release -p kunki\n# Ctrl+B, D to detach\n\n# Reattach later\ntmux attach -t osvauld";
+        }
+
+        CodeBlock {
+            label: "systemd (production)";
+            code: "# Copy service file\ncp osvauld-production.service \\\n  ~/.config/systemd/user/\n\n# Enable and start\nsystemctl --user enable osvauld-production\nsystemctl --user start osvauld-production\n\n# Check status\nsystemctl --user status osvauld-production";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Relay Setup (subsection 1) ──
+    if subsection == 1: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Relay Setup";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "When direct P2P connections fail (NAT, firewall), relay nodes bridge the gap. Data still flows encrypted end-to-end — the relay can't read it.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        InfoCard {
+            title: "How Relay Works";
+            content: "iroh's relay infrastructure handles NAT traversal. If direct QUIC connection fails, traffic routes through a relay server. The relay sees only encrypted bytes — it cannot decrypt or inspect the data.";
+            accent-color: Theme.accent;
+        }
+
+        Text {
+            text: "Node as Relay";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        SectionCard {
+            title: "Always-On Storage";
+            content: "Kunki nodes store encrypted layer snapshots. When peers reconnect after being offline, the node provides the latest state — acting as a persistent sync bridge.";
+        }
+
+        SectionCard {
+            title: "Validation Gateway";
+            content: "Nodes run validation functions on incoming operations. Invalid changes are rejected before syncing to other peers. This enforces business rules at the network level.";
+        }
+
+        SectionCard {
+            title: "Derivation Engine";
+            content: "Nodes compute derivations — aggregating per-user data into shared views. The node has access to all layers and can produce summary data that individual peers can't compute alone.";
+        }
+
+        Text {
+            text: "Multi-Peer Setup";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Typical topology";
+            code: "# Terminal 1: Owner (creates spaces, publishes)\ncargo run -p sthalam\n\n# Terminal 2: Node (relay, storage, validation)\ncargo run -p kunki\n\n# Terminal 3: Viewer (connects via link)\ncargo run -p sthalam\n\n# Flow:\n# 1. Owner creates space, adds node\n# 2. Owner publishes to node\n# 3. Owner generates shareable link\n# 4. Viewer connects with link → node → sync";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── IoT & Future (subsection 2) ──
+    if subsection == 2: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "IoT & Future";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Sthalam is designed to run beyond desktops and servers — on IoT devices, embedded systems, and eventually with real-time media.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        InfoCard {
+            title: "IoT Devices";
+            content: "The Lua runtime is lightweight enough for constrained devices. Sensors, controllers, and edge nodes can participate as peers in a Space — reading/writing CRDT layers, syncing data P2P.";
+            accent-color: Theme.accent-green;
+        }
+
+        InfoCard {
+            title: "Raspberry Pi Nodes";
+            content: "Run kunki on a Raspberry Pi for a personal always-on node. Low power, low cost, full relay + storage + validation capabilities. Your data stays in your home.";
+            accent-color: Theme.accent;
+        }
+
+        InfoCard {
+            title: "Audio/Video (Coming Soon)";
+            content: "Real-time media streams over the same QUIC P2P connections. Voice calls, video chat, screen sharing — all end-to-end encrypted with no centralized media servers.";
+            accent-color: Theme.accent-cyan;
+        }
+
+        InfoCard {
+            title: "Edge Computing";
+            content: "CRDT layers on edge devices enable offline-first IoT. Sensors write locally, sync when connected. No cloud dependency — data flows directly between devices.";
+            accent-color: Theme.accent-purple;
+        }
+
+        Text {
+            text: "Vision";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 16px;
+            border-width: 1px;
+            border-color: Theme.accent-sthalam;
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 12px;
+
+                Text {
+                    text: "The Extended Internet";
+                    font-size: 20px;
+                    font-weight: 700;
+                    color: Theme.accent-sthalam;
+                }
+
+                Text {
+                    text: "A world where every device is a peer. Where your phone, laptop, server, and IoT sensors all speak the same protocol. Where data flows directly between devices — encrypted, conflict-free, and under your control.";
+                    font-size: 14px;
+                    color: Theme.text-answer;
+                    wrap: word-wrap;
+                }
+
+                Text {
+                    text: "No cloud. No middlemen. Just peers.";
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Theme.text-primary;
+                }
+            }
+        }
+
+        Rectangle { height: 32px; }
+    }
+}

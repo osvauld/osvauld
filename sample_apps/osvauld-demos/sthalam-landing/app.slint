@@ -1,0 +1,963 @@
+// Sthalam Landing Page — The Browser for the Extended Internet
+// Single scrollable page showcasing the platform
+
+// ── Theme ──────────────────────────────────────────────────────────────────
+global Theme {
+    out property<color> bg-primary: #010102;
+    out property<color> bg-secondary: #0D0E13;
+    out property<color> bg-card: #111218;
+    out property<color> bg-elevated: #101117;
+
+    out property<color> border: #2F303E;
+    out property<color> border-light: #16171F;
+
+    out property<color> text-primary: #FFFFFF;
+    out property<color> text-secondary: #A6B0BB;
+    out property<color> text-muted: #85889C;
+    out property<color> text-answer: #BFC0CC;
+
+    out property<color> accent: #4A86FF;
+    out property<color> accent-purple: #8A86E5;
+    out property<color> accent-sthalam: #cba6f7;
+    out property<color> accent-green: #22c55e;
+
+    out property<color> accent-orange: #f59e0b;
+    out property<color> accent-red: #ef4444;
+    out property<color> accent-cyan: #06b6d4;
+}
+
+// ── AppAPI ──────────────────────────────────────────────────────────────────
+export global AppAPI {
+    callback on_click(string);
+}
+
+// ── Icons ──────────────────────────────────────────────────────────────────
+
+component P2PIcon inherits Rectangle {
+    width: 32px; height: 32px;
+    Rectangle { x: 12px; y: 12px; width: 8px; height: 8px; background: Theme.accent; border-radius: 4px; }
+    Rectangle { x: 12px; y: 2px; width: 8px; height: 8px; background: Theme.accent; border-radius: 4px; }
+    Rectangle { x: 4px; y: 22px; width: 8px; height: 8px; background: Theme.accent; border-radius: 4px; }
+    Rectangle { x: 20px; y: 22px; width: 8px; height: 8px; background: Theme.accent; border-radius: 4px; }
+    Path {
+        width: 100%; height: 100%; stroke: Theme.accent; stroke-width: 2px;
+        MoveTo { x: 16; y: 12; } LineTo { x: 16; y: 10; }
+        MoveTo { x: 12; y: 16; } LineTo { x: 8; y: 22; }
+        MoveTo { x: 20; y: 16; } LineTo { x: 24; y: 22; }
+    }
+}
+
+component FingerprintIcon inherits Rectangle {
+    width: 32px; height: 32px;
+    Rectangle { x: 6px; y: 6px; width: 20px; height: 20px; background: transparent; border-color: Theme.accent; border-width: 2px; border-radius: 10px; }
+    Rectangle { x: 10px; y: 10px; width: 12px; height: 12px; background: transparent; border-color: Theme.accent; border-width: 2px; border-radius: 6px; }
+    Rectangle { x: 14px; y: 14px; width: 4px; height: 4px; background: Theme.accent; border-radius: 2px; }
+}
+
+component StorageIcon inherits Rectangle {
+    width: 32px; height: 32px;
+    Rectangle { x: 4px; y: 8px; width: 24px; height: 16px; background: transparent; border-color: Theme.accent; border-width: 2px; border-radius: 2px; }
+    Rectangle { x: 4px; y: 14px; width: 24px; height: 2px; background: Theme.accent; }
+    Path {
+        width: 100%; height: 100%; stroke: Theme.accent; stroke-width: 2px;
+        MoveTo { x: 4; y: 8; } LineTo { x: 8; y: 4; } LineTo { x: 24; y: 4; } LineTo { x: 28; y: 8; }
+    }
+}
+
+component KeyIcon inherits Rectangle {
+    width: 32px; height: 32px;
+    Rectangle { x: 4px; y: 4px; width: 14px; height: 14px; background: transparent; border-color: Theme.accent; border-width: 3px; border-radius: 7px; }
+    Rectangle { x: 16px; y: 9px; width: 12px; height: 4px; background: Theme.accent; }
+    Rectangle { x: 22px; y: 13px; width: 4px; height: 6px; background: Theme.accent; }
+    Rectangle { x: 26px; y: 13px; width: 2px; height: 4px; background: Theme.accent; }
+}
+
+component ShieldIcon inherits Rectangle {
+    width: 32px; height: 32px;
+    Path {
+        width: 100%; height: 100%; fill: Theme.accent-green;
+        MoveTo { x: 16; y: 2; } LineTo { x: 28; y: 8; } LineTo { x: 28; y: 16; }
+        QuadraticTo { control-x: 28; control-y: 28; x: 16; y: 30; }
+        QuadraticTo { control-x: 4; control-y: 28; x: 4; y: 16; }
+        LineTo { x: 4; y: 8; } Close {}
+    }
+}
+
+component SyncIcon inherits Rectangle {
+    width: 32px; height: 32px;
+    Path {
+        width: 100%; height: 100%; stroke: Theme.accent-purple; stroke-width: 2.5px;
+        MoveTo { x: 24; y: 8; } LineTo { x: 28; y: 12; } LineTo { x: 24; y: 16; }
+        MoveTo { x: 28; y: 12; } QuadraticTo { control-x: 28; control-y: 4; x: 16; y: 4; } LineTo { x: 10; y: 4; }
+        MoveTo { x: 8; y: 24; } LineTo { x: 4; y: 20; } LineTo { x: 8; y: 16; }
+        MoveTo { x: 4; y: 20; } QuadraticTo { control-x: 4; control-y: 28; x: 16; y: 28; } LineTo { x: 22; y: 28; }
+    }
+}
+
+component CommunityIcon inherits Rectangle {
+    width: 32px; height: 32px;
+    Rectangle { x: 10px; y: 2px; width: 8px; height: 8px; background: Theme.accent; border-radius: 4px; }
+    Path {
+        width: 100%; height: 100%; fill: Theme.accent;
+        MoveTo { x: 8; y: 12; } LineTo { x: 20; y: 12; } LineTo { x: 22; y: 28; } LineTo { x: 6; y: 28; } Close {}
+    }
+    Rectangle { x: 20px; y: 4px; width: 8px; height: 8px; background: Theme.accent-purple; border-radius: 4px; }
+}
+
+// ── Social Icons (from website assets) ─────────────────────────────────────
+
+component GithubIcon inherits Rectangle {
+    in property<color> icon-color: black;
+    width: 45px;
+    height: 45px;
+
+    Path {
+        width: 100%;
+        height: 100%;
+        fill: icon-color;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: 21;
+        viewbox-height: 20;
+
+        MoveTo { x: 10; y: 0.005; }
+        QuadraticTo { control-x: 0.02; control-y: 0.005; x: 0.02; y: 9.99; }
+        QuadraticTo { control-x: 2.77; control-y: 18.1; x: 6.84; y: 19.455; }
+        QuadraticTo { control-x: 7.34; control-y: 19.55; x: 7.555; y: 18.975; }
+        LineTo { x: 7.555; y: 17.28; }
+        QuadraticTo { control-x: 4.78; control-y: 17.88; x: 4.195; y: 15.94; }
+        QuadraticTo { control-x: 4; control-y: 15.33; x: 3.04; y: 14.48; }
+        QuadraticTo { control-x: 2.135; control-y: 13.865; x: 3.11; y: 13.875; }
+        QuadraticTo { control-x: 3.75; control-y: 13.965; x: 4.635; y: 14.91; }
+        QuadraticTo { control-x: 5.21; control-y: 15.94; x: 7.545; y: 15.735; }
+        QuadraticTo { control-x: 7.585; control-y: 15.23; x: 8.17; y: 14.4; }
+        QuadraticTo { control-x: 5.96; control-y: 14.145; x: 3.63; y: 9.465; }
+        QuadraticTo { control-x: 3.615; control-y: 8.47; x: 4.655; y: 6.785; }
+        QuadraticTo { control-x: 4.35; control-y: 5.925; x: 4.755; y: 4.145; }
+        QuadraticTo { control-x: 5.59; control-y: 3.875; x: 7.5; y: 5.165; }
+        QuadraticTo { control-x: 9.135; control-y: 4.72; x: 12.49; y: 5.165; }
+        QuadraticTo { control-x: 14.395; control-y: 3.875; x: 15.23; y: 4.145; }
+        QuadraticTo { control-x: 15.6; control-y: 4.98; x: 15.33; y: 6.785; }
+        QuadraticTo { control-x: 16.005; control-y: 7.515; x: 16.355; y: 9.465; }
+        QuadraticTo { control-x: 16.355; control-y: 13.3; x: 11.8; y: 14.39; }
+        QuadraticTo { control-x: 12.28; control-y: 14.88; x: 12.475; y: 16.235; }
+        LineTo { x: 12.475; y: 18.975; }
+        QuadraticTo { control-x: 12.655; control-y: 19.305; x: 13.19; y: 19.455; }
+        QuadraticTo { control-x: 18.42; control-y: 17.71; x: 19.5; y: 6.825; }
+        QuadraticTo { control-x: 18.135; control-y: 2.74; x: 9.995; y: 0.005; }
+        Close {}
+    }
+}
+
+component TelegramIcon inherits Rectangle {
+    in property<color> icon-color: black;
+    width: 45px;
+    height: 45px;
+
+    Path {
+        width: 100%;
+        height: 100%;
+        fill: icon-color;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: 32;
+        viewbox-height: 32;
+
+        MoveTo { x: 22.122; y: 10.04; }
+        QuadraticTo { control-x: 22.136; control-y: 10.04; x: 22.144; y: 10.04; }
+        QuadraticTo { control-x: 22.353; control-y: 10.04; x: 22.706; y: 10.217; }
+        QuadraticTo { control-x: 22.822; control-y: 10.318; x: 22.919; y: 10.62; }
+        QuadraticTo { control-x: 22.939; control-y: 10.742; x: 22.95; y: 11.025; }
+        QuadraticTo { control-x: 22.948; control-y: 11.09; x: 22.943; y: 11.216; }
+        QuadraticTo { control-x: 22.718; control-y: 13.585; x: 21.246; y: 21.982; }
+        QuadraticTo { control-x: 21.036; control-y: 23.105; x: 20.223; y: 23.517; }
+        QuadraticTo { control-x: 19.354; control-y: 23.598; x: 17.852; y: 22.391; }
+        QuadraticTo { control-x: 16.534; control-y: 21.526; x: 14.51; y: 20.145; }
+        QuadraticTo { control-x: 13.031; control-y: 19.172; x: 14.832; y: 17.761; }
+        QuadraticTo { control-x: 15.053; control-y: 17.531; x: 18.959; y: 13.73; }
+        QuadraticTo { control-x: 18.963; control-y: 13.711; x: 18.965; y: 13.668; }
+        QuadraticTo { control-x: 18.965; control-y: 13.59; x: 18.889; y: 13.465; }
+        QuadraticTo { control-x: 18.837; control-y: 13.431; x: 18.704; y: 13.412; }
+        QuadraticTo { control-x: 18.659; control-y: 13.403; x: 18.576; y: 13.436; }
+        QuadraticTo { control-x: 18.378; control-y: 13.481; x: 12.26; y: 17.61; }
+        QuadraticTo { control-x: 11.815; control-y: 17.961; x: 10.641; y: 18.209; }
+        QuadraticTo { control-x: 9.774; control-y: 18.104; x: 8.24; y: 17.636; }
+        QuadraticTo { control-x: 7.302; control-y: 17.33; x: 6.621; y: 16.651; }
+        QuadraticTo { control-x: 6.672; control-y: 16.247; x: 7.735; y: 15.824; }
+        QuadraticTo { control-x: 14.283; control-y: 12.971; x: 16.468; y: 12.063; }
+        QuadraticTo { control-x: 18.075; control-y: 11.21; x: 22.054; y: 10.022; }
+        Close {}
+        MoveTo { x: 15.93; y: 1.025; }
+        QuadraticTo { control-x: 7.628; control-y: 1.045; x: 0.905; y: 16.085; }
+        QuadraticTo { control-x: 0.905; control-y: 24.402; x: 15.965; y: 31.145; }
+        QuadraticTo { control-x: 31.025; control-y: 31.145; x: 31.025; y: 16.085; }
+        QuadraticTo { control-x: 31.025; control-y: 7.78; x: 16.002; y: 1.025; }
+        Close {}
+    }
+}
+
+// ── Components ─────────────────────────────────────────────────────────────
+
+// Pill-shaped stat badge
+component StatBadge inherits Rectangle {
+    in property<string> label;
+    in property<color> badge-color: Theme.accent;
+
+    height: 32px;
+    background: transparent;
+    border-width: 1px;
+    border-color: badge-color;
+    border-radius: 16px;
+
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+
+        Text {
+            text: label;
+            font-size: 13px;
+            font-weight: 600;
+            color: badge-color;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Card with left accent border
+component ConceptCard inherits Rectangle {
+    in property<string> title;
+    in property<string> content;
+    in property<color> accent-color: Theme.accent;
+
+    background: Theme.bg-card;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border-light;
+
+    HorizontalLayout {
+        spacing: 0;
+
+        // Left accent stripe
+        Rectangle {
+            width: 4px;
+            background: accent-color;
+            border-radius: 2px;
+        }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 6px;
+
+            Text {
+                text: title;
+                font-size: 16px;
+                font-weight: 600;
+                color: Theme.text-primary;
+            }
+
+            Text {
+                text: content;
+                font-size: 13px;
+                color: Theme.text-answer;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+// Feature card with icon
+component FeatureCard inherits Rectangle {
+    in property<string> title;
+    in property<string> content;
+    in property<string> icon_type: "p2p";
+
+    background: Theme.bg-card;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border-light;
+
+    HorizontalLayout {
+        padding: 20px;
+        spacing: 16px;
+
+        Rectangle {
+            width: 56px;
+            height: 56px;
+            background: Theme.bg-elevated;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            if icon_type == "p2p": P2PIcon { x: 12px; y: 12px; }
+            if icon_type == "fingerprint": FingerprintIcon { x: 12px; y: 12px; }
+            if icon_type == "storage": StorageIcon { x: 12px; y: 12px; }
+            if icon_type == "key": KeyIcon { x: 12px; y: 12px; }
+            if icon_type == "community": CommunityIcon { x: 12px; y: 12px; }
+            if icon_type == "shield": ShieldIcon { x: 12px; y: 12px; }
+            if icon_type == "sync": SyncIcon { x: 12px; y: 12px; }
+        }
+
+        VerticalLayout {
+            spacing: 6px;
+            vertical-stretch: 1;
+
+            Text {
+                text: title;
+                font-size: 16px;
+                font-weight: 600;
+                color: Theme.text-primary;
+            }
+
+            Text {
+                text: content;
+                font-size: 13px;
+                color: Theme.text-answer;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+// Section card
+component SectionCard inherits Rectangle {
+    in property<string> title;
+    in property<string> content;
+
+    background: Theme.bg-card;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border-light;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+
+        Text {
+            text: title;
+            font-size: 15px;
+            font-weight: 600;
+            color: Theme.accent;
+        }
+
+        Text {
+            text: content;
+            font-size: 13px;
+            color: Theme.text-answer;
+            wrap: word-wrap;
+        }
+    }
+}
+
+// ── Main App ───────────────────────────────────────────────────────────────
+
+export component App inherits Rectangle {
+    background: Theme.bg-primary;
+
+    VerticalLayout {
+        spacing: 0;
+
+        // Scrollable content
+        Flickable {
+            vertical-stretch: 1;
+            viewport-height: main-content.preferred-height;
+
+            main-content := VerticalLayout {
+                padding: 0;
+                spacing: 0;
+
+                // ════════════════════════════════════════════════════════════
+                // SECTION 1: Hero
+                // ════════════════════════════════════════════════════════════
+                Rectangle {
+                    background: Theme.bg-secondary;
+
+                    VerticalLayout {
+                        padding: 48px;
+                        padding-top: 60px;
+                        padding-bottom: 60px;
+                        spacing: 20px;
+                        alignment: center;
+
+                        // Logo badge
+                        HorizontalLayout {
+                            alignment: center;
+
+                            Rectangle {
+                                width: 72px;
+                                height: 72px;
+                                background: Theme.accent-sthalam;
+                                border-radius: 18px;
+
+                                Text {
+                                    text: "S";
+                                    font-size: 42px;
+                                    font-weight: 700;
+                                    color: Theme.bg-primary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Title
+                        Text {
+                            text: "Sthalam";
+                            font-size: 48px;
+                            font-weight: 700;
+                            color: Theme.accent-sthalam;
+                            horizontal-alignment: center;
+                        }
+
+                        // Subtitle
+                        Text {
+                            text: "The Browser for the Extended Internet";
+                            font-size: 20px;
+                            font-weight: 500;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: "Apps that run on your device. Data that stays yours.\nNo cloud hosting. No static IP. Just works.";
+                            font-size: 14px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                        }
+
+                        Rectangle { height: 8px; }
+
+                        // Stat badges
+                        HorizontalLayout {
+                            alignment: center;
+                            spacing: 12px;
+
+                            StatBadge { label: "Local-First"; badge-color: Theme.accent; }
+                            StatBadge { label: "Encrypted"; badge-color: Theme.accent-green; }
+                            StatBadge { label: "No Cloud"; badge-color: Theme.accent-purple; }
+                        }
+
+                        Rectangle { height: 12px; }
+
+                        // CTA button
+                        HorizontalLayout {
+                            alignment: center;
+
+                            Rectangle {
+                                width: 200px;
+                                height: 44px;
+                                background: cta-touch.has-hover ? Theme.accent.darker(20%) : Theme.accent;
+                                border-radius: 22px;
+
+                                Text {
+                                    text: "Read the Docs";
+                                    font-size: 15px;
+                                    font-weight: 600;
+                                    color: Theme.text-primary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                cta-touch := TouchArea {
+                                    clicked => { AppAPI.on_click("cta:Read the Docs"); }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ════════════════════════════════════════════════════════════
+                // SECTION 2: What is Sthalam (4 cards — 2 rows of 2)
+                // ════════════════════════════════════════════════════════════
+                VerticalLayout {
+                    padding: 32px;
+                    padding-top: 48px;
+                    padding-bottom: 48px;
+                    spacing: 24px;
+
+                    Text {
+                        text: "What is Sthalam?";
+                        font-size: 28px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: "A browser for apps that don't live on someone else's server.\nYour apps run on your device. Your data stays on your device.";
+                        font-size: 14px;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: center;
+                    }
+
+                    Rectangle { height: 8px; }
+
+                    // Wide: two columns
+                    if root.width >= 700px: VerticalLayout {
+                        spacing: 24px;
+
+                        HorizontalLayout {
+                            spacing: 16px;
+
+                            ConceptCard {
+                                horizontal-stretch: 1;
+                                title: "Apps Run Locally";
+                                content: "Every app runs right on your machine — not in a distant data center. Fast, private, and available even without an internet connection.";
+                                accent-color: Theme.accent;
+                            }
+
+                            ConceptCard {
+                                horizontal-stretch: 1;
+                                title: "Share with Anyone";
+                                content: "Invite others to your workspace with a simple link. They connect to your node — no cloud accounts, no sign-ups, no third party in between.";
+                                accent-color: Theme.accent-purple;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 16px;
+
+                            ConceptCard {
+                                horizontal-stretch: 1;
+                                title: "Always in Sync";
+                                content: "Work offline, and everything syncs automatically when you're back online. Edits from multiple people merge seamlessly — no conflicts, no lost changes.";
+                                accent-color: Theme.accent-green;
+                            }
+
+                            ConceptCard {
+                                horizontal-stretch: 1;
+                                title: "Your Data, Your Rules";
+                                content: "No one else has access to your data. Not us, not a cloud provider. Your encryption keys never leave your device.";
+                                accent-color: Theme.accent-orange;
+                            }
+                        }
+                    }
+
+                    // Narrow: single column
+                    if root.width < 700px: VerticalLayout {
+                        spacing: 24px;
+
+                        ConceptCard {
+                            title: "Apps Run Locally";
+                            content: "Every app runs right on your machine — not in a distant data center. Fast, private, and available even without an internet connection.";
+                            accent-color: Theme.accent;
+                        }
+
+                        ConceptCard {
+                            title: "Share with Anyone";
+                            content: "Invite others to your workspace with a simple link. They connect to your node — no cloud accounts, no sign-ups, no third party in between.";
+                            accent-color: Theme.accent-purple;
+                        }
+
+                        ConceptCard {
+                            title: "Always in Sync";
+                            content: "Work offline, and everything syncs automatically when you're back online. Edits from multiple people merge seamlessly — no conflicts, no lost changes.";
+                            accent-color: Theme.accent-green;
+                        }
+
+                        ConceptCard {
+                            title: "Your Data, Your Rules";
+                            content: "No one else has access to your data. Not us, not a cloud provider. Your encryption keys never leave your device.";
+                            accent-color: Theme.accent-orange;
+                        }
+                    }
+                }
+
+                // ════════════════════════════════════════════════════════════
+                // SECTION 3: Key Features (6 cards — 3 rows of 2)
+                // ════════════════════════════════════════════════════════════
+                Rectangle {
+                    background: Theme.bg-secondary;
+
+                    VerticalLayout {
+                        padding: 32px;
+                        padding-top: 48px;
+                        padding-bottom: 48px;
+                        spacing: 20px;
+
+                        Text {
+                            text: "Key Features";
+                            font-size: 28px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                        }
+
+                        Rectangle { height: 4px; }
+
+                        // Wide: two columns (3 rows of 2)
+                        if root.width >= 700px: VerticalLayout {
+                            spacing: 20px;
+
+                            HorizontalLayout {
+                                spacing: 16px;
+
+                                FeatureCard {
+                                    horizontal-stretch: 1;
+                                    icon_type: "p2p";
+                                    title: "No Cloud Required";
+                                    content: "Your apps connect directly through your node. No cloud hosting, no static IP, no monthly bills. Just run a node on your laptop or a Raspberry Pi.";
+                                }
+
+                                FeatureCard {
+                                    horizontal-stretch: 1;
+                                    icon_type: "fingerprint";
+                                    title: "Encrypted by Default";
+                                    content: "Everything is encrypted — your stored data, your connections, your sync. Only the people you invite can see your data. Not even us.";
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 16px;
+
+                                FeatureCard {
+                                    horizontal-stretch: 1;
+                                    icon_type: "storage";
+                                    title: "Works Offline";
+                                    content: "Lost your connection? Keep working. Everything syncs up automatically when you're back online. No spinners, no errors.";
+                                }
+
+                                FeatureCard {
+                                    horizontal-stretch: 1;
+                                    icon_type: "sync";
+                                    title: "Real-Time Collaboration";
+                                    content: "Multiple people can edit the same data at the same time. Changes merge automatically — no overwrites, no \"someone else is editing\" warnings.";
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 16px;
+
+                                FeatureCard {
+                                    horizontal-stretch: 1;
+                                    icon_type: "key";
+                                    title: "You Control Access";
+                                    content: "Decide exactly who can see what. Grant and revoke access with fine-grained permissions. Share a workspace, not your entire life.";
+                                }
+
+                                FeatureCard {
+                                    horizontal-stretch: 1;
+                                    icon_type: "shield";
+                                    title: "Your Identity, Your Keys";
+                                    content: "No passwords to remember, no accounts to create. Your identity is a recovery phrase you keep safe — like a wallet for the internet.";
+                                }
+                            }
+                        }
+
+                        // Narrow: single column
+                        if root.width < 700px: VerticalLayout {
+                            spacing: 20px;
+
+                            FeatureCard {
+                                icon_type: "p2p";
+                                title: "No Cloud Required";
+                                content: "Your apps connect directly through your node. No cloud hosting, no static IP, no monthly bills. Just run a node on your laptop or a Raspberry Pi.";
+                            }
+
+                            FeatureCard {
+                                icon_type: "fingerprint";
+                                title: "Encrypted by Default";
+                                content: "Everything is encrypted — your stored data, your connections, your sync. Only the people you invite can see your data. Not even us.";
+                            }
+
+                            FeatureCard {
+                                icon_type: "storage";
+                                title: "Works Offline";
+                                content: "Lost your connection? Keep working. Everything syncs up automatically when you're back online. No spinners, no errors.";
+                            }
+
+                            FeatureCard {
+                                icon_type: "sync";
+                                title: "Real-Time Collaboration";
+                                content: "Multiple people can edit the same data at the same time. Changes merge automatically — no overwrites, no \"someone else is editing\" warnings.";
+                            }
+
+                            FeatureCard {
+                                icon_type: "key";
+                                title: "You Control Access";
+                                content: "Decide exactly who can see what. Grant and revoke access with fine-grained permissions. Share a workspace, not your entire life.";
+                            }
+
+                            FeatureCard {
+                                icon_type: "shield";
+                                title: "Your Identity, Your Keys";
+                                content: "No passwords to remember, no accounts to create. Your identity is a recovery phrase you keep safe — like a wallet for the internet.";
+                            }
+                        }
+                    }
+                }
+
+                // ════════════════════════════════════════════════════════════
+                // SECTION 4: Build Apps (2 cards — 1 row of 2, no code)
+                // ════════════════════════════════════════════════════════════
+                VerticalLayout {
+                    padding: 32px;
+                    padding-top: 48px;
+                    padding-bottom: 48px;
+                    spacing: 24px;
+
+                    Text {
+                        text: "Build Apps in Minutes";
+                        font-size: 28px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        horizontal-alignment: center;
+                    }
+
+                    // AI-native banner
+                    Rectangle {
+                        background: Theme.accent-sthalam;
+                        border-radius: 8px;
+
+                        VerticalLayout {
+                            padding: 16px;
+
+                            Text {
+                                text: "AI-native development: describe what you want, Claude builds it.";
+                                font-size: 14px;
+                                font-weight: 600;
+                                color: Theme.bg-primary;
+                                wrap: word-wrap;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+
+                    Rectangle { height: 4px; }
+
+                    // Wide: two columns
+                    if root.width >= 700px: HorizontalLayout {
+                        spacing: 16px;
+
+                        SectionCard {
+                            horizontal-stretch: 1;
+                            title: "Simple by Design";
+                            content: "One file for the UI, one for logic. The runtime handles everything else — encryption, storage, sync, identity. You just build the app.";
+                        }
+
+                        SectionCard {
+                            horizontal-stretch: 1;
+                            title: "Designed for AI";
+                            content: "The entire stack is designed so AI can build apps for you. Describe what you want, and Claude creates it — writes the code, runs it, fixes errors, and iterates.";
+                        }
+                    }
+
+                    // Narrow: single column
+                    if root.width < 700px: VerticalLayout {
+                        spacing: 24px;
+
+                        SectionCard {
+                            title: "Simple by Design";
+                            content: "One file for the UI, one for logic. The runtime handles everything else — encryption, storage, sync, identity. You just build the app.";
+                        }
+
+                        SectionCard {
+                            title: "Designed for AI";
+                            content: "The entire stack is designed so AI can build apps for you. Describe what you want, and Claude creates it — writes the code, runs it, fixes errors, and iterates.";
+                        }
+                    }
+                }
+
+                // ════════════════════════════════════════════════════════════
+                // SECTION 5: Runs Everywhere (4 cards — 2 rows of 2)
+                // ════════════════════════════════════════════════════════════
+                Rectangle {
+                    background: Theme.bg-secondary;
+
+                    VerticalLayout {
+                        padding: 32px;
+                        padding-top: 48px;
+                        padding-bottom: 48px;
+                        spacing: 24px;
+
+                        Text {
+                            text: "Runs Everywhere";
+                            font-size: 28px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: "Your node runs on whatever you have — no special infrastructure needed.";
+                            font-size: 14px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                        }
+
+                        Rectangle { height: 8px; }
+
+                        // Wide: two columns
+                        if root.width >= 700px: VerticalLayout {
+                            spacing: 24px;
+
+                            HorizontalLayout {
+                                spacing: 16px;
+
+                                ConceptCard {
+                                    horizontal-stretch: 1;
+                                    title: "Your Laptop";
+                                    content: "Run a node right on your development machine. Build and test apps locally, invite people to collaborate — all without deploying anything.";
+                                    accent-color: Theme.accent;
+                                }
+
+                                ConceptCard {
+                                    horizontal-stretch: 1;
+                                    title: "A Raspberry Pi";
+                                    content: "Plug in a Pi at home and you have a personal always-on node. Low power, low cost, and your data never leaves your home network.";
+                                    accent-color: Theme.accent-orange;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 16px;
+
+                                ConceptCard {
+                                    horizontal-stretch: 1;
+                                    title: "Any Server";
+                                    content: "Deploy on a VPS, a home server, or any machine with an internet connection. The same lightweight node works everywhere.";
+                                    accent-color: Theme.accent-purple;
+                                }
+
+                                ConceptCard {
+                                    horizontal-stretch: 1;
+                                    title: "Audio & Video (Coming Soon)";
+                                    content: "Real-time voice, video, and screen sharing — all encrypted, all running through your own node. No Zoom, no Google Meet, no third party.";
+                                    accent-color: Theme.accent-cyan;
+                                }
+                            }
+                        }
+
+                        // Narrow: single column
+                        if root.width < 700px: VerticalLayout {
+                            spacing: 24px;
+
+                            ConceptCard {
+                                title: "Your Laptop";
+                                content: "Run a node right on your development machine. Build and test apps locally, invite people to collaborate — all without deploying anything.";
+                                accent-color: Theme.accent;
+                            }
+
+                            ConceptCard {
+                                title: "A Raspberry Pi";
+                                content: "Plug in a Pi at home and you have a personal always-on node. Low power, low cost, and your data never leaves your home network.";
+                                accent-color: Theme.accent-orange;
+                            }
+
+                            ConceptCard {
+                                title: "Any Server";
+                                content: "Deploy on a VPS, a home server, or any machine with an internet connection. The same lightweight node works everywhere.";
+                                accent-color: Theme.accent-purple;
+                            }
+
+                            ConceptCard {
+                                title: "Audio & Video (Coming Soon)";
+                                content: "Real-time voice, video, and screen sharing — all encrypted, all running through your own node. No Zoom, no Google Meet, no third party.";
+                                accent-color: Theme.accent-cyan;
+                            }
+                        }
+                    }
+                }
+
+                // ════════════════════════════════════════════════════════════
+                // SECTION 6: Footer (matches website)
+                // ════════════════════════════════════════════════════════════
+                Rectangle {
+                    background: Theme.accent-sthalam;
+                    min-height: 500px;
+
+                    VerticalLayout {
+                        padding: 48px;
+                        padding-top: 60px;
+                        padding-bottom: 48px;
+                        spacing: 32px;
+                        alignment: center;
+
+                        // Social icons
+                        HorizontalLayout {
+                            alignment: center;
+                            spacing: 24px;
+
+                            Rectangle {
+                                width: 48px;
+                                height: 48px;
+                                background: gh-touch.has-hover ? #00000022 : transparent;
+                                border-radius: 24px;
+
+                                GithubIcon {
+                                    icon-color: Theme.bg-primary;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                }
+
+                                gh-touch := TouchArea {
+                                    clicked => { AppAPI.on_click("github"); }
+                                }
+                            }
+
+                            Rectangle {
+                                width: 48px;
+                                height: 48px;
+                                background: tg-touch.has-hover ? #00000022 : transparent;
+                                border-radius: 24px;
+
+                                TelegramIcon {
+                                    icon-color: Theme.bg-primary;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                }
+
+                                tg-touch := TouchArea {
+                                    clicked => { AppAPI.on_click("telegram"); }
+                                }
+                            }
+                        }
+
+                        // Big heading
+                        Text {
+                            text: "Own your\ndigital life.";
+                            font-size: 56px;
+                            font-weight: 600;
+                            color: Theme.bg-primary;
+                            horizontal-alignment: center;
+                        }
+
+                        Rectangle { vertical-stretch: 1; }
+
+                        // Bottom links
+                        VerticalLayout {
+                            spacing: 12px;
+                            alignment: center;
+
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 24px;
+
+                                Text {
+                                    text: "Terms";
+                                    font-size: 14px;
+                                    color: Theme.bg-primary;
+                                    vertical-alignment: center;
+                                }
+
+                                Text {
+                                    text: "Privacy";
+                                    font-size: 14px;
+                                    color: Theme.bg-primary;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Text {
+                                text: "osvauld.com";
+                                font-size: 13px;
+                                font-weight: 500;
+                                color: Theme.bg-primary;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

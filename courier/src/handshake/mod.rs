@@ -14,8 +14,7 @@
 pub mod decision;
 
 pub use decision::{
-    HelloDecision, WelcomeDecision, PermitGrantDecision,
-    HelloContext, WelcomeContext, PermitGrantContext,
-    decide_hello_response, decide_welcome_response, decide_permit_grant_response,
-    extract_capabilities, is_first_connection, can_publish,
+    can_publish, decide_hello_response, decide_permit_grant_response, decide_welcome_response,
+    extract_capabilities, is_first_connection, HelloContext, HelloDecision, PermitGrantContext,
+    PermitGrantDecision, WelcomeContext, WelcomeDecision,
 };

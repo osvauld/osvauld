@@ -3,18 +3,31 @@ name = "kunki"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "kunki"
+path = "src/lib.rs"
+
 [[bin]]
 name = "kunki"
 path = "src/main.rs"
 
+[features]
+default = []
+profiling = ["console-subscriber", "tracing-flame"]
+
 [dependencies]
+# Profiling (optional)
+console-subscriber = { workspace = true, optional = true }
+tracing-flame = { workspace = true, optional = true }
 # Core crates
 gurkha = { path = "../gurkha" }
 butler = { path = "../butler" }
 herald = { path = "../herald" }
 transport = { path = "../transport" }
 courier = { path = "../courier" }
-control_server = { path = "../control_server" }
+control_server = { path = "../control_server", features = ["butler"] }
+lua_runtime = { path = "../lua_runtime" }
+domains = { path = "../domains" }
 
 # CLI and async runtime
 clap = { version = "4.5.40", features = ["derive"] }

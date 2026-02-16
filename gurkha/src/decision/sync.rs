@@ -26,12 +26,21 @@ impl SyncContext {
         let peer_permit = crate::parser::Permit::from_token(peer_token)
             .map_err(|e| format!("Failed to parse peer token: {}", e))?;
 
-        Ok(Self { our_permit, peer_permit })
+        Ok(Self {
+            our_permit,
+            peer_permit,
+        })
     }
 
     /// Create sync context from parsed permits
-    pub fn from_permits(our_permit: crate::parser::Permit, peer_permit: crate::parser::Permit) -> Self {
-        Self { our_permit, peer_permit }
+    pub fn from_permits(
+        our_permit: crate::parser::Permit,
+        peer_permit: crate::parser::Permit,
+    ) -> Self {
+        Self {
+            our_permit,
+            peer_permit,
+        }
     }
 
     pub fn our_permit(&self) -> &crate::parser::Permit {
@@ -45,70 +54,43 @@ impl SyncContext {
 
 /// Determine if we should send updates for a layer
 ///
-/// Uses layer capabilities and patterns from permit.
+/// With fully-resolved permits, checks if the layer exists with sync=true.
 /// Returns DontSend if no access.
 pub fn should_send_updates(context: &SyncContext, layer_name: &str) -> SyncDecision {
-    tracing::debug!("🔍 [should_send_updates] Checking layer '{}'", layer_name);
+    tracing::debug!("[should_send_updates] Checking layer '{}'", layer_name);
 
-    // Check fixed layer capability
     if let Some(config) = context.our_permit.get_layer_config(layer_name) {
         if config.sync {
-            tracing::info!("✅ [should_send_updates] '{}' → SendIncrementalUpdates (fixed layer)", layer_name);
+            tracing::info!(
+                "[should_send_updates] '{}' → SendIncrementalUpdates",
+                layer_name
+            );
             return SyncDecision::SendIncrementalUpdates;
         }
     }
 
-    // Check layer patterns
-    for (pattern, config) in context.our_permit.layer_patterns() {
-        if config.sync && matches_pattern(layer_name, pattern) {
-            tracing::info!("✅ [should_send_updates] '{}' → SendIncrementalUpdates (pattern match)", layer_name);
-            return SyncDecision::SendIncrementalUpdates;
-        }
-    }
-
-    tracing::info!("🚫 [should_send_updates] '{}' → DontSend (no access)", layer_name);
+    tracing::info!(
+        "[should_send_updates] '{}' → DontSend (no access)",
+        layer_name
+    );
     SyncDecision::DontSend
-}
-
-/// Simple pattern matching for layer names
-fn matches_pattern(layer_name: &str, pattern: &str) -> bool {
-    // Split into parts and compare
-    let layer_parts: Vec<&str> = layer_name.split('/').collect();
-    let pattern_parts: Vec<&str> = pattern.split('/').collect();
-
-    if layer_parts.len() != pattern_parts.len() {
-        return false;
-    }
-
-    layer_parts.iter().zip(pattern_parts.iter()).all(|(layer, pat)| {
-        *pat == "*" || pat.starts_with('{') || layer == pat
-    })
 }
 
 /// Check if we can receive updates for a layer
 ///
-/// Uses layer capabilities and patterns from permit.
+/// With fully-resolved permits, checks if the layer exists with sync=true.
 /// Returns false if no access.
 pub fn can_receive_updates(context: &SyncContext, layer_name: &str) -> bool {
-    tracing::debug!("🔒 [can_receive_updates] Checking layer '{}'", layer_name);
+    tracing::debug!("[can_receive_updates] Checking layer '{}'", layer_name);
 
-    // Check fixed layer capability
     if let Some(config) = context.our_permit.get_layer_config(layer_name) {
         if config.sync {
-            tracing::info!("🎯 [can_receive_updates] '{}' → true (fixed layer)", layer_name);
+            tracing::info!("[can_receive_updates] '{}' → true", layer_name);
             return true;
         }
     }
 
-    // Check layer patterns
-    for (pattern, config) in context.our_permit.layer_patterns() {
-        if config.sync && matches_pattern(layer_name, pattern) {
-            tracing::info!("🎯 [can_receive_updates] '{}' → true (pattern match)", layer_name);
-            return true;
-        }
-    }
-
-    tracing::info!("🎯 [can_receive_updates] '{}' → false (no access)", layer_name);
+    tracing::info!("[can_receive_updates] '{}' → false (no access)", layer_name);
     false
 }
 
@@ -117,14 +99,84 @@ pub fn can_receive_updates(context: &SyncContext, layer_name: &str) -> bool {
 /// Uses simple sync rules - if we can receive, we should request.
 /// Returns DontSend if no capability or sync disabled.
 pub fn should_request_updates(context: &SyncContext, layer_name: &str) -> SyncDecision {
-    tracing::debug!("🔍 [should_request_updates] Checking layer '{}'", layer_name);
+    tracing::debug!(
+        "🔍 [should_request_updates] Checking layer '{}'",
+        layer_name
+    );
 
     // TODO: Implement simple permit-based logic in Phase 4
     if can_receive_updates(context, layer_name) {
-        tracing::info!("✅ [should_request_updates] '{}' → RequestUpdates", layer_name);
+        tracing::info!(
+            "✅ [should_request_updates] '{}' → RequestUpdates",
+            layer_name
+        );
         SyncDecision::SendIncrementalUpdates
     } else {
         tracing::info!("🚫 [should_request_updates] '{}' → DontRequest", layer_name);
         SyncDecision::DontSend
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_fixtures;
+
+    #[test]
+    fn should_send_updates_for_synced_layer() {
+        let owner = test_fixtures::shop_owner("shop123", "did:key:owner");
+        let peer = test_fixtures::shop_customer("shop123", "did:key:peer");
+        let ctx = SyncContext::from_permits(owner, peer);
+
+        let result = should_send_updates(&ctx, "shop123/products");
+        assert_eq!(result, SyncDecision::SendIncrementalUpdates);
+    }
+
+    #[test]
+    fn should_not_send_updates_for_unknown_layer() {
+        let owner = test_fixtures::shop_owner("shop123", "did:key:owner");
+        let peer = test_fixtures::shop_customer("shop123", "did:key:peer");
+        let ctx = SyncContext::from_permits(owner, peer);
+
+        let result = should_send_updates(&ctx, "shop123/nonexistent");
+        assert_eq!(result, SyncDecision::DontSend);
+    }
+
+    #[test]
+    fn should_not_send_updates_for_local_only_layer() {
+        let owner = test_fixtures::shop_owner("shop123", "did:key:owner");
+        let peer = test_fixtures::shop_customer("shop123", "did:key:peer");
+        let ctx = SyncContext::from_permits(owner, peer);
+
+        // drafts has sync=false
+        let result = should_send_updates(&ctx, "shop123/drafts");
+        assert_eq!(result, SyncDecision::DontSend);
+    }
+
+    #[test]
+    fn can_receive_updates_for_synced_layer() {
+        let owner = test_fixtures::shop_owner("shop123", "did:key:owner");
+        let peer = test_fixtures::shop_customer("shop123", "did:key:peer");
+        let ctx = SyncContext::from_permits(owner, peer);
+
+        assert!(can_receive_updates(&ctx, "shop123/products"));
+        assert!(!can_receive_updates(&ctx, "shop123/drafts"));
+        assert!(!can_receive_updates(&ctx, "shop123/nonexistent"));
+    }
+
+    #[test]
+    fn should_request_updates_mirrors_can_receive() {
+        let owner = test_fixtures::shop_owner("shop123", "did:key:owner");
+        let peer = test_fixtures::shop_customer("shop123", "did:key:peer");
+        let ctx = SyncContext::from_permits(owner, peer);
+
+        assert_eq!(
+            should_request_updates(&ctx, "shop123/products"),
+            SyncDecision::SendIncrementalUpdates
+        );
+        assert_eq!(
+            should_request_updates(&ctx, "shop123/nonexistent"),
+            SyncDecision::DontSend
+        );
     }
 }

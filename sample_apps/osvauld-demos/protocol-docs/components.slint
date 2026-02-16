@@ -1,0 +1,282 @@
+// Shared components for Protocol Docs
+
+import { Theme } from "theme.slint";
+
+// Section card with title + body
+export component SectionCard inherits Rectangle {
+    in property<string> title;
+    in property<string> content;
+
+    background: Theme.bg-card;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border-light;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+
+        Text {
+            text: title;
+            font-size: 15px;
+            font-weight: 600;
+            color: Theme.accent;
+        }
+
+        Text {
+            text: content;
+            font-size: 13px;
+            color: Theme.text-answer;
+            wrap: word-wrap;
+        }
+    }
+}
+
+// Code block with optional label
+export component CodeBlock inherits Rectangle {
+    in property<string> code;
+    in property<string> label: "";
+
+    background: Theme.bg-card;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+
+        if label != "": Text {
+            text: label;
+            font-size: 11px;
+            font-weight: 600;
+            color: Theme.text-muted;
+        }
+
+        Text {
+            text: code;
+            font-size: 13px;
+            color: Theme.accent-green;
+            font-family: "monospace";
+        }
+    }
+}
+
+// Info card with accent left border
+export component InfoCard inherits Rectangle {
+    in property<string> title;
+    in property<string> content;
+    in property<color> accent-color: Theme.accent;
+
+    background: Theme.bg-card;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border-light;
+
+    HorizontalLayout {
+        spacing: 0;
+
+        Rectangle {
+            width: 4px;
+            background: accent-color;
+            border-radius: 2px;
+        }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 6px;
+
+            Text {
+                text: title;
+                font-size: 15px;
+                font-weight: 600;
+                color: Theme.text-primary;
+            }
+
+            Text {
+                text: content;
+                font-size: 13px;
+                color: Theme.text-answer;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+// Diagram box (colored bordered container)
+export component DiagramBox inherits Rectangle {
+    in property<string> label;
+    in property<color> box-color: Theme.accent;
+
+    background: box-color.with-alpha(0.1);
+    border-radius: 6px;
+    border-width: 2px;
+    border-color: box-color;
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 4px;
+
+        Text {
+            text: label;
+            font-size: 14px;
+            font-weight: 600;
+            color: box-color;
+        }
+    }
+}
+
+// Navigation buttons (prev / next) at bottom of content
+export component NavButtons inherits Rectangle {
+    in property<string> prev-label: "";
+    in property<string> next-label: "";
+    callback prev_clicked();
+    callback next_clicked();
+
+    height: 72px;
+
+    HorizontalLayout {
+        padding-top: 24px;
+        spacing: 12px;
+
+        if prev-label != "": Rectangle {
+            background: prev-touch.has-hover ? Theme.bg-elevated : Theme.bg-card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border-light;
+            horizontal-stretch: 1;
+            height: 48px;
+
+            prev-touch := TouchArea {
+                clicked => { root.prev_clicked(); }
+            }
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 8px;
+
+                Text {
+                    text: "\u{2190}";
+                    font-size: 16px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+
+                    Text {
+                        text: "Previous";
+                        font-size: 11px;
+                        color: Theme.text-muted;
+                    }
+
+                    Text {
+                        text: prev-label;
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+
+        // Spacer when only one button
+        if prev-label == "" || next-label == "": Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        if next-label != "": Rectangle {
+            background: next-touch.has-hover ? Theme.bg-elevated : Theme.bg-card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border-light;
+            horizontal-stretch: 1;
+            height: 48px;
+
+            next-touch := TouchArea {
+                clicked => { root.next_clicked(); }
+            }
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 8px;
+
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    spacing: 2px;
+
+                    Text {
+                        text: "Next";
+                        font-size: 11px;
+                        color: Theme.text-muted;
+                        horizontal-alignment: right;
+                    }
+
+                    Text {
+                        text: next-label;
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        horizontal-alignment: right;
+                        overflow: elide;
+                    }
+                }
+
+                Text {
+                    text: "\u{2192}";
+                    font-size: 16px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+// Table row (key-value pair)
+export component TableRow inherits Rectangle {
+    in property<string> key;
+    in property<string> value;
+    in property<bool> is-header: false;
+
+    height: is-header ? 36px : 32px;
+    background: is-header ? Theme.bg-elevated : transparent;
+    border-radius: is-header ? 4px : 0;
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+
+        Text {
+            text: key;
+            font-size: is-header ? 12px : 13px;
+            font-weight: is-header ? 700 : 400;
+            color: is-header ? Theme.text-muted : Theme.accent;
+            vertical-alignment: center;
+            width: 40%;
+        }
+
+        Text {
+            text: value;
+            font-size: is-header ? 12px : 13px;
+            font-weight: is-header ? 700 : 400;
+            color: is-header ? Theme.text-muted : Theme.text-answer;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+    }
+
+    // Bottom border for non-header rows
+    if !is-header: Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.border-light;
+    }
+}

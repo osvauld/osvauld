@@ -81,10 +81,18 @@ pub use keystore::EncryptedKeys;
 
 // Re-export commonly used crypto functions
 pub use crypto::{
-    encrypt, decrypt,
-    generate_aes_key, encrypt_symmetric, decrypt_symmetric,
+    decrypt,
+    decrypt_from_transfer,
+    decrypt_symmetric,
+    derive_key,
+    // Session key derivation (per-connection)
+    derive_session_key,
     // Key exchange and derivation
-    ecdh, derive_key, generate_ephemeral_keypair,
+    ecdh,
+    encrypt,
     // Transit encryption (peer-to-peer)
-    encrypt_for_transfer, decrypt_from_transfer,
+    encrypt_for_transfer,
+    encrypt_symmetric,
+    generate_aes_key,
+    generate_ephemeral_keypair,
 };

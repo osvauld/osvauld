@@ -1,49 +1,35 @@
-//! Integration tests for Osvauld P2P protocol
+//! Protocol integration tests for Osvauld P2P
 //!
-//! This crate provides test infrastructure for multi-peer protocol testing
-//! without actual network infrastructure.
+//! MockConnection-only test infrastructure with builder pattern.
 //!
-//! # Architecture
+//! ## Quick Start
 //!
-//! ```text
-//! ┌─────────────────────────────────────────────────────────────┐
-//! │                      TestHarness                             │
-//! │                                                              │
-//! │  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐  │
-//! │  │  TestPeer   │      │  TestPeer   │      │  TestPeer   │  │
-//! │  │  (Owner)    │      │  (Node)     │      │  (Viewer)   │  │
-//! │  │             │      │             │      │             │  │
-//! │  │ Coordinator │      │ Coordinator │      │ Coordinator │  │
-//! │  │ PeerActors  │      │ PeerActors  │      │ PeerActors  │  │
-//! │  │ Butler      │      │ Butler      │      │ Butler      │  │
-//! │  └──────┬──────┘      └──────┬──────┘      └──────┬──────┘  │
-//! │         │                    │                    │         │
-//! │         └────────────────────┼────────────────────┘         │
-//! │                              │                              │
-//! │                    ┌─────────┴─────────┐                    │
-//! │                    │   MockTransport   │                    │
-//! │                    │   (routes bytes)  │                    │
-//! │                    └───────────────────┘                    │
-//! └─────────────────────────────────────────────────────────────┘
+//! ```ignore
+//! // Handshake test with tracer
+//! let mut s = Scenario::builder()
+//!     .owner().node().connected().with_tracer()
+//!     .build().await?;
+//! s.tracer().assert_contains_sequence(&["Hello", "Welcome"]);
+//!
+//! // Full publish flow
+//! let mut s = Scenario::builder()
+//!     .app("osvauld-demos").published().with_tracer()
+//!     .build().await?;
+//! assert!(s.node().butler.pages().get(&s.space().page_id)?.is_some());
 //! ```
 
-mod mock_transport;
-mod test_harness;
-mod test_peer;
-
-pub mod app_loader;
-pub mod assertions;
 pub mod fixtures;
-pub mod headless_helper;
-pub mod helpers;
-pub mod scenarios;
-
-pub use mock_transport::MockTransport;
-pub use test_harness::TestHarness;
-pub use test_peer::TestPeer;
-
-// Re-export commonly used scenario types
-pub use scenarios::{OwnerNodeScenario, PublishedPageScenario, MultiPartyScenario};
+pub mod peer;
+pub mod scenario;
+pub mod tracer;
 
 #[cfg(test)]
 mod tests;
+
+pub use fixtures::{
+    init_tracing, space_template, workspace_root, app_dir,
+    SpaceInfo, MOCK_TIMEOUT, PAGE_SYNC_TIMEOUT,
+};
+pub use peer::Peer;
+pub use scenario::{Scenario, ScenarioBuilder};
+pub use tracer::Tracer;

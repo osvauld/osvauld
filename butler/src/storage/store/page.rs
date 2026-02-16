@@ -3,15 +3,17 @@
 //! Key: {page_id} (v2 schema - page_id is globally unique)
 //! Also maintains SPACE_PAGES index: {space_id}/{page_id} → ()
 
-use redb::{ReadableTable, ReadableDatabase};
+use super::{RedbStore, LAYERS, PAGES, SPACE_PAGES};
 use crate::error::{ButlerError, Result};
 use crate::models::PageData;
-use super::{RedbStore, PAGES, SPACE_PAGES, LAYERS};
+use redb::{ReadableDatabase, ReadableTable};
+use tracing::instrument;
 
 impl RedbStore {
+    #[instrument(skip_all)]
     pub fn put_page(&self, page: &PageData) -> Result<()> {
-        let value = bincode::serialize(page)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(page).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {
@@ -29,6 +31,7 @@ impl RedbStore {
     }
 
     /// Get page by page_id (v2 - no space_id needed)
+    #[instrument(skip_all)]
     pub fn get_page_by_id(&self, page_id: &str) -> Result<Option<PageData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(PAGES)?;
@@ -44,11 +47,13 @@ impl RedbStore {
         }
     }
 
-    /// Get page (legacy API - space_id ignored, uses page_id only)
+    /// Get page by ID.
+    #[instrument(skip_all)]
     pub fn get_page(&self, _space_id: &str, page_id: &str) -> Result<Option<PageData>> {
         self.get_page_by_id(page_id)
     }
 
+    #[instrument(skip_all)]
     pub fn delete_page(&self, space_id: &str, page_id: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let removed = {
@@ -68,6 +73,7 @@ impl RedbStore {
     }
 
     /// List pages in space using SPACE_PAGES index
+    #[instrument(skip_all)]
     pub fn list_pages_in_space(&self, space_id: &str) -> Result<Vec<PageData>> {
         let read_txn = self.db.begin_read()?;
         let index_table = read_txn.open_table(SPACE_PAGES)?;
@@ -98,6 +104,7 @@ impl RedbStore {
     }
 
     /// List page IDs in space (without loading full PageData)
+    #[instrument(skip_all)]
     pub fn list_page_ids_in_space(&self, space_id: &str) -> Result<Vec<String>> {
         let read_txn = self.db.begin_read()?;
         let index_table = read_txn.open_table(SPACE_PAGES)?;
@@ -120,6 +127,7 @@ impl RedbStore {
         Ok(page_ids)
     }
 
+    #[instrument(skip_all)]
     pub fn list_all_pages(&self) -> Result<Vec<PageData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(PAGES)?;
@@ -135,11 +143,13 @@ impl RedbStore {
     }
 
     /// Find a page by ID (v2 - direct lookup, no scan needed)
+    #[instrument(skip_all)]
     pub fn find_page_by_id(&self, page_id: &str) -> Result<Option<PageData>> {
         self.get_page_by_id(page_id)
     }
 
     /// Get all layers for a page (returns encrypted bytes mapped by layer name)
+    #[instrument(skip_all)]
     pub fn get_all_layers(&self, page_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(LAYERS)?;

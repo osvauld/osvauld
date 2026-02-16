@@ -1,0 +1,56 @@
+[package]
+name = "sthalam"
+version = "0.1.0"
+edition = "2021"
+description = "Sthalam - Platform for running Lua apps with CRDT sync"
+
+[[bin]]
+name = "sthalam"
+path = "src/main.rs"
+
+[features]
+default = []
+raylib = ["dep:renderer_raylib"]
+testing = []
+profiling = ["console-subscriber", "tracing-flame"]
+
+[dependencies]
+# Shell UI (auth, spaces, pages, nodes, publish, viewer)
+sthalam_shell = { path = "../sthalam_shell" }
+
+# Slint renderer for UI apps
+renderer_slint = { path = "../renderer_slint" }
+
+# Raylib renderer for games (optional)
+renderer_raylib = { path = "../renderer_raylib", optional = true }
+
+# Core platform
+butler = { path = "../butler" }
+courier = { path = "../courier" }
+domains = { path = "../domains" }
+control_server = { path = "../control_server", features = ["butler"] }
+lua_runtime = { path = "../lua_runtime" }
+logging_utils = { path = "../logging_utils" }
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+
+# Logging
+tracing = "0.1"
+
+# UI framework
+slint = { version = "1.14", features = ["backend-winit", "renderer-femtovg"] }
+
+# Utilities
+dirs = "5.0"
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+ractor = "0.14"
+
+# Testing backend
+i-slint-backend-testing = "1.14"
+
+# Profiling (optional)
+console-subscriber = { workspace = true, optional = true }
+tracing-flame = { workspace = true, optional = true }
+tracing-subscriber = "0.3.22"

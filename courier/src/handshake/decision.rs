@@ -19,36 +19,26 @@
 //! - **Uniform handshake**: Same flow for all peers, capabilities determine behavior
 //! - **Bidirectional permits**: Both sides issue permits to authenticate
 
-use gurkha::{PermitCore, PeerCapabilities};
-
-// ==================== CAPABILITY EXTRACTION ====================
+use gurkha::{PeerCapabilities, Permit};
 
 /// Extract peer capabilities from permit
 ///
 /// **Context**: Determining behavior from the permit in connection string
 /// **We read**: `peer_capabilities` from permit facts
 /// **We return**: PeerCapabilities struct with all capability flags
-pub fn extract_capabilities(permit: &PermitCore) -> PeerCapabilities {
-    if let Some(caps) = permit.get_fact("peer_capabilities") {
-        if let Some(obj) = caps.as_object() {
-            return PeerCapabilities::from_json(obj);
-        }
-    }
-    // Default: no special capabilities
-    PeerCapabilities::default()
+pub fn extract_capabilities(permit: &Permit) -> PeerCapabilities {
+    permit.peer_capabilities().clone()
 }
 
 /// Check if permit indicates first connection
-pub fn is_first_connection(permit: &PermitCore) -> bool {
+pub fn is_first_connection(permit: &Permit) -> bool {
     permit.is_first_connection()
 }
 
 /// Check if permit allows publishing spaces
-pub fn can_publish(permit: &PermitCore) -> bool {
-    extract_capabilities(permit).accept_publish
+pub fn can_publish(permit: &Permit) -> bool {
+    permit.peer_capabilities().accept_publish
 }
-
-// ==================== NODE SIDE DECISIONS ====================
 
 /// Decision for how to respond to Hello message (Node mode)
 ///
@@ -86,7 +76,7 @@ pub enum HelloDecision {
 /// **Context**: Node building decision context from incoming Hello
 /// **Courier provides**: Parsed permit, incoming DID, existing owner info
 pub struct HelloContext<'a> {
-    pub incoming_permit: &'a PermitCore,
+    pub incoming_permit: &'a Permit,
     pub incoming_did: &'a str,
     pub existing_owner_did: Option<&'a str>,
     pub existing_owner_permit: Option<&'a str>,
@@ -133,8 +123,6 @@ pub fn decide_hello_response(ctx: &HelloContext) -> HelloDecision {
     }
 }
 
-// ==================== USER SIDE DECISIONS ====================
-
 /// Decision for how to respond to Welcome message (User mode)
 ///
 /// **Context**: User received Welcome from node
@@ -158,13 +146,13 @@ pub enum WelcomeDecision {
 /// **User provides**: Our permit (for capabilities), our identifiers, expected node pubkey, received permit
 pub struct WelcomeContext<'a> {
     /// Our outgoing permit (to extract capabilities)
-    pub our_permit: &'a PermitCore,
+    pub our_permit: &'a Permit,
     pub our_did: &'a str,
     /// Our public key in base64 - permits use this as audience, not DID
     pub our_pubkey_b64: &'a str,
     pub expected_node_pubkey: &'a [u8],
     pub received_node_pubkey: &'a [u8],
-    pub received_permit: &'a PermitCore,
+    pub received_permit: &'a Permit,
 }
 
 /// Decide how to respond to Welcome (User mode)
@@ -180,7 +168,8 @@ pub struct WelcomeContext<'a> {
 /// Decision enum indicating acceptance or rejection
 pub fn decide_welcome_response(ctx: &WelcomeContext) -> WelcomeDecision {
     // 1. Verify node identity matches connection string
-    if !ctx.expected_node_pubkey.is_empty() && ctx.expected_node_pubkey != ctx.received_node_pubkey {
+    if !ctx.expected_node_pubkey.is_empty() && ctx.expected_node_pubkey != ctx.received_node_pubkey
+    {
         return WelcomeDecision::RejectNodeMismatch;
     }
 
@@ -200,8 +189,6 @@ pub fn decide_welcome_response(ctx: &WelcomeContext) -> WelcomeDecision {
         can_publish: caps.accept_publish,
     }
 }
-
-// ==================== NODE SIDE: PERMITGRANT ====================
 
 /// Decision for how to respond to PermitGrant message (Node mode)
 ///
@@ -230,7 +217,7 @@ pub struct PermitGrantContext<'a> {
     /// Our public key base64-encoded - this is what peer uses as audience
     pub our_pubkey_b64: &'a str,
     pub their_did: &'a str,
-    pub received_permit: &'a PermitCore,
+    pub received_permit: &'a Permit,
 }
 
 /// Decide how to respond to PermitGrant (Node mode)
@@ -267,14 +254,279 @@ pub fn decide_permit_grant_response(ctx: &PermitGrantContext) -> PermitGrantDeci
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // Note: Full integration tests require actual permit tokens
-    // These unit tests verify the decision logic
+    use gurkha::test_fixtures;
 
     #[test]
-    fn test_hello_decision_first_connection_can_publish() {
-        // Simulating a permit with accept_publish: true, first_connection: true
-        // Since we can't easily create a PermitCore in tests, this is more of a
-        // documentation of expected behavior
+    fn test_hello_first_connection_no_existing_owner() {
+        let permit = test_fixtures::handshake_owner_first("page1", "did:key:alice");
+        let ctx = HelloContext {
+            incoming_permit: &permit,
+            incoming_did: "did:key:alice",
+            existing_owner_did: None,
+            existing_owner_permit: None,
+        };
+
+        match decide_hello_response(&ctx) {
+            HelloDecision::AcceptFirstConnection { can_publish } => {
+                assert!(can_publish);
+            }
+            other => panic!("Expected AcceptFirstConnection, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_hello_first_connection_already_has_owner() {
+        let permit = test_fixtures::handshake_owner_first("page1", "did:key:bob");
+        let ctx = HelloContext {
+            incoming_permit: &permit,
+            incoming_did: "did:key:bob",
+            existing_owner_did: Some("did:key:alice"),
+            existing_owner_permit: Some("existing_permit"),
+        };
+
+        assert!(matches!(
+            decide_hello_response(&ctx),
+            HelloDecision::RejectAlreadyHasOwner
+        ));
+    }
+
+    #[test]
+    fn test_hello_reconnection_same_owner() {
+        let permit = test_fixtures::handshake_owner_reconnect("page1", "did:key:alice");
+        let ctx = HelloContext {
+            incoming_permit: &permit,
+            incoming_did: "did:key:alice",
+            existing_owner_did: Some("did:key:alice"),
+            existing_owner_permit: Some("stored_permit_token"),
+        };
+
+        match decide_hello_response(&ctx) {
+            HelloDecision::AcceptReconnection {
+                stored_permit,
+                can_publish,
+            } => {
+                assert_eq!(stored_permit, "stored_permit_token");
+                assert!(can_publish);
+            }
+            other => panic!("Expected AcceptReconnection, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_hello_reconnection_different_owner() {
+        let permit = test_fixtures::handshake_owner_reconnect("page1", "did:key:bob");
+        let ctx = HelloContext {
+            incoming_permit: &permit,
+            incoming_did: "did:key:bob",
+            existing_owner_did: Some("did:key:alice"),
+            existing_owner_permit: Some("stored_permit"),
+        };
+
+        assert!(matches!(
+            decide_hello_response(&ctx),
+            HelloDecision::RejectOwnerMismatch
+        ));
+    }
+
+    #[test]
+    fn test_hello_reconnection_no_existing_owner() {
+        let permit = test_fixtures::handshake_owner_reconnect("page1", "did:key:alice");
+        let ctx = HelloContext {
+            incoming_permit: &permit,
+            incoming_did: "did:key:alice",
+            existing_owner_did: None,
+            existing_owner_permit: None,
+        };
+
+        assert!(matches!(
+            decide_hello_response(&ctx),
+            HelloDecision::RejectNoOwnerForReconnection
+        ));
+    }
+
+    #[test]
+    fn test_hello_viewer_accepts_as_peer() {
+        let permit = test_fixtures::handshake_viewer("page1", "did:key:viewer");
+        let ctx = HelloContext {
+            incoming_permit: &permit,
+            incoming_did: "did:key:viewer",
+            existing_owner_did: Some("did:key:owner"),
+            existing_owner_permit: Some("owner_permit"),
+        };
+
+        assert!(matches!(
+            decide_hello_response(&ctx),
+            HelloDecision::AcceptPeer
+        ));
+    }
+
+    #[test]
+    fn test_hello_viewer_first_connection_accepts_as_peer() {
+        let permit = test_fixtures::handshake_viewer_first("page1", "did:key:viewer");
+        let ctx = HelloContext {
+            incoming_permit: &permit,
+            incoming_did: "did:key:viewer",
+            existing_owner_did: None,
+            existing_owner_permit: None,
+        };
+
+        // Viewers without accept_publish capability are accepted as peers
+        assert!(matches!(
+            decide_hello_response(&ctx),
+            HelloDecision::AcceptPeer
+        ));
+    }
+
+    #[test]
+    fn test_welcome_accept_matching_audience() {
+        let our_permit = test_fixtures::handshake_owner_first("page1", "did:key:alice");
+        let received_permit = test_fixtures::handshake_owner_reconnect("page1", "alice_pubkey_b64");
+
+        let ctx = WelcomeContext {
+            our_permit: &our_permit,
+            our_did: "did:key:alice",
+            our_pubkey_b64: "alice_pubkey_b64",
+            expected_node_pubkey: b"node_pubkey",
+            received_node_pubkey: b"node_pubkey",
+            received_permit: &received_permit,
+        };
+
+        match decide_welcome_response(&ctx) {
+            WelcomeDecision::Accept { can_publish } => {
+                assert!(can_publish);
+            }
+            other => panic!("Expected Accept, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_welcome_reject_node_mismatch() {
+        let our_permit = test_fixtures::handshake_owner_first("page1", "did:key:alice");
+        let received_permit = test_fixtures::handshake_owner_reconnect("page1", "alice_pubkey_b64");
+
+        let ctx = WelcomeContext {
+            our_permit: &our_permit,
+            our_did: "did:key:alice",
+            our_pubkey_b64: "alice_pubkey_b64",
+            expected_node_pubkey: b"expected_node",
+            received_node_pubkey: b"different_node",
+            received_permit: &received_permit,
+        };
+
+        assert!(matches!(
+            decide_welcome_response(&ctx),
+            WelcomeDecision::RejectNodeMismatch
+        ));
+    }
+
+    #[test]
+    fn test_welcome_accept_empty_expected_pubkey() {
+        // When expected_node_pubkey is empty, we skip the check
+        let our_permit = test_fixtures::handshake_owner_first("page1", "did:key:alice");
+        let received_permit = test_fixtures::handshake_owner_reconnect("page1", "alice_pubkey_b64");
+
+        let ctx = WelcomeContext {
+            our_permit: &our_permit,
+            our_did: "did:key:alice",
+            our_pubkey_b64: "alice_pubkey_b64",
+            expected_node_pubkey: b"",
+            received_node_pubkey: b"any_node",
+            received_permit: &received_permit,
+        };
+
+        assert!(matches!(
+            decide_welcome_response(&ctx),
+            WelcomeDecision::Accept { .. }
+        ));
+    }
+
+    #[test]
+    fn test_welcome_viewer_cannot_publish() {
+        let our_permit = test_fixtures::handshake_viewer("page1", "did:key:viewer");
+        let received_permit = test_fixtures::handshake_viewer("page1", "viewer_pubkey_b64");
+
+        let ctx = WelcomeContext {
+            our_permit: &our_permit,
+            our_did: "did:key:viewer",
+            our_pubkey_b64: "viewer_pubkey_b64",
+            expected_node_pubkey: b"node",
+            received_node_pubkey: b"node",
+            received_permit: &received_permit,
+        };
+
+        match decide_welcome_response(&ctx) {
+            WelcomeDecision::Accept { can_publish } => {
+                assert!(!can_publish);
+            }
+            other => panic!("Expected Accept, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_permit_grant_accept() {
+        let received_permit = test_fixtures::handshake_owner_reconnect("page1", "node_pubkey_b64");
+        // Use the actual issuer from the permit (test fixtures sign with TEST_KEY)
+        let their_did = received_permit.issuer().expect("permit should have issuer");
+
+        let ctx = PermitGrantContext {
+            peer_can_publish: true,
+            our_pubkey_b64: "node_pubkey_b64",
+            their_did,
+            received_permit: &received_permit,
+        };
+
+        match decide_permit_grant_response(&ctx) {
+            PermitGrantDecision::Accept { can_publish } => {
+                assert!(can_publish);
+            }
+            other => panic!("Expected Accept, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_permit_grant_viewer_cannot_publish() {
+        let received_permit = test_fixtures::handshake_viewer("page1", "node_pubkey_b64");
+        // Use the actual issuer from the permit (test fixtures sign with TEST_KEY)
+        let their_did = received_permit.issuer().expect("permit should have issuer");
+
+        let ctx = PermitGrantContext {
+            peer_can_publish: false,
+            our_pubkey_b64: "node_pubkey_b64",
+            their_did,
+            received_permit: &received_permit,
+        };
+
+        match decide_permit_grant_response(&ctx) {
+            PermitGrantDecision::Accept { can_publish } => {
+                assert!(!can_publish);
+            }
+            other => panic!("Expected Accept, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_extract_capabilities() {
+        // Owner: can publish + share, not relay
+        let owner = test_fixtures::handshake_owner_first("page1", "did:key:alice");
+        let owner_caps = extract_capabilities(&owner);
+        assert!(owner_caps.accept_publish);
+        assert!(owner_caps.share);
+        assert!(!owner_caps.relay);
+
+        // Viewer: no capabilities
+        let viewer = test_fixtures::handshake_viewer("page1", "did:key:viewer");
+        let viewer_caps = extract_capabilities(&viewer);
+        assert!(!viewer_caps.accept_publish);
+        assert!(!viewer_caps.share);
+        assert!(!viewer_caps.relay);
+
+        // First connection vs reconnection
+        assert!(is_first_connection(&owner));
+        let reconnect = test_fixtures::handshake_owner_reconnect("page1", "did:key:alice");
+        assert!(!is_first_connection(&reconnect));
+
+        // Can publish
+        assert!(can_publish(&owner));
+        assert!(!can_publish(&viewer));
     }
 }

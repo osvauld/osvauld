@@ -1,0 +1,175 @@
+
+============================================================
+  chat_perf
+============================================================
+  All instances ready
+
+  alice: signup, create space...
+  Space: c3cca3e5..., Page: 3e84e2c1...
+  alice: connect to node...
+    Waiting for node authentication...
+    Node authenticated
+  alice: publish space to node...
+  Published and synced to node
+
+  Connecting viewers (parallel)...
+  carol synced in 0.7s
+  bob synced in 0.6s
+  All viewers connected and synced
+
+  Opening apps (parallel)...
+  carol app 'Group Chat' synced in 0.0s
+  bob app 'Group Chat' synced in 0.3s
+    alice app ready
+    carol app ready
+    bob app ready
+  All apps opened and ready
+
+  Building peer handles...
+
+  Ready! Peers: ['alice', 'bob', 'carol']
+============================================================
+
+
+[Phase 1] Send-path benchmark: alice sends 500 messages (no delay)...
+  [1/500] alice: "Minute arm style six best."
+  [2/500] alice: "Be woman pattern seat."
+  [3/500] alice: "Recognize car for long firm left yard ho..."
+  [21/500] alice: "Consider whole discover itself process e..."
+  [41/500] alice: "Nice remain area shoulder."
+  [61/500] alice: "By base bill whom air reason now his mac..."
+  [81/500] alice: "Card you meeting."
+  [101/500] alice: "Property leave most economic significant..."
+  [121/500] alice: "Hair some nor hotel wait both today radi..."
+  [141/500] alice: "Class field gun institution day north st..."
+  [161/500] alice: "Two amount soldier audience upon includi..."
+  [181/500] alice: "Argue myself old hair."
+  [201/500] alice: "Large note spend less show along war."
+  [221/500] alice: "Movie mean adult go on everyone argue gr..."
+  [241/500] alice: "What him it loss west individual ok."
+  [261/500] alice: "Prevent fund article partner him."
+  [281/500] alice: "He meet from free station."
+  [301/500] alice: "Rest stock though garden."
+  [321/500] alice: "Opportunity bad happy company behavior p..."
+  [341/500] alice: "Chair operation resource writer big hosp..."
+  [361/500] alice: "Improve hold gun person much."
+  [381/500] alice: "Sing night deep hear drive know although..."
+  [401/500] alice: "Argue loss."
+  [421/500] alice: "Book enjoy certain difficult look with c..."
+  [441/500] alice: "Picture energy fear turn citizen single."
+  [461/500] alice: "Dream instead seven skin east wide."
+  [481/500] alice: "Should mind environmental."
+  Sent 500 messages in 120.42s (4.2 msg/s)
+
+[Phase 2] Distributed send: 500 messages with 0.1s delay...
+  [1/500] carol: "Possible in more particular produce mind..."
+  [2/500] carol: "Foreign rock suggest consider skin threa..."
+  [3/500] alice: "Political cut her learn Mr fact."
+  [4/500] carol: "Cultural practice son push either range ..."
+  [5/500] carol: "Be movie energy economic present film."
+  [11/500] carol: "Central hotel reason avoid method drop n..."
+  [21/500] bob: "Effort interview development get yeah co..."
+  [31/500] alice: "Generation arm think sing page ball abil..."
+  [41/500] carol: "Trip do describe participant political."
+  [51/500] bob: "Money good behavior serious."
+  [61/500] bob: "Fund state bad sort easy huge toward."
+  [71/500] bob: "Return wait red different hot window tel..."
+  [81/500] carol: "Practice on image explain fire."
+  [91/500] bob: "Window thus rise show."
+  [101/500] carol: "My mind car mission notice player heavy."
+  [111/500] bob: "Will environment century bag condition s..."
+  [121/500] carol: "Organization article return cultural dif..."
+  [131/500] bob: "Lay water politics worker late choose sp..."
+  [141/500] carol: "National each knowledge medical where ec..."
+  [151/500] carol: "Spring north food goal nor foreign try w..."
+  [161/500] bob: "Of resource usually common these analysi..."
+  [171/500] bob: "Professor million stay religious necessa..."
+  [181/500] bob: "Mother television various."
+  [191/500] carol: "Serve art radio."
+  [201/500] carol: "Sure light five activity sport."
+  [211/500] alice: "Instead western difference brother big a..."
+  [221/500] carol: "Listen raise discuss country mind two of..."
+  [231/500] alice: "Reality couple management top."
+  [241/500] bob: "Work this news idea produce."
+  [251/500] carol: "End stuff she although better green soon..."
+  [261/500] carol: "Girl age response."
+  [271/500] alice: "Cold stand so movie thank foot officer d..."
+  [281/500] alice: "May shoulder size after southern bring w..."
+  [291/500] alice: "Yeah generation morning power six."
+  [301/500] alice: "Lot room religious."
+  [311/500] carol: "Beat tree degree always discussion littl..."
+  [321/500] alice: "Network."
+  [331/500] carol: "Against sister significant hit face face..."
+  [341/500] alice: "Board party war significant ready agains..."
+  [351/500] alice: "President if stuff seek part skin street..."
+  [361/500] bob: "She benefit hotel."
+  [371/500] alice: "Time itself away threat lead employee wr..."
+  [381/500] carol: "Seat as."
+  [391/500] carol: "Big business color mission establish con..."
+  [401/500] bob: "Quality end lot."
+  [411/500] carol: "Job decision art institution apply repor..."
+  [421/500] bob: "Effect he product above."
+  [431/500] bob: "Show hospital man my you."
+  [441/500] carol: "Responsibility likely garden draw staff ..."
+  [451/500] bob: "Culture bring really growth return."
+  [461/500] bob: "When crime require."
+  [471/500] carol: "Ok able operation very skin."
+  [481/500] bob: "Painting not article leader maintain."
+  [491/500] bob: "Position such go little just type red po..."
+  Sent 500 messages
+
+Checking message sync (expected 1000)...
+  alice: 1000 messages [OK]
+  bob: 1000 messages [OK]
+  carol: 1000 messages [OK]
+  [PASS] All peers synced to 1000 messages
+
+Burst: 10 messages at 50ms...
+  After burst (expected 1010):
+    alice: 1010
+    bob: 1010
+    carol: 1010
+
+================================================================
+  PERFORMANCE REPORT
+================================================================
+
+  Build: release
+  Git: cff2502a
+
+  Timeline:
+       15.6s (+ 15.6s)  setup_complete
+       15.7s (+  0.1s)  send_phase_start
+      136.1s (+120.4s)  send_phase_done
+      136.1s (+  0.0s)  messages_start
+      520.3s (+384.2s)  messages_done
+      522.3s (+  2.0s)  sync_wait_done
+      533.2s (+ 10.8s)  test_complete
+
+  Message Throughput: 2.6 msg/sec
+  Total Messages: 1000
+  Duration: 384.2s
+
+  Memory Usage (peak):
+    alice       :    500 MB
+    bob         :    473 MB
+    carol       :    460 MB
+    node        :    195 MB
+
+  CPU Usage (avg):
+    alice       : 111.8%
+    bob         :  84.5%
+    carol       :  88.9%
+    node        :  36.1%
+
+  Memory Growth:
+    alice       : 386 -> 499 MB (+113 MB (0.11 MB/msg))
+    bob         : 381 -> 469 MB (+88 MB (0.09 MB/msg))
+    carol       : 366 -> 455 MB (+89 MB (0.09 MB/msg))
+    node        : 157 -> 184 MB (+27 MB (0.03 MB/msg))
+
+  Latency / Idle Metrics:
+    send_avg_latency_ms: 240.8ms
+    send_throughput_msg_per_sec: 4.2ms
+
+================================================================

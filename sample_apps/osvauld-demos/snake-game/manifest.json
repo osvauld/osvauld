@@ -5,5 +5,5 @@
     "entry_ui": "app.slint",
     "entry_logic": "app.lua",
     "models": ["snake", "leaderboard"],
-    "tick_enabled": true
+    "renderer": "slint"
 }

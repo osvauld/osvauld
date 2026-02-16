@@ -1,0 +1,56 @@
+[package]
+name = "lua_runtime"
+version = "0.1.0"
+edition = "2021"
+description = "Unified Lua runtime for Osvauld (apps, validation, derivation)"
+license = "MIT"
+
+[dependencies]
+# Lua scripting (sandboxed)
+mlua = { version = "0.10", features = ["lua54", "vendored", "async", "send"] }
+
+# Async
+tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "time"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+
+# Fast mutex (no poison, simpler API)
+parking_lot = "0.12"
+
+# Loro CRDT for direct FFI access
+loro = "1.5"
+
+# Actor framework for Scribe communication
+ractor = "0.14"
+
+# Graph layout algorithms for canvas apps
+layout-rs = "0.1"
+
+# Emoji lookup by shortcode
+emojis = "0.6"
+
+# Async executor for blocking contexts
+futures = "0.3"
+
+# Base64 for binary encoding
+base64 = "0.22"
+
+# Domains for core types
+domains = { path = "../domains" }
+
+# Scribe for ScribeMessage and validation types
+scribe = { path = "../scribe" }
+
+# Butler for extension traits and LuaRuntime bindings (optional)
+butler = { path = "../butler" }
+
+[features]
+default = []

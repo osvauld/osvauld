@@ -2,26 +2,19 @@
 name = "integration_tests"
 version = "0.1.0"
 edition = "2021"
-description = "Integration tests for Osvauld P2P protocol"
+description = "Protocol integration tests for Osvauld P2P"
 license = "MIT"
 
-[[bin]]
-name = "setup_test_dbs"
-path = "src/bin/setup_test_dbs.rs"
-
-[[bin]]
-name = "setup_booking_db"
-path = "src/bin/setup_booking_db.rs"
-
 [dependencies]
-clap = { version = "4", features = ["derive"] }
 # Internal crates
 courier = { path = "../courier" }
 butler = { path = "../butler" }
 transport = { path = "../transport" }
-gurkha = { path = "../gurkha" }
+gurkha = { path = "../gurkha", features = ["test-support"] }
 herald = { path = "../herald" }
-
+domains = { path = "../domains" }
+lua_runtime = { path = "../lua_runtime" }
+scribe = { path = "../scribe" }
 
 # JSON
 serde_json = "1"
@@ -31,12 +24,6 @@ loro = "1.5.4"
 
 # Encoding
 base64 = "0.22"
-hex = "0.4"
-blake3 = "1"
-
-# Key generation
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-rand = "0.8"
 
 # Actor framework
 ractor = "0.14"
@@ -46,7 +33,9 @@ tokio = { version = "1", features = ["sync", "time", "macros", "rt-multi-thread"
 
 # Testing utilities
 tempfile = "3"
-mime_guess = "2"
+
+# Lua runtime for validation tests
+mlua = { version = "0.10", features = ["lua54", "vendored", "send"] }
 
 # Error handling
 anyhow = "1.0"

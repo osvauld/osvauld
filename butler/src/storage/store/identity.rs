@@ -1,11 +1,13 @@
 //! Identity table operations
 
-use redb::{ReadableTable, ReadableDatabase};
+use super::{RedbStore, IDENTITY};
 use crate::error::{ButlerError, Result};
 use crate::models::{EncryptedKeyStore, IdentityData};
-use super::{RedbStore, IDENTITY};
+use redb::{ReadableDatabase, ReadableTable};
+use tracing::instrument;
 
 impl RedbStore {
+    #[instrument(skip_all)]
     pub fn get_identity(&self) -> Result<Option<IdentityData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(IDENTITY)?;
@@ -21,9 +23,10 @@ impl RedbStore {
         }
     }
 
+    #[instrument(skip_all)]
     pub fn set_identity(&self, identity: &IdentityData) -> Result<()> {
-        let value = bincode::serialize(identity)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(identity).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {
@@ -34,6 +37,7 @@ impl RedbStore {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub fn get_keystore(&self) -> Result<Option<EncryptedKeyStore>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(IDENTITY)?;
@@ -49,9 +53,10 @@ impl RedbStore {
         }
     }
 
+    #[instrument(skip_all)]
     pub fn set_keystore(&self, keystore: &EncryptedKeyStore) -> Result<()> {
-        let value = bincode::serialize(keystore)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(keystore).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {
@@ -62,6 +67,7 @@ impl RedbStore {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub fn is_signed_up(&self) -> Result<bool> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(IDENTITY)?;

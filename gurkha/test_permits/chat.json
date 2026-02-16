@@ -1,0 +1,44 @@
+{
+  "owner": {
+    "token_type": "page_owner",
+    "layers": {
+      "{page_id}/messages": { "sync": true, "write": true },
+      "{page_id}/users": { "sync": true, "write": true },
+      "{page_id}/presence": { "sync": true, "write": true },
+      "app:Chat": { "sync": true, "write": true }
+    },
+    "presence": {
+      "visible": true,
+      "can_see_others": true,
+      "name": "Owner"
+    },
+    "ephemeral_funcs": ["typing", "cursor", "presence"]
+  },
+  "participant": {
+    "token_type": "page_viewer",
+    "layers": {
+      "{page_id}/messages": { "sync": true, "write": true },
+      "{page_id}/users": { "sync": true, "write": false },
+      "{page_id}/presence": { "sync": true, "write": true }
+    },
+    "presence": {
+      "visible": true,
+      "can_see_others": true,
+      "name": "Participant"
+    },
+    "ephemeral_funcs": ["typing", "cursor"]
+  },
+  "lurker": {
+    "token_type": "page_viewer",
+    "layers": {
+      "{page_id}/messages": { "sync": true, "write": false },
+      "{page_id}/users": { "sync": true, "write": false },
+      "{page_id}/presence": { "sync": true, "write": true }
+    },
+    "presence": {
+      "visible": false,
+      "can_see_others": true
+    },
+    "ephemeral_funcs": []
+  }
+}

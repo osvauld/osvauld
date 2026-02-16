@@ -31,7 +31,7 @@ sys.stderr.reconfigure(line_buffering=True)
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from lib.tmux import TmuxManager
+from osvauld.tmux import TmuxManager
 
 # Configuration from environment
 DATA_DIR = Path(os.environ.get("OSVAULD_DATA_DIR", "/tmp/osvauld-production"))

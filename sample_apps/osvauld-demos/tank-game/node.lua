@@ -44,10 +44,10 @@ local DIR_VECTORS = {
 
 -- Initialize the node game logic
 function on_init()
-    page_id = permit:page_id()
+    page_id = scribe:page_id()
 
     -- Get or create obstacles layer
-    obstacles_layer = loro:get_or_create_layer(page_id .. "/obstacles", "map")
+    obstacles_layer = scribe:map(page_id .. "/obstacles")
 
     -- Check if obstacles exist, if not generate them
     local existing_keys = obstacles_layer:keys()
@@ -57,6 +57,9 @@ function on_init()
 
     -- Initialize game state
     reset_game()
+
+    -- Start game loop timer (~30fps for node game logic)
+    timer.setInterval(33, game_tick)
 
     print("[Node] Tank game initialized for page: " .. page_id)
 end
@@ -126,6 +129,7 @@ end
 
 -- Load obstacles from CRDT into local cache
 function load_obstacles()
+    if not obstacles_layer then return {} end
     local obstacles = {}
     for _, key in ipairs(obstacles_layer:keys()) do
         local obs = obstacles_layer:get(key)
@@ -143,11 +147,13 @@ function is_blocked(x, y)
         return true
     end
 
-    -- Obstacle check
-    local key = x .. "_" .. y
-    local obs = obstacles_layer:get(key)
-    if obs then
-        return true
+    -- Obstacle check (guard against nil before on_init)
+    if obstacles_layer then
+        local key = x .. "_" .. y
+        local obs = obstacles_layer:get(key)
+        if obs then
+            return true
+        end
     end
 
     -- Player check
@@ -314,45 +320,67 @@ end
 
 -- Broadcast bullet via ephemeral
 function broadcast_bullet(x, y, direction, owner)
+    -- Skip if no active players (avoid ephemeral spam when users are in other apps)
+    if not has_active_players() then
+        return
+    end
+
     local vec = DIR_VECTORS[direction]
     local bullet_x = x + vec.dx
     local bullet_y = y + vec.dy
 
-    local payload = string.format(
-        '{"type":"bullet","x":%d,"y":%d,"dir":"%s","owner":"%s"}',
-        bullet_x, bullet_y, direction, owner
-    )
-    butler:send_ephemeral(payload)
+    scribe:send("bullet", {
+        x = bullet_x,
+        y = bullet_y,
+        dir = direction,
+        owner = owner
+    })
+end
+
+-- Check if there are active players (users who sent positions recently)
+function has_active_players()
+    local now = os.time()
+    for did, player in pairs(players) do
+        -- Player is active if they sent position in last 10 seconds
+        if now - player.last_seen < 10 then
+            return true
+        end
+    end
+    return false
 end
 
 -- Broadcast enemies state via ephemeral
 function broadcast_enemies()
-    local enemies_data = {}
-    for id, enemy in pairs(game.enemies) do
-        table.insert(enemies_data, string.format(
-            '{"id":%d,"x":%d,"y":%d,"dir":"%s","hp":%d,"boss":%s}',
-            id, enemy.x, enemy.y, enemy.direction, enemy.hp,
-            enemy.is_boss and "true" or "false"
-        ))
+    -- Skip if no active players (avoid ephemeral spam when users are in other apps)
+    if not has_active_players() then
+        return
     end
 
-    local payload = '{"type":"enemies","data":[' .. table.concat(enemies_data, ",") .. ']}'
-    butler:send_ephemeral(payload)
+    local enemies_data = {}
+    for id, enemy in pairs(game.enemies) do
+        table.insert(enemies_data, {
+            id = id,
+            x = enemy.x,
+            y = enemy.y,
+            dir = enemy.direction,
+            hp = enemy.hp,
+            boss = enemy.is_boss
+        })
+    end
+
+    scribe:send("enemies", { data = enemies_data })
 end
 
 -- Broadcast score update to player who destroyed enemy
 function broadcast_score(points, player_did)
-    local payload = string.format(
-        '{"type":"score","points":%d,"player":"%s"}',
-        points, player_did
-    )
-    butler:send_ephemeral(payload)
+    -- Score updates are always sent when there are active players
+    scribe:send("score", { points = points, player = player_did })
 end
 
 -- Broadcast stage change to all players
 function broadcast_stage()
-    local payload = string.format('{"type":"stage","stage":%d}', game.stage)
-    butler:send_ephemeral(payload)
+    -- Stage changes are always sent when there are active players
+    scribe:send("stage", { stage = game.stage })
 end
 
 -- Check for stage completion
@@ -403,19 +431,18 @@ function next_stage()
     print("[Node] Advanced to stage " .. game.stage)
 end
 
--- Handle incoming ephemeral from players
-function on_ephemeral(user_did, payload)
-    local msg_type = payload:match('"type":"([^"]+)"')
-
-    if msg_type == "player" then
+-- Handle incoming structured ephemeral from players
+-- New API: on_ephemeral(from_did, func, args) where args is a table
+function on_ephemeral(from_did, func, args)
+    if func == "player" then
         -- Update player position
-        local x = tonumber(payload:match('"x":(-?%d+)'))
-        local y = tonumber(payload:match('"y":(-?%d+)'))
-        local dir = payload:match('"dir":"([^"]+)"')
-        local alive = payload:match('"alive":true') ~= nil
+        local x = args.x
+        local y = args.y
+        local dir = args.dir
+        local alive = args.alive
 
         if x and y then
-            players[user_did] = {
+            players[from_did] = {
                 x = x,
                 y = y,
                 direction = dir or "up",
@@ -424,11 +451,11 @@ function on_ephemeral(user_did, payload)
             }
         end
 
-    elseif msg_type == "bullet" then
+    elseif func == "bullet" then
         -- Player bullet - check for enemy hits
-        local x = tonumber(payload:match('"x":(-?%d+)'))
-        local y = tonumber(payload:match('"y":(-?%d+)'))
-        local owner = payload:match('"owner":"([^"]+)"')
+        local x = args.x
+        local y = args.y
+        local owner = args.owner
 
         if x and y and owner ~= "enemy" then
             -- Check if bullet hits any enemy
@@ -451,13 +478,13 @@ function on_ephemeral(user_did, payload)
             end
         end
 
-    elseif msg_type == "restart_request" then
+    elseif func == "restart_request" then
         -- Player requested restart
         reset_game()
         generate_obstacles()
         -- Notify all clients of stage reset
         broadcast_stage()
-        print("[Node] Game restarted by player: " .. user_did)
+        print("[Node] Game restarted by player: " .. from_did)
     end
 end
 
@@ -475,8 +502,8 @@ function cleanup_stale_players()
     end
 end
 
--- Game tick - called by node runtime
-function tick()
+-- Game tick - called by timer at ~30fps
+function game_tick()
     game.frame_count = game.frame_count + 1
 
     -- Cleanup stale players periodically
@@ -501,10 +528,3 @@ function tick()
     end
 end
 
--- Handle CRDT changes (obstacles destroyed by bullets)
-function on_loro_change(layer_name, data)
-    if layer_name:match("/obstacles$") then
-        -- Obstacles changed, clients will pick this up via CRDT
-        print("[Node] Obstacles layer changed")
-    end
-end

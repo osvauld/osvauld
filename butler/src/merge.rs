@@ -1,10 +1,9 @@
 //! Pure CRDT Merge Logic Layer
 //!
 //! Provides stateless Loro document merge operations.
-//! Moved from gurkha as part of crate boundary cleanup.
 
 use loro::{ExportMode, LoroDoc, LoroError, ToJson, VersionVector};
-use tracing::{debug, info};
+use tracing::{debug, info, instrument};
 
 /// Pure CRDT merge service for Loro documents
 ///
@@ -14,12 +13,14 @@ pub struct MergeService;
 
 impl MergeService {
     /// Create a new empty Loro document
+    #[instrument(skip_all)]
     pub fn create_doc() -> LoroDoc {
         debug!("📄 Creating new Loro document");
         LoroDoc::new()
     }
 
     /// Import snapshot into a new document
+    #[instrument(skip_all)]
     pub fn import_snapshot(snapshot_bytes: &[u8]) -> Result<LoroDoc, LoroError> {
         debug!("📥 Importing snapshot ({} bytes)", snapshot_bytes.len());
         let doc = LoroDoc::new();
@@ -29,6 +30,7 @@ impl MergeService {
     }
 
     /// Merge updates into an existing document
+    #[instrument(skip_all)]
     pub fn merge_updates(doc: &LoroDoc, updates_bytes: &[u8]) -> Result<(), LoroError> {
         debug!("🔀 Merging updates ({} bytes)", updates_bytes.len());
         doc.import(updates_bytes)?;
@@ -37,6 +39,7 @@ impl MergeService {
     }
 
     /// Export full snapshot with complete history
+    #[instrument(skip_all)]
     pub fn export_snapshot(doc: &LoroDoc) -> Vec<u8> {
         debug!("📤 Exporting full snapshot");
         let snapshot = doc
@@ -47,6 +50,7 @@ impl MergeService {
     }
 
     /// Export shallow snapshot without full history
+    #[instrument(skip_all)]
     pub fn export_shallow_snapshot(doc: &LoroDoc) -> Vec<u8> {
         debug!("📤 Exporting shallow snapshot");
         let frontiers = doc.state_frontiers();
@@ -58,6 +62,7 @@ impl MergeService {
     }
 
     /// Export updates from a specific version
+    #[instrument(skip_all)]
     pub fn export_updates(doc: &LoroDoc, from_version_bytes: &[u8]) -> Result<Vec<u8>, LoroError> {
         debug!(
             "📤 Exporting updates from version ({} bytes)",
@@ -92,35 +97,56 @@ impl MergeService {
 
         if let Some(obj) = json_value.as_object() {
             let key_count = obj.len();
-            info!("📄 [{}] Document '{}' content: {} keys, {} chars total",
-                  context, doc_name, key_count, char_count);
+            info!(
+                "📄 [{}] Document '{}' content: {} keys, {} chars total",
+                context, doc_name, key_count, char_count
+            );
             let keys: Vec<&String> = obj.keys().collect();
             info!("📄 [{}] Document '{}' keys: {:?}", context, doc_name, keys);
 
             if let Some(comments_val) = obj.get("comments") {
                 if let Some(comments_arr) = comments_val.as_array() {
-                    info!("📄 [{}] Document '{}' has {} comments",
-                          context, doc_name, comments_arr.len());
+                    info!(
+                        "📄 [{}] Document '{}' has {} comments",
+                        context,
+                        doc_name,
+                        comments_arr.len()
+                    );
                 } else if let Some(comments_map) = comments_val.as_object() {
-                    info!("📄 [{}] Document '{}' has comments map with {} keys",
-                          context, doc_name, comments_map.len());
+                    info!(
+                        "📄 [{}] Document '{}' has comments map with {} keys",
+                        context,
+                        doc_name,
+                        comments_map.len()
+                    );
                 }
             }
         } else if let Some(arr) = json_value.as_array() {
-            info!("📄 [{}] Document '{}' content: array with {} items",
-                  context, doc_name, arr.len());
+            info!(
+                "📄 [{}] Document '{}' content: array with {} items",
+                context,
+                doc_name,
+                arr.len()
+            );
         }
 
         let preview = if char_count > 500 {
-            format!("{}... [truncated {} more chars]",
-                    &json_str[..500], char_count - 500)
+            format!(
+                "{}... [truncated {} more chars]",
+                &json_str[..500],
+                char_count - 500
+            )
         } else {
             json_str
         };
-        debug!("📄 [{}] Document '{}' JSON preview:\n{}", context, doc_name, preview);
+        debug!(
+            "📄 [{}] Document '{}' JSON preview:\n{}",
+            context, doc_name, preview
+        );
     }
 
     /// Merge multiple updates in sequence
+    #[instrument(skip_all)]
     pub fn merge_batch(doc: &LoroDoc, updates_list: &[Vec<u8>]) -> Result<(), LoroError> {
         debug!("🔀 Merging batch of {} updates", updates_list.len());
         for (i, updates) in updates_list.iter().enumerate() {
@@ -139,15 +165,15 @@ impl MergeService {
     }
 
     /// Clone a document by exporting and importing
+    #[instrument(skip_all)]
     pub fn clone_doc(doc: &LoroDoc) -> Result<LoroDoc, LoroError> {
         debug!("📋 Cloning document");
         let snapshot = Self::export_snapshot(doc);
         Self::import_snapshot(&snapshot)
     }
 
-    // ==================== PERMIT-AWARE MERGE OPERATIONS ====================
-
     /// Filter documents to send to peer based on permit permissions
+    #[instrument(skip_all)]
     pub fn filter_documents_for_peer(
         documents: std::collections::HashMap<String, &LoroDoc>,
         our_permit_token: &str,
@@ -186,6 +212,7 @@ impl MergeService {
     }
 
     /// Apply updates from peer based on permit permissions
+    #[instrument(skip_all)]
     pub fn apply_peer_updates(
         documents: std::collections::HashMap<String, &LoroDoc>,
         updates: std::collections::HashMap<String, Vec<u8>>,
@@ -225,6 +252,7 @@ impl MergeService {
     }
 
     /// Generate state vector based on permit token type
+    #[instrument(skip_all)]
     pub fn generate_state_vector(
         doc: &LoroDoc,
         our_permit_token: &str,
@@ -232,14 +260,13 @@ impl MergeService {
         use gurkha::parser::Permit;
 
         let our_permit = Permit::from_token(our_permit_token)?;
-        let relationship = our_permit.relationship();
-        let is_viewer = relationship.map(|r| r == "node_viewer" || r == "viewer_node").unwrap_or(false);
+        let is_viewer = !our_permit.is_owner() && !our_permit.is_host();
 
         let state_vector = if is_viewer {
             debug!("📊 Generating state_frontiers for viewer relationship");
             Self::state_frontiers(doc)
         } else {
-            debug!("📊 Generating oplog_vv for relationship: {:?}", relationship);
+            debug!("📊 Generating oplog_vv for owner/host");
             Self::oplog_vv(doc)
         };
 

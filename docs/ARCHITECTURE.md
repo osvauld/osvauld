@@ -9,12 +9,17 @@ Osvauld is a layered P2P platform built on QUIC (via iroh) with capability-based
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  Application Layer                                               │
-│  Lua apps, Slint UI, business logic                             │
+│  Lua apps, Slint/Raylib renderers, business logic               │
+├─────────────────────────────────────────────────────────────────┤
+│  Domains (Shared Types)                                          │
+│  - Shared domain types across crates                             │
 ├─────────────────────────────────────────────────────────────────┤
 │  Butler (Storage + Services)                                     │
 │  - PageService: page lifecycle, layer management                │
-│  - Scribe actors: Loro CRDT documents per layer                 │
 │  - BlobService: asset storage via iroh-blobs                    │
+├─────────────────────────────────────────────────────────────────┤
+│  Scribe (CRDT Document Actor)                                    │
+│  - Loro CRDT documents per layer (extracted from butler)         │
 ├─────────────────────────────────────────────────────────────────┤
 │  Courier (P2P Orchestration)                                     │
 │  - Coordinator: manages all peer connections                    │
@@ -126,6 +131,20 @@ Osvauld is a layered P2P platform built on QUIC (via iroh) with capability-based
 
 ---
 
+### Scribe (CRDT Document Actor)
+
+**Purpose**: Per-page CRDT document management with Loro.
+
+**Core Design**: LayerUnit-based architecture with per-subscriber authorization, sync_meta discovery protocol, and storage-agnostic trait boundaries.
+
+**See**: `docs/SCRIBE_INTERNALS.md` for deep dive on LayerUnit architecture, sync_meta protocol, observer patterns, and authorization model.
+
+**Dependencies**: Domains, Gurkha, Herald
+
+**Boundary Rule**: Storage-agnostic via 4 trait boundaries (LayerStorage, PeerVectorStorage, PeerResolver, PermitIssuer). Never holds signing keys.
+
+---
+
 ### Courier (P2P Orchestration)
 
 **Purpose**: P2P protocol implementation, handshakes, sync orchestration.
@@ -133,81 +152,100 @@ Osvauld is a layered P2P platform built on QUIC (via iroh) with capability-based
 **Components**:
 
 ```
-                    ┌─────────────┐
-                    │ Coordinator │
-                    │  (1 per app)│
-                    └──────┬──────┘
-                           │
-           ┌───────────────┼───────────────┐
-           │               │               │
-    ┌──────┴──────┐ ┌──────┴──────┐ ┌──────┴──────┐
-    │  PeerActor  │ │  PeerActor  │ │  PeerActor  │
-    │  (Node A)   │ │  (Node B)   │ │  (Viewer)   │
-    └─────────────┘ └─────────────┘ └─────────────┘
+                    ┌─────────────────────────┐
+                    │     Coordinator         │
+                    │  (mod.rs + state.rs)    │
+                    │  - PeerEntry tracking   │
+                    │  - Connection routing   │
+                    └──────────┬──────────────┘
+                               │
+           ┌───────────────────┼───────────────┐
+           │                   │               │
+    ┌──────┴──────┐     ┌──────┴──────┐ ┌──────┴──────┐
+    │  PeerActor  │     │  PeerActor  │ │  PeerActor  │
+    │  (Node A)   │     │  (Node B)   │ │  (Viewer)   │
+    │             │     │             │ │             │
+    │ - handshake │     │ - handshake │ │ - handshake │
+    │ - sync      │     │ - sync      │ │ - sync      │
+    │ - publish   │     │ - publish   │ │ - publish   │
+    └─────────────┘     └─────────────┘ └─────────────┘
 ```
 
-**Coordinator**:
-- Manages all peer connections
-- Routes messages to appropriate PeerActor
-- Handles app-level events (publish, sync requests)
+**Coordinator** (`courier/src/coordinator/`):
+- **mod.rs**: Main coordinator logic, message routing, event handling
+- **state.rs**: Peer lifecycle management via `PeerEntry` and `PeerInfo`
+- Spawns/removes PeerActors dynamically
+- Routes app-level events (publish, sync requests) to appropriate peers
+- Tracks connection state (AwaitingHandshake, Authenticated, Failed)
 
-**PeerActor**:
-- One per connected peer
-- Handles message send/receive
-- Manages handshake state machine
-- Triggers sync when changes occur
+**PeerEntry** (coordinator state abstraction):
+```rust
+struct PeerEntry {
+    info: PeerInfo,              // DID, pubkey, role
+    actor_handle: ActorHandle,   // Channel to PeerActor
+    state: ConnectionState,      // Handshake progress
+    last_connected: Timestamp,   // For reconnection logic
+}
+```
 
-**SyncManager**:
-- Implements 3-step sync protocol
-- Encrypts/decrypts layer data
-- Tracks state vectors
+**PeerActor** (`courier/src/peer_actor/`):
+- One actor per connected peer (spawned via `tokio::spawn`)
+- **handshake.rs**: Handshake state machine, decision execution
+- **sync/**: 3-step sync protocol (SyncOffer/Accept/Ack)
+- **publish.rs**: Publishing flow (PublishSpace/Page)
+- Isolated state per peer (no mutex contention)
+
+**Decision Delegation Pattern** (`courier/src/handshake/decision.rs`):
+Pure decision functions separate from handlers:
+- `decide_hello_response()`: Returns `HelloDecision` (AcceptFirstConnection, AcceptReconnection, Reject*)
+- `decide_welcome_response()`: Returns `WelcomeDecision` (Accept, RejectNodeMismatch, RejectAudienceMismatch)
+- `extract_capabilities()`: Parses permit facts into `Capabilities`
+- **Benefits**: Testable without I/O, clear separation of policy vs execution
+
+**Handshake Flows**:
+- **First connection** (4-step): Hello → Welcome → PermitGrant → Ack
+- **Reconnection** (3-step): Hello → Welcome → Ack (uses stored permits)
+- **Hardening**: Node identity verification, audience validation, owner DID matching
 
 **Dependencies**: Transport, Butler, Gurkha
 
-**Boundary Rule**: Courier has channel-based communication with apps. No Tauri context leaks in.
+**Boundary Rule**: Courier has channel-based communication with apps. No UI context leaks in.
 
 ---
 
-### App Runtime (Application Execution)
+### Application Stack
 
-**Purpose**: Execute Lua apps with Slint UI.
+**Purpose**: Execute Lua apps with Slint or Raylib rendering.
 
-**Components**:
-- `LuaRuntime`: Mlua VM with osvauld bindings
-- `SlintBindings`: UI ↔ Lua communication
-- `AppContext`: Per-app state and handles
-
-**Lua Globals**:
-```lua
--- Identity and permits
-permit:page_id()
-permit:role()
-permit:my_did()
-
--- Storage (Loro CRDT)
-loro:get_or_create_layer(name, type)
-loro:get_layer(name, type)
-loro:list_layers(pattern)
-
--- UI
-ui:set(property, value)
-ui:get(property)
-ui:update(array_name, index, item)
-
--- Networking
-butler:send_ephemeral(payload)
-
--- Utilities
-api.export(name, function)
-api.describe(name, metadata)
+**Crate hierarchy**:
+```
+sthalam_shell (entry point, platform main)
+  └── sthalam (app browser, page management)
+       ├── renderer_slint (Slint UI rendering)
+       ├── renderer_raylib (Raylib graphics rendering)
+       └── lua_runtime (Mlua VM with osvauld bindings)
+            └── scribe (CRDT document actor, extracted from butler)
 ```
 
+**Components**:
+- `lua_runtime`: Mlua VM with bindings for `loro:`, `permit:`, `ui:`, `api:`, `butler:`, `derivation:`
+- `renderer_slint`: Compiles .slint files, bridges Lua ↔ Slint AppAPI
+- `renderer_raylib`: Immediate-mode rendering via Lua raylib bindings
+- `scribe`: Per-page Loro CRDT actor, manages layers, sync, and persistence
+- `sthalam`: App browser that loads pages, manages renderers, handles control server
+
 **App Lifecycle**:
-1. Load manifest.json
-2. Compile app.slint
-3. Execute app.lua
+1. Load manifest.json (unified `domains::AppManifest` type used by sthalam, kunki, and renderers)
+2. Route to renderer: Compile .slint UI (Slint) or initialize window (Raylib)
+3. Execute app.lua in Lua VM
 4. Call `on_init()`
-5. Route events: `on_click()`, `on_loro_change()`, `on_ephemeral()`
+5. Route events: `on_click()`, `on_layer_discovered()`, `on_ephemeral()`, input callbacks
+
+**Manifest Ownership**: The `domains::AppManifest` type is the canonical manifest representation across the system. Legacy per-crate manifest types (renderer_raylib::GameManifest, kunki local manifest struct) have been removed. The renderer_slint manifest is now a type alias of `domains::AppManifest`.
+
+**Renderer Modularization**: renderer_slint was split into stable modules (launch.rs, prepare.rs, types.rs, value_convert.rs) with unchanged public behavior. lua_runtime internals were split (runtime.rs + runtime/engine.rs + runtime/init_impl.rs), mostly internal refactor.
+
+See `docs/app-dev/` for full app development documentation.
 
 ---
 

@@ -1,0 +1,207 @@
+================================================================
+  FLAMEGRAPH ANALYSIS
+================================================================
+  Files: alice, bob, carol, node
+  Git: cff2502a
+
+================================================================
+  ALICE
+================================================================
+  Stacks: 174,273 application (264,855 total)
+
+  Category Breakdown:
+    iroh           82.6%  #########################################
+    portmapper      8.7%  ####
+    ractor          6.6%  ###
+    courier         2.7%  #
+    butler          2.1%  #
+    scribe          1.5%  #
+    loro            1.2%  #
+    gurkha          0.0%  #
+    other           0.0%  #
+
+  Application Hotspots (excluding idle loops):
+     37.0%   ractor::actor::Actor
+     12.5%   butler::services::auth_service::signup:butler
+      8.3%   iroh::endpoint::connect
+      5.9%   butler::services::auth_service::login:butler
+      5.3%  ...r::peer_actor::sync::protocol::on_sync_offer:courier
+      3.8%   iroh::socket::transports::poll_send
+      3.0%   loro_internal::diff_calc::CalcDiff
+      2.8%   loro_internal::loro::export
+      2.3%   loro_internal::loro::commit_internal
+      1.9%   courier::peer_actor::handle_protocol_message:courier
+      1.6%  ...ync::subscription::handle_broadcast_received:courier
+      1.4%  ...oro::update_oplog_and_apply_delta_to_state_if_needed
+      1.1%   courier::peer_actor::handle:courier
+      1.0%   scribe::sync::apply::update_sender_vector:scribe
+      1.0%   courier::peer_actor::send_message:courier
+
+  handle_flush Breakdown:
+     83.7%   loro_internal::loro::export
+     14.6%   butler::scribe_storage::save_layer:butler
+      1.7%   butler::scribe_storage::save_vectors:butler
+
+  Loro CRDT Breakdown:
+      3.0%   loro_internal::diff_calc::CalcDiff
+      2.8%   loro_internal::loro::export
+      2.3%   loro_internal::loro::commit_internal
+      1.4%  ...oro::update_oplog_and_apply_delta_to_state_if_needed
+      0.6%   loro_internal::loro::_import_with
+      0.5%  ...ange_store::mut_inner_kv::change_store insert_change
+      0.5%   loro_internal::diff_calc::DiffCalc
+      0.2%   loro_internal::state::apply_diff
+      0.1%   loro_internal::oplog::loro_dag::handle_new_change
+      0.1%   loro_internal::state::apply diff on
+
+================================================================
+  BOB
+================================================================
+  Stacks: 227,861 application (338,749 total)
+
+  Category Breakdown:
+    iroh           71.4%  ###################################
+    portmapper     15.2%  #######
+    ractor         12.0%  ######
+    courier         9.4%  ####
+    scribe          8.9%  ####
+    butler          2.0%  #
+    loro            0.9%  #
+    gurkha          0.3%  #
+    other           0.0%  #
+
+  Application Hotspots (excluding idle loops):
+     37.0%  ...er_actor::subscribe::handle_layer_permit_ack:courier
+     17.0%   ractor::actor::Actor
+      5.2%  ...eer_actor::subscribe::on_layer_subscribe_ack:courier
+      4.4%   butler::services::auth_service::signup:butler
+      3.9%   iroh::endpoint::connect
+      2.9%   scribe::sync::apply::handle_post_apply:scribe
+      2.8%   loro_internal::loro::export
+      2.8%   butler::storage::store::layer::put_layer:butler
+      2.8%   butler::services::auth_service::login:butler
+      2.3%   butler::scribe_storage::save_layer:butler
+      2.2%   gurkha::service::issue_sync_layer_consent:gurkha
+      1.8%   scribe::sync::apply::handle_apply_update:scribe
+      1.7%   iroh::socket::transports::poll_send
+      1.4%  ...r::peer_actor::sync::protocol::on_sync_offer:courier
+      1.1%   loro_internal::diff_calc::CalcDiff
+
+  handle_flush Breakdown:
+     83.6%   loro_internal::loro::export
+     14.5%   butler::scribe_storage::save_layer:butler
+      1.8%   butler::scribe_storage::save_vectors:butler
+
+  Loro CRDT Breakdown:
+      2.8%   loro_internal::loro::export
+      1.1%   loro_internal::diff_calc::CalcDiff
+      0.9%   loro_internal::loro::commit_internal
+      0.9%  ...oro::update_oplog_and_apply_delta_to_state_if_needed
+      0.4%   loro_internal::loro::_import_with
+      0.2%  ...ange_store::mut_inner_kv::change_store insert_change
+      0.2%   loro_internal::diff_calc::DiffCalc
+      0.1%   loro_internal::state::apply_diff
+      0.1%   loro_internal::oplog::loro_dag::handle_new_change
+      0.0%   loro_internal::state::apply diff on
+
+================================================================
+  CAROL
+================================================================
+  Stacks: 216,060 application (313,585 total)
+
+  Category Breakdown:
+    iroh           72.4%  ####################################
+    portmapper     14.2%  #######
+    ractor         12.1%  ######
+    courier         9.8%  ####
+    scribe          9.2%  ####
+    butler          2.0%  #
+    loro            0.9%  #
+    gurkha          0.7%  #
+    other           0.0%  #
+
+  Application Hotspots (excluding idle loops):
+     35.1%  ...er_actor::subscribe::handle_layer_permit_ack:courier
+     14.9%   ractor::actor::Actor
+      6.0%  ...eer_actor::subscribe::on_layer_subscribe_ack:courier
+      4.6%   gurkha::service::issue_sync_layer_consent:gurkha
+      4.5%   iroh::endpoint::connect
+      4.5%   butler::services::auth_service::signup:butler
+      2.8%   butler::services::auth_service::login:butler
+      2.6%   butler::storage::store::layer::put_layer:butler
+      2.6%   loro_internal::loro::export
+      2.3%   scribe::sync::apply::handle_post_apply:scribe
+      2.1%   iroh::socket::transports::poll_send
+      2.1%   butler::scribe_storage::save_layer:butler
+      1.6%  ...r::peer_actor::sync::protocol::on_sync_offer:courier
+      1.6%   scribe::sync::apply::handle_apply_update:scribe
+      1.1%  ...ync::subscription::handle_broadcast_received:courier
+
+  handle_flush Breakdown:
+     79.8%   loro_internal::loro::export
+     18.3%   butler::scribe_storage::save_layer:butler
+      1.9%   butler::scribe_storage::save_vectors:butler
+
+  Loro CRDT Breakdown:
+      2.6%   loro_internal::loro::export
+      1.1%   loro_internal::diff_calc::CalcDiff
+      0.9%   loro_internal::loro::commit_internal
+      0.9%  ...oro::update_oplog_and_apply_delta_to_state_if_needed
+      0.4%   loro_internal::loro::_import_with
+      0.2%   loro_internal::diff_calc::DiffCalc
+      0.1%  ...ange_store::mut_inner_kv::change_store insert_change
+      0.1%   loro_internal::state::apply_diff
+      0.1%   loro_internal::oplog::loro_dag::handle_new_change
+      0.0%   loro_internal::state::apply diff on
+
+================================================================
+  NODE
+================================================================
+  Stacks: 276,658 application (310,008 total)
+
+  Category Breakdown:
+    iroh           85.7%  ##########################################
+    ractor          9.4%  ####
+    courier         8.9%  ####
+    scribe          6.5%  ###
+    portmapper      4.4%  ##
+    butler          3.5%  #
+    gurkha          2.0%  #
+    loro            1.2%  #
+
+  Application Hotspots (excluding idle loops):
+     15.4%   gurkha::service::issue_layer_permit:gurkha
+     13.6%   iroh::protocol::router.accept
+      7.4%   iroh::socket::transports::poll_send
+      7.2%  ...r::peer_actor::subscribe::on_layer_subscribe:courier
+      6.8%   scribe::sync::apply::get_peer_role:scribe
+      4.7%   loro_internal::loro::export
+      4.6%   butler::services::auth_service::login:butler
+      4.3%  ...ync::subscription::handle_broadcast_received:courier
+      3.6%   courier::peer_actor::handle_protocol_message:courier
+      3.5%  ...r::peer_actor::sync::protocol::on_sync_offer:courier
+      3.0%   courier::peer_actor::send_message:courier
+      2.8%   ractor::actor::Actor
+      1.9%   courier::peer_actor::handle:courier
+      1.8%  ...:storage::store::permit::get_user_page_permit:butler
+      1.7%  ...::peer_actor::sync::protocol::on_sync_accept:courier
+
+  handle_flush Breakdown:
+     87.1%   loro_internal::loro::export
+      9.8%   butler::scribe_storage::save_layer:butler
+      3.1%   butler::scribe_storage::save_vectors:butler
+
+  Loro CRDT Breakdown:
+      4.7%   loro_internal::loro::export
+      1.7%   loro_internal::diff_calc::CalcDiff
+      1.2%   loro_internal::loro::commit_internal
+      0.9%  ...oro::update_oplog_and_apply_delta_to_state_if_needed
+      0.4%   loro_internal::loro::_import_with
+      0.3%   loro_internal::diff_calc::DiffCalc
+      0.2%  ...ange_store::mut_inner_kv::change_store insert_change
+      0.2%   loro_internal::state::apply_diff
+      0.1%   loro_internal::state::apply diff on
+      0.1%   loro_internal::oplog::loro_dag::handle_new_change
+
+  Analysis saved to: /home/abe/osvauld/results/benchmark_20260216_135843/flame_analysis.json
+

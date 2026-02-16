@@ -3,19 +3,18 @@
 //! Transport owns the ConnectionPool. The protocol layer gets ConnectionHandle
 //! references to send raw bytes to peers.
 //!
-//! Transport exposes QUIC primitives for the consumer (PeerSession) to use:
+//! Transport exposes QUIC primitives for the consumer (PeerActor) to use:
 //! - Ephemeral streams: open, send, close (for reliable protocol messages)
 //! - Datagrams: fire-and-forget (for cursor sync, typing indicators)
 //! - Persistent streams: long-lived bidirectional (for audio/video - future)
 
 use anyhow::Result;
 use bytes::Bytes;
-use futures::future;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::EndpointId as NodeId;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock};
 use tracing::{info, trace, warn};
 
 /// Internal connection state for a peer
@@ -89,9 +88,7 @@ impl PeerConnection {
         &self.connection
     }
 
-    // =========================================================================
     // Datagram Primitives (unreliable, fire-and-forget)
-    // =========================================================================
 
     /// Send unreliable datagram (fire-and-forget)
     ///
@@ -120,9 +117,7 @@ impl PeerConnection {
         self.connection.max_datagram_size()
     }
 
-    // =========================================================================
     // Stream Primitives (reliable, ordered)
-    // =========================================================================
 
     /// Accept incoming bidirectional stream
     ///
@@ -140,59 +135,14 @@ impl PeerConnection {
     }
 }
 
-/// Backend for ConnectionHandle - either real QUIC or mock channel
-enum ConnectionBackend {
-    /// Real iroh QUIC connection
-    Real(Arc<PeerConnection>),
-    /// Mock channel for testing (sends bytes through mpsc)
-    Mock(MockSender),
-}
-
-/// Mock sender for testing - wraps channel sender
-#[derive(Clone)]
-pub struct MockSender {
-    /// Channel to send bytes through
-    sender: mpsc::UnboundedSender<MockSendEvent>,
-    /// Our node ID
-    our_node_id: NodeId,
-    /// Peer's node ID
-    peer_node_id: NodeId,
-}
-
-/// Event sent through mock sender
-#[derive(Debug)]
-pub struct MockSendEvent {
-    pub from: NodeId,
-    pub to: NodeId,
-    pub data: Vec<u8>,
-    /// True if this was sent as a datagram (unreliable), false for stream
-    pub is_datagram: bool,
-}
-
-impl MockSender {
-    pub fn new(
-        sender: mpsc::UnboundedSender<MockSendEvent>,
-        our_node_id: NodeId,
-        peer_node_id: NodeId,
-    ) -> Self {
-        Self {
-            sender,
-            our_node_id,
-            peer_node_id,
-        }
-    }
-}
-
 /// Handle to a peer connection
 ///
 /// This is a lightweight reference that the protocol layer can store and use
 /// to send raw bytes to peers.
 /// The actual connection is owned by Transport's ConnectionPool.
-///
-/// Supports both real QUIC connections and mock channels for testing.
 #[derive(Clone)]
 pub struct ConnectionHandle {
-    backend: Arc<ConnectionBackend>,
+    inner: Arc<PeerConnection>,
     node_id: NodeId,
 }
 
@@ -205,19 +155,10 @@ impl std::fmt::Debug for ConnectionHandle {
 }
 
 impl ConnectionHandle {
-    /// Create a new connection handle for a real QUIC connection
+    /// Create a new connection handle
     pub fn new(connection: Connection, node_id: NodeId) -> Self {
         Self {
-            backend: Arc::new(ConnectionBackend::Real(Arc::new(PeerConnection::new(connection)))),
-            node_id,
-        }
-    }
-
-    /// Create a mock connection handle for testing
-    pub fn from_mock_sender(sender: MockSender) -> Self {
-        let node_id = sender.peer_node_id;
-        Self {
-            backend: Arc::new(ConnectionBackend::Mock(sender)),
+            inner: Arc::new(PeerConnection::new(connection)),
             node_id,
         }
     }
@@ -226,41 +167,14 @@ impl ConnectionHandle {
     ///
     /// Length prefix is added automatically.
     pub async fn send_bytes(&self, data: &[u8]) -> Result<()> {
-        match self.backend.as_ref() {
-            ConnectionBackend::Real(inner) => inner.send_bytes(data).await,
-            ConnectionBackend::Mock(sender) => {
-                sender
-                    .sender
-                    .send(MockSendEvent {
-                        from: sender.our_node_id,
-                        to: sender.peer_node_id,
-                        data: data.to_vec(),
-                        is_datagram: false,
-                    })
-                    .map_err(|e| anyhow::anyhow!("Mock send failed: {}", e))
-            }
-        }
+        self.inner.send_bytes(data).await
     }
 
     /// Send raw bytes on persistent live stream
     ///
     /// Length prefix is added automatically.
     pub async fn send_bytes_live(&self, data: &[u8]) -> Result<()> {
-        match self.backend.as_ref() {
-            ConnectionBackend::Real(inner) => inner.send_bytes_live(data).await,
-            ConnectionBackend::Mock(sender) => {
-                // Mock doesn't distinguish ephemeral vs live
-                sender
-                    .sender
-                    .send(MockSendEvent {
-                        from: sender.our_node_id,
-                        to: sender.peer_node_id,
-                        data: data.to_vec(),
-                        is_datagram: false,
-                    })
-                    .map_err(|e| anyhow::anyhow!("Mock send failed: {}", e))
-            }
-        }
+        self.inner.send_bytes_live(data).await
     }
 
     /// Get the peer's NodeId
@@ -270,43 +184,17 @@ impl ConnectionHandle {
 
     /// Close the connection
     pub fn close(&self) {
-        if let ConnectionBackend::Real(inner) = self.backend.as_ref() {
-            inner.close();
-        }
-        // Mock connections don't need closing
+        self.inner.close();
     }
 
-    /// Get reference to inner connection for accepting streams (real connections only)
-    pub(crate) fn inner(&self) -> Option<&Arc<PeerConnection>> {
-        match self.backend.as_ref() {
-            ConnectionBackend::Real(inner) => Some(inner),
-            ConnectionBackend::Mock(_) => None,
-        }
-    }
-
-    // =========================================================================
     // Datagram Primitives (unreliable, fire-and-forget)
-    // =========================================================================
 
     /// Send unreliable datagram (fire-and-forget)
     ///
     /// **Use for**: cursor sync, typing indicators, presence
     /// **Properties**: Unreliable, unordered, ~1200 byte limit
     pub fn send_datagram(&self, data: &[u8]) -> Result<()> {
-        match self.backend.as_ref() {
-            ConnectionBackend::Real(inner) => inner.send_datagram(data),
-            ConnectionBackend::Mock(sender) => {
-                sender
-                    .sender
-                    .send(MockSendEvent {
-                        from: sender.our_node_id,
-                        to: sender.peer_node_id,
-                        data: data.to_vec(),
-                        is_datagram: true,
-                    })
-                    .map_err(|e| anyhow::anyhow!("Mock datagram send failed: {}", e))
-            }
-        }
+        self.inner.send_datagram(data)
     }
 
     /// Read next datagram (async)
@@ -314,52 +202,29 @@ impl ConnectionHandle {
     /// **Use for**: receiving cursor updates, typing indicators
     /// **Blocks**: Until a datagram arrives
     pub async fn read_datagram(&self) -> Result<Vec<u8>> {
-        match self.backend.as_ref() {
-            ConnectionBackend::Real(inner) => Ok(inner.read_datagram().await?.to_vec()),
-            ConnectionBackend::Mock(_) => {
-                // Mock receives via separate channel in tests
-                future::pending().await
-            }
-        }
+        Ok(self.inner.read_datagram().await?.to_vec())
     }
 
     /// Get max datagram size for this connection
     pub fn max_datagram_size(&self) -> Option<usize> {
-        match self.backend.as_ref() {
-            ConnectionBackend::Real(inner) => inner.max_datagram_size(),
-            ConnectionBackend::Mock(_) => Some(1200), // Typical MTU
-        }
+        self.inner.max_datagram_size()
     }
 
-    // =========================================================================
     // Stream Primitives (reliable, ordered)
-    // =========================================================================
 
     /// Accept incoming bidirectional stream
     ///
     /// **Use for**: reading ephemeral protocol messages (Hello, SyncOffer, etc.)
     /// **Consumer spawns**: read loop that calls this repeatedly
     pub async fn accept_bi(&self) -> Result<(SendStream, RecvStream)> {
-        match self.backend.as_ref() {
-            ConnectionBackend::Real(inner) => inner.accept_bi().await,
-            ConnectionBackend::Mock(_) => {
-                // Mock doesn't support stream acceptance
-                future::pending().await
-            }
-        }
+        self.inner.accept_bi().await
     }
 
     /// Open bidirectional stream
     ///
     /// **Use for**: sending reliable messages that need a response
     pub async fn open_bi(&self) -> Result<(SendStream, RecvStream)> {
-        match self.backend.as_ref() {
-            ConnectionBackend::Real(inner) => inner.open_bi().await,
-            ConnectionBackend::Mock(_) => {
-                // Mock doesn't support stream opening
-                future::pending().await
-            }
-        }
+        self.inner.open_bi().await
     }
 }
 
@@ -449,9 +314,6 @@ impl Default for ConnectionPool {
 mod tests {
     use super::*;
 
-    // Note: Integration tests would require actual iroh connections
-    // These are placeholder tests for the pool logic
-
     #[tokio::test]
     async fn test_pool_operations() {
         let pool = ConnectionPool::new();
@@ -459,7 +321,6 @@ mod tests {
         assert!(pool.is_empty().await);
         assert_eq!(pool.len().await, 0);
 
-        // Can't easily test insert/get without real iroh connections
-        // In integration tests, we'd use actual iroh setup
+        // Integration tests with real connections are in integration_tests crate
     }
 }

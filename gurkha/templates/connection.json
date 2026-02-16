@@ -1,0 +1,94 @@
+{
+  "node_owner": {
+    "description": "Node issuing permit to owner - full publish capabilities",
+    "peer_capabilities": {
+      "relay": false,
+      "share": true,
+      "accept_publish": true
+    },
+    "auth_capabilities": {
+      "can_connect": true,
+      "persist_share": true,
+      "can_delegate": true,
+      "sync_enabled": true
+    },
+    "operations": {
+      "own": "allow",
+      "read": "allow",
+      "write": "allow",
+      "admin": "allow"
+    },
+    "presence": {
+      "visible": true
+    }
+  },
+  "node_viewer": {
+    "description": "Node issuing permit to viewer - read-only",
+    "peer_capabilities": {
+      "relay": false,
+      "share": false,
+      "accept_publish": false
+    },
+    "auth_capabilities": {
+      "can_connect": true,
+      "persist_share": false,
+      "can_delegate": false,
+      "sync_enabled": true
+    },
+    "operations": {
+      "own": "deny",
+      "read": "allow",
+      "write": "deny"
+    },
+    "presence": {
+      "visible": true
+    }
+  },
+  "owner_node": {
+    "description": "Owner issuing permit to node - relay and sync capabilities",
+    "peer_capabilities": {
+      "relay": true,
+      "share": true,
+      "accept_publish": true
+    },
+    "auth_capabilities": {
+      "can_connect": true,
+      "persist_share": true,
+      "can_delegate": false,
+      "sync_enabled": true,
+      "add_folder": true
+    },
+    "operations": {
+      "own": "deny",
+      "read": "allow",
+      "write": "allow",
+      "sync": "allow"
+    },
+    "presence": {
+      "visible": true
+    }
+  },
+  "viewer_node": {
+    "description": "Viewer issuing permit to node - limited relay",
+    "peer_capabilities": {
+      "relay": true,
+      "share": false,
+      "accept_publish": false
+    },
+    "auth_capabilities": {
+      "can_connect": true,
+      "persist_share": false,
+      "can_delegate": false,
+      "sync_enabled": true
+    },
+    "operations": {
+      "own": "deny",
+      "read": "allow",
+      "write": "deny",
+      "sync": "allow"
+    },
+    "presence": {
+      "visible": true
+    }
+  }
+}

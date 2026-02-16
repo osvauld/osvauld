@@ -1,0 +1,303 @@
+
+============================================================
+  chat_perf
+============================================================
+  All instances ready
+
+  alice: signup, create space...
+  Space: 3b3369a2..., Page: e5e95370...
+  alice: connect to node...
+    Waiting for node authentication...
+    Node authenticated
+  alice: publish space to node...
+  Published and synced to node
+
+  Connecting viewers (parallel)...
+  bob synced in 0.9s
+  carol synced in 0.6s
+  All viewers connected and synced
+
+  Opening apps (parallel)...
+  carol app 'Group Chat' synced in 0.0s
+  bob app 'Group Chat' synced in 0.0s
+    alice app ready
+    carol app ready
+    bob app ready
+  All apps opened and ready
+
+  Building peer handles...
+
+  Ready! Peers: ['alice', 'bob', 'carol']
+============================================================
+
+
+[Phase 1] Send-path benchmark: alice sends 2000 messages (no delay)...
+  [1/2000 | 0%] alice: "Meeting him agreement parent though land..."
+  [2/2000 | 0%] alice: "Style section few everything account or ..."
+  [3/2000 | 0%] alice: "Three maybe."
+  [20/2000 | 1%] alice: "Final although environment give truth ch..."
+  [40/2000 | 2%] alice: "Offer maybe represent."
+  [60/2000 | 3%] alice: "Trip could idea American listen election..."
+  [80/2000 | 4%] alice: "Heavy upon opportunity increase brother."
+  [100/2000 | 5%] alice: "Easy subject entire especially from cult..."
+  [120/2000 | 6%] alice: "Mention building individual happy govern..."
+  [140/2000 | 7%] alice: "Federal sound shoulder."
+  [160/2000 | 8%] alice: "Hand consumer time town treatment standa..."
+  [180/2000 | 9%] alice: "Wall professional husband strategy campa..."
+  [200/2000 | 10%] alice: "Lot throw."
+  [220/2000 | 11%] alice: "Indicate something tell leader standard ..."
+  [240/2000 | 12%] alice: "Production minute reduce pull military c..."
+  [260/2000 | 13%] alice: "Task star relationship voice trial debat..."
+  [280/2000 | 14%] alice: "News land or finish."
+  [300/2000 | 15%] alice: "Organization our group year ten whatever..."
+  [320/2000 | 16%] alice: "National resource see structure."
+  [340/2000 | 17%] alice: "American sometimes role four your mouth ..."
+  [360/2000 | 18%] alice: "Tell idea civil whose then soon."
+  [380/2000 | 19%] alice: "Hold too attorney describe want over wal..."
+  [400/2000 | 20%] alice: "Much none dinner check."
+  [420/2000 | 21%] alice: "Parent land the letter beyond near."
+  [440/2000 | 22%] alice: "Newspaper left system rather bring chara..."
+  [460/2000 | 23%] alice: "Space serious speech skill glass face fo..."
+  [480/2000 | 24%] alice: "Assume question Congress draw man author..."
+  [500/2000 | 25%] alice: "Career interview community maybe."
+  [520/2000 | 26%] alice: "Fish word management always economy low ..."
+  [540/2000 | 27%] alice: "Government business full call media we m..."
+  [560/2000 | 28%] alice: "Activity clear likely drop light list re..."
+  [580/2000 | 29%] alice: "Federal with support catch local accordi..."
+  [600/2000 | 30%] alice: "Really west notice treatment book stuff ..."
+  [620/2000 | 31%] alice: "Thousand quite source push movement mana..."
+  [640/2000 | 32%] alice: "Scientist end important south reveal soo..."
+  [660/2000 | 33%] alice: "One plant box argue everybody method wes..."
+  [680/2000 | 34%] alice: "Happy Congress head production choose ad..."
+  [700/2000 | 35%] alice: "Include rate choose personal."
+  [720/2000 | 36%] alice: "Then service dinner image long necessary..."
+  [740/2000 | 37%] alice: "Training shake moment."
+  [760/2000 | 38%] alice: "Turn style anything thought bar impact."
+  [780/2000 | 39%] alice: "Test event collection beyond hot home he..."
+  [800/2000 | 40%] alice: "Within only."
+  [820/2000 | 41%] alice: "Black prepare fight effort rather play c..."
+  [840/2000 | 42%] alice: "Own outside expect development."
+  [860/2000 | 43%] alice: "Hard too even PM make example important ..."
+  [880/2000 | 44%] alice: "Ability apply right."
+  [900/2000 | 45%] alice: "Test thousand suddenly use house informa..."
+  [920/2000 | 46%] alice: "Nor who catch will agreement when addres..."
+  [940/2000 | 47%] alice: "Budget after eye senior break woman."
+  [960/2000 | 48%] alice: "Candidate artist stuff apply air tonight..."
+  [980/2000 | 49%] alice: "You try expert drug chance knowledge far..."
+  [1000/2000 | 50%] alice: "College former form child region from la..."
+  [1020/2000 | 51%] alice: "Fall industry office evidence recent ago..."
+  [1040/2000 | 52%] alice: "Country finish such choice section littl..."
+  [1060/2000 | 53%] alice: "Set partner property nation drop police ..."
+  [1080/2000 | 54%] alice: "Should enough up month."
+  [1100/2000 | 55%] alice: "Figure compare claim kid recently would."
+  [1120/2000 | 56%] alice: "Contain we trade heart skin world shake."
+  [1140/2000 | 57%] alice: "Course reveal security PM vote nature."
+  [1160/2000 | 58%] alice: "Science every four collection least TV."
+  [1180/2000 | 59%] alice: "Everything suffer score."
+  [1200/2000 | 60%] alice: "Result send determine care discover eye ..."
+  [1220/2000 | 61%] alice: "Two support suffer."
+  [1240/2000 | 62%] alice: "Sound fund."
+  [1260/2000 | 63%] alice: "Team pull skill ten talk once might put ..."
+  [1280/2000 | 64%] alice: "Hot argue pick continue seat environment..."
+  [1300/2000 | 65%] alice: "Back fill beat attorney firm safe worry ..."
+  [1320/2000 | 66%] alice: "Clear hospital door fund bar."
+  [1340/2000 | 67%] alice: "Support."
+  [1360/2000 | 68%] alice: "Present police dark office stock sure st..."
+  [1380/2000 | 69%] alice: "Back ahead south keep lead together purp..."
+  [1400/2000 | 70%] alice: "Better agency half go dark."
+  [1420/2000 | 71%] alice: "Rich compare sea accept store mind."
+  [1440/2000 | 72%] alice: "Money candidate within figure fly she gr..."
+  [1460/2000 | 73%] alice: "Century happen to."
+  [1480/2000 | 74%] alice: "She region behavior model political admi..."
+  [1500/2000 | 75%] alice: "Age born face seat whole."
+  [1520/2000 | 76%] alice: "South item hour."
+  [1540/2000 | 77%] alice: "Strong popular perhaps animal control le..."
+  [1560/2000 | 78%] alice: "Maybe range prove up nation provide cons..."
+  [1580/2000 | 79%] alice: "Meeting speech partner truth according."
+  [1600/2000 | 80%] alice: "Letter reason sister leg head simply."
+  [1620/2000 | 81%] alice: "Close huge summer no standard hold."
+  [1640/2000 | 82%] alice: "Nothing policy beat."
+  [1660/2000 | 83%] alice: "Their drug trade else green happy call h..."
+  [1680/2000 | 84%] alice: "Would thank the."
+  [1700/2000 | 85%] alice: "Sometimes green perhaps nation decision ..."
+  [1720/2000 | 86%] alice: "Bed traditional."
+  [1740/2000 | 87%] alice: "Seek answer trade rock."
+  [1760/2000 | 88%] alice: "Under class indeed teacher plant step."
+  [1780/2000 | 89%] alice: "Central middle fast simply who point."
+  [1800/2000 | 90%] alice: "Hair power culture drive beyond."
+  [1820/2000 | 91%] alice: "Base statement number change wait drop."
+  [1840/2000 | 92%] alice: "Less small."
+  [1860/2000 | 93%] alice: "Out wear."
+  [1880/2000 | 94%] alice: "Fish ten nation Mrs city lot put time."
+  [1900/2000 | 95%] alice: "Call person smile play western significa..."
+  [1920/2000 | 96%] alice: "Shake animal major."
+  [1940/2000 | 97%] alice: "Plan garden some actually."
+  [1960/2000 | 98%] alice: "Phone social threat."
+  [1980/2000 | 99%] alice: "Same dark even base matter shake war inf..."
+  [2000/2000 | 100%] alice: "Front policy drive pretty drive drive pe..."
+  Sent 2000 messages in 219.99s (9.1 msg/s)
+
+[Phase 2] Distributed send: 2000 messages with 0.1s delay...
+  [1/2000 | 0%] carol: "Almost subject local mention however pus..."
+  [2/2000 | 0%] alice: "Begin whether evening century."
+  [3/2000 | 0%] carol: "Son much draw station onto car indeed."
+  [4/2000 | 0%] alice: "Consumer group take story trade Republic..."
+  [5/2000 | 0%] alice: "Network course."
+  [20/2000 | 1%] carol: "Again economic small push push machine w..."
+  [40/2000 | 2%] carol: "Mr just history fill protect sometimes."
+  [60/2000 | 3%] bob: "Class page worry than whatever."
+  [80/2000 | 4%] bob: "Around board perform camera clearly seat..."
+  [100/2000 | 5%] carol: "Bring dinner news."
+  [120/2000 | 6%] alice: "Offer ahead last possible hotel positive..."
+  [140/2000 | 7%] bob: "Buy worry product human site impact howe..."
+  [160/2000 | 8%] alice: "Second performance growth customer."
+  [180/2000 | 9%] alice: "Computer."
+  [200/2000 | 10%] carol: "Interesting watch phone tax job happy th..."
+  [220/2000 | 11%] bob: "Simply into treat simple may old rather."
+  [240/2000 | 12%] alice: "Statement never receive realize resource..."
+  [260/2000 | 13%] carol: "Space feeling edge."
+  [280/2000 | 14%] alice: "Mr job particular."
+  [300/2000 | 15%] bob: "Raise anything return on town forget int..."
+  [320/2000 | 16%] alice: "Apply field allow result clear school lo..."
+  [340/2000 | 17%] carol: "Wear company only interview size."
+  [360/2000 | 18%] bob: "After run live."
+  [380/2000 | 19%] carol: "Audience human other beyond same behind."
+  [400/2000 | 20%] carol: "Five available cultural control staff wi..."
+  [420/2000 | 21%] carol: "Reveal friend medical another purpose la..."
+  [440/2000 | 22%] alice: "Fine garden task travel develop change r..."
+  [460/2000 | 23%] carol: "Some force senior back decade activity b..."
+  [480/2000 | 24%] alice: "Young professor pick vote contain seem e..."
+  [500/2000 | 25%] alice: "Certainly senior lay organization always..."
+  [520/2000 | 26%] bob: "Behavior trial entire best."
+  [540/2000 | 27%] alice: "Those chair seem movement fill."
+  [560/2000 | 28%] bob: "Work system save hard word commercial st..."
+  [580/2000 | 29%] bob: "Increase film enough."
+  [600/2000 | 30%] carol: "Will push walk sit."
+  [620/2000 | 31%] alice: "Professional west range look."
+  [640/2000 | 32%] alice: "Spend beat interesting land board."
+  [660/2000 | 33%] bob: "In knowledge traditional win agree short..."
+  [680/2000 | 34%] carol: "Suffer age community police try general ..."
+  [700/2000 | 35%] carol: "Determine team mission even executive pa..."
+  [720/2000 | 36%] carol: "Heavy time the."
+  [740/2000 | 37%] alice: "Concern statement outside national recor..."
+  [760/2000 | 38%] carol: "Camera over senior federal table edge."
+  [780/2000 | 39%] alice: "Table several do recent speech wear west..."
+  [800/2000 | 40%] carol: "Who just case race civil determine thus ..."
+  [820/2000 | 41%] alice: "Future indicate story size role point pr..."
+  [840/2000 | 42%] bob: "Suggest happy specific understand well u..."
+  [860/2000 | 43%] carol: "Relate debate probably oil recognize win..."
+  [880/2000 | 44%] bob: "Generation two certainly hotel than dire..."
+  [900/2000 | 45%] bob: "Talk walk recently money light cover bot..."
+  [920/2000 | 46%] carol: "Activity support very hope page realize ..."
+  [940/2000 | 47%] carol: "Cover certain care also."
+  [960/2000 | 48%] alice: "Media pretty thousand capital his learn ..."
+  [980/2000 | 49%] alice: "Teacher simply article man."
+  [1000/2000 | 50%] alice: "Major try recently family worry improve."
+  [1020/2000 | 51%] alice: "Which about two none painting throughout..."
+  [1040/2000 | 52%] carol: "Reality discuss cost baby show somebody ..."
+  [1060/2000 | 53%] carol: "Exist pay."
+  [1080/2000 | 54%] carol: "Drop town itself cell wrong election alm..."
+  [1100/2000 | 55%] bob: "Accept career experience."
+  [1120/2000 | 56%] carol: "Former management every else meet heavy ..."
+  [1140/2000 | 57%] carol: "Entire then law."
+  [1160/2000 | 58%] bob: "Score among ten second much six."
+  [1180/2000 | 59%] alice: "Peace yourself before worry good wife wo..."
+  [1200/2000 | 60%] alice: "History least impact as."
+  [1220/2000 | 61%] carol: "City top later."
+  [1240/2000 | 62%] carol: "Hour available thought per property both..."
+  [1260/2000 | 63%] alice: "Certainly plan improve."
+  [1280/2000 | 64%] bob: "Base court trial."
+  [1300/2000 | 65%] bob: "Information hard sure."
+  [1320/2000 | 66%] carol: "Face assume represent spend."
+  [1340/2000 | 67%] alice: "Couple medical year every effort democra..."
+  [1360/2000 | 68%] alice: "Product rock game save today school fish..."
+  [1380/2000 | 69%] bob: "Thank political player."
+  [1400/2000 | 70%] alice: "Instead tax beautiful recently authority..."
+  [1420/2000 | 71%] carol: "Similar especially show mean trip activi..."
+  [1440/2000 | 72%] bob: "Talk price relate recognize social add n..."
+  [1460/2000 | 73%] carol: "Lot happy always fill red sometimes feel..."
+  [1480/2000 | 74%] alice: "Study positive best."
+  [1500/2000 | 75%] bob: "Tv six actually establish."
+  [1520/2000 | 76%] alice: "Congress your impact thank my ago school..."
+  [1540/2000 | 77%] carol: "Clear hard but newspaper."
+  [1560/2000 | 78%] bob: "Hear administration structure."
+  [1580/2000 | 79%] carol: "Style statement beautiful whom network s..."
+  [1600/2000 | 80%] bob: "Mission western debate by there fund mea..."
+  [1620/2000 | 81%] bob: "Career area rise Congress age remain wro..."
+  [1640/2000 | 82%] bob: "Mention hundred focus."
+  [1660/2000 | 83%] alice: "Consider point send culture color resour..."
+  [1680/2000 | 84%] bob: "Me lot financial thank hard voice."
+  [1700/2000 | 85%] bob: "Traditional public same memory maintain ..."
+  [1720/2000 | 86%] bob: "Future floor age yeah break yet."
+  [1740/2000 | 87%] carol: "Front dream represent hotel."
+  [1760/2000 | 88%] carol: "Usually receive study usually charge edu..."
+  [1780/2000 | 89%] bob: "Choose one recent computer against rathe..."
+  [1800/2000 | 90%] alice: "Forget nor push science voice ready netw..."
+  [1820/2000 | 91%] carol: "Agent card party loss learn plan radio r..."
+  [1840/2000 | 92%] bob: "Social best."
+  [1860/2000 | 93%] alice: "Analysis fill other ball."
+  [1880/2000 | 94%] bob: "Prove because account clear computer gre..."
+  [1900/2000 | 95%] alice: "Unit house individual argue toward main ..."
+  [1920/2000 | 96%] carol: "Loss about major night teach reduce leve..."
+  [1940/2000 | 97%] alice: "Such ask interest security environmental..."
+  [1960/2000 | 98%] carol: "Sport various choose else agent think."
+  [1980/2000 | 99%] carol: "Ahead while find be reflect talk reach a..."
+  [2000/2000 | 100%] alice: "Ready interesting push a."
+  Sent 2000 messages
+
+Checking message sync (expected 4000)...
+  alice: 4000 messages [OK]
+  bob: 4000 messages [OK]
+  carol: 4000 messages [OK]
+  [PASS] All peers synced to 4000 messages
+
+Burst: 10 messages at 50ms...
+  After burst (expected 4010):
+    alice: 4010
+    bob: 4010
+    carol: 4010
+
+================================================================
+  PERFORMANCE REPORT
+================================================================
+
+  Build: release
+  Git: cff2502a
+
+  Timeline:
+       11.4s (+ 11.4s)  setup_complete
+       11.5s (+  0.1s)  send_phase_start
+      231.5s (+220.0s)  send_phase_done
+      231.5s (+  0.0s)  messages_start
+      916.4s (+685.0s)  messages_done
+      918.4s (+  2.0s)  sync_wait_done
+      923.8s (+  5.3s)  test_complete
+
+  Message Throughput: 5.8 msg/sec
+  Total Messages: 4000
+  Duration: 685.0s
+
+  Memory Usage (peak):
+    alice       :    725 MB
+    bob         :    701 MB
+    carol       :    689 MB
+    node        :    268 MB
+
+  CPU Usage (avg):
+    alice       : 156.3%
+    bob         : 102.2%
+    carol       :  97.6%
+    node        :  24.9%
+
+  Memory Growth:
+    alice       : 480 -> 725 MB (+245 MB (0.06 MB/msg))
+    bob         : 473 -> 701 MB (+228 MB (0.06 MB/msg))
+    carol       : 459 -> 690 MB (+231 MB (0.06 MB/msg))
+    node        : 168 -> 268 MB (+100 MB (0.03 MB/msg))
+
+  Latency / Idle Metrics:
+    send_avg_latency_ms: 110.0ms
+    send_throughput_msg_per_sec: 9.1 msg/sec
+
+================================================================
+  Results saved to: /home/abe/osvauld/results/benchmark_20260216_203811/perf_release.json

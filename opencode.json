@@ -1,0 +1,115 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-opus-4-6",
+  "small_model": "anthropic/claude-sonnet-4-5",
+  "instructions": ["AGENTS.md"],
+  "provider": {
+    "openrouter": {
+      "models": {
+        "zhipu/glm-5": {
+          "name": "GLM-5"
+        }
+      }
+    }
+  },
+  "agent": {
+    "scribe": {
+      "description": "CRDT document actor specialist -- Loro operations, LayerUnit lifecycle, sync subscriptions, broadcasts, state vectors, validation",
+      "mode": "subagent",
+      "model": "anthropic/claude-opus-4-6"
+    },
+    "peer-actor": {
+      "description": "Courier PeerActor specialist -- handshake flows, 3-step sync protocol, publish/subscribe, viewer onboarding, consent, asset transfer",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-5"
+    },
+    "coordinator": {
+      "description": "Courier Coordinator specialist -- peer lifecycle management, connection routing, PeerActor spawning, event emission",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-5"
+    },
+    "butler": {
+      "description": "Butler storage and services specialist -- redb storage, facade API, auth, page lifecycle, scribe management, encryption",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-5"
+    },
+    "slint": {
+      "description": "Slint UI specialist -- interpreter runtime, VecModel bindings, page shell generation, compiled shell UI, hot-reload, event bus",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-5"
+    },
+    "scribe-api": {
+      "description": "Scribe API binding specialist -- Lua-to-Scribe bridge, declarative bind/rebind, transforms, surgical updates, key/max_items",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-5"
+    },
+    "lua": {
+      "description": "Lua runtime specialist -- mlua VM, all binding modules, scheduler, event bus, mock scribe, app lifecycle",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-5"
+    },
+    "permit-template": {
+      "description": "Permit template authoring specialist -- permit_template.json design, layer patterns, dynamic schemas, delegation chains, role hierarchy",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-5"
+    },
+    "gurkha": {
+      "description": "Gurkha authorization engine specialist -- permit parsing, decision logic, TokenDecision, SyncContext, pattern matching, service API",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-5"
+    },
+    "docs": {
+      "description": "Documentation specialist -- maintains all 18 doc files, ensures accuracy and cross-references",
+      "mode": "subagent",
+      "model": "openrouter/zhipu/glm-5",
+      "permission": {
+        "bash": "deny"
+      }
+    },
+    "architect": {
+      "description": "System architecture specialist -- cross-crate design analysis, boundary enforcement, offline-first validation, dependency management",
+      "mode": "subagent",
+      "model": "anthropic/claude-opus-4-6",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "deny",
+          "cargo tree*": "allow",
+          "cargo doc*": "allow",
+          "git log*": "allow",
+          "git diff*": "allow"
+        }
+      }
+    },
+    "integration-test": {
+      "description": "Integration test specialist -- Scenario builder, MockConnection, Tracer assertions, 8 test categories, Rust in-memory tests",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-5"
+    },
+    "e2e-test": {
+      "description": "E2E test specialist -- Python tests, ControlClient JSON-RPC, AppTestScenario, tmux session management, event capture",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-5"
+    },
+    "debug": {
+      "description": "Debug specialist -- tracing analysis, JSONL event capture, sync divergence diagnosis, flamegraph/heaptrack, protocol debugging",
+      "mode": "subagent",
+      "model": "anthropic/claude-opus-4-6",
+      "permission": {
+        "edit": "deny"
+      }
+    }
+  },
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "cargo *": "allow",
+      "python3 *": "allow",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "ls *": "allow",
+      "tree *": "allow"
+    }
+  }
+}

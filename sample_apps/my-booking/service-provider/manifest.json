@@ -4,5 +4,6 @@
     "description": "Service booking provider dashboard - manage schedule and bookings",
     "entry_ui": "app.slint",
     "entry_logic": "app.lua",
-    "models": ["schedule", "blocked", "bookings"]
+    "models": ["schedule", "blocked", "bookings"],
+    "renderer": "slint"
 }

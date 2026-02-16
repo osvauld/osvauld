@@ -1,6 +1,6 @@
 # Osvauld Code Policies
 
-This file is auto-read by Claude Code. Detailed policies in `.claude/policies/`.
+This file is auto-read by Claude Code.
 
 **Note**: Logs and comments exist for Claude and the author to understand complex sync flows during debugging. This is an experimental approach - prioritize visibility and clarity.
 
@@ -49,14 +49,22 @@ Use domain terminology (their/our, peer, permit):
 |-------|---------|--------------|
 | `transport` | QUIC connections, message framing | iroh |
 | `courier` | P2P orchestration, handshakes | transport, butler, gurkha |
-| `butler` | Storage, services API | herald, gurkha, repositories |
+| `butler` | Storage, services API | herald, gurkha |
 | `gurkha` | Permit parse + validate only | herald (for crypto) |
 | `herald` | Identity, encryption, signing | - |
-| `tauri_handlers` | App commands | butler, courier |
+| `scribe` | CRDT document actor (Loro) | butler |
+| `lua_runtime` | Lua VM, app bindings | scribe, butler |
+| `domains` | Shared domain types | - |
+| `sthalam` | Desktop app browser library | lua_runtime, renderer_slint, renderer_raylib |
+| `sthalam_shell` | Desktop app entry point | sthalam |
+| `renderer_slint` | Slint UI renderer | lua_runtime |
+| `renderer_raylib` | Raylib graphics renderer | lua_runtime |
+| `kunki` | Always-on node runtime | butler, courier |
+| `control_server` | Unix socket JSON-RPC API | butler, courier |
 
 - Context doesn't leak boundaries
 - Butler has services-only API (no direct store access)
-- Courier has channel for apps, no Tauri context
+- Courier has channel-based communication with apps
 - Each crate wraps its dependency errors
 
 ## Rust Style
@@ -65,6 +73,17 @@ Use domain terminology (their/our, peer, permit):
 - Import at top, no full paths in code
 - `tokio::spawn` for async event loops
 - `&self` with `Arc` internals for services
+
+## Documentation
+
+| Topic | Location |
+|-------|----------|
+| **App development** | `docs/app-dev/` -- Lua apps, renderers, manifests, permits, validation, derivation, testing |
+| **Integration tests** | `docs/INTEGRATION_TESTING.md` -- Rust integration tests, Scenario builder, writing tests |
+| **Architecture** | `docs/ARCHITECTURE.md` -- System crates, boundaries, data flow |
+| **Protocol** | `docs/PROTOCOL.md` -- P2P wire protocol |
+| **Data model** | `docs/DATA_MODEL.md` -- Space/Page/Layer hierarchy |
+| **Setup** | `docs/SETUP.md` -- Build, IDE, running |
 
 ## Review Checklist
 

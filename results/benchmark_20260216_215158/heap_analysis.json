@@ -1,0 +1,355 @@
+{
+  "timestamp": "2026-02-16T22:07:23.018687",
+  "instances": [
+    {
+      "runtime_sec": 154.68,
+      "total_allocs": 57478467,
+      "allocs_per_sec": 371591,
+      "temp_allocs": 2958275,
+      "temp_per_sec": 19124,
+      "peak_heap_bytes": 127223726.08,
+      "peak_heap": "121.33M",
+      "peak_rss_bytes": 477175480.32,
+      "peak_rss": "455.07M",
+      "leaked_bytes": 108999475.2,
+      "leaked": "103.95M",
+      "instance": "alice.heaptrack",
+      "file": "/tmp/chat_perf/alice/alice.heaptrack.zst",
+      "subsystems": {
+        "loro": {
+          "peak_bytes": 961863.68,
+          "leaked_bytes": 7151288.32,
+          "peak_calls": 16648457,
+          "leaked_calls": 12298
+        },
+        "slint": {
+          "peak_bytes": 2432696.32,
+          "leaked_bytes": 20814233.6,
+          "peak_calls": 7377036,
+          "leaked_calls": 75504
+        },
+        "femtovg": {
+          "peak_bytes": 703467.52,
+          "leaked_bytes": 20814233.6,
+          "peak_calls": 3345251,
+          "leaked_calls": 75504
+        },
+        "redb": {
+          "peak_bytes": 0,
+          "leaked_bytes": 3208642.56,
+          "peak_calls": 2532,
+          "leaked_calls": 342
+        },
+        "iroh": {
+          "peak_bytes": 0,
+          "leaked_bytes": 3166699.52,
+          "peak_calls": 6926,
+          "leaked_calls": 5
+        },
+        "mlua": {
+          "peak_bytes": 282030.08,
+          "leaked_bytes": 423690.24,
+          "peak_calls": 48069,
+          "leaked_calls": 48069
+        },
+        "tokio": {
+          "peak_bytes": 1069547.52,
+          "leaked_bytes": 7151288.32,
+          "peak_calls": 16700379,
+          "leaked_calls": 12298
+        },
+        "glutin": {
+          "peak_bytes": 3334471.68,
+          "leaked_bytes": 3334471.68,
+          "peak_calls": 36191,
+          "leaked_calls": 36191
+        },
+        "fontique": {
+          "peak_bytes": 296714.24,
+          "leaked_bytes": 339937.28,
+          "peak_calls": 270590,
+          "leaked_calls": 115
+        },
+        "quinn": {
+          "peak_bytes": 0,
+          "leaked_bytes": 3166699.52,
+          "peak_calls": 6926,
+          "leaked_calls": 5
+        },
+        "ractor": {
+          "peak_bytes": 275548.16,
+          "leaked_bytes": 7151288.32,
+          "peak_calls": 145328,
+          "leaked_calls": 12298
+        },
+        "serde_json": {
+          "peak_bytes": 0,
+          "leaked_bytes": 13588.48,
+          "peak_calls": 8315924,
+          "leaked_calls": 2394
+        },
+        "wayland": {
+          "peak_bytes": 617902.08,
+          "leaked_bytes": 20814233.6,
+          "peak_calls": 3080085,
+          "leaked_calls": 75504
+        }
+      }
+    },
+    {
+      "runtime_sec": 134.15,
+      "total_allocs": 31351762,
+      "allocs_per_sec": 233706,
+      "temp_allocs": 2259093,
+      "temp_per_sec": 16840,
+      "peak_heap_bytes": 236170772.48,
+      "peak_heap": "225.23M",
+      "peak_rss_bytes": 570603601.92,
+      "peak_rss": "544.17M",
+      "leaked_bytes": 207555133.44,
+      "leaked": "197.94M",
+      "instance": "bob.heaptrack",
+      "file": "/tmp/chat_perf/bob/bob.heaptrack.zst",
+      "subsystems": {
+        "loro": {
+          "peak_bytes": 3565158.4,
+          "leaked_bytes": 3418357.76,
+          "peak_calls": 7889002,
+          "leaked_calls": 351569
+        },
+        "slint": {
+          "peak_bytes": 18119393.28,
+          "leaked_bytes": 21422407.68,
+          "peak_calls": 5222048,
+          "leaked_calls": 378706
+        },
+        "femtovg": {
+          "peak_bytes": 4812963.84,
+          "leaked_bytes": 20772290.56,
+          "peak_calls": 2043921,
+          "leaked_calls": 75506
+        },
+        "redb": {
+          "peak_bytes": 0,
+          "leaked_bytes": 3208642.56,
+          "peak_calls": 6480,
+          "leaked_calls": 342
+        },
+        "iroh": {
+          "peak_bytes": 0,
+          "leaked_bytes": 3166699.52,
+          "peak_calls": 7284,
+          "leaked_calls": 5
+        },
+        "mlua": {
+          "peak_bytes": 263546.88,
+          "leaked_bytes": 280258.56,
+          "peak_calls": 47404,
+          "leaked_calls": 47404
+        },
+        "tokio": {
+          "peak_bytes": 3607101.44,
+          "leaked_bytes": 3418357.76,
+          "peak_calls": 7925362,
+          "leaked_calls": 351569
+        },
+        "glutin": {
+          "peak_bytes": 3334471.68,
+          "leaked_bytes": 3334471.68,
+          "peak_calls": 36190,
+          "leaked_calls": 36190
+        },
+        "fontique": {
+          "peak_bytes": 4198.4,
+          "leaked_bytes": 296714.24,
+          "peak_calls": 151383,
+          "leaked_calls": 106843
+        },
+        "quinn": {
+          "peak_bytes": 0,
+          "leaked_bytes": 3166699.52,
+          "peak_calls": 6267,
+          "leaked_calls": 5
+        },
+        "ractor": {
+          "peak_bytes": 77178.88,
+          "leaked_bytes": 3418357.76,
+          "peak_calls": 165066,
+          "leaked_calls": 131038
+        },
+        "serde_json": {
+          "peak_bytes": 677836.8,
+          "leaked_bytes": 13588.48,
+          "peak_calls": 3972131,
+          "leaked_calls": 1541
+        },
+        "wayland": {
+          "peak_bytes": 4309647.36,
+          "leaked_bytes": 20772290.56,
+          "peak_calls": 1984931,
+          "leaked_calls": 75506
+        }
+      }
+    },
+    {
+      "runtime_sec": 129.98,
+      "total_allocs": 27051352,
+      "allocs_per_sec": 208114,
+      "temp_allocs": 2332813,
+      "temp_per_sec": 17947,
+      "peak_heap_bytes": 224856637.44,
+      "peak_heap": "214.44M",
+      "peak_rss_bytes": 558335262.72,
+      "peak_rss": "532.47M",
+      "leaked_bytes": 204398919.68,
+      "leaked": "194.93M",
+      "instance": "carol.heaptrack",
+      "file": "/tmp/chat_perf/carol/carol.heaptrack.zst",
+      "subsystems": {
+        "loro": {
+          "peak_bytes": 2181038.08,
+          "leaked_bytes": 2841640.96,
+          "peak_calls": 6314664,
+          "leaked_calls": 14667
+        },
+        "slint": {
+          "peak_bytes": 16053698.56,
+          "leaked_bytes": 21422407.68,
+          "peak_calls": 4359071,
+          "leaked_calls": 352628
+        },
+        "femtovg": {
+          "peak_bytes": 3732930.56,
+          "leaked_bytes": 20740833.28,
+          "peak_calls": 1608976,
+          "leaked_calls": 75505
+        },
+        "redb": {
+          "peak_bytes": 0,
+          "leaked_bytes": 3208642.56,
+          "peak_calls": 11664,
+          "leaked_calls": 342
+        },
+        "iroh": {
+          "peak_bytes": 0,
+          "leaked_bytes": 3166699.52,
+          "peak_calls": 9233,
+          "leaked_calls": 5
+        },
+        "mlua": {
+          "peak_bytes": 269178.88,
+          "leaked_bytes": 283443.2,
+          "peak_calls": 47461,
+          "leaked_calls": 47461
+        },
+        "tokio": {
+          "peak_bytes": 2222981.12,
+          "leaked_bytes": 3166699.52,
+          "peak_calls": 6376960,
+          "leaked_calls": 5
+        },
+        "glutin": {
+          "peak_bytes": 3334471.68,
+          "leaked_bytes": 3334471.68,
+          "peak_calls": 36192,
+          "leaked_calls": 36192
+        },
+        "fontique": {
+          "peak_bytes": 296714.24,
+          "leaked_bytes": 339937.28,
+          "peak_calls": 307143,
+          "leaked_calls": 115
+        },
+        "quinn": {
+          "peak_bytes": 0,
+          "leaked_bytes": 3166699.52,
+          "peak_calls": 8172,
+          "leaked_calls": 5
+        },
+        "ractor": {
+          "peak_bytes": 77148.16,
+          "leaked_bytes": 2841640.96,
+          "peak_calls": 241734,
+          "leaked_calls": 14593
+        },
+        "serde_json": {
+          "peak_bytes": 678993.92,
+          "leaked_bytes": 13588.48,
+          "peak_calls": 3184961,
+          "leaked_calls": 2871
+        },
+        "wayland": {
+          "peak_bytes": 3512729.6,
+          "leaked_bytes": 20740833.28,
+          "peak_calls": 1605662,
+          "leaked_calls": 75505
+        }
+      }
+    },
+    {
+      "runtime_sec": 123.89,
+      "total_allocs": 10060236,
+      "allocs_per_sec": 81202,
+      "temp_allocs": 980511,
+      "temp_per_sec": 7914,
+      "peak_heap_bytes": 84735426.56,
+      "peak_heap": "80.81M",
+      "peak_rss_bytes": 223870976.0,
+      "peak_rss": "213.50M",
+      "leaked_bytes": 19052625.92,
+      "leaked": "18.17M",
+      "instance": "node.heaptrack",
+      "file": "/tmp/chat_perf/node/node.heaptrack.zst",
+      "subsystems": {
+        "loro": {
+          "peak_bytes": 8273264.64,
+          "leaked_bytes": 2610954.24,
+          "peak_calls": 1496318,
+          "leaked_calls": 955277
+        },
+        "redb": {
+          "peak_bytes": 0,
+          "leaked_bytes": 566702.08,
+          "peak_calls": 17026,
+          "leaked_calls": 9336
+        },
+        "iroh": {
+          "peak_bytes": 0,
+          "leaked_bytes": 3166699.52,
+          "peak_calls": 22650,
+          "leaked_calls": 5
+        },
+        "mlua": {
+          "peak_bytes": 251893.76,
+          "leaked_bytes": 228567.04,
+          "peak_calls": 7138,
+          "leaked_calls": 7138
+        },
+        "tokio": {
+          "peak_bytes": 8357150.72,
+          "leaked_bytes": 3166699.52,
+          "peak_calls": 1929264,
+          "leaked_calls": 5
+        },
+        "quinn": {
+          "peak_bytes": 0,
+          "leaked_bytes": 3166699.52,
+          "peak_calls": 20727,
+          "leaked_calls": 5
+        },
+        "ractor": {
+          "peak_bytes": 166287.36,
+          "leaked_bytes": 2610954.24,
+          "peak_calls": 1034237,
+          "leaked_calls": 909729
+        },
+        "serde_json": {
+          "peak_bytes": 0,
+          "leaked_bytes": 39475.2,
+          "peak_calls": 779266,
+          "leaked_calls": 55271
+        }
+      }
+    }
+  ]
+}

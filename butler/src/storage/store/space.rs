@@ -1,15 +1,17 @@
 //! Space table operations
 
-use redb::{ReadableTable, ReadableDatabase};
+use super::{RedbStore, SPACES};
 use crate::error::{ButlerError, Result};
 use crate::models::SpaceData;
-use super::{RedbStore, SPACES};
+use redb::{ReadableDatabase, ReadableTable};
+use tracing::instrument;
 
 impl RedbStore {
+    #[instrument(skip_all)]
     pub fn put_space(&self, space: &SpaceData) -> Result<()> {
         let key = &space.meta.id;
-        let value = bincode::serialize(space)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(space).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {
@@ -20,6 +22,7 @@ impl RedbStore {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub fn get_space(&self, space_id: &str) -> Result<Option<SpaceData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(SPACES)?;
@@ -35,6 +38,7 @@ impl RedbStore {
         }
     }
 
+    #[instrument(skip_all)]
     pub fn delete_space(&self, space_id: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let removed = {
@@ -46,6 +50,7 @@ impl RedbStore {
         Ok(removed)
     }
 
+    #[instrument(skip_all)]
     pub fn list_spaces(&self) -> Result<Vec<SpaceData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(SPACES)?;
@@ -60,6 +65,7 @@ impl RedbStore {
         Ok(spaces)
     }
 
+    #[instrument(skip_all)]
     pub fn list_child_spaces(&self, parent_id: &str) -> Result<Vec<SpaceData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(SPACES)?;
@@ -76,6 +82,7 @@ impl RedbStore {
         Ok(spaces)
     }
 
+    #[instrument(skip_all)]
     pub fn list_root_spaces(&self) -> Result<Vec<SpaceData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(SPACES)?;

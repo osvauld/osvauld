@@ -1,0 +1,280 @@
+// Content: Testing — Script Automation, Integration Tests, Performance
+
+import { Theme } from "theme.slint";
+import { SectionCard, CodeBlock, InfoCard, DiagramBox, TableRow } from "components.slint";
+
+export component ContentTesting inherits VerticalLayout {
+    in property<int> subsection: 0;
+    spacing: 20px;
+
+    // ── Script Automation (subsection 0) ──
+    if subsection == 0: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Script Automation";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Python test scripts automate multi-peer scenarios. AppTestScenario handles instance management, P2P setup, and teardown.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "AppTestScenario";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Complete test example";
+            code: "from osvauld.scenario import AppTestScenario\n\nwith AppTestScenario(\n    name=\"chat_test\",\n    app_path=\"./sample_apps/osvauld-demos\",\n    peers={\n        \"alice\": {\"role\": \"owner\"},\n        \"node\": {\"role\": \"node\"},\n        \"bob\": {\"role\": \"viewer\"}\n    },\n) as s:\n    alice = s.peer(\"alice\")\n    bob = s.peer(\"bob\")\n\n    # Alice sends a message\n    alice.eval('''\n        api.call(\"send_message\", \"Hello Bob!\")\n    ''')\n\n    # Wait for Bob to receive it\n    bob.wait_for(\n        lambda: \"Hello\" in str(\n            bob.eval(\"return ui:get('messages')\")\n        ),\n        desc=\"message sync to bob\"\n    )\n\n    print(\"Test passed!\")";
+        }
+
+        Text {
+            text: "CLI Flags";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: 4px;
+
+                TableRow { key: "FLAG"; value: "PURPOSE"; is-header: true; }
+                TableRow { key: "--keep"; value: "Keep tmux sessions alive after test"; }
+                TableRow { key: "--debug"; value: "Enable debug logging on instances"; }
+                TableRow { key: "--release"; value: "Use release builds (faster sync)"; }
+                TableRow { key: "-m N"; value: "Number of messages (perf tests)"; }
+                TableRow { key: "-o file.json"; value: "Export perf results to JSON"; }
+            }
+        }
+
+        Text {
+            text: "Helper Patterns";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        SectionCard {
+            title: "wait_for(predicate, desc, timeout)";
+            content: "Polls every 200ms until predicate returns truthy. Essential for sync testing — never use sleep() for sync waits, always use wait_for with a condition.";
+        }
+
+        SectionCard {
+            title: "eval() for Inspection";
+            content: "Use eval() to read app state: eval('return ui:get(\"items\")'), eval('return scribe:map(\"products\"):length()'). Returns Lua values as Python types.";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Integration Tests (subsection 1) ──
+    if subsection == 1: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Integration Tests";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Rust-level protocol tests using mock connections. No real networking — tests run fast and deterministically.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "Architecture";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        InfoCard {
+            title: "Peer";
+            content: "A single test participant: Butler + Coordinator + identity + temp DB. Uses MockConnection instead of real QUIC. Each peer gets a unique identity and isolated storage.";
+            accent-color: Theme.accent;
+        }
+
+        InfoCard {
+            title: "Scenario Builder";
+            content: "Fluent API for setting up multi-peer tests: .owner(), .node(), .viewers(n), .published(). Handles connection, handshake, and sync setup automatically.";
+            accent-color: Theme.accent-purple;
+        }
+
+        InfoCard {
+            title: "Tracer";
+            content: "Captures protocol messages for assertion: assert_sequence(), assert_contains_sequence(), assert_count(). Verify exact message flows without parsing logs.";
+            accent-color: Theme.accent-green;
+        }
+
+        Text {
+            text: "Scenario Builder";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Rust test example";
+            code: "#[tokio::test]\nasync fn test_layer_sync() -> Result<()> {\n    let mut s = Scenario::builder()\n        .app(\"osvauld-demos\")\n        .published()\n        .with_tracer()\n        .build()\n        .await?;\n\n    // Verify handshake happened\n    s.tracer().assert_contains_sequence(&[\n        \"Hello\", \"Welcome\",\n        \"PublishSpace\", \"PublishSpaceAck\",\n    ]);\n\n    // Check data arrived\n    let page = s.node().butler\n        .pages().get(&s.space().page_id)?;\n    assert!(page.is_some());\n\n    s.shutdown().await;\n    Ok(())\n}";
+        }
+
+        Text {
+            text: "Test Categories";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: 4px;
+
+                TableRow { key: "CATEGORY"; value: "TESTS"; is-header: true; }
+                TableRow { key: "Handshake"; value: "First connect, reconnect, rejection"; }
+                TableRow { key: "Publish"; value: "Space + page publish flows"; }
+                TableRow { key: "Layer Sync"; value: "Map/list sync, concurrent edits"; }
+                TableRow { key: "App Sync"; value: "Full app lifecycle with layers"; }
+                TableRow { key: "Permission"; value: "Role-based access, permit validation"; }
+                TableRow { key: "Presence"; value: "Online/offline status tracking"; }
+                TableRow { key: "Derivation"; value: "Node-side aggregation triggers"; }
+                TableRow { key: "Validation"; value: "Business rule enforcement"; }
+            }
+        }
+
+        Text {
+            text: "Running Tests";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "# All integration tests\ncargo test -p integration_tests\n\n# Specific test\ncargo test -p integration_tests test_layer_sync\n\n# With output\ncargo test -p integration_tests -- --nocapture";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Performance (subsection 2) ──
+    if subsection == 2: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Performance Testing";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Profiling, benchmarking, and regression detection tools for the sync pipeline and runtime.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "Profiling Builds";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "# Release build (optimized, no debug symbols)\ncargo build --release -p kunki -p sthalam\n\n# Profiling build (symbols + tracing)\nRUSTFLAGS=\"--cfg tokio_unstable\" \\\n  cargo build --profile profiling \\\n  --features profiling -p kunki -p sthalam";
+        }
+
+        Text {
+            text: "Available Tools";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        InfoCard {
+            title: "test_chat_perf.py";
+            content: "End-to-end perf script. Measures throughput, memory peak/growth, CPU, timeline. Flags: --release, -m N (message count), -o file.json (export).";
+            accent-color: Theme.accent;
+        }
+
+        InfoCard {
+            title: "tokio-console";
+            content: "Live async task visualization. See task states, blocked tasks, channel saturation. Requires profiling build + tokio_unstable cfg.";
+            accent-color: Theme.accent-purple;
+        }
+
+        InfoCard {
+            title: "Flamegraph";
+            content: "Function-level CPU time analysis. Generates .svg flamegraph from perf data. Shows hotspots in sync pipeline (apply_update, flush, reconcile).";
+            accent-color: Theme.accent-orange;
+        }
+
+        InfoCard {
+            title: "Heaptrack";
+            content: "Heap allocation profiling. Peak memory, leaked memory per subsystem. Identifies allocation-heavy code paths.";
+            accent-color: Theme.accent-green;
+        }
+
+        Text {
+            text: "Baseline Metrics (Feb 2026)";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: 4px;
+
+                TableRow { key: "METRIC"; value: "VALUE"; is-header: true; }
+                TableRow { key: "Throughput"; value: "3.7 msg/sec (50 msgs, 4 instances)"; }
+                TableRow { key: "Node Memory"; value: "~47 MB (stable)"; }
+                TableRow { key: "Shell Memory"; value: "~290 MB peak (0.1 MB/msg growth)"; }
+                TableRow { key: "CPU"; value: "<0.1% app code (I/O-bound)"; }
+                TableRow { key: "Scribe CPU"; value: "74-86% apply_update, 2-7% flush"; }
+            }
+        }
+
+        Text {
+            text: "Running Perf Tests";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "# Quick perf test (100 messages)\npython e2e_tests/test_chat_perf.py \\\n  --release -m 100 -o results/run.json\n\n# With flamegraph\npython e2e_tests/test_chat_perf.py \\\n  --flame-only -m 100\n\n# Compare runs\npython scripts/compare_perf.py \\\n  results/before.json results/after.json";
+        }
+
+        Rectangle { height: 32px; }
+    }
+}

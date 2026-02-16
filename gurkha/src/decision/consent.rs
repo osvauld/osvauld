@@ -6,7 +6,7 @@
 
 use super::types::{DecisionResult, TokenDecision};
 use crate::errors::GurkhaError;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::VerifyingKey;
 use serde_json::{json, Value};
 use tracing::trace;
@@ -37,8 +37,9 @@ pub fn decide_sync_space_consent(
     let mut decision = TokenDecision::new(node_pubkey); // Specific node as audience
 
     // Parse consent template
-    let template_data: Value = serde_json::from_str(template_json)
-        .map_err(|e| GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e)))?;
+    let template_data: Value = serde_json::from_str(template_json).map_err(|e| {
+        GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e))
+    })?;
 
     let consent_template = template_data
         .get("consent_template")
@@ -60,22 +61,18 @@ pub fn decide_sync_space_consent(
         decision.add_fact("auth_capabilities".into(), auth_caps.clone());
     }
 
-    // CEL rules from template
-    if let Some(cel_rules) = consent_template.get("cel_rules") {
-        decision.add_fact("cel_rules".into(), cel_rules.clone());
-    }
-
-    // CEL functions from template
-    if let Some(functions) = consent_template.get("functions") {
-        decision.add_fact("functions".into(), functions.clone());
-    }
-
     // Calculate CID of the proof token and add to proof chain
     let proof_cid = crate::crypto::get_permit_cid(node_viewer_permit)?;
     decision.proofs.push(proof_cid.clone());
-    decision.proof_tokens.insert(proof_cid, node_viewer_permit.to_string());
+    decision
+        .proof_tokens
+        .insert(proof_cid, node_viewer_permit.to_string());
 
-    trace!("Space sync consent decision created for space {} -> node {}", space_id, node_pubkey);
+    trace!(
+        "Space sync consent decision created for space {} -> node {}",
+        space_id,
+        node_pubkey
+    );
     Ok(decision)
 }
 
@@ -106,8 +103,9 @@ pub fn decide_sync_page_consent(
     let mut decision = TokenDecision::new(node_pubkey); // Specific node as audience
 
     // Parse consent template
-    let template_data: Value = serde_json::from_str(template_json)
-        .map_err(|e| GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e)))?;
+    let template_data: Value = serde_json::from_str(template_json).map_err(|e| {
+        GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e))
+    })?;
 
     let consent_template = template_data
         .get("consent_template")
@@ -139,21 +137,85 @@ pub fn decide_sync_page_consent(
         decision.add_fact("auth_capabilities".into(), auth_caps.clone());
     }
 
-    // CEL rules from template
-    if let Some(cel_rules) = consent_template.get("cel_rules") {
-        decision.add_fact("cel_rules".into(), cel_rules.clone());
-    }
-
-    // CEL functions from template
-    if let Some(functions) = consent_template.get("functions") {
-        decision.add_fact("functions".into(), functions.clone());
-    }
-
     // Calculate CID of the proof token and add to proof chain
     let proof_cid = crate::crypto::get_permit_cid(node_viewer_permit)?;
     decision.proofs.push(proof_cid.clone());
-    decision.proof_tokens.insert(proof_cid, node_viewer_permit.to_string());
+    decision
+        .proof_tokens
+        .insert(proof_cid, node_viewer_permit.to_string());
 
-    trace!("Page sync consent decision created for page {} -> node {}", page_id, node_pubkey);
+    trace!(
+        "Page sync consent decision created for page {} -> node {}",
+        page_id,
+        node_pubkey
+    );
+    Ok(decision)
+}
+
+/// Decide what should be in a layer sync consent permit
+///
+/// **Context**: Subscriber wants to subscribe to a dynamic layer, issues consent.
+/// Sent inside LayerSubscribe to authorize the responder to sync this layer.
+///
+/// **Issued by**: Subscriber (user or node)
+/// **Audience**: Responder (node or creator)
+/// **Proof**: Page permit (establishes delegation chain — subscriber doesn't have layer permit yet)
+///
+/// Layer consent permits have:
+/// - Specific responder pubkey as audience
+/// - Facts expressing consent to receive updates for a specific layer
+/// - The layer name identifying which dynamic layer
+/// - Proof chain to the page permit
+pub fn decide_sync_layer_consent(
+    viewer_verifying_key: &VerifyingKey,
+    node_pubkey: &str,
+    page_id: &str,
+    layer_name: &str,
+    page_permit_token: &str,
+    template_json: &str,
+) -> DecisionResult<TokenDecision> {
+    let viewer_pub_key_b64 = general_purpose::STANDARD.encode(viewer_verifying_key.as_bytes());
+
+    let mut decision = TokenDecision::new(node_pubkey);
+
+    // Parse consent template (reuse page consent template structure)
+    let template_data: Value = serde_json::from_str(template_json).map_err(|e| {
+        GurkhaError::InvalidTemplate(format!("Invalid consent template JSON: {}", e))
+    })?;
+
+    let consent_template = template_data
+        .get("consent_template")
+        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing consent_template".to_string()))?;
+
+    // Core consent facts
+    decision.add_fact("token_type".into(), json!("sync_layer_consent"));
+    decision.add_fact("relationship".into(), json!("sync_consent"));
+    decision.add_fact("page_id".into(), json!(page_id));
+    decision.add_fact("layer_name".into(), json!(layer_name));
+    decision.add_fact("user_id".into(), json!(viewer_pub_key_b64));
+
+    // Operations from template
+    if let Some(operations) = consent_template.get("operations") {
+        decision.add_fact("operations".into(), operations.clone());
+    }
+
+    // Auth capabilities from template
+    if let Some(auth_caps) = consent_template.get("auth_capabilities") {
+        decision.add_fact("auth_capabilities".into(), auth_caps.clone());
+    }
+
+    // Calculate CID of the page permit and add to proof chain
+    let proof_cid = crate::crypto::get_permit_cid(page_permit_token)?;
+    decision.proofs.push(proof_cid.clone());
+    decision
+        .proof_tokens
+        .insert(proof_cid, page_permit_token.to_string());
+
+    trace!(
+        "Layer sync consent decision created for page {} layer {} -> node {}",
+        page_id,
+        layer_name,
+        node_pubkey
+    );
     Ok(decision)
 }

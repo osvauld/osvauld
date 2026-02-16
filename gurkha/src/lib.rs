@@ -19,37 +19,60 @@
 //! - `service` - Stateless permit functions (takes key bytes, returns permits)
 //! - `errors` - GurkhaError types
 
-pub mod types;
-pub mod parser;
-pub mod decision;
-pub mod crypto;
 pub mod builder;
-pub mod service;
+pub mod crypto;
+pub mod decision;
 pub mod errors;
+pub mod parser;
+pub mod service;
+pub mod types;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_strategies;
+
+// Test fixtures are available for tests and when test-support feature is enabled
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_fixtures;
 
 // Re-export commonly used items
+pub use decision::{
+    can_access_layer, can_access_with_layer_permits, can_receive_updates, extract_issue_template,
+    matches_dynamic_schema, should_send_updates, DelegationDecision, SyncContext, TokenDecision,
+};
+pub use parser::{
+    expand_pattern, matches_schema_pattern, matches_wildcard, resolve_page_id_in_facts,
+}; // Pattern/resolution utilities
+pub use parser::{
+    DelegationTemplate, LayerConfig, LayerPatternConfig, PeerCapabilities, Permit, PermitError,
+    PermitResult,
+};
+pub use parser::{DynamicLayerSchema, GrantType}; // Dynamic layer types
 pub use types::*;
-pub use parser::{Permit, DelegationTemplate, PermitCore, PermitError, PermitResult, LayerPatternConfig, PeerCapabilities, LayerConfig};
-pub use decision::{TokenDecision, DelegationDecision, SyncContext, should_send_updates, can_receive_updates, can_access_layer, extract_issue_template};
 
 // Re-export stateless permit functions
 pub use service::{
-    // Connection tokens
-    issue_one_time,
-    issue_peer_connection,
-    issue_page_viewer_auth,
-    issue_space_viewer_auth,
     // Page tokens
     delegate_page,
-    issue_page_owner_token,
-    // Space tokens
-    issue_space_owner_token,
-    issue_space_node_to_owner,
     delegate_space,
-    // Sync consent tokens (viewer-issued)
-    issue_sync_space_consent,
-    issue_sync_page_consent,
+    extract_space_id,
     // Utilities
     get_public_key,
-    extract_space_id,
+    issue_layer_authority_permit,
+    // Dynamic layer permits (node-issued)
+    issue_layer_permit,
+    // Connection tokens
+    issue_one_time,
+    issue_page_owner_token,
+    issue_page_viewer_auth,
+    issue_peer_connection,
+    issue_space_node_to_owner,
+    // Space tokens
+    issue_space_owner_token,
+    issue_space_viewer_auth,
+    issue_sync_layer_consent,
+    issue_sync_page_consent,
+    // Sync consent tokens (viewer-issued)
+    issue_sync_space_consent,
+    // Dynamic layer re-issuance
+    reissue_permit_with_layers,
 };

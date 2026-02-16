@@ -4,5 +4,6 @@
     "description": "Service booking customer app - book appointments",
     "entry_ui": "app.slint",
     "entry_logic": "app.lua",
-    "models": ["week_days", "time_slots", "booked_slots", "my_bookings", "day_slots"]
+    "models": ["week_days", "time_slots", "booked_slots", "my_bookings", "day_slots"],
+    "renderer": "slint"
 }

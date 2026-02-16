@@ -68,7 +68,7 @@ cargo build --release
 
 ```bash
 # Desktop shell
-cargo build -p slint_shell
+cargo build -p sthalam
 
 # Node runtime
 cargo build -p kunki
@@ -83,10 +83,10 @@ cargo build -p herald -p gurkha -p transport -p courier -p butler
 
 ```bash
 # Debug mode
-cargo run -p slint_shell
+cargo run -p sthalam
 
 # Release mode
-cargo run -p slint_shell --release
+cargo run -p sthalam --release
 ```
 
 ### Node (Kunki)
@@ -100,13 +100,13 @@ cargo run -p kunki -- --config node-config.toml
 
 ```bash
 # See all logs
-RUST_LOG=debug cargo run -p slint_shell
+RUST_LOG=debug cargo run -p sthalam
 
 # Filter by crate
-RUST_LOG=courier=debug,transport=trace cargo run -p slint_shell
+RUST_LOG=courier=debug,transport=trace cargo run -p sthalam
 
 # Recommended for development
-RUST_LOG=info,courier=debug cargo run -p slint_shell
+RUST_LOG=info,courier=debug cargo run -p sthalam
 ```
 
 ## Testing
@@ -203,8 +203,16 @@ osvauld/
 ├── gurkha/               # Permit validation
 │   ├── src/
 │   │   ├── lib.rs
-│   │   ├── permit.rs
-│   │   └── capabilities.rs
+│   │   ├── parser/           # Permit parsing module
+│   │   │   ├── mod.rs
+│   │   │   ├── permit.rs
+│   │   │   └── template.rs
+│   │   ├── decision/         # Decision logic modules
+│   │   ├── builder.rs        # Permit builder
+│   │   ├── crypto.rs         # Signing/verification
+│   │   ├── service.rs        # Authorization service
+│   │   ├── types.rs          # Core types
+│   │   └── errors.rs         # Error types
 │   └── Cargo.toml
 │
 ├── transport/            # QUIC networking
@@ -217,30 +225,64 @@ osvauld/
 ├── courier/              # P2P orchestration
 │   ├── src/
 │   │   ├── lib.rs
-│   │   ├── coordinator.rs
-│   │   ├── peer_actor.rs
-│   │   └── sync.rs
+│   │   ├── coordinator/      # Coordinator module
+│   │   ├── peer_actor/       # PeerActor with sync submodules
+│   │   ├── handshake/        # Handshake flows
+│   │   ├── message.rs        # Message types
+│   │   ├── handle.rs         # Public handle
+│   │   └── state.rs          # State types
 │   └── Cargo.toml
 │
 ├── butler/               # Storage services
 │   ├── src/
 │   │   ├── lib.rs
 │   │   ├── services/
+│   │   │   ├── mod.rs
 │   │   │   ├── page_service.rs
-│   │   │   └── blob_service.rs
-│   │   └── scribe.rs
+│   │   │   ├── app_service.rs
+│   │   │   ├── asset_service.rs
+│   │   │   ├── auth_service.rs
+│   │   │   ├── contact_service.rs
+│   │   │   ├── node_service.rs
+│   │   │   ├── publish_service.rs
+│   │   │   └── space_service.rs
+│   │   ├── stores/          # redb storage implementations
+│   │   └── error.rs
 │   └── Cargo.toml
 │
-├── app_runtime/          # Lua + Slint runtime
+├── lua_runtime/          # Lua scripting runtime
 │   ├── src/
-│   │   ├── lib.rs
-│   │   ├── lua_runtime.rs
-│   │   └── slint_bindings.rs
+│   │   └── lib.rs
 │   └── Cargo.toml
 │
-├── slint_shell/          # Desktop app
+├── scribe/               # Document sync engine
+│   ├── src/
+│   │   └── lib.rs
+│   └── Cargo.toml
+│
+├── domains/              # Domain logic
+│   ├── src/
+│   │   └── lib.rs
+│   └── Cargo.toml
+│
+├── sthalam/              # App shell library
+│   ├── src/
+│   │   └── lib.rs
+│   └── Cargo.toml
+│
+├── sthalam_shell/        # Desktop app entry point
 │   ├── src/
 │   │   └── main.rs
+│   └── Cargo.toml
+│
+├── renderer_slint/       # Slint renderer
+│   ├── src/
+│   │   └── lib.rs
+│   └── Cargo.toml
+│
+├── renderer_raylib/      # Raylib renderer
+│   ├── src/
+│   │   └── lib.rs
 │   └── Cargo.toml
 │
 ├── kunki/                # Node runtime
@@ -285,7 +327,7 @@ For auto-rebuild during development:
 
 ```bash
 cargo install cargo-watch
-cargo watch -x 'build -p slint_shell'
+cargo watch -x 'build -p sthalam'
 ```
 
 ### Clean Build
@@ -326,7 +368,7 @@ cargo build
 
 1. Build the shell:
    ```bash
-   cargo build -p slint_shell
+   cargo build -p sthalam
    ```
 
 2. Launch and select an app from `sample_apps/`
@@ -334,13 +376,13 @@ cargo build
 3. For multi-peer testing, run multiple instances:
    ```bash
    # Terminal 1 - Owner
-   cargo run -p slint_shell
+   cargo run -p sthalam
 
    # Terminal 2 - Node
    cargo run -p kunki
 
    # Terminal 3 - Viewer
-   cargo run -p slint_shell
+   cargo run -p sthalam
    ```
 
 ## Debugging
@@ -371,5 +413,5 @@ println!("{:?}", doc.export_snapshot());
 
 ```bash
 # See all network traffic
-RUST_LOG=transport=trace cargo run -p slint_shell
+RUST_LOG=transport=trace cargo run -p sthalam
 ```

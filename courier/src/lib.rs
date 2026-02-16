@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! Courier - P2P Protocol Layer
 //!
 //! This crate owns all protocol message types and handles peer connections.
@@ -38,18 +39,31 @@
 //! - Protocol layer is dumb - just routes opaque bytes by page_id
 //! - Ephemeral data goes directly to Scribe via page_subscriptions
 
+mod handle;
 mod message;
 mod state;
-mod handle;
 
 pub mod coordinator;
-pub mod peer_actor;
 pub mod handshake;
+pub mod peer_actor;
+pub mod trace;
 
-pub use message::{Message, ErrorCode, PublishedSpace, PublishedPageMeta, ConnectionString, EphemeralDatagram};
+pub use coordinator::{ConnectRequest, Coordinator, CoordinatorMessage, CourierMode};
+pub use handle::{
+    Courier, CourierEvent, CourierHandle, HandshakeServices, IrohCoordinator,
+    IrohCoordinatorMessage,
+};
+pub use message::{
+    AssetAckMsg, AssetPrepareMsg, AssetReadyMsg, ConnectionString, EphemeralDatagram, ErrorCode,
+    ErrorMsg, GetShareableLinkRequestMsg, GetShareableLinkResponseMsg, HelloMsg, LayerType,
+    Message, PageAnnounceAckMsg, PageAnnounceMsg, PermitGrantMsg, PermitScope, PermitUpdateMsg,
+    PublishErrorMsg, PublishSpaceAckMsg, PublishSpaceMsg, PublishedPageMeta, PublishedSpace,
+    RejectedMsg, SpaceDataAckMsg, SpaceDataMsg, SpaceRequestErrorMsg, SpaceRequestMsg,
+    SyncAcceptMsg, SyncAckMsg, SyncConsentAckMsg, SyncConsentGrantMsg, SyncOfferMsg, SyncResetMsg,
+    SyncSnapshotMsg, WelcomeMsg, PROTOCOL_VERSION,
+};
 pub use state::PeerState;
-pub use coordinator::{Coordinator, CoordinatorMessage, CourierMode, ConnectRequest};
-pub use handle::{CourierHandle, CourierEvent, Courier, HandshakeServices};
+pub use trace::{MessageTrace, TraceDirection};
 
 // Re-export transport types for P2P initialization
 pub use transport::{Transport, TransportConfig};

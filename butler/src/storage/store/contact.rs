@@ -1,19 +1,19 @@
 //! Contact and Device table operations
 
-use redb::{ReadableTable, ReadableDatabase};
+use super::{RedbStore, CONTACTS, DEVICES};
 use crate::error::{ButlerError, Result};
 use crate::models::{ContactData, DeviceData};
-use super::{RedbStore, CONTACTS, DEVICES};
+use redb::{ReadableDatabase, ReadableTable};
+use tracing::instrument;
 
 impl RedbStore {
-    // =========================================================================
     // Device Operations
     // Key: {device_id}
-    // =========================================================================
 
+    #[instrument(skip_all)]
     pub fn put_device(&self, device: &DeviceData) -> Result<()> {
-        let value = bincode::serialize(device)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(device).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {
@@ -24,6 +24,7 @@ impl RedbStore {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub fn get_device(&self, device_id: &str) -> Result<Option<DeviceData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(DEVICES)?;
@@ -39,6 +40,7 @@ impl RedbStore {
         }
     }
 
+    #[instrument(skip_all)]
     pub fn delete_device(&self, device_id: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let removed = {
@@ -50,6 +52,7 @@ impl RedbStore {
         Ok(removed)
     }
 
+    #[instrument(skip_all)]
     pub fn list_devices(&self) -> Result<Vec<DeviceData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(DEVICES)?;
@@ -64,6 +67,7 @@ impl RedbStore {
         Ok(devices)
     }
 
+    #[instrument(skip_all)]
     pub fn get_current_device(&self) -> Result<Option<DeviceData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(DEVICES)?;
@@ -79,6 +83,7 @@ impl RedbStore {
         Ok(None)
     }
 
+    #[instrument(skip_all)]
     pub fn get_node_device(&self) -> Result<Option<DeviceData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(DEVICES)?;
@@ -94,14 +99,13 @@ impl RedbStore {
         Ok(None)
     }
 
-    // =========================================================================
     // Contact Operations
     // Key: {user_did}
-    // =========================================================================
 
+    #[instrument(skip_all)]
     pub fn put_contact(&self, contact: &ContactData) -> Result<()> {
-        let value = bincode::serialize(contact)
-            .map_err(|e| ButlerError::Serialization(e.to_string()))?;
+        let value =
+            bincode::serialize(contact).map_err(|e| ButlerError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {
@@ -112,6 +116,7 @@ impl RedbStore {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub fn get_contact(&self, user_did: &str) -> Result<Option<ContactData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(CONTACTS)?;
@@ -127,6 +132,7 @@ impl RedbStore {
         }
     }
 
+    #[instrument(skip_all)]
     pub fn delete_contact(&self, user_did: &str) -> Result<bool> {
         let write_txn = self.db.begin_write()?;
         let removed = {
@@ -138,6 +144,7 @@ impl RedbStore {
         Ok(removed)
     }
 
+    #[instrument(skip_all)]
     pub fn list_contacts(&self) -> Result<Vec<ContactData>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(CONTACTS)?;

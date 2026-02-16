@@ -4,9 +4,18 @@ use crate::coordinator::CourierMode;
 use crate::state::PeerState;
 
 /// Check mode and return error message if mismatched
-pub fn require_mode(actual: CourierMode, expected: CourierMode, action: &str) -> Option<&'static str> {
+pub fn require_mode(
+    actual: CourierMode,
+    expected: CourierMode,
+    action: &str,
+) -> Option<&'static str> {
     if actual != expected {
-        tracing::warn!("{} called in {:?} mode, expected {:?}", action, actual, expected);
+        tracing::warn!(
+            "{} called in {:?} mode, expected {:?}",
+            action,
+            actual,
+            expected
+        );
         return Some("Wrong mode");
     }
     None
@@ -27,7 +36,10 @@ pub fn require_auth<'a>(state: &'a PeerState) -> Result<(&'a str, &'a str), &'st
     match state {
         PeerState::Authenticated { did, username, .. } => Ok((did, username)),
         _ => {
-            tracing::warn!("Action requires authentication, current state: {}", state.name());
+            tracing::warn!(
+                "Action requires authentication, current state: {}",
+                state.name()
+            );
             Err("Not authenticated")
         }
     }
@@ -37,8 +49,6 @@ pub fn require_auth<'a>(state: &'a PeerState) -> Result<(&'a str, &'a str), &'st
 pub fn parse_permit(token: &str) -> Result<gurkha::Permit, String> {
     gurkha::Permit::from_token(token).map_err(|e| format!("Invalid permit: {:?}", e))
 }
-
-// ==================== Type Conversions ====================
 
 /// Convert butler::Space → message::PublishedSpace
 pub fn to_published_space(space: &butler::Space) -> crate::message::PublishedSpace {
@@ -55,21 +65,52 @@ pub fn to_published_space(space: &butler::Space) -> crate::message::PublishedSpa
 
 /// Convert butler::PageMeta → message::PublishedPageMeta
 pub fn to_published_page_meta(meta: &butler::PageMeta) -> crate::message::PublishedPageMeta {
+    published_page_meta_from_fields(
+        &meta.id,
+        &meta.space_id,
+        &meta.name,
+        &meta.owner_did,
+        meta.is_private,
+        meta.created_at,
+        meta.updated_at,
+    )
+}
+
+/// Convert butler::Page → message::PublishedPageMeta
+pub fn page_to_published_meta(page: &butler::Page) -> crate::message::PublishedPageMeta {
+    published_page_meta_from_fields(
+        &page.id,
+        &page.space_id,
+        &page.name,
+        &page.owner_did,
+        page.is_private,
+        page.created_at,
+        page.updated_at,
+    )
+}
+
+fn published_page_meta_from_fields(
+    id: &str,
+    space_id: &str,
+    name: &str,
+    owner_did: &str,
+    is_private: bool,
+    created_at: i64,
+    updated_at: i64,
+) -> crate::message::PublishedPageMeta {
     crate::message::PublishedPageMeta {
-        id: meta.id.clone(),
-        space_id: meta.space_id.clone(),
-        name: meta.name.clone(),
-        owner_did: meta.owner_did.clone(),
-        is_private: meta.is_private,
-        created_at: meta.created_at,
-        updated_at: meta.updated_at,
+        id: id.to_string(),
+        space_id: space_id.to_string(),
+        name: name.to_string(),
+        owner_did: owner_did.to_string(),
+        is_private,
+        created_at,
+        updated_at,
     }
 }
 
 /// Convert message::PublishedSpace → butler::Space
-pub fn from_published_space(
-    space: &crate::message::PublishedSpace,
-) -> butler::Space {
+pub fn from_published_space(space: &crate::message::PublishedSpace) -> butler::Space {
     butler::Space {
         id: space.id.clone(),
         name: space.name.clone(),

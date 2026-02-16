@@ -7,7 +7,7 @@
 
 use super::types::{DecisionResult, TokenDecision};
 use crate::errors::GurkhaError;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::VerifyingKey;
 use serde_json::{json, Value};
 
@@ -35,7 +35,9 @@ pub fn decide_space_owner_token(
     let ops = owner_template
         .get("operations")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string()))?;
+        .ok_or_else(|| {
+            GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string())
+        })?;
 
     // Build facts from template (no URI capabilities)
     decision.add_fact("token_type".into(), json!("space_owner"));
@@ -48,11 +50,6 @@ pub fn decide_space_owner_token(
     // Copy sync facts if present
     if let Some(sync) = owner_template.get("sync") {
         decision.add_fact("sync".into(), sync.clone());
-    }
-
-    // Copy delegation templates (legacy, prefer issue_on)
-    if let Some(delegation) = owner_template.get("delegation") {
-        decision.add_fact("delegation".into(), delegation.clone());
     }
 
     // Copy issue_on templates (self-describing permits)
@@ -87,13 +84,19 @@ pub fn decide_space_node_to_owner_token(
     decision.add_fact("relationship".into(), json!("owner"));
     decision.add_fact("space_id".into(), json!(space_id));
     decision.add_fact("issuer_id".into(), json!(pub_key_b64));
-    decision.add_fact("operations".into(), json!({
-        "sync": "allow"
-    }));
-    decision.add_fact("auth_capabilities".into(), json!({
-        "can_connect": true,
-        "sync_enabled": true
-    }));
+    decision.add_fact(
+        "operations".into(),
+        json!({
+            "sync": "allow"
+        }),
+    );
+    decision.add_fact(
+        "auth_capabilities".into(),
+        json!({
+            "can_connect": true,
+            "sync_enabled": true
+        }),
+    );
 
     Ok(decision)
 }
@@ -122,7 +125,9 @@ pub fn decide_page_owner_token(
     let ops = owner_template
         .get("operations")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string()))?;
+        .ok_or_else(|| {
+            GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string())
+        })?;
 
     // Build facts from template (no URI capabilities)
     decision.add_fact("token_type".into(), json!("page_owner"));
@@ -132,30 +137,25 @@ pub fn decide_page_owner_token(
     // Keep operations as strings ("allow"/"deny") instead of converting to booleans
     decision.add_fact("operations".into(), json!(ops));
 
-    // Copy layers if present
-    if let Some(layers) = owner_template.get("layers") {
-        decision.add_fact("layers".into(), layers.clone());
+    // Copy all template fields to facts, then resolve {page_id}
+    let template_fields = [
+        "layers",
+        "sync",
+        "issue_on",
+        "peer_capabilities",
+        "presence",
+        "ephemeral_funcs",
+        "dynamic_layer_schemas",
+    ];
+    for field in &template_fields {
+        if let Some(val) = owner_template.get(*field) {
+            decision.add_fact((*field).to_string(), val.clone());
+        }
     }
+    // Note: layer_patterns intentionally NOT copied (replaced by dynamic_layer_schemas)
 
-    // Copy layer_patterns if present
-    if let Some(layer_patterns) = owner_template.get("layer_patterns") {
-        decision.add_fact("layer_patterns".into(), layer_patterns.clone());
-    }
-
-    // Copy sync facts if present
-    if let Some(sync) = owner_template.get("sync") {
-        decision.add_fact("sync".into(), sync.clone());
-    }
-
-    // Copy delegation templates (legacy, prefer issue_on)
-    if let Some(delegation) = owner_template.get("delegation") {
-        decision.add_fact("delegation".into(), delegation.clone());
-    }
-
-    // Copy issue_on templates (self-describing permits)
-    if let Some(issue_on) = owner_template.get("issue_on") {
-        decision.add_fact("issue_on".into(), issue_on.clone());
-    }
+    // Resolve {page_id} in layer keys and nested issue_on templates
+    crate::parser::resolve_page_id_in_facts(&mut decision.facts, page_id);
 
     Ok(decision)
 }

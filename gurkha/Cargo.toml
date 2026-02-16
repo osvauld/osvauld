@@ -34,5 +34,14 @@ tracing = { version = "0.1", features = ["attributes"] }
 # Time (for token expiry)
 chrono = "0.4"
 
+# Test support (only when test-support feature is enabled)
+pollster = { version = "0.4", optional = true }
+proptest = { version = "1.4", optional = true }
+
+[features]
+default = []
+test-support = ["pollster", "proptest"]
+
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+proptest = "1.4"
+pollster = "0.4"

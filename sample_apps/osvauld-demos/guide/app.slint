@@ -792,12 +792,12 @@ export component App inherits Rectangle {
                     }
 
                     CodeBlock {
-                        code: "{\n  \"name\": \"My App\",\n  \"version\": \"1.0.0\",\n  \"entry_ui\": \"app.slint\",\n  \"entry_logic\": \"app.lua\",\n  \"tick_enabled\": false\n}";
+                        code: "{\n  \"name\": \"My App\",\n  \"version\": \"1.0.0\",\n  \"entry_ui\": \"app.slint\",\n  \"entry_logic\": \"app.lua\"\n}";
                     }
 
                     SectionCard {
-                        title: "tick_enabled: true";
-                        content: "For games/animations. Calls tick() at ~60fps. See snake-game and math-sim for examples.";
+                        title: "Periodic work";
+                        content: "Use timer.setInterval(...) or timer.setTimeout(...) for recurring/delayed logic in Slint apps.";
                     }
 
                     Text {
@@ -819,7 +819,7 @@ export component App inherits Rectangle {
                     }
 
                     CodeBlock {
-                        code: "function on_init()\n  ui:set(\"msg\", \"Hello!\")\nend\n\nfunction on_click(target)\n  ui:set(\"msg\", \"Clicked: \" .. target)\nend\n\nfunction tick()  -- if tick_enabled\n  -- called ~60fps\nend";
+                        code: "function on_init()\n  ui:set(\"msg\", \"Hello!\")\n\n  timer.setInterval(1000, function()\n    -- periodic work\n  end)\nend\n\nfunction on_click(target)\n  ui:set(\"msg\", \"Clicked: \" .. target)\nend";
                     }
 
                     Text {

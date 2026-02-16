@@ -1,241 +1,130 @@
-//! Test fixtures and constants for integration tests
+//! Test fixtures — helpers, paths, wait functions
+//!
+//! No hardcoded page templates. Page templates come from sample app dirs
+//! via `butler.apps().import_page()`. Space template is the only fixture JSON.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Duration;
 
-// =============================================================================
-// Timing constants for test synchronization
-// =============================================================================
+use anyhow::Result;
+use tracing_subscriber::EnvFilter;
 
-/// Delay after spawning actors to let them initialize
-pub const ACTOR_SPAWN_DELAY: Duration = Duration::from_millis(50);
+/// Timeout for mock protocol operations (fast, in-memory)
+pub const MOCK_TIMEOUT: Duration = Duration::from_millis(500);
 
-/// Delay for handshake completion between peers
-pub const HANDSHAKE_DELAY: Duration = Duration::from_millis(500);
+/// Timeout for page sync to complete
+pub const PAGE_SYNC_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Delay for message delivery between peers
-pub const MESSAGE_DELIVERY_DELAY: Duration = Duration::from_millis(800);
+/// Information about a created space + page
+pub struct SpaceInfo {
+    pub space_id: String,
+    pub page_id: String,
+}
 
-/// Delay for page sync operations
-pub const PAGE_SYNC_DELAY: Duration = Duration::from_millis(1500);
+/// Resolve workspace root (parent of protocol_tests/)
+pub fn workspace_root() -> PathBuf {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."));
+    manifest_dir.parent().unwrap_or(&manifest_dir).to_path_buf()
+}
 
-/// Extended delay for complex sync operations (viewer handshake + page sync)
-pub const EXTENDED_SYNC_DELAY: Duration = Duration::from_millis(3000);
+/// Get sample app directory path
+///
+/// Example: `app_dir("osvauld-demos")` -> `<workspace>/sample_apps/osvauld-demos`
+pub fn app_dir(name: &str) -> PathBuf {
+    workspace_root().join("sample_apps").join(name)
+}
 
-/// Delay to wait for Scribe's periodic flush to storage (flush interval is 10s)
-/// This must be >= 10 seconds to ensure dirty layers are persisted
-pub const STORAGE_FLUSH_DELAY: Duration = Duration::from_millis(11000);
+/// Read space template JSON from fixtures
+pub fn space_template() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("space_template.json");
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Failed to read space_template.json at {:?}: {}", path, e))
+}
 
-/// Timeout for asset blob transfer (metadata sync + blob download)
-/// Asset sync flow: SyncOffer → SyncAck → AssetPrepare → AssetReady → AssetAck
-pub const ASSET_SYNC_DELAY: Duration = Duration::from_millis(5000);
+/// Initialize tracing for tests (idempotent)
+pub fn init_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::from_default_env()
+                .add_directive("info".parse().unwrap()),
+        )
+        .try_init();
+}
 
-// =============================================================================
-// Test template for space creation
-// =============================================================================
-
-/// Standard test template for creating spaces.
-/// Includes owner operations and delegation templates for node and viewer roles.
-/// Uses capability-based design with peer_capabilities for protocol decisions.
-pub const TEST_SPACE_TEMPLATE: &str = r#"{
-  "owner_template": {
-    "operations": {
-      "own": "allow",
-      "get_share_link": "allow",
-      "add_pages": "allow",
-      "share_space": "allow"
-    },
-    "peer_capabilities": {
-      "relay": false,
-      "share": true,
-      "accept_publish": true
-    },
-    "issue_on": {
-      "node": {
-        "token_type": "space_share",
-        "peer_capabilities": { "relay": true, "share": true, "accept_publish": true },
-        "operations": { "get_share_link": "allow", "add_pages": "allow", "share_space": "allow" },
-        "auth_capabilities": { "can_connect": true, "persist_share": true, "can_delegate": false, "sync_enabled": true },
-        "relationship": "node",
-        "issue_on": {
-          "viewer": {
-            "token_type": "space_viewer",
-            "peer_capabilities": { "relay": false, "share": false, "accept_publish": false },
-            "operations": { "request_pages": "allow", "get_share_link": "allow" },
-            "auth_capabilities": { "can_connect": true, "persist_share": false, "can_delegate": false, "sync_enabled": false },
-            "relationship": "viewer"
-          }
+/// Poll until a condition returns Some(T), with timeout
+pub async fn wait_until<F, T>(desc: &str, timeout: Duration, f: F) -> Result<T>
+where
+    F: Fn() -> Option<T>,
+{
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if let Some(val) = f() {
+            return Ok(val);
         }
-      },
-      "viewer": {
-        "token_type": "space_viewer",
-        "peer_capabilities": { "relay": false, "share": false, "accept_publish": false },
-        "operations": { "request_pages": "allow", "get_share_link": "allow" },
-        "auth_capabilities": { "can_connect": true, "persist_share": false, "can_delegate": false, "sync_enabled": false },
-        "relationship": "viewer"
-      }
-    }
-  }
-}"#;
-
-// =============================================================================
-// Test template for page creation
-// =============================================================================
-
-/// Standard test template for creating pages.
-/// Includes layer definitions and delegation templates for node and viewer roles.
-/// Uses capability-based design with peer_capabilities for protocol decisions.
-pub const TEST_PAGE_TEMPLATE: &str = r#"{
-  "owner_template": {
-    "operations": { "own": "allow", "share_page": "allow" },
-    "peer_capabilities": { "relay": false, "share": true, "accept_publish": true },
-    "layers": {
-      "template_doc": { "sync": true, "write": true, "type": "crdt" },
-      "content_doc": { "sync": true, "write": true, "type": "crdt" },
-      "user_content_doc": { "sync": true, "write": true, "type": "crdt" },
-      "collaborative_doc": { "sync": true, "write": true, "type": "crdt" },
-      "submissions_doc": { "sync": true, "write": true, "type": "crdt" },
-      "static_assets": { "sync": true, "write": true, "type": "asset" }
-    },
-    "layer_patterns": {
-      "{page_id}/assets": { "create": true, "sync": true }
-    },
-    "sync": { "local_only": ["user_content_doc"] },
-    "issue_on": {
-      "node": {
-        "token_type": "page_share",
-        "peer_capabilities": { "relay": true, "share": true, "accept_publish": true },
-        "operations": { "share_page": "allow" },
-        "layers": {
-          "template_doc": { "sync": true, "write": true, "type": "crdt" },
-          "content_doc": { "sync": true, "write": true, "type": "crdt" },
-          "user_content_doc": { "sync": true, "write": true, "type": "crdt" },
-          "collaborative_doc": { "sync": true, "write": true, "type": "crdt" },
-          "submissions_doc": { "sync": true, "write": true, "type": "crdt" },
-          "static_assets": { "sync": true, "write": true, "type": "asset" }
-        },
-        "layer_patterns": {
-          "{page_id}/assets": { "create": true, "sync": true }
-        },
-        "sync": { "local_only": ["user_content_doc"] },
-        "auth_capabilities": { "can_connect": true, "persist_share": true, "can_delegate": false, "sync_enabled": true },
-        "relationship": "node",
-        "issue_on": {
-          "viewer": {
-            "token_type": "page_viewer",
-            "peer_capabilities": { "relay": false, "share": false, "accept_publish": false },
-            "operations": {},
-            "layers": {
-              "template_doc": { "sync": true, "write": false, "type": "crdt" },
-              "content_doc": { "sync": true, "write": false, "type": "crdt" },
-              "collaborative_doc": { "sync": true, "write": true, "type": "crdt" },
-              "submissions_doc": { "sync": true, "write": true, "type": "crdt" },
-              "static_assets": { "sync": true, "write": false, "type": "asset" }
-            },
-            "layer_patterns": {
-              "{page_id}/assets": { "create": false, "sync": true }
-            },
-            "sync": { "local_only": ["user_content_doc"], "no_incoming_updates": ["submissions_doc"], "send_full_snapshot": ["submissions_doc"] },
-            "auth_capabilities": { "can_connect": true, "persist_share": false, "can_delegate": false, "sync_enabled": false },
-            "relationship": "viewer"
-          }
+        if tokio::time::Instant::now() > deadline {
+            return Err(anyhow::anyhow!("Timeout waiting for: {}", desc));
         }
-      },
-      "viewer": {
-        "token_type": "page_viewer",
-        "peer_capabilities": { "relay": false, "share": false, "accept_publish": false },
-        "operations": {},
-        "layers": {
-          "template_doc": { "sync": true, "write": false, "type": "crdt" },
-          "content_doc": { "sync": true, "write": false, "type": "crdt" },
-          "collaborative_doc": { "sync": true, "write": true, "type": "crdt" },
-          "submissions_doc": { "sync": true, "write": true, "type": "crdt" },
-          "static_assets": { "sync": true, "write": false, "type": "asset" }
-        },
-        "layer_patterns": {
-          "{page_id}/assets": { "create": false, "sync": true }
-        },
-        "sync": { "local_only": ["user_content_doc"], "no_incoming_updates": ["submissions_doc"], "send_full_snapshot": ["submissions_doc"] },
-        "auth_capabilities": { "can_connect": true, "persist_share": false, "can_delegate": false, "sync_enabled": false },
-        "relationship": "viewer"
-      }
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
-  }
-}"#;
+}
 
-// =============================================================================
-// Page layer definitions
-// =============================================================================
+/// Wait for a layer to have data on a peer's butler (raw bytes)
+pub async fn wait_for_layer_data(
+    butler: &butler::Butler,
+    page_id: &str,
+    layer_name: &str,
+    timeout: Duration,
+) -> Result<Vec<u8>> {
+    let page_id = page_id.to_string();
+    let layer_name = layer_name.to_string();
+    let deadline = tokio::time::Instant::now() + timeout;
 
-/// Standard page layers for testing.
-/// Matches the layers defined in TEST_PAGE_TEMPLATE.
-pub const TEST_PAGE_LAYERS: &[&str] = &[
-    "template_doc",
-    "content_doc",
-    "user_content_doc",
-    "collaborative_doc",
-    "submissions_doc",
-    "static_assets",
-];
-
-// =============================================================================
-// Sync consent templates for viewer-issued permits
-// =============================================================================
-
-/// Viewer-issued space consent template.
-/// Issued by viewer to node to express consent for receiving space sync updates.
-pub const TEST_SYNC_SPACE_CONSENT_TEMPLATE: &str = r#"{
-  "consent_template": {
-    "token_type": "sync_space_consent",
-    "operations": {
-      "receive_pages": "allow",
-      "receive_updates": "allow"
-    },
-    "auth_capabilities": {
-      "accept_sync": true,
-      "accept_new_pages": true
-    },
-    "relationship": "sync_consent",
-    "cel_rules": {
-      "is_sync_consent": "token_type == 'sync_space_consent' && relationship == 'sync_consent'",
-      "can_accept_sync": "auth_capabilities.accept_sync == true",
-      "can_accept_pages": "auth_capabilities.accept_new_pages == true"
-    },
-    "functions": {
-      "can_send_sync": "self.token_type == 'sync_space_consent' && self.space_id == context.space_id",
-      "can_send_new_page": "self.auth_capabilities.accept_new_pages == true && self.space_id == context.space_id"
+    loop {
+        if let Ok(Some(data)) = butler.store().get_layer(&page_id, &layer_name) {
+            if !data.is_empty() {
+                return Ok(data);
+            }
+        }
+        if tokio::time::Instant::now() > deadline {
+            return Err(anyhow::anyhow!(
+                "Timeout waiting for layer data: page={}, layer={}",
+                page_id,
+                layer_name
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
-  }
-}"#;
+}
 
-/// Viewer-issued page consent template.
-/// Issued by viewer to node to express consent for receiving page layer updates.
-pub const TEST_SYNC_PAGE_CONSENT_TEMPLATE: &str = r#"{
-  "consent_template": {
-    "token_type": "sync_page_consent",
-    "operations": {
-      "receive_layer_updates": "allow"
-    },
-    "layers": {
-      "template_doc": { "sync": true, "write": false, "type": "crdt" },
-      "content_doc": { "sync": true, "write": false, "type": "crdt" },
-      "collaborative_doc": { "sync": true, "write": true, "type": "crdt" },
-      "submissions_doc": { "sync": true, "write": true, "type": "crdt" },
-      "static_assets": { "sync": true, "write": false, "type": "asset" }
-    },
-    "sync": {
-      "no_incoming_updates": ["submissions_doc"]
-    },
-    "auth_capabilities": {
-      "accept_sync": true
-    },
-    "relationship": "sync_consent",
-    "cel_rules": {
-      "is_sync_consent": "token_type == 'sync_page_consent' && relationship == 'sync_consent'",
-      "can_accept_layer": "has(layers[context.layer]) && layers[context.layer].sync == true"
-    },
-    "functions": {
-      "can_send_layer": "self.token_type == 'sync_page_consent' && self.page_id == context.page_id && has(self.layers[context.layer])",
-      "is_my_consent": "self.iss == context.our_pubkey && self.aud == context.their_pubkey"
+/// Wait for app files to sync to a peer
+pub async fn wait_for_app_files(
+    butler: &butler::Butler,
+    page_id: &str,
+    app_name: &str,
+    timeout: Duration,
+) -> Result<HashMap<String, String>> {
+    let page_id = page_id.to_string();
+    let app_name = app_name.to_string();
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    loop {
+        if let Ok(files) = butler.apps().get_files(&page_id, &app_name).await {
+            if !files.is_empty() {
+                return Ok(files);
+            }
+        }
+        if tokio::time::Instant::now() > deadline {
+            return Err(anyhow::anyhow!(
+                "Timeout waiting for app files: page={}, app={}",
+                page_id,
+                app_name
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
-  }
-}"#;
+}

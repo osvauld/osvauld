@@ -1,0 +1,365 @@
+// Content: Protocol — Wire protocol, message types, handshake, sync
+
+import { Theme } from "theme.slint";
+import { SectionCard, CodeBlock, InfoCard, DiagramBox, TableRow } from "components.slint";
+
+export component ContentProtocol inherits VerticalLayout {
+    in property<int> subsection: 0;
+    spacing: 20px;
+
+    // ── Wire Protocol (subsection 0) ──
+    if subsection == 0: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Wire Protocol";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "All communication uses QUIC streams via iroh. Messages are serialized with bincode and framed with length-prefix encoding.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        InfoCard {
+            title: "Transport Layer";
+            content: "QUIC provides encrypted, multiplexed streams with built-in NAT traversal via iroh's relay infrastructure. Each peer connection uses bidirectional QUIC streams for reliable messages and QUIC datagrams for ephemeral data.";
+            accent-color: Theme.accent;
+        }
+
+        Text {
+            text: "Three Roles";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        SectionCard {
+            title: "Owner (Sthalam Shell)";
+            content: "Creates spaces, publishes pages, manages permits. The authoritative source of truth. Runs the desktop shell with full UI.";
+        }
+
+        SectionCard {
+            title: "Node (Kunki)";
+            content: "Always-on relay and storage. Receives published data from owner, serves to viewers. Runs headless — no UI, just protocol + storage.";
+        }
+
+        SectionCard {
+            title: "Viewer (Sthalam Shell)";
+            content: "Connects via shareable link. Gets space data, page data, and sync consent from node/owner. Read/write based on permit.";
+        }
+
+        Text {
+            text: "Connection Lifecycle";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Connection Flow";
+            code: "1. Transport: QUIC connect (iroh NodeId)\n2. Protocol: Hello message with DID + permit\n3. Protocol: Welcome response with permit_for_peer\n4. Protocol: PermitGrant (mutual exchange)\n5. Protocol: Ack (connection established)\n6. Sync: SyncOffer/Accept/Ack per layer";
+        }
+
+        InfoCard {
+            title: "Permit-First Design";
+            content: "Every connection requires a valid UCAN permit in the Hello message. The permit proves identity and grants specific capabilities. No permit = rejected.";
+            accent-color: Theme.accent-green;
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Message Types (subsection 1) ──
+    if subsection == 1: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Message Types";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "The protocol defines 40+ message types organized by flow: handshake, publishing, viewer, sync, and assets.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        // Handshake messages
+        Text {
+            text: "Handshake Messages";
+            font-size: 18px;
+            font-weight: 600;
+            color: Theme.accent-sthalam;
+        }
+
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: 4px;
+
+                TableRow { key: "MESSAGE"; value: "PURPOSE"; is-header: true; }
+                TableRow { key: "Hello"; value: "Initial connection with DID + permit"; }
+                TableRow { key: "Welcome"; value: "Response with node_id + permit_for_peer"; }
+                TableRow { key: "PermitGrant"; value: "Mutual permit exchange"; }
+                TableRow { key: "Ack"; value: "Connection established confirmation"; }
+                TableRow { key: "Rejected"; value: "Connection denied (bad permit, etc.)"; }
+            }
+        }
+
+        // Publishing messages
+        Text {
+            text: "Publishing Messages";
+            font-size: 18px;
+            font-weight: 600;
+            color: Theme.accent;
+        }
+
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: 4px;
+
+                TableRow { key: "MESSAGE"; value: "PURPOSE"; is-header: true; }
+                TableRow { key: "PublishSpace"; value: "Owner publishes space to node"; }
+                TableRow { key: "PublishSpaceAck"; value: "Node confirms space received"; }
+                TableRow { key: "PublishPage"; value: "Owner publishes page + layers"; }
+                TableRow { key: "PublishPageAck"; value: "Node confirms page received"; }
+            }
+        }
+
+        // Viewer messages
+        Text {
+            text: "Viewer Messages";
+            font-size: 18px;
+            font-weight: 600;
+            color: Theme.accent-green;
+        }
+
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: 4px;
+
+                TableRow { key: "MESSAGE"; value: "PURPOSE"; is-header: true; }
+                TableRow { key: "GetShareableLinkReq"; value: "Owner requests link from node"; }
+                TableRow { key: "GetShareableLinkRes"; value: "Node returns viewer_auth permit"; }
+                TableRow { key: "SpaceRequest"; value: "Viewer requests space data"; }
+                TableRow { key: "SpaceData"; value: "Node sends space info to viewer"; }
+                TableRow { key: "PageData"; value: "Node sends page + layer data"; }
+                TableRow { key: "SyncConsentGrant"; value: "Node grants sync access to viewer"; }
+            }
+        }
+
+        // Sync messages
+        Text {
+            text: "Sync Messages";
+            font-size: 18px;
+            font-weight: 600;
+            color: Theme.accent-purple;
+        }
+
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: 4px;
+
+                TableRow { key: "MESSAGE"; value: "PURPOSE"; is-header: true; }
+                TableRow { key: "SyncOffer"; value: "Initiate sync with state_vector + data"; }
+                TableRow { key: "SyncAccept"; value: "Accept with peer's state_vector"; }
+                TableRow { key: "SyncAck"; value: "Final acknowledgment"; }
+            }
+        }
+
+        // Asset messages
+        Text {
+            text: "Asset Messages";
+            font-size: 18px;
+            font-weight: 600;
+            color: Theme.accent-orange;
+        }
+
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: 4px;
+
+                TableRow { key: "MESSAGE"; value: "PURPOSE"; is-header: true; }
+                TableRow { key: "AssetPrepare"; value: "Announce asset to transfer"; }
+                TableRow { key: "AssetReady"; value: "Confirm ready to receive"; }
+                TableRow { key: "AssetAck"; value: "Transfer complete confirmation"; }
+            }
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Handshake (subsection 2) ──
+    if subsection == 2: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Handshake Protocol";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Every connection begins with a 4-step handshake that establishes identity, exchanges permits, and sets up sync.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "Owner → Node (First Connection)";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "Owner                         Node\n  │                             │\n  ├── Hello ──────────────────→ │  DID + first_connection permit\n  │                             │\n  │ ←──────────────── Welcome ──┤  node_id + permit_for_owner\n  │                             │\n  ├── PermitGrant ────────────→ │  owner_connection permit\n  │                             │\n  │ ←──────────────────── Ack ──┤  Connection established\n  │                             │";
+        }
+
+        Text {
+            text: "Viewer → Node";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "Viewer                        Node\n  │                             │\n  ├── Hello ──────────────────→ │  DID + viewer_auth permit\n  │                             │\n  │ ←──────────────── Welcome ──┤  node_id + permit_for_viewer\n  │                             │\n  ├── SpaceRequest ───────────→ │  Request space data\n  │                             │\n  │ ←────────────── SpaceData ──┤  Space info + pages list\n  │                             │\n  │ ←─────────────── PageData ──┤  Page + layer snapshots\n  │                             │\n  │ ←──── SyncConsentGrant ─────┤  Grants sync access\n  │                             │";
+        }
+
+        Text {
+            text: "Permit Types";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        SectionCard {
+            title: "Connection Permits";
+            content: "one_time_connection (first hello), owner_connection (reconnect), node_connection (node reconnect). Embedded in Hello message.";
+        }
+
+        SectionCard {
+            title: "Space Permits";
+            content: "space_owner, space_node, space_viewer. Grant access to an entire space. Exchanged during handshake.";
+        }
+
+        SectionCard {
+            title: "Sync Permits";
+            content: "sync_space_consent, sync_page_consent. Grant permission to sync specific layers. Viewer must receive consent before sync begins.";
+        }
+
+        SectionCard {
+            title: "Shareable Link";
+            content: "viewer_auth with aud:* wildcard. Encodes space + node info. Viewer pastes link to connect — node validates the permit and creates a scoped viewer permit.";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Sync Protocol (subsection 3) ──
+    if subsection == 3: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Sync Protocol";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Layer synchronization uses a 3-step protocol based on Loro state vectors. Each step is encrypted with an ephemeral ECDH key exchange.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "3-Step Sync";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "Peer A                        Peer B\n  │                             │\n  ├── SyncOffer ──────────────→ │\n  │   page_id                   │\n  │   layer_name                │\n  │   state_vector (A's state)  │\n  │   ephemeral_public          │\n  │   encrypted_data (delta)    │\n  │                             │\n  │ ←────────── SyncAccept ─────┤\n  │   state_vector (B's state)  │\n  │   encrypted_data (B's delta)│\n  │                             │\n  ├── SyncAck ────────────────→ │\n  │   Final delta if needed     │\n  │                             │";
+        }
+
+        InfoCard {
+            title: "State Vectors";
+            content: "Each Loro document tracks a state vector — a compact representation of which operations have been seen. Peers exchange state vectors to compute the minimal delta needed to synchronize.";
+            accent-color: Theme.accent;
+        }
+
+        InfoCard {
+            title: "Encryption in Transit";
+            content: "ECDH: ephemeral_private x receiver_public = shared_secret. Data encrypted with ChaCha20-Poly1305. Format: nonce (12 bytes) || ciphertext || tag (16 bytes). Each sync message uses a fresh ephemeral key.";
+            accent-color: Theme.accent-green;
+        }
+
+        InfoCard {
+            title: "Conflict Resolution";
+            content: "Loro CRDTs provide automatic, mathematically guaranteed conflict resolution. Concurrent edits by different peers merge deterministically — no manual conflict handling needed.";
+            accent-color: Theme.accent-purple;
+        }
+
+        Text {
+            text: "Sync Triggers";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        SectionCard {
+            title: "Local Mutation";
+            content: "When an app writes to a layer (scribe:set, scribe:push), the Scribe actor broadcasts a SyncOffer to all subscribed peers.";
+        }
+
+        SectionCard {
+            title: "New Connection";
+            content: "When a peer connects and handshake completes, both sides exchange SyncOffers for all shared layers to catch up.";
+        }
+
+        SectionCard {
+            title: "Subscription";
+            content: "Peers subscribe to layers they care about. SyncOffers are only sent to peers subscribed to the modified layer.";
+        }
+
+        Rectangle { height: 32px; }
+    }
+}

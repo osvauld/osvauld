@@ -1,11 +1,11 @@
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
+use serde::Serialize;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use tracing_tree::HierarchicalLayer;
 
-// =============================================================================
 // ID Shortening Utilities
-// =============================================================================
 
 /// Wrapper for shortening long IDs in logs
 ///
@@ -125,7 +125,7 @@ pub fn short_did(did: &str) -> String {
 }
 
 /// A log entry for debug capture
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DebugLogEntry {
     pub ts: String,
     pub level: String,
@@ -134,9 +134,7 @@ pub struct DebugLogEntry {
     pub instance: Option<String>,
 }
 
-// =============================================================================
 // Debug Capture Layer
-// =============================================================================
 
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::Context;
@@ -210,6 +208,185 @@ impl<'a> tracing::field::Visit for MessageVisitor<'a> {
             self.0.push_str(&format!("{}={}", field.name(), value));
         } else {
             self.0.push_str(&format!(" {}={}", field.name(), value));
+        }
+    }
+}
+
+/// Handle for the event capture system
+///
+/// Subscribes to pre-serialized JSON line sources and writes them to a JSONL file.
+/// Sources register `broadcast::Sender<String>` channels -- each source serializes
+/// its own events before sending, keeping logging_utils dependency-free from
+/// courier/scribe types.
+#[derive(Clone)]
+pub struct CaptureHandle {
+    /// Broadcast sender for log entries (always active)
+    log_tx: tokio::sync::broadcast::Sender<DebugLogEntry>,
+    /// Registered capture sources (pre-serialized JSON lines)
+    sources: Arc<tokio::sync::RwLock<Vec<tokio::sync::broadcast::Sender<String>>>>,
+    /// Cancel signal for active capture
+    cancel_tx: Arc<tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
+    /// Instance name for log entries
+    instance_name: String,
+}
+
+impl CaptureHandle {
+    /// Create a new CaptureHandle
+    pub fn new(
+        log_tx: tokio::sync::broadcast::Sender<DebugLogEntry>,
+        instance_name: String,
+    ) -> Self {
+        Self {
+            log_tx,
+            sources: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            cancel_tx: Arc::new(tokio::sync::Mutex::new(None)),
+            instance_name,
+        }
+    }
+
+    /// Register a capture source (pre-serialized JSON lines)
+    ///
+    /// Each source is a broadcast::Sender<String> that emits pre-serialized JSON lines.
+    /// The CaptureHandle subscribes to all registered sources when capture starts.
+    pub async fn register_source(&self, tx: tokio::sync::broadcast::Sender<String>) {
+        self.sources.write().await.push(tx);
+    }
+
+    /// Start capturing events to a JSONL file
+    ///
+    /// Subscribes to all registered sources and the log broadcast channel.
+    /// Events are written as newline-delimited JSON to the specified file.
+    pub async fn start_capture(
+        &self,
+        file_path: std::path::PathBuf,
+        include_logs: bool,
+    ) -> Result<(), String> {
+        // Check if already capturing
+        {
+            let guard = self.cancel_tx.lock().await;
+            if guard.is_some() {
+                return Err("Capture already active".to_string());
+            }
+        }
+
+        // Create parent directory if needed
+        if let Some(parent) = file_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Failed to create capture directory: {}", e))?;
+        }
+
+        // Open file for writing
+        let file = tokio::fs::File::create(&file_path)
+            .await
+            .map_err(|e| format!("Failed to create capture file: {}", e))?;
+        let writer = tokio::io::BufWriter::new(file);
+
+        // Create cancel channel
+        let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        {
+            let mut guard = self.cancel_tx.lock().await;
+            *guard = Some(cancel_tx);
+        }
+
+        // Subscribe to all sources
+        let sources = self.sources.read().await;
+        let mut source_rxs: Vec<tokio::sync::broadcast::Receiver<String>> =
+            sources.iter().map(|tx| tx.subscribe()).collect();
+        drop(sources);
+
+        // Subscribe to log broadcast if requested
+        let mut log_rx = if include_logs {
+            Some(self.log_tx.subscribe())
+        } else {
+            None
+        };
+
+        let instance_name = self.instance_name.clone();
+
+        // Spawn capture task
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+
+            let mut writer = writer;
+            let mut cancel_rx = cancel_rx;
+
+            loop {
+                // Check for cancel
+                if cancel_rx.try_recv().is_ok() {
+                    break;
+                }
+
+                let mut got_event = false;
+
+                // Poll each source
+                for rx in source_rxs.iter_mut() {
+                    while let Ok(line) = rx.try_recv() {
+                        // Add instance field to the JSON line
+                        if let Ok(mut obj) = serde_json::from_str::<serde_json::Value>(&line) {
+                            if let Some(map) = obj.as_object_mut() {
+                                map.insert(
+                                    "instance".to_string(),
+                                    serde_json::Value::String(instance_name.clone()),
+                                );
+                            }
+                            if let Ok(enriched) = serde_json::to_string(&obj) {
+                                let _ = writer.write_all(enriched.as_bytes()).await;
+                                let _ = writer.write_all(b"\n").await;
+                            }
+                        } else {
+                            // Write raw if not valid JSON
+                            let _ = writer.write_all(line.as_bytes()).await;
+                            let _ = writer.write_all(b"\n").await;
+                        }
+                        got_event = true;
+                    }
+                }
+
+                // Poll log broadcast if enabled
+                if let Some(ref mut rx) = log_rx {
+                    while let Ok(entry) = rx.try_recv() {
+                        if let Ok(json) = serde_json::to_string(&serde_json::json!({
+                            "type": "log",
+                            "ts": entry.ts,
+                            "level": entry.level,
+                            "target": entry.target,
+                            "msg": entry.msg,
+                            "instance": &instance_name,
+                        })) {
+                            let _ = writer.write_all(json.as_bytes()).await;
+                            let _ = writer.write_all(b"\n").await;
+                        }
+                        got_event = true;
+                    }
+                }
+
+                // Flush periodically
+                if got_event {
+                    let _ = writer.flush().await;
+                }
+
+                // Small sleep to avoid busy-waiting
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+
+            // Final flush
+            let _ = writer.flush().await;
+        });
+
+        Ok(())
+    }
+
+    /// Stop capturing and flush the file
+    pub async fn stop_capture(&self) -> Result<(), String> {
+        let mut guard = self.cancel_tx.lock().await;
+        if let Some(tx) = guard.take() {
+            let _ = tx.send(());
+            // Give the capture task time to flush
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            Ok(())
+        } else {
+            Err("No active capture".to_string())
         }
     }
 }
@@ -294,46 +471,47 @@ pub fn init_rich_tracing(
 ) -> Result<Option<WorkerGuard>, Box<dyn std::error::Error>> {
     let mut guard = None;
 
-    // Create filter with suppressed third-party noise
-    let filter = EnvFilter::try_from_default_env().or_else(|_| {
-        EnvFilter::try_new(&format!(
-            "{},\
-             hyper=warn,\
-             hyper_util=warn,\
-             rustls=error,\
-             iroh=warn,\
-             iroh::net_report=off,\
-             iroh::net_report::report=off,\
-             quinn=warn,\
-             netlink_proto=error,\
-             netlink_sys=error,\
-             netlink_packet_route=error,\
-             hickory_proto=error,\
-             hickory_resolver=error,\
-             hickory_client=error,\
-             portmapper=warn,\
-             tokio_tungstenite=warn,\
-             tungstenite=warn,\
-             netwatch=warn,\
-             iroh_quinn_proto::connection=warn,\
-             iroh_relay=warn,\
-             igd_next::aio::tokio=warn,\
-             tantivy=warn,\
-             reqwest=warn,\
-             asset_protocol=warn,\
-             loro_internal=off,\
-             loro_internal::oplog=off,\
-             loro_internal::oplog::change_store=off,\
-             loro_internal::oplog::change_store::block_encode=off,\
-             loro_kv_store=off,\
-             wgpu_core=warn,\
-             wgpu_hal=off,\
-             wgpu_hal::gles=off,\
-             winit=warn,\
-             naga=warn",
-            config.level
-        ))
-    })?;
+    // Create filter: use RUST_LOG level if set, otherwise config.level,
+    // but ALWAYS apply our third-party noise suppressions
+    let base_level = std::env::var("RUST_LOG").unwrap_or_else(|_| config.level.clone());
+    let filter = EnvFilter::try_new(format!(
+        "{},\
+         hyper=warn,\
+         hyper_util=warn,\
+         rustls=error,\
+         iroh=warn,\
+         iroh::socket=off,\
+         iroh::net_report=off,\
+         iroh::net_report::report=off,\
+         quinn=warn,\
+         netlink_proto=error,\
+         netlink_sys=error,\
+         netlink_packet_route=off,\
+         hickory_proto=error,\
+         hickory_resolver=error,\
+         hickory_client=error,\
+         portmapper=off,\
+         tokio_tungstenite=warn,\
+         tungstenite=warn,\
+         netwatch=warn,\
+         iroh_quinn_proto::connection=warn,\
+         iroh_relay=warn,\
+         igd_next::aio::tokio=warn,\
+         tantivy=warn,\
+         reqwest=warn,\
+         asset_protocol=warn,\
+         loro_internal=off,\
+         loro_internal::oplog=off,\
+         loro_internal::oplog::change_store=off,\
+         loro_internal::oplog::change_store::block_encode=off,\
+         loro_kv_store=off,\
+         wgpu_core=warn,\
+         wgpu_hal=off,\
+         wgpu_hal::gles=off,\
+         winit=warn,\
+         naga=warn",
+        base_level
+    ))?;
 
     // Create optional debug capture layer (sends logs to broadcast channel)
     let debug_layer = config.debug_tx.map(|tx| {
@@ -450,8 +628,6 @@ pub fn init_rich_tracing(
         return Err("At least one logging destination must be enabled".into());
     }
 
-    // Forward log crate to tracing (for legacy log:: calls)
-    // Use try_init to allow multiple initializations (won't error if already set)
     let _ = tracing_log::LogTracer::init();
 
     Ok(guard)
@@ -476,4 +652,25 @@ pub fn init_prod(log_dir: &str) -> Result<Option<WorkerGuard>, Box<dyn std::erro
         use_tree_format: true,
         ..Default::default()
     })
+}
+
+/// Initialize rich tracing with capture support
+///
+/// Like init_rich_tracing but also returns a CaptureHandle for event capture.
+/// Always creates the debug broadcast channel and DebugCaptureLayer.
+pub fn init_rich_tracing_with_capture(
+    config: LogConfig,
+) -> Result<(Option<WorkerGuard>, CaptureHandle), Box<dyn std::error::Error>> {
+    // Create broadcast channel for debug capture (always)
+    let (debug_tx, _) = tokio::sync::broadcast::channel::<DebugLogEntry>(1024);
+
+    let instance_name = config.instance_name.clone().unwrap_or_default();
+    let capture_handle = CaptureHandle::new(debug_tx.clone(), instance_name);
+
+    // Override the config to use our debug_tx
+    let mut config = config;
+    config.debug_tx = Some(debug_tx);
+
+    let guard = init_rich_tracing(config)?;
+    Ok((guard, capture_handle))
 }

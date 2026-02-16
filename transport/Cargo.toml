@@ -7,9 +7,9 @@ license = "MIT"
 
 [dependencies]
 # Networking - match network crate versions
-iroh = "0.95.1"
-iroh-base = "0.95.1"
-iroh-blobs = "0.97.0"
+iroh = "0.96.0"
+iroh-base = "0.96.0"
+iroh-blobs = "0.98.0"
 
 # Hashing
 blake3 = "1.5"

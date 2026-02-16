@@ -20,7 +20,7 @@ const ED25519_MAGIC_BYTES: &[u8] = &[0xed, 0x01];
 struct IdentityInner {
     signing_key: SigningKey,
     encryption_secret: X25519Secret,
-    device_secret: [u8; 32],  // For Iroh P2P - separate from signing key
+    device_secret: [u8; 32], // For Iroh P2P - separate from signing key
     did: String,
 }
 
@@ -163,9 +163,9 @@ impl Identity {
     /// Returns 32-byte Ed25519 public key.
     pub fn public_key_from_did(did: &str) -> Result<[u8; 32]> {
         // Remove "did:key:z" prefix
-        let encoded = did
-            .strip_prefix("did:key:z")
-            .ok_or_else(|| HeraldError::InvalidPublicKey("Invalid DID format: must start with 'did:key:z'".into()))?;
+        let encoded = did.strip_prefix("did:key:z").ok_or_else(|| {
+            HeraldError::InvalidPublicKey("Invalid DID format: must start with 'did:key:z'".into())
+        })?;
 
         // Base58 decode
         let did_bytes = bs58::decode(encoded)
@@ -174,7 +174,9 @@ impl Identity {
 
         // Verify and remove multicodec prefix (0xed 0x01)
         if did_bytes.len() != 34 || did_bytes[0] != 0xed || did_bytes[1] != 0x01 {
-            return Err(HeraldError::InvalidPublicKey("Invalid DID: wrong length or multicodec prefix".into()));
+            return Err(HeraldError::InvalidPublicKey(
+                "Invalid DID: wrong length or multicodec prefix".into(),
+            ));
         }
 
         let pubkey: [u8; 32] = did_bytes[2..]
@@ -191,7 +193,7 @@ impl Identity {
     ///
     /// Use this at storage boundary: receive base64 from transport, store as DID.
     pub fn did_from_base64_pubkey(base64_pubkey: &str) -> Result<String> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
 
         let pubkey_bytes = STANDARD
             .decode(base64_pubkey)
@@ -211,7 +213,7 @@ impl Identity {
     ///
     /// Use this when transport layer needs base64 format.
     pub fn base64_pubkey_from_did(did: &str) -> Result<String> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
 
         let pubkey_bytes = Self::public_key_from_did(did)?;
         Ok(STANDARD.encode(pubkey_bytes))
@@ -291,7 +293,10 @@ impl Identity {
     /// Returns shared secret (32 bytes)
     pub fn ecdh(&self, their_public: &[u8; 32]) -> [u8; 32] {
         let their_public = X25519PublicKey::from(*their_public);
-        self.inner.encryption_secret.diffie_hellman(&their_public).to_bytes()
+        self.inner
+            .encryption_secret
+            .diffie_hellman(&their_public)
+            .to_bytes()
     }
 
     /// Derive a symmetric key from shared secret using HKDF
@@ -305,9 +310,7 @@ impl Identity {
         output
     }
 
-    // =========================================================================
     // Convenience methods for encryption (uses crypto module)
-    // =========================================================================
 
     /// Encrypt data for a recipient using their public encryption key
     ///
@@ -348,8 +351,14 @@ impl std::fmt::Debug for Identity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Identity")
             .field("did", &self.inner.did)
-            .field("public_signing_key", &hex::encode(self.public_signing_key()))
-            .field("public_encryption_key", &hex::encode(self.public_encryption_key()))
+            .field(
+                "public_signing_key",
+                &hex::encode(self.public_signing_key()),
+            )
+            .field(
+                "public_encryption_key",
+                &hex::encode(self.public_encryption_key()),
+            )
             .finish()
     }
 }
@@ -460,7 +469,9 @@ mod tests {
         let (bob, _) = Identity::generate().unwrap();
 
         let plaintext = b"hello bob from alice";
-        let sealed = alice.encrypt_for(&bob.public_encryption_key(), plaintext).unwrap();
+        let sealed = alice
+            .encrypt_for(&bob.public_encryption_key(), plaintext)
+            .unwrap();
         let opened = bob.decrypt_sealed(&sealed).unwrap();
 
         assert_eq!(opened, plaintext);
@@ -484,7 +495,9 @@ mod tests {
         let (eve, _) = Identity::generate().unwrap();
 
         let plaintext = b"secret message for bob";
-        let sealed = alice.encrypt_for(&bob.public_encryption_key(), plaintext).unwrap();
+        let sealed = alice
+            .encrypt_for(&bob.public_encryption_key(), plaintext)
+            .unwrap();
 
         // Eve should not be able to decrypt
         let result = eve.decrypt_sealed(&sealed);

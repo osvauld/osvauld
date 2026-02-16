@@ -1,6 +1,8 @@
-//! Integration tests
-
-mod asset_sync;
-mod ecommerce_e2e;
 mod handshake;
-mod reconnection;
+mod publish;
+mod permission;
+mod layer_sync;
+mod app_sync;
+mod presence;
+mod derivation;
+mod validation;

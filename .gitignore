@@ -12,3 +12,6 @@ upload.png
 .claude/
 package.json
 package-lock.json
+
+# Performance test results
+results/*.json

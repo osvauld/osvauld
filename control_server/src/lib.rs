@@ -1,7 +1,7 @@
 //! Control Server - Shared infrastructure for Unix socket JSON-RPC
 //!
 //! This crate provides the base control server implementation used by
-//! slint_shell and kunki for programmatic control and testing.
+//! sthalam and kunki for programmatic control and testing.
 //!
 //! # Usage
 //!
@@ -26,6 +26,7 @@
 
 pub mod types;
 pub mod server;
+pub mod commands;
 
 // Re-export main types
 pub use types::{

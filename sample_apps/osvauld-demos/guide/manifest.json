@@ -3,5 +3,6 @@
     "version": "1.0.0",
     "description": "Welcome to the Xtended Web - introduction to Sthalam and Osvauld",
     "entry_ui": "app.slint",
-    "entry_logic": "app.lua"
+    "entry_logic": "app.lua",
+    "renderer": "slint"
 }

@@ -1,7 +1,7 @@
-mod store;
-mod layer_cache;
 mod asset_store;
+mod layer_cache;
+mod store;
 
-pub use store::RedbStore;
-pub use layer_cache::{LayerCache, CachedLayer, LayerCacheStats};
 pub use asset_store::AssetStore;
+pub use layer_cache::{CachedLayer, LayerCache, LayerCacheStats};
+pub use store::RedbStore;

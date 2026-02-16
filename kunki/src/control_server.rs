@@ -1,17 +1,17 @@
 //! Control Server for Kunki Node
 //!
-//! Provides control access via Unix socket for testing and monitoring.
-//! Includes layer inspection for debugging sync and derivation.
+//! Uses shared control_server infrastructure with node-specific commands.
 
-use butler::Butler;
+use butler::{Butler, ValidationHandle, JsonOp};
+use control_server::{
+    async_trait, CommandHandler, ControlServer, Response, error_codes,
+    commands::butler as butler_cmds,
+};
+use logging_utils::CaptureHandle;
 use serde::Serialize;
-use serde_json::Value as JsonValue;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
 
 /// Node state snapshot
 #[derive(Debug, Clone, Serialize)]
@@ -33,23 +33,68 @@ pub struct PeerInfo {
     pub username: Option<String>,
 }
 
-/// Debug server for kunki node
-pub struct KunkiControlServer {
-    socket_path: PathBuf,
+/// Kunki-specific command handler
+pub struct KunkiHandler {
     state: Arc<RwLock<Option<NodeState>>>,
     butler: Option<Arc<Butler>>,
-    instance_name: String,
+    validation_handle: Arc<RwLock<Option<ValidationHandle>>>,
+    capture_handle: Arc<RwLock<Option<CaptureHandle>>>,
 }
 
-impl KunkiControlServer {
-    /// Create a new debug server
-    pub fn new(socket_path: PathBuf, instance_name: String, butler: Option<Arc<Butler>>) -> Self {
+impl KunkiHandler {
+    pub fn new(butler: Option<Arc<Butler>>) -> Self {
         Self {
-            socket_path,
             state: Arc::new(RwLock::new(None)),
             butler,
-            instance_name,
+            validation_handle: Arc::new(RwLock::new(None)),
+            capture_handle: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Set capture handle (for event capture)
+    pub async fn set_capture_handle(&self, handle: CaptureHandle) {
+        *self.capture_handle.write().await = Some(handle);
+    }
+
+    /// Handle capture_start command
+    async fn handle_capture_start(&self, params: Option<serde_json::Value>, id: u64) -> Response {
+        let handle_guard = self.capture_handle.read().await;
+        let Some(ref handle) = *handle_guard else {
+            return Response::err(id, error_codes::INTERNAL_ERROR, "CaptureHandle not available");
+        };
+
+        let Some(params_obj) = params.as_ref().and_then(|p| p.as_object()) else {
+            return Response::err(id, error_codes::INVALID_PARAMS, "Invalid params object");
+        };
+
+        let Some(file_path) = params_obj.get("file_path").and_then(|v| v.as_str()) else {
+            return Response::err(id, error_codes::INVALID_PARAMS, "Missing file_path");
+        };
+
+        let include_logs = params_obj.get("include_logs").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        match handle.start_capture(PathBuf::from(file_path), include_logs).await {
+            Ok(()) => Response::ok(id, serde_json::json!({"status": "capturing", "file_path": file_path})),
+            Err(e) => Response::err(id, error_codes::INTERNAL_ERROR, &e),
+        }
+    }
+
+    /// Handle capture_end command
+    async fn handle_capture_end(&self, id: u64) -> Response {
+        let handle_guard = self.capture_handle.read().await;
+        let Some(ref handle) = *handle_guard else {
+            return Response::err(id, error_codes::INTERNAL_ERROR, "CaptureHandle not available");
+        };
+
+        match handle.stop_capture().await {
+            Ok(()) => Response::ok(id, serde_json::json!({"status": "stopped"})),
+            Err(e) => Response::err(id, error_codes::INTERNAL_ERROR, &e),
+        }
+    }
+
+    /// Set validation handle (for testing validation RPC)
+    pub async fn set_validation_handle(&self, handle: ValidationHandle) {
+        *self.validation_handle.write().await = Some(handle);
     }
 
     /// Update node state
@@ -57,310 +102,173 @@ impl KunkiControlServer {
         *self.state.write().await = Some(state);
     }
 
-    /// Start the debug server
+    /// Get the state reference for external updates
+    pub fn state(&self) -> Arc<RwLock<Option<NodeState>>> {
+        self.state.clone()
+    }
+
+    async fn handle_state(&self, id: u64) -> Response {
+        let state_guard = self.state.read().await;
+        match &*state_guard {
+            Some(s) => Response::ok(id, s),
+            None => Response::ok(id, serde_json::json!({"status": "not_initialized"})),
+        }
+    }
+
+    /// Handle validate_ops command (for testing validation RPC)
+    ///
+    /// **Params**: page_id, layer_name, ops (array of JsonOp), from_did, role
+    /// **Returns**: {passed: bool, error?: string}
+    async fn handle_validate_ops(&self, params: Option<serde_json::Value>, id: u64) -> Response {
+        let handle_guard = self.validation_handle.read().await;
+        let Some(ref handle) = *handle_guard else {
+            return Response::err(id, error_codes::INTERNAL_ERROR, "ValidationHandle not available");
+        };
+
+        // Extract parameters
+        let Some(params_obj) = params.as_ref().and_then(|p| p.as_object()) else {
+            return Response::err(id, error_codes::INVALID_PARAMS, "Invalid params object");
+        };
+
+        let Some(page_id) = params_obj.get("page_id").and_then(|v| v.as_str()) else {
+            return Response::err(id, error_codes::INVALID_PARAMS, "Missing page_id");
+        };
+
+        let Some(layer_name) = params_obj.get("layer_name").and_then(|v| v.as_str()) else {
+            return Response::err(id, error_codes::INVALID_PARAMS, "Missing layer_name");
+        };
+
+        let Some(from_did) = params_obj.get("from_did").and_then(|v| v.as_str()) else {
+            return Response::err(id, error_codes::INVALID_PARAMS, "Missing from_did");
+        };
+
+        let Some(role) = params_obj.get("role").and_then(|v| v.as_str()) else {
+            return Response::err(id, error_codes::INVALID_PARAMS, "Missing role");
+        };
+
+        let Some(ops_array) = params_obj.get("ops").and_then(|v| v.as_array()) else {
+            return Response::err(id, error_codes::INVALID_PARAMS, "Missing ops array");
+        };
+
+        // Parse ops
+        let ops: Vec<JsonOp> = match ops_array.iter().map(|v| serde_json::from_value(v.clone())).collect() {
+            Ok(ops) => ops,
+            Err(e) => return Response::err(id, error_codes::INVALID_PARAMS, &format!("Failed to parse ops: {}", e)),
+        };
+
+        // Call validation
+        match handle.validate_ops(page_id, layer_name, &ops, from_did, role).await {
+            Ok((passed, error_msg)) => {
+                let result = if passed {
+                    serde_json::json!({
+                        "passed": true
+                    })
+                } else {
+                    serde_json::json!({
+                        "passed": false,
+                        "error": error_msg.unwrap_or_else(|| "Validation failed".to_string())
+                    })
+                };
+                Response::ok(id, result)
+            }
+            Err(e) => Response::err(id, error_codes::INTERNAL_ERROR, &format!("Validation error: {}", e)),
+        }
+    }
+}
+
+#[async_trait]
+impl CommandHandler for KunkiHandler {
+    async fn handle(&self, method: &str, params: Option<serde_json::Value>, id: u64) -> Option<Response> {
+        match method {
+            "state" => Some(self.handle_state(id).await),
+
+            "validate_ops" => Some(self.handle_validate_ops(params, id).await),
+
+            "capture_start" => Some(self.handle_capture_start(params, id).await),
+            "capture_end" => Some(self.handle_capture_end(id).await),
+
+            // Butler commands - delegate to shared implementations
+            "list_spaces" => {
+                if let Some(ref butler) = self.butler {
+                    Some(butler_cmds::list_spaces(butler, id).await)
+                } else {
+                    Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available"))
+                }
+            }
+
+            "list_pages" => {
+                let space_id = butler_cmds::get_string_param(&params, "space_id");
+                match (self.butler.as_ref(), space_id) {
+                    (Some(butler), Some(sid)) => Some(butler_cmds::list_pages(butler, &sid, id).await),
+                    (None, _) => Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available")),
+                    (_, None) => Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing space_id parameter")),
+                }
+            }
+
+            "list_layers" => {
+                let page_id = butler_cmds::get_string_param(&params, "page_id");
+                match (self.butler.as_ref(), page_id) {
+                    (Some(butler), Some(pid)) => Some(butler_cmds::list_layers(butler, &pid, id).await),
+                    (None, _) => Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available")),
+                    (_, None) => Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing page_id parameter")),
+                }
+            }
+
+            _ => None, // Let base server handle or return method not found
+        }
+    }
+
+    async fn get_connection_string(&self) -> Option<String> {
+        let state_guard = self.state.read().await;
+        state_guard.as_ref().and_then(|s| s.connection_string.clone())
+    }
+}
+
+/// Kunki control server (wrapper for convenience)
+pub struct KunkiControlServer {
+    server: ControlServer<KunkiHandler>,
+    handler: Arc<KunkiHandler>,
+}
+
+impl KunkiControlServer {
+    /// Create a new control server for kunki
+    pub fn new(socket_path: PathBuf, instance_name: String, butler: Option<Arc<Butler>>) -> Self {
+        let handler = Arc::new(KunkiHandler::new(butler));
+        // Clone handler Arc before moving into ControlServer
+        let handler_clone = (*handler).clone();
+        let server = ControlServer::new(socket_path, instance_name, handler_clone);
+        Self { server, handler }
+    }
+
+    /// Set validation handle (for testing validation RPC)
+    pub async fn set_validation_handle(&self, handle: ValidationHandle) {
+        self.handler.set_validation_handle(handle).await;
+    }
+
+    /// Set capture handle (for event capture)
+    pub async fn set_capture_handle(&self, handle: CaptureHandle) {
+        self.handler.set_capture_handle(handle).await;
+    }
+
+    /// Update node state
+    pub async fn set_state(&self, state: NodeState) {
+        self.handler.set_state(state).await;
+    }
+
+    /// Start the control server
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Remove existing socket file
-        let _ = std::fs::remove_file(&self.socket_path);
-
-        // Ensure parent directory exists
-        if let Some(parent) = self.socket_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let listener = UnixListener::bind(&self.socket_path)?;
-        info!(
-            socket = %self.socket_path.display(),
-            "Kunki debug server listening"
-        );
-
-        loop {
-            match listener.accept().await {
-                Ok((stream, _)) => {
-                    let state = self.state.clone();
-                    let butler = self.butler.clone();
-                    let instance_name = self.instance_name.clone();
-
-                    tokio::spawn(async move {
-                        if let Err(e) = handle_connection(
-                            stream,
-                            state,
-                            butler,
-                            instance_name,
-                        ).await {
-                            warn!(error = %e, "Debug connection error");
-                        }
-                    });
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to accept debug connection");
-                }
-            }
-        }
+        self.server.start().await
     }
 }
 
-async fn handle_connection(
-    stream: UnixStream,
-    state: Arc<RwLock<Option<NodeState>>>,
-    butler: Option<Arc<Butler>>,
-    instance_name: String,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let (reader, mut writer) = stream.into_split();
-    let mut reader = BufReader::new(reader);
-    let mut line = String::new();
-
-    debug!(instance = %instance_name, "Debug client connected");
-
-    loop {
-        line.clear();
-        let n = reader.read_line(&mut line).await?;
-        if n == 0 {
-            debug!(instance = %instance_name, "Debug client disconnected");
-            break;
-        }
-
-        let response = handle_command(&line, &state, &butler, &instance_name).await;
-        let response_json = serde_json::to_string(&response)?;
-
-        writer.write_all(response_json.as_bytes()).await?;
-        writer.write_all(b"\n").await?;
-        writer.flush().await?;
-    }
-
-    Ok(())
-}
-
-async fn handle_command(
-    line: &str,
-    state: &Arc<RwLock<Option<NodeState>>>,
-    butler: &Option<Arc<Butler>>,
-    instance_name: &str,
-) -> JsonValue {
-    // Parse command JSON
-    let cmd: JsonValue = match serde_json::from_str(line.trim()) {
-        Ok(v) => v,
-        Err(e) => {
-            return serde_json::json!({
-                "error": format!("Invalid JSON: {}", e),
-                "instance": instance_name
-            });
-        }
-    };
-
-    let method = cmd.get("method").and_then(|v| v.as_str()).unwrap_or("");
-    let id = cmd.get("id").and_then(|v| v.as_u64());
-
-    match method {
-        "ping" => {
-            serde_json::json!({
-                "result": {"status": "ok", "instance": instance_name},
-                "id": id
-            })
-        }
-
-        "state" => {
-            let state_guard = state.read().await;
-            match &*state_guard {
-                Some(s) => serde_json::json!({
-                    "result": s,
-                    "id": id
-                }),
-                None => serde_json::json!({
-                    "result": {"status": "not_initialized"},
-                    "id": id
-                }),
-            }
-        }
-
-        "get_connection_string" => {
-            let state_guard = state.read().await;
-            match &*state_guard {
-                Some(s) => {
-                    if let Some(ref conn_str) = s.connection_string {
-                        serde_json::json!({
-                            "result": {"connection_string": conn_str},
-                            "id": id
-                        })
-                    } else {
-                        serde_json::json!({
-                            "error": "Connection string not available",
-                            "id": id
-                        })
-                    }
-                }
-                None => serde_json::json!({
-                    "error": "Node not initialized",
-                    "id": id
-                }),
-            }
-        }
-
-        // === Layer inspection methods ===
-
-        "list_spaces" => {
-            match butler {
-                Some(b) => {
-                    match b.list_spaces() {
-                        Ok(spaces) => {
-                            let space_list: Vec<_> = spaces.iter().map(|s| {
-                                serde_json::json!({
-                                    "id": s.id,
-                                    "name": s.name,
-                                })
-                            }).collect();
-                            serde_json::json!({
-                                "result": {"spaces": space_list},
-                                "id": id
-                            })
-                        }
-                        Err(e) => serde_json::json!({
-                            "error": format!("Failed to list spaces: {:?}", e),
-                            "id": id
-                        }),
-                    }
-                }
-                None => serde_json::json!({
-                    "error": "Butler not available",
-                    "id": id
-                }),
-            }
-        }
-
-        "list_pages" => {
-            let params = cmd.get("params");
-            let space_id = params
-                .and_then(|p| p.get("space_id"))
-                .and_then(|v| v.as_str());
-
-            match (butler, space_id) {
-                (Some(b), Some(sid)) => {
-                    match b.list_pages(sid) {
-                        Ok(pages) => {
-                            let page_list: Vec<_> = pages.iter().map(|p| {
-                                serde_json::json!({
-                                    "id": p.id,
-                                    "name": p.name,
-                                    "space_id": p.space_id,
-                                })
-                            }).collect();
-                            serde_json::json!({
-                                "result": {"pages": page_list},
-                                "id": id
-                            })
-                        }
-                        Err(e) => serde_json::json!({
-                            "error": format!("Failed to list pages: {:?}", e),
-                            "id": id
-                        }),
-                    }
-                }
-                (None, _) => serde_json::json!({
-                    "error": "Butler not available",
-                    "id": id
-                }),
-                (_, None) => serde_json::json!({
-                    "error": "Missing space_id parameter",
-                    "id": id
-                }),
-            }
-        }
-
-        "list_layers" => {
-            let params = cmd.get("params");
-            let page_id = params
-                .and_then(|p| p.get("page_id"))
-                .and_then(|v| v.as_str());
-
-            match (butler, page_id) {
-                (Some(b), Some(pid)) => {
-                    match b.list_data_layers(pid) {
-                        Ok(layers) => {
-                            serde_json::json!({
-                                "result": {"layers": layers},
-                                "id": id
-                            })
-                        }
-                        Err(e) => serde_json::json!({
-                            "error": format!("Failed to list layers: {:?}", e),
-                            "id": id
-                        }),
-                    }
-                }
-                (None, _) => serde_json::json!({
-                    "error": "Butler not available",
-                    "id": id
-                }),
-                (_, None) => serde_json::json!({
-                    "error": "Missing page_id parameter",
-                    "id": id
-                }),
-            }
-        }
-
-        "get_layer" => {
-            let params = cmd.get("params");
-            let page_id = params.and_then(|p| p.get("page_id")).and_then(|v| v.as_str());
-            let layer_name = params.and_then(|p| p.get("layer_name")).and_then(|v| v.as_str());
-
-            match (butler, page_id, layer_name) {
-                (Some(b), Some(pid), Some(lname)) => {
-                    // Get decrypted page and extract layer
-                    match b.get_decrypted_page(pid).await {
-                        Ok((decrypted, _aes_key)) => {
-                            if let Some(layer_bytes) = decrypted.docs.get(lname) {
-                                if layer_bytes.is_empty() {
-                                    serde_json::json!({
-                                        "result": {"data": null, "empty": true},
-                                        "id": id
-                                    })
-                                } else {
-                                    match butler::models::Layer::from_snapshot(layer_bytes) {
-                                        Ok(layer) => {
-                                            let json_data = layer.to_json_value();
-                                            serde_json::json!({
-                                                "result": {"data": json_data},
-                                                "id": id
-                                            })
-                                        }
-                                        Err(e) => serde_json::json!({
-                                            "error": format!("Failed to parse layer: {}", e),
-                                            "id": id
-                                        }),
-                                    }
-                                }
-                            } else {
-                                serde_json::json!({
-                                    "error": format!("Layer '{}' not found in page", lname),
-                                    "id": id
-                                })
-                            }
-                        }
-                        Err(e) => serde_json::json!({
-                            "error": format!("Failed to get page: {:?}", e),
-                            "id": id
-                        }),
-                    }
-                }
-                (None, _, _) => serde_json::json!({
-                    "error": "Butler not available",
-                    "id": id
-                }),
-                (_, None, _) => serde_json::json!({
-                    "error": "Missing page_id parameter",
-                    "id": id
-                }),
-                (_, _, None) => serde_json::json!({
-                    "error": "Missing layer_name parameter",
-                    "id": id
-                }),
-            }
-        }
-
-        _ => {
-            serde_json::json!({
-                "error": format!("Unknown method: {}", method),
-                "id": id
-            })
+// Implement Clone for KunkiHandler to allow wrapping in ControlServer
+impl Clone for KunkiHandler {
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+            butler: self.butler.clone(),
+            validation_handle: self.validation_handle.clone(),
+            capture_handle: self.capture_handle.clone(),
         }
     }
 }

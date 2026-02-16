@@ -1,0 +1,1 @@
+../../../docs/app-dev/SCRIBE_API.md

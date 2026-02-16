@@ -1,0 +1,134 @@
+
+============================================================
+  chat_perf
+============================================================
+  All instances ready
+
+  alice: signup, create space...
+  Space: e541a522..., Page: e7761697...
+  alice: connect to node...
+    Waiting for node authentication...
+    Node authenticated
+  alice: publish space to node...
+  Published and synced to node
+
+  Connecting viewers (parallel)...
+  bob synced in 1.8s
+  carol synced in 1.4s
+  All viewers connected and synced
+
+  Opening apps (parallel)...
+  bob app 'Group Chat' synced in 0.0s
+  carol app 'Group Chat' synced in 0.1s
+    alice app ready
+    bob app ready
+    carol app ready
+  All apps opened and ready
+
+  Building peer handles...
+
+  Ready! Peers: ['alice', 'bob', 'carol']
+============================================================
+
+
+[Phase 1] Send-path benchmark: alice sends 1000 messages (no delay)...
+  [1/1000 | 0%] alice: "Training today key employee top security..."
+  [2/1000 | 0%] alice: "Article none allow will ever far spend f..."
+  [3/1000 | 0%] alice: "Artist capital difficult story."
+  [10/1000 | 1%] alice: "Within movement gun go and push act beli..."
+  [20/1000 | 2%] alice: "Ground happy wait since."
+  [30/1000 | 3%] alice: "Over she church wrong direction bag demo..."
+  [40/1000 | 4%] alice: "Since herself meeting deal ability buy e..."
+  [50/1000 | 5%] alice: "Compare consider any."
+  [60/1000 | 6%] alice: "Affect public join media maybe operation..."
+  [70/1000 | 7%] alice: "Author community quite dog recently catc..."
+  [80/1000 | 8%] alice: "Health water."
+  [90/1000 | 9%] alice: "Present police identify particularly ord..."
+  [100/1000 | 10%] alice: "National agency."
+  [110/1000 | 11%] alice: "Though base foot everyone them agreement..."
+  [120/1000 | 12%] alice: "Sign view policy."
+  [130/1000 | 13%] alice: "Attorney exist picture sister power."
+  [140/1000 | 14%] alice: "Vote certainly prevent local table easy."
+  [150/1000 | 15%] alice: "Sense know training suffer all yet healt..."
+  [160/1000 | 16%] alice: "Mission teach likely determine both wond..."
+  [170/1000 | 17%] alice: "Work city drive claim."
+  [180/1000 | 18%] alice: "Ground must safe member capital."
+  [190/1000 | 19%] alice: "Per minute option candidate goal off son..."
+  [200/1000 | 20%] alice: "Sell single research growth anything."
+  [210/1000 | 21%] alice: "Attack interest practice wait air carry ..."
+  [220/1000 | 22%] alice: "Food son general simply scientist open a..."
+  [230/1000 | 23%] alice: "Fly economic analysis."
+  [240/1000 | 24%] alice: "Pick television school three own like lo..."
+  [250/1000 | 25%] alice: "Career wide partner east half bad guy."
+  [260/1000 | 26%] alice: "Explain movement entire friend age throu..."
+  [270/1000 | 27%] alice: "Series during each chair long your."
+  [280/1000 | 28%] alice: "Left the fire magazine phone knowledge g..."
+  [290/1000 | 29%] alice: "Be style move cost ask yes I color value..."
+  [300/1000 | 30%] alice: "Safe the executive."
+  [310/1000 | 31%] alice: "Someone future."
+  [320/1000 | 32%] alice: "Risk believe appear nature late challeng..."
+  [330/1000 | 33%] alice: "Kind sense beat another agent see."
+  [340/1000 | 34%] alice: "Yet recently month fill."
+  [350/1000 | 35%] alice: "Oil store hot determine."
+  [360/1000 | 36%] alice: "Leave PM TV building why."
+  [370/1000 | 37%] alice: "Check situation single."
+  [380/1000 | 38%] alice: "Newspaper training drop customer team ra..."
+  [390/1000 | 39%] alice: "Determine single leader member people in..."
+  [400/1000 | 40%] alice: "Common thing foot ahead mother research ..."
+  [410/1000 | 41%] alice: "Cup song check."
+  [420/1000 | 42%] alice: "Upon environment cell shoulder."
+  [430/1000 | 43%] alice: "Side play despite opportunity test state..."
+  [440/1000 | 44%] alice: "Popular good what yard war."
+  [450/1000 | 45%] alice: "Born three firm while medical grow."
+  [460/1000 | 46%] alice: "Take for ago this glass."
+  [470/1000 | 47%] alice: "Door between someone explain effort gun ..."
+  [480/1000 | 48%] alice: "Mouth service study among cup official."
+  [490/1000 | 49%] alice: "Family enjoy edge show six moment succes..."
+  [500/1000 | 50%] alice: "Moment mention discussion against kind i..."
+  [510/1000 | 51%] alice: "Question clearly computer just worker."
+  [520/1000 | 52%] alice: "Truth along score treat market process."
+  [530/1000 | 53%] alice: "Sport process my apply owner carry."
+  [540/1000 | 54%] alice: "Call name story son my reveal peace stor..."
+  [550/1000 | 55%] alice: "Manage ahead history these body treatmen..."
+  [560/1000 | 56%] alice: "Open TV."
+  [570/1000 | 57%] alice: "Note kid serious pay."
+  [580/1000 | 58%] alice: "Free just."
+  [590/1000 | 59%] alice: "Begin defense customer institution compa..."
+  [600/1000 | 60%] alice: "Environmental job understand truth stand..."
+  [610/1000 | 61%] alice: "Participant agency no dinner important m..."
+  [620/1000 | 62%] alice: "Learn better improve maybe some hold any..."
+  [630/1000 | 63%] alice: "Town term human."
+  [640/1000 | 64%] alice: "Her natural."
+  [650/1000 | 65%] alice: "Since than either lose."
+  [660/1000 | 66%] alice: "Want right last."
+  [670/1000 | 67%] alice: "Hit prove."
+  [680/1000 | 68%] alice: "Success blood whom company eight long."
+  [690/1000 | 69%] alice: "Rich human factor policy."
+  [700/1000 | 70%] alice: "Statement court visit."
+  [710/1000 | 71%] alice: "Room truth report place treatment defens..."
+  [720/1000 | 72%] alice: "That American weight why type agreement ..."
+  [730/1000 | 73%] alice: "Threat stage recently four represent int..."
+  [740/1000 | 74%] alice: "Life industry live understand black grou..."
+  [750/1000 | 75%] alice: "Any create authority born audience patte..."
+  [760/1000 | 76%] alice: "Amount my send decision college off how ..."
+  [770/1000 | 77%] alice: "Guess part line."
+  [780/1000 | 78%] alice: "Wish sport inside can shake talk open re..."
+  [790/1000 | 79%] alice: "Allow author dinner relate itself agent ..."
+  [800/1000 | 80%] alice: "Foreign standard building in necessary l..."
+  [810/1000 | 81%] alice: "Wonder wrong laugh why bar."
+  [820/1000 | 82%] alice: "Population example plant low."
+  [830/1000 | 83%] alice: "Describe laugh paper full admit most if ..."
+  [840/1000 | 84%] alice: "Five important whatever commercial."
+  [850/1000 | 85%] alice: "Situation material thing significant met..."
+  [860/1000 | 86%] alice: "Set maybe action last record investment ..."
+  [870/1000 | 87%] alice: "Behind cup care real."
+  [880/1000 | 88%] alice: "Fill figure color choice him beautiful."
+  [890/1000 | 89%] alice: "Produce tax score start sing strong abov..."
+  [900/1000 | 90%] alice: "See say open decide church most themselv..."
+  [910/1000 | 91%] alice: "Break as medical environmental."
+  [920/1000 | 92%] alice: "Politics imagine consider different step..."
+  [930/1000 | 93%] alice: "Star anyone practice think management th..."
+  [940/1000 | 94%] alice: "Beyond machine realize anyone executive ..."
+  [950/1000 | 95%] alice: "Wrong ask now institution once use conta..."
+  [960/1000 | 96%] alice: "Yeah pick all wide up modern."
+  [970/1000 | 97%] alice: "Center color fine."

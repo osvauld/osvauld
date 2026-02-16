@@ -101,11 +101,11 @@ local colors = {
 -- =============================================================================
 
 function on_init()
-    page_id = permit:page_id()
+    page_id = scribe:page_id()
 
-    -- Get or create Loro layers
-    shapes_layer = loro:get_or_create_layer(page_id .. "/shapes", "map")
-    connectors_layer = loro:get_or_create_layer(page_id .. "/connectors", "map")
+    -- Get or create layers
+    shapes_layer = scribe:map(page_id .. "/shapes")
+    connectors_layer = scribe:map(page_id .. "/connectors")
 
     -- Load from Loro into graph
     load_from_loro()
@@ -114,6 +114,21 @@ function on_init()
     rebuild_ui_projection()
     sync_full_ui()
     update_toolbar()
+
+    -- Periodic remote sync refresh (peer edits)
+    timer.setInterval(1000, function()
+        graph.shapes = {}
+        graph.connectors = {}
+        graph.roots = {}
+        load_from_loro()
+        rebuild_ui_projection()
+        sync_full_ui()
+    end)
+
+    -- Cursor cleanup/refresh (replaces legacy tick-based refresh)
+    timer.setInterval(250, function()
+        refresh_remote_cursors()
+    end)
 end
 
 function load_from_loro()
@@ -133,22 +148,6 @@ function load_from_loro()
         if data then
             create_connector_in_graph(data)
         end
-    end
-end
-
--- =============================================================================
--- LORO CHANGE HANDLER
--- =============================================================================
-
-function on_loro_change(layer_name, delta, full_data)
-    if layer_name:match("/shapes$") or layer_name:match("/connectors$") then
-        -- Reload from Loro (could be optimized to apply delta only)
-        graph.shapes = {}
-        graph.connectors = {}
-        graph.roots = {}
-        load_from_loro()
-        rebuild_ui_projection()
-        sync_full_ui()
     end
 end
 
@@ -1285,11 +1284,6 @@ end
 function on_hover(screen_x, screen_y)
     local canvas_x, canvas_y = screen_to_canvas(screen_x, screen_y)
     send_cursor_update(canvas_x, canvas_y)
-end
-
--- Periodic tick for cursor cleanup (called if app supports tick)
-function tick()
-    refresh_remote_cursors()
 end
 
 -- =============================================================================

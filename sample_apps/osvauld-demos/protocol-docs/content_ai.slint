@@ -1,0 +1,259 @@
+// Content: AI Development — api.export, Control Server, Python Client, Debugging
+
+import { Theme } from "theme.slint";
+import { SectionCard, CodeBlock, InfoCard, DiagramBox, TableRow } from "components.slint";
+
+export component ContentAI inherits VerticalLayout {
+    in property<int> subsection: 0;
+    spacing: 20px;
+
+    // ── api.export (subsection 0) ──
+    if subsection == 0: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "api.export";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Export Lua functions so they can be called from the control server, Python scripts, or AI agents. This is the bridge between app logic and external automation.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        CodeBlock {
+            label: "Exporting Functions";
+            code: "-- In app.lua\napi.export(\"send_message\", function(text)\n  local layer = channels.get_messages_layer()\n  messages.send(layer, text)\n  refresh_messages()\nend)\n\napi.export(\"switch_channel\", function(id)\n  channels.switch_channel(id)\nend)\n\napi.export(\"get_active_channel\", function()\n  return channels.get_active_channel()\nend)\n\napi.export(\"get_products_count\", function()\n  return products:length()\nend)";
+        }
+
+        Text {
+            text: "Calling from Outside";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "Via eval() from Python";
+            code: "# From Python test script\nclient.eval('api.call(\"send_message\", \"Hello!\")')\n\n# With return value\ncount = client.eval('return api.call(\"get_products_count\")')\n\n# Direct Lua eval (no api.export needed)\nclient.eval('ui:set(\"greeting\", \"Hi from Python\")')";
+        }
+
+        InfoCard {
+            title: "AI-Native Pattern";
+            content: "Export high-level actions (send_message, add_product) rather than low-level operations. AI agents call these to interact with the app without knowing internal details.";
+            accent-color: Theme.accent-sthalam;
+        }
+
+        SectionCard {
+            title: "Best Practices";
+            content: "Export functions that represent user-level actions. Include both write operations (send_message) and read operations (get_products_count) for full automation capability.";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Control Server (subsection 1) ──
+    if subsection == 1: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Control Server";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Each Sthalam instance exposes a Unix socket JSON-RPC API for external control. Used by test scripts, AI agents, and management tools.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        InfoCard {
+            title: "Architecture";
+            content: "Unix socket at /tmp/osvauld-{instance}.sock. JSON-RPC 2.0 protocol. Supports 30+ methods across auth, spaces, pages, P2P, and Lua execution.";
+            accent-color: Theme.accent;
+        }
+
+        Text {
+            text: "API Categories";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        Rectangle {
+            background: Theme.bg-card;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border;
+
+            VerticalLayout {
+                padding: 4px;
+
+                TableRow { key: "CATEGORY"; value: "METHODS"; is-header: true; }
+                TableRow { key: "Auth"; value: "ping, signup, login, signup_or_login"; }
+                TableRow { key: "Spaces"; value: "create_space, list_spaces, import_page"; }
+                TableRow { key: "Pages"; value: "list_pages, list_apps, get_page"; }
+                TableRow { key: "P2P"; value: "add_node, publish_space, add_viewer"; }
+                TableRow { key: "Links"; value: "get_shareable_link, connect_to_node"; }
+                TableRow { key: "Lua"; value: "eval (execute arbitrary Lua code)"; }
+                TableRow { key: "UI"; value: "ui_click, ui_type, ui_get_text"; }
+                TableRow { key: "Debug"; value: "get_logs, get_state, get_app_status"; }
+            }
+        }
+
+        Text {
+            text: "Raw JSON-RPC Example";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "# Send to Unix socket\necho '{\"jsonrpc\":\"2.0\",\"id\":1,\n  \"method\":\"eval\",\n  \"params\":{\"code\":\"return 1+1\"}}' \\\n  | socat - UNIX:/tmp/osvauld-instance.sock\n\n# Response\n{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":2}";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Python Client (subsection 2) ──
+    if subsection == 2: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Python Client";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "The Python SDK wraps the control server API into a high-level client for test scripts, automation, and AI agent integration.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        CodeBlock {
+            label: "Basic Usage";
+            code: "from osvauld.scenario import AppTestScenario\n\nwith AppTestScenario(\n    name=\"my_test\",\n    app_path=\"./sample_apps/my-shop\",\n    peers={\n        \"owner\": {\"role\": \"owner\"},\n        \"customer\": {\"role\": \"viewer\"}\n    },\n) as s:\n    owner = s.peer(\"owner\")\n    customer = s.peer(\"customer\")\n\n    # Execute Lua on owner instance\n    owner.eval('api.call(\"add_product\", \"Widget\")')\n\n    # Wait for sync to viewer\n    customer.wait_for(\n        lambda: customer.eval(\n            \"return api.call('get_products_count')\"\n        ) >= 1,\n        desc=\"product sync\"\n    )";
+        }
+
+        Text {
+            text: "Session Management";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "TmuxManager";
+            code: "from osvauld.tmux import TmuxManager\n\ntm = TmuxManager()\n\n# Start instances\ntm.start_owner(\"test-owner\")\ntm.start_node(\"test-node\")\n\n# Get control client\nclient = tm.get_client(\"test-owner\")\nclient.signup_or_login(\"alice\")\nclient.create_space(\"my-space\")\nclient.import_page(\"./sample_apps/my-shop\")\nclient.publish_space()\n\n# Cleanup\ntm.kill_all()";
+        }
+
+        Text {
+            text: "PeerHandle API";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        SectionCard {
+            title: "eval(code)";
+            content: "Execute Lua code on the peer's instance. Returns the Lua return value. Use for both reads and writes.";
+        }
+
+        SectionCard {
+            title: "wait_for(predicate, desc, timeout)";
+            content: "Poll until predicate returns truthy. Used for sync waits — polls every 200ms up to timeout. Raises on timeout.";
+        }
+
+        SectionCard {
+            title: "client";
+            content: "Direct access to the ControlClient for lower-level operations: list_spaces(), list_pages(), get_shareable_link(), etc.";
+        }
+
+        Rectangle { height: 32px; }
+    }
+
+    // ── Debugging (subsection 3) ──
+    if subsection == 3: VerticalLayout {
+        spacing: 20px;
+
+        Text {
+            text: "Debugging";
+            font-size: 28px;
+            font-weight: 700;
+            color: Theme.text-primary;
+        }
+
+        Text {
+            text: "Tools and techniques for debugging Sthalam apps, P2P sync issues, and protocol-level problems.";
+            font-size: 14px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: "Logging Levels";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            label: "RUST_LOG environment variable";
+            code: "# See all logs\nRUST_LOG=debug cargo run -p sthalam\n\n# Filter by crate\nRUST_LOG=courier=debug,transport=trace\n\n# Recommended for development\nRUST_LOG=info,courier=debug\n\n# Protocol-level debugging\nRUST_LOG=courier::peer_actor=trace";
+        }
+
+        Text {
+            text: "Common Issues";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        InfoCard {
+            title: "Permit Denied";
+            content: "Check layer_patterns in permit_template.json. Layer names must match exactly. Dynamic layers (channels/{id}/messages) need wildcard patterns.";
+            accent-color: Theme.accent-red;
+        }
+
+        InfoCard {
+            title: "State Divergence";
+            content: "Use eval() to inspect layer state on both peers. Check P2P connection status. Verify SyncOffer/SyncAccept messages are exchanged (enable trace logging).";
+            accent-color: Theme.accent-orange;
+        }
+
+        InfoCard {
+            title: "Connection Issues";
+            content: "Verify node is reachable (ping). Check NAT traversal (relay might be needed). Ensure permits are valid and not expired.";
+            accent-color: Theme.accent-orange;
+        }
+
+        InfoCard {
+            title: "Validation Failed";
+            content: "Check validation.lua logic. Inspect ops and ctx passed to validate function. Use print() in validation for debugging (visible in node logs).";
+            accent-color: Theme.accent-orange;
+        }
+
+        Text {
+            text: "tmux Debugging";
+            font-size: 20px;
+            font-weight: 600;
+            color: Theme.text-primary;
+        }
+
+        CodeBlock {
+            code: "# View instance output\ntmux capture-pane -t session-name -p\n\n# Attach to instance\ntmux attach -t session-name\n\n# Send commands\ntmux send-keys -t session-name 'command' Enter\n\n# Keep instances alive after test\npython test_script.py --keep";
+        }
+
+        Rectangle { height: 32px; }
+    }
+}

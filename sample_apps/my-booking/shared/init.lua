@@ -1,7 +1,7 @@
 -- My-Booking Initialization
 -- Registers derivation rules for calendar view
 --
--- This file is loaded by the node's HeadlessRuntime during app startup.
+-- This file is loaded by the node's LuaRuntime during app startup.
 -- Derivation rules only execute on the node (no-op on owner/customer).
 --
 -- Privacy: The derived calendar only shows that a slot is booked,

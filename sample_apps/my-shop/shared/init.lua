@@ -1,7 +1,7 @@
 -- My-Shop Initialization
 -- Registers derivation rules for aggregated views
 --
--- This file is loaded by the node's HeadlessRuntime during app startup.
+-- This file is loaded by the node's LuaRuntime during app startup.
 -- Derivation rules only execute on the node (no-op on owner/customer).
 
 -- Helper: Extract user_did from layer name

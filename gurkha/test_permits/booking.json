@@ -1,0 +1,28 @@
+{
+  "provider": {
+    "token_type": "page_owner",
+    "layers": {
+      "{page_id}/schedule": { "sync": true, "write": true },
+      "{page_id}/blocked": { "sync": true, "write": true },
+      "{page_id}/derived/calendar": { "sync": true, "write": false },
+      "{page_id}/bookings/customer1": { "sync": true, "write": true },
+      "{page_id}/bookings/did:key:provider": { "sync": true, "write": true }
+    },
+    "dynamic_layer_schemas": {
+      "bookings/{id}": { "type": "map", "grant": "explicit", "permissions": { "sync": true, "write": true } }
+    }
+  },
+  "customer": {
+    "token_type": "page_viewer",
+    "layers": {
+      "{page_id}/schedule": { "sync": true, "write": false },
+      "{page_id}/blocked": { "sync": true, "write": false },
+      "{page_id}/derived/calendar": { "sync": true, "write": false },
+      "{page_id}/drafts": { "sync": false, "create": true },
+      "{page_id}/bookings/{aud}": { "sync": true, "write": true }
+    },
+    "dynamic_layer_schemas": {
+      "bookings/{id}": { "type": "map", "grant": "explicit", "permissions": { "sync": true, "write": true } }
+    }
+  }
+}

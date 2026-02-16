@@ -19,17 +19,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from lib.tmux import TmuxManager
+from osvauld.tmux import TmuxManager
 
 
 DEMOS_APP = Path(__file__).parent.parent / "sample_apps" / "osvauld-demos"
 
+# (subdir, app_name, is_raylib)
 APP_MAP = {
-    "snake": ("snake-game", "Snake Game"),
-    "tank": ("tank-game", "Tank Game"),
-    "math": ("math-sim", "Math Simulation"),
-    "chat": ("group-chat", "Group Chat"),
-    "guide": ("guide", "Sthalam Guide"),
+    "snake": ("snake-game", "Snake Game", False),
+    "snake-raylib": ("snake-raylib", "Snake Raylib", True),
+    "tank": ("tank-game", "Tank Game", False),
+    "tank-raylib": ("tank-raylib", "Tank Raylib", True),
+    "math": ("math-sim", "Math Simulation", False),
+    "chat": ("group-chat", "Group Chat", False),
+    "guide": ("guide", "Sthalam Guide", False),
 }
 
 
@@ -38,9 +41,13 @@ def main():
     parser.add_argument("app", choices=list(APP_MAP.keys()), help="Which app to run")
     args = parser.parse_args()
 
-    app_subdir, app_name = APP_MAP[args.app]
+    app_subdir, app_name, is_raylib = APP_MAP[args.app]
 
-    print(f"Starting {app_name}...")
+    if is_raylib:
+        print(f"Starting {app_name} (Raylib renderer)...")
+        print("  NOTE: Raylib apps run in a separate window with their own runtime")
+    else:
+        print(f"Starting {app_name}...")
 
     # Start tmux session with one shell
     tm = TmuxManager(
@@ -84,23 +91,30 @@ def main():
     result = client.open_app(page_id, app_name)
     print(f"    Result: {result}")
 
-    # Wait for app to be ready
-    print("  Waiting for app to load...")
-    for i in range(10):
-        time.sleep(1)
-        try:
-            client.eval("return 1")
-            print(f"    App ready after {i+1}s")
-            break
-        except Exception as e:
-            if i == 9:
-                print(f"    ERROR: App not ready after 10s: {e}")
-                return 1
+    if is_raylib:
+        # Raylib apps have their own runtime - just wait for window to open
+        print("  Waiting for Raylib window to open...")
+        time.sleep(2)
+        print("  Raylib app launched (check for separate window)")
+    else:
+        # Slint apps use the debug eval interface
+        # Wait for app to be ready
+        print("  Waiting for app to load...")
+        for i in range(10):
+            time.sleep(1)
+            try:
+                client.eval("return 1")
+                print(f"    App ready after {i+1}s")
+                break
+            except Exception as e:
+                if i == 9:
+                    print(f"    ERROR: App not ready after 10s: {e}")
+                    return 1
 
-    # Initialize
-    print("  Initializing app...")
-    client.eval('USERNAME = "DemoUser"')
-    client.eval("on_init()")
+        # Initialize
+        print("  Initializing app...")
+        client.eval('USERNAME = "DemoUser"')
+        client.eval("on_init()")
 
     print(f"\n{app_name} is now running!")
     print("Attach to tmux session: tmux attach -t demo")

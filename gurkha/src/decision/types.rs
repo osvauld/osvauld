@@ -3,8 +3,8 @@
 //! Core types that decision functions return - pure data describing token content.
 //! The crypto layer then takes these decisions and signs them.
 
-use crate::parser::DelegationTemplate;
 use crate::errors::GurkhaError;
+use crate::parser::DelegationTemplate;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
@@ -49,6 +49,33 @@ impl TokenDecision {
 
     pub fn set_expiry(&mut self, seconds: u64) {
         self.expiry = Some(seconds);
+    }
+
+    /// Set presence configuration (visibility, display name)
+    ///
+    /// **Context**: Controls whether this peer appears in /users layer and presence events
+    pub fn with_presence(mut self, visible: bool, name: Option<String>) -> Self {
+        let mut presence_obj = serde_json::Map::new();
+        presence_obj.insert("visible".to_string(), Value::Bool(visible));
+        if let Some(n) = name {
+            presence_obj.insert("name".to_string(), Value::String(n));
+        }
+        self.facts
+            .insert("presence".to_string(), Value::Object(presence_obj));
+        self
+    }
+
+    /// Set allowed ephemeral function names
+    ///
+    /// **Context**: Controls which ephemeral functions this peer can send
+    /// **Empty list** = all functions allowed
+    pub fn with_ephemeral_funcs(mut self, funcs: Vec<String>) -> Self {
+        if !funcs.is_empty() {
+            let funcs_arr: Vec<Value> = funcs.into_iter().map(Value::String).collect();
+            self.facts
+                .insert("ephemeral_funcs".to_string(), Value::Array(funcs_arr));
+        }
+        self
     }
 }
 

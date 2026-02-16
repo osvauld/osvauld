@@ -10,7 +10,8 @@
         "peer_capabilities": {
             "relay": false,
             "share": true,
-            "accept_publish": true
+            "accept_publish": true,
+            "manage_layer_access": true
         },
         "layers": {
             "{page_id}/navigation": {
@@ -53,39 +54,150 @@
                 "sync": true,
                 "write": true
             },
-            "app:Group Chat": {
+            "{page_id}/app:Group Chat": {
                 "type": "map",
                 "sync": true,
                 "write": true
             },
-            "app:Snake Game": {
+            "{page_id}/app:Snake Game": {
                 "type": "map",
                 "sync": true,
                 "write": true
             },
-            "app:Math Simulation": {
+            "{page_id}/app:Math Simulation": {
                 "type": "map",
                 "sync": true,
                 "write": true
             },
-            "app:Sthalam Guide": {
+            "{page_id}/app:Sthalam Guide": {
                 "type": "map",
                 "sync": true,
                 "write": true
             },
-            "app:Tank Game": {
+            "{page_id}/app:Tank Game": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/app:Tank Raylib": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/app:Snake Raylib": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/channels/general/messages": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/channels/random/messages": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/channels/dev/messages": {
+                "type": "map",
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/presence": {
                 "type": "map",
                 "sync": true,
                 "write": true
             }
         },
+        "dynamic_layer_schemas": {
+            "channels/{id}/messages": {
+                "type": "map",
+                "grant": "open",
+                "permissions": {
+                    "sync": true,
+                    "write": true
+                }
+            },
+            "dms/{id}/messages": {
+                "type": "map",
+                "grant": "explicit",
+                "permissions": {
+                    "sync": true,
+                    "write": true
+                }
+            }
+        },
+        "presence": {
+            "visible": true,
+            "can_see_others": true
+        },
+        "ephemeral_funcs": [
+            "typing",
+            "player",
+            "bullet",
+            "enemies",
+            "score",
+            "stage",
+            "restart_request"
+        ],
         "issue_on": {
+            "layer_authority": {
+                "token_type": "layer_authority",
+                "peer_capabilities": {
+                    "relay": false,
+                    "share": false,
+                    "accept_publish": false,
+                    "manage_layer_access": true
+                },
+                "operations": {
+                    "read": "allow",
+                    "write": "allow"
+                },
+                "dynamic_layer_schemas": {
+                    "channels/{id}/messages": {
+                        "type": "map",
+                        "grant": "open",
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        }
+                    },
+                    "dms/{id}/messages": {
+                        "type": "map",
+                        "grant": "explicit",
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        }
+                    }
+                },
+                "auth_capabilities": {
+                    "can_connect": true,
+                    "sync_enabled": true
+                },
+                "presence": {
+                    "visible": true,
+                    "can_see_others": true
+                },
+                "ephemeral_funcs": [
+                    "typing",
+                    "player",
+                    "bullet",
+                    "enemies",
+                    "score",
+                    "stage",
+                    "restart_request"
+                ],
+                "relationship": "layer_authority"
+            },
             "node": {
                 "token_type": "page_share",
                 "peer_capabilities": {
                     "relay": true,
                     "share": true,
-                    "accept_publish": true
+                    "accept_publish": true,
+                    "manage_layer_access": true
                 },
                 "operations": {
                     "share_page": "allow",
@@ -132,30 +244,78 @@
                         "sync": true,
                         "write": true
                     },
-                    "app:Group Chat": {
+                    "{page_id}/app:Group Chat": {
                         "type": "map",
                         "sync": true,
                         "write": false
                     },
-                    "app:Snake Game": {
+                    "{page_id}/app:Snake Game": {
                         "type": "map",
                         "sync": true,
                         "write": false
                     },
-                    "app:Math Simulation": {
+                    "{page_id}/app:Math Simulation": {
                         "type": "map",
                         "sync": true,
                         "write": false
                     },
-                    "app:Sthalam Guide": {
+                    "{page_id}/app:Sthalam Guide": {
                         "type": "map",
                         "sync": true,
                         "write": false
                     },
-                    "app:Tank Game": {
+                    "{page_id}/app:Tank Game": {
                         "type": "map",
                         "sync": true,
                         "write": false
+                    },
+                    "{page_id}/app:Tank Raylib": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
+                    },
+                    "{page_id}/app:Snake Raylib": {
+                        "type": "map",
+                        "sync": true,
+                        "write": false
+                    },
+                    "{page_id}/channels/general/messages": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    },
+                    "{page_id}/channels/random/messages": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    },
+                    "{page_id}/channels/dev/messages": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    },
+                    "{page_id}/presence": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    }
+                },
+                "dynamic_layer_schemas": {
+                    "channels/{id}/messages": {
+                        "type": "map",
+                        "grant": "open",
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        }
+                    },
+                    "dms/{id}/messages": {
+                        "type": "map",
+                        "grant": "explicit",
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        }
                     }
                 },
                 "auth_capabilities": {
@@ -166,12 +326,62 @@
                 },
                 "relationship": "node",
                 "issue_on": {
+                    "layer_authority": {
+                        "token_type": "layer_authority",
+                        "peer_capabilities": {
+                            "relay": false,
+                            "share": false,
+                            "accept_publish": false,
+                            "manage_layer_access": true
+                        },
+                        "operations": {
+                            "read": "allow",
+                            "write": "allow"
+                        },
+                        "dynamic_layer_schemas": {
+                            "channels/{id}/messages": {
+                                "type": "map",
+                                "grant": "open",
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                }
+                            },
+                            "dms/{id}/messages": {
+                                "type": "map",
+                                "grant": "explicit",
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                }
+                            }
+                        },
+                        "auth_capabilities": {
+                            "can_connect": true,
+                            "sync_enabled": true
+                        },
+                        "presence": {
+                            "visible": true,
+                            "can_see_others": true
+                        },
+                        "ephemeral_funcs": [
+                            "typing",
+                            "player",
+                            "bullet",
+                            "enemies",
+                            "score",
+                            "stage",
+                            "restart_request"
+                        ],
+                        "relationship": "layer_authority"
+                    },
                     "viewer": {
                         "token_type": "page_viewer",
                         "peer_capabilities": {
                             "relay": false,
                             "share": false,
-                            "accept_publish": false
+                            "accept_publish": false,
+                            "manage_layer_access": true
                         },
                         "operations": {
                             "read": "allow",
@@ -218,35 +428,147 @@
                                 "sync": true,
                                 "write": true
                             },
-                            "app:Group Chat": {
+                            "{page_id}/app:Group Chat": {
                                 "type": "map",
                                 "sync": true,
                                 "write": false
                             },
-                            "app:Snake Game": {
+                            "{page_id}/app:Snake Game": {
                                 "type": "map",
                                 "sync": true,
                                 "write": false
                             },
-                            "app:Math Simulation": {
+                            "{page_id}/app:Math Simulation": {
                                 "type": "map",
                                 "sync": true,
                                 "write": false
                             },
-                            "app:Sthalam Guide": {
+                            "{page_id}/app:Sthalam Guide": {
                                 "type": "map",
                                 "sync": true,
                                 "write": false
                             },
-                            "app:Tank Game": {
+                            "{page_id}/app:Tank Game": {
                                 "type": "map",
                                 "sync": true,
                                 "write": false
+                            },
+                            "{page_id}/app:Tank Raylib": {
+                                "type": "map",
+                                "sync": true,
+                                "write": false
+                            },
+                            "{page_id}/app:Snake Raylib": {
+                                "type": "map",
+                                "sync": true,
+                                "write": false
+                            },
+                            "{page_id}/channels/general/messages": {
+                                "type": "map",
+                                "sync": true,
+                                "write": true
+                            },
+                            "{page_id}/channels/random/messages": {
+                                "type": "map",
+                                "sync": true,
+                                "write": true
+                            },
+                            "{page_id}/channels/dev/messages": {
+                                "type": "map",
+                                "sync": true,
+                                "write": true
+                            },
+                            "{page_id}/presence": {
+                                "type": "map",
+                                "sync": true,
+                                "write": true
+                            }
+                        },
+                        "dynamic_layer_schemas": {
+                            "channels/{id}/messages": {
+                                "type": "map",
+                                "grant": "open",
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                }
+                            },
+                            "dms/{id}/messages": {
+                                "type": "map",
+                                "grant": "explicit",
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                }
                             }
                         },
                         "auth_capabilities": {
                             "can_connect": true,
                             "sync_enabled": true
+                        },
+                        "presence": {
+                            "visible": true,
+                            "can_see_others": true
+                        },
+                        "ephemeral_funcs": [
+                            "typing",
+                            "player",
+                            "bullet",
+                            "enemies",
+                            "score",
+                            "stage",
+                            "restart_request"
+                        ],
+                        "issue_on": {
+                            "layer_authority": {
+                                "token_type": "layer_authority",
+                                "peer_capabilities": {
+                                    "relay": false,
+                                    "share": false,
+                                    "accept_publish": false,
+                                    "manage_layer_access": true
+                                },
+                                "operations": {
+                                    "read": "allow",
+                                    "write": "allow"
+                                },
+                                "dynamic_layer_schemas": {
+                                    "channels/{id}/messages": {
+                                        "type": "map",
+                                        "grant": "open",
+                                        "permissions": {
+                                            "sync": true,
+                                            "write": true
+                                        }
+                                    },
+                                    "dms/{id}/messages": {
+                                        "type": "map",
+                                        "grant": "explicit",
+                                        "permissions": {
+                                            "sync": true,
+                                            "write": true
+                                        }
+                                    }
+                                },
+                                "auth_capabilities": {
+                                    "can_connect": true,
+                                    "sync_enabled": true
+                                },
+                                "presence": {
+                                    "visible": true,
+                                    "can_see_others": true
+                                },
+                                "ephemeral_funcs": [
+                                    "typing",
+                                    "player",
+                                    "bullet",
+                                    "enemies",
+                                    "score",
+                                    "stage",
+                                    "restart_request"
+                                ],
+                                "relationship": "layer_authority"
+                            }
                         },
                         "relationship": "collaborator"
                     }
@@ -257,7 +579,8 @@
                 "peer_capabilities": {
                     "relay": false,
                     "share": false,
-                    "accept_publish": false
+                    "accept_publish": false,
+                    "manage_layer_access": true
                 },
                 "operations": {
                     "read": "allow",
@@ -303,11 +626,113 @@
                         "type": "map",
                         "sync": true,
                         "write": true
+                    },
+                    "{page_id}/channels/general/messages": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    },
+                    "{page_id}/channels/random/messages": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    },
+                    "{page_id}/channels/dev/messages": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    },
+                    "{page_id}/presence": {
+                        "type": "map",
+                        "sync": true,
+                        "write": true
+                    }
+                },
+                "dynamic_layer_schemas": {
+                    "channels/{id}/messages": {
+                        "type": "map",
+                        "grant": "open",
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        }
+                    },
+                    "dms/{id}/messages": {
+                        "type": "map",
+                        "grant": "explicit",
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        }
                     }
                 },
                 "auth_capabilities": {
                     "can_connect": true,
                     "sync_enabled": true
+                },
+                "presence": {
+                    "visible": true,
+                    "can_see_others": true
+                },
+                "ephemeral_funcs": [
+                    "typing",
+                    "player",
+                    "bullet",
+                    "enemies",
+                    "score",
+                    "stage",
+                    "restart_request"
+                ],
+                "issue_on": {
+                    "layer_authority": {
+                        "token_type": "layer_authority",
+                        "peer_capabilities": {
+                            "relay": false,
+                            "share": false,
+                            "accept_publish": false,
+                            "manage_layer_access": true
+                        },
+                        "operations": {
+                            "read": "allow",
+                            "write": "allow"
+                        },
+                        "dynamic_layer_schemas": {
+                            "channels/{id}/messages": {
+                                "type": "map",
+                                "grant": "open",
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                }
+                            },
+                            "dms/{id}/messages": {
+                                "type": "map",
+                                "grant": "explicit",
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                }
+                            }
+                        },
+                        "auth_capabilities": {
+                            "can_connect": true,
+                            "sync_enabled": true
+                        },
+                        "presence": {
+                            "visible": true,
+                            "can_see_others": true
+                        },
+                        "ephemeral_funcs": [
+                            "typing",
+                            "player",
+                            "bullet",
+                            "enemies",
+                            "score",
+                            "stage",
+                            "restart_request"
+                        ],
+                        "relationship": "layer_authority"
+                    }
                 },
                 "relationship": "collaborator"
             }
@@ -345,31 +770,86 @@
                 "sync": true,
                 "write": true
             },
-            "app:Group Chat": {
+            "{page_id}/app:Group Chat": {
                 "sync": true,
                 "write": false
             },
-            "app:Snake Game": {
+            "{page_id}/app:Snake Game": {
                 "sync": true,
                 "write": false
             },
-            "app:Math Simulation": {
+            "{page_id}/app:Math Simulation": {
                 "sync": true,
                 "write": false
             },
-            "app:Sthalam Guide": {
+            "{page_id}/app:Sthalam Guide": {
                 "sync": true,
                 "write": false
             },
-            "app:Tank Game": {
+            "{page_id}/app:Tank Game": {
                 "sync": true,
                 "write": false
+            },
+            "{page_id}/app:Tank Raylib": {
+                "sync": true,
+                "write": false
+            },
+            "{page_id}/app:Snake Raylib": {
+                "sync": true,
+                "write": false
+            },
+            "{page_id}/channels/general/messages": {
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/channels/random/messages": {
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/channels/dev/messages": {
+                "sync": true,
+                "write": true
+            },
+            "{page_id}/presence": {
+                "sync": true,
+                "write": true
+            }
+        },
+        "dynamic_layer_schemas": {
+            "channels/{id}/messages": {
+                "type": "map",
+                "grant": "open",
+                "permissions": {
+                    "sync": true,
+                    "write": true
+                }
+            },
+            "dms/{id}/messages": {
+                "type": "map",
+                "grant": "explicit",
+                "permissions": {
+                    "sync": true,
+                    "write": true
+                }
             }
         },
         "auth_capabilities": {
             "accept_sync": true,
             "can_send": true
         },
+        "presence": {
+            "visible": true,
+            "can_see_others": true
+        },
+        "ephemeral_funcs": [
+            "typing",
+            "player",
+            "bullet",
+            "enemies",
+            "score",
+            "stage",
+            "restart_request"
+        ],
         "relationship": "sync_consent"
     }
 }

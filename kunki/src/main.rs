@@ -1,5 +1,8 @@
 use clap::{Parser, Subcommand};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
+
+#[cfg(feature = "profiling")]
+use std::fs::File;
 
 use base64::{engine::general_purpose, Engine as _};
 use serde_json::json;
@@ -11,9 +14,10 @@ use butler::{Butler, RedbStore, LayerCache};
 use tokio::sync::RwLock;
 
 mod control_server;
-#[allow(dead_code)]
-mod node_runtime;  // Kept for reference, node scripts now managed by Scribe
+mod node_runtime;
+mod validation_service;
 use control_server::{KunkiControlServer, NodeState};
+use node_runtime::NodeRuntimeManager;
 
 // Transport and Courier for P2P
 use courier::{Courier, CourierEvent, CourierMode, HandshakeServices};
@@ -86,17 +90,24 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize rich tracing
+    // Initialize profiling tools when feature is enabled
+    #[cfg(feature = "profiling")]
+    let _flame_guard = setup_profiling();
+
+    // Initialize rich tracing with capture support
     // Check for OSVAULD_LOG_FORMAT=json to output JSON logs (for ai_interface)
+    #[cfg(not(feature = "profiling"))]
     let use_json = std::env::var("OSVAULD_LOG_FORMAT")
         .map(|v| v == "json")
         .unwrap_or(false);
 
-    let _guard = logging_utils::init_rich_tracing(logging_utils::LogConfig {
+    #[cfg(not(feature = "profiling"))]
+    let (_guard, capture_handle) = logging_utils::init_rich_tracing_with_capture(logging_utils::LogConfig {
         level: "debug".to_string(),
         log_to_stdout: true,
         use_tree_format: !use_json,
         stdout_json: use_json,
+        instance_name: Some("kunki".to_string()),
         ..Default::default()
     })?;
 
@@ -105,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     // Initialize Butler's RedbStore for storage
-    // Check for STHALAM_DATA_DIR env var (like slint_shell does for test automation)
+    // Check for STHALAM_DATA_DIR env var (like sthalam does for test automation)
     let (db_path, data_dir): (std::path::PathBuf, std::path::PathBuf) = if let Ok(data_dir_str) = std::env::var("STHALAM_DATA_DIR") {
         let dir = std::path::PathBuf::from(&data_dir_str);
         std::fs::create_dir_all(&dir).expect("Failed to create data directory");
@@ -135,7 +146,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Start { passphrase, debug_socket } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
-            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir).await?;
+            #[cfg(not(feature = "profiling"))]
+            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir, Some(capture_handle)).await?;
+            #[cfg(feature = "profiling")]
+            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir, None).await?;
         }
         Commands::FolderToken {
             passphrase,
@@ -182,6 +196,7 @@ async fn handle_start(
     redb_store: Arc<RedbStore>,
     debug_socket: Option<String>,
     data_dir: &std::path::Path,
+    capture_handle: Option<logging_utils::CaptureHandle>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists in Butler
     if !butler::is_signed_up(&redb_store)? {
@@ -202,8 +217,52 @@ async fn handle_start(
     let layer_cache = Arc::new(RwLock::new(LayerCache::new(redb_store.clone(), 100)));
     let assets_path = data_dir.join("assets");
     let asset_store = Arc::new(butler::AssetStore::new(&assets_path).expect("Failed to create asset store"));
-    let butler = Arc::new(Butler::new(redb_store.clone(), layer_cache, asset_store));
+
+    // Create sync event channel (Scribe → Coordinator)
+    // Node mode DOES need EnsureSync - to trigger RefreshSubscriptions when pages are opened
+    let (sync_tx, sync_rx) = tokio::sync::mpsc::channel::<butler::SyncEvent>(32);
+
+    // Create page opened channel for node runtime auto-start
+    let (page_opened_tx, mut page_opened_rx) = tokio::sync::mpsc::channel::<String>(32);
+
+    let butler = Arc::new(Butler::new(redb_store.clone(), layer_cache, asset_store, Some(sync_tx)));
     butler.set_identity(identity.clone()).await;
+    butler.set_page_opened_tx(page_opened_tx).await;
+
+    // Create node runtime manager for derivation
+    let node_runtime = Arc::new(NodeRuntimeManager::new(butler.clone()));
+
+    // Spawn task to auto-start node runtime when pages are opened
+    //
+    // **Context**: App layers (containing init.lua, node.lua) arrive via SyncOffer
+    // AFTER the page is opened. First attempt may fail because apps().list() is empty.
+    // We retry a few times with delay to wait for app layers to sync.
+    let node_runtime_for_task = node_runtime.clone();
+    tokio::spawn(async move {
+        while let Some(page_id) = page_opened_rx.recv().await {
+            info!(page_id = %page_id, "Page opened, starting node runtime");
+            let runtime = node_runtime_for_task.clone();
+            let pid = page_id.clone();
+            tokio::spawn(async move {
+                for attempt in 0..10u32 {
+                    match runtime.start_node_for_page(&pid).await {
+                        Ok(()) => {
+                            info!(page_id = %pid, attempt, "Node runtime started");
+                            return;
+                        }
+                        Err(e) => {
+                            if attempt < 9 {
+                                debug!(page_id = %pid, attempt, error = %e, "Node runtime not ready, retrying");
+                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            } else {
+                                warn!(page_id = %pid, error = %e, "Failed to start node runtime after retries");
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    });
 
 
     // Initialize Transport layer using the device key from Butler
@@ -242,6 +301,11 @@ async fn handle_start(
             connection_string: None,
         }).await;
 
+        // Set capture handle for event capture commands
+        if let Some(ref ch) = capture_handle {
+            debug_server.set_capture_handle(ch.clone()).await;
+        }
+
         // Spawn debug server
         let server = debug_server.clone();
         tokio::spawn(async move {
@@ -259,11 +323,23 @@ async fn handle_start(
     // Create HandshakeServices with Butler
     let handshake_services = Arc::new(HandshakeServices::new(butler.clone()));
 
-    // Initialize Courier with services for auto-processing
-    let (courier_handle, mut courier_events, courier) = Courier::init_with_services(
+    // Create capture broadcast channel for courier events
+    let (capture_tx, _) = tokio::sync::broadcast::channel::<String>(1024);
+
+    // Register capture sources with CaptureHandle
+    if let Some(ref ch) = capture_handle {
+        ch.register_source(capture_tx.clone()).await;
+    }
+
+    // Set capture_tx on butler so ScribeArgs get it
+    butler.set_capture_tx(capture_tx.clone()).await;
+
+    // Initialize Courier with services and capture broadcast
+    let (courier_handle, mut courier_events, courier) = Courier::init_with_services_and_capture(
         CourierMode::Node,
         transport.clone(),
         Some(handshake_services),
+        Some(capture_tx),
     );
 
     // Note: Router starts accepting connections automatically when Transport::init() is called
@@ -271,6 +347,36 @@ async fn handle_start(
     // Spawn Courier event processor
     tokio::spawn(async move {
         courier.run(event_rx).await;
+    });
+
+    // Forward sync events to Coordinator (Scribe → Coordinator)
+    // This enables EnsureSync to trigger RefreshSubscriptions for connected peers
+    let handle_for_sync = courier_handle.clone();
+    let mut sync_rx = sync_rx;
+    tokio::spawn(async move {
+        while let Some(event) = sync_rx.recv().await {
+            match event {
+                butler::SyncEvent::EnsureSync { user_did } => {
+                    tracing::info!(user_did = %user_did, "Node received EnsureSync from Scribe, forwarding to Coordinator");
+                    if let Err(e) = handle_for_sync.ensure_sync(&user_did) {
+                        tracing::warn!(user_did = %user_did, error = %e, "Failed to forward EnsureSync");
+                    } else {
+                        tracing::info!(user_did = %user_did, "Node forwarded EnsureSync to Coordinator");
+                    }
+                }
+                butler::SyncEvent::SubscribeLayers { page_id, creator_did, layers } => {
+                    tracing::info!(
+                        page_id = %page_id,
+                        creator_did = %creator_did,
+                        count = layers.len(),
+                        "Node received SubscribeLayers from Scribe, forwarding to Coordinator"
+                    );
+                    if let Err(e) = handle_for_sync.subscribe_layers(&page_id, &creator_did, layers) {
+                        tracing::warn!(error = %e, "Failed to forward SubscribeLayers");
+                    }
+                }
+            }
+        }
     });
 
     // Note: Node scripts are now started automatically by Scribe when is_node=true
@@ -349,6 +455,9 @@ async fn handle_start(
                         space_id, node_id
                     );
                 }
+                CourierEvent::ConnectionFailed { node_id, error } => {
+                    warn!("❌ Connection failed to {}: {}", node_id, error);
+                }
             }
         }
     });
@@ -359,7 +468,7 @@ async fn handle_start(
     println!("╚══════════════════════════════════════════╝");
 
     // Generate connection string using Butler
-    let encoded_connection = butler.generate_connection_string(
+    let encoded_connection = butler.nodes().generate_connection_string(
         relay_urls.first().map(|s| s.as_str()),
     ).await.map_err(|e| format!("Failed to generate connection string: {:?}", e))?;
 
@@ -406,6 +515,104 @@ async fn handle_start(
     println!("\n🔴 SERVICE STATUS: OFFLINE");
 
     Ok(())
+}
+
+/// Setup profiling tools (tokio-console and/or tracing-flame)
+///
+/// **Modes** (based on environment variables):
+/// - `FLAME_OUTPUT` + `TOKIO_CONSOLE_PORT` → both layers
+/// - `FLAME_OUTPUT` only → flame layer only (no console overhead)
+/// - `TOKIO_CONSOLE_PORT` only → console layer only
+///
+/// **Environment variables**:
+/// - `TOKIO_CONSOLE_PORT`: Port for tokio-console (enables console layer)
+/// - `FLAME_OUTPUT`: Path for flame graph output file (enables flame layer)
+#[cfg(feature = "profiling")]
+fn setup_profiling() -> Option<tracing_flame::FlushGuard<std::io::BufWriter<File>>> {
+    use tracing_subscriber::prelude::*;
+
+    let console_port: Option<u16> = std::env::var("TOKIO_CONSOLE_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok());
+    let flame_path = std::env::var("FLAME_OUTPUT").ok();
+
+    match (&flame_path, console_port) {
+        // Both flame + console
+        (Some(path), Some(port)) => {
+            let (flame_layer, guard) = match tracing_flame::FlameLayer::with_file(path) {
+                Ok((layer, guard)) => (Some(layer), Some(guard)),
+                Err(e) => {
+                    eprintln!("Failed to create flame layer: {}", e);
+                    (None, None)
+                }
+            };
+
+            let console_layer = console_subscriber::ConsoleLayer::builder()
+                .server_addr(([127, 0, 0, 1], port))
+                .spawn();
+
+            tracing_subscriber::registry()
+                .with(console_layer)
+                .with(flame_layer)
+                .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
+                .init();
+
+            tracing::info!(port = port, path = %path, "Profiling: tokio-console + flame");
+            guard
+        }
+        // Flame only (no console overhead)
+        // Filter out tokio runtime TRACE spans (normally consumed by console-subscriber)
+        (Some(path), None) => {
+            let (flame_layer, guard) = match tracing_flame::FlameLayer::with_file(path) {
+                Ok((layer, guard)) => (Some(layer), Some(guard)),
+                Err(e) => {
+                    eprintln!("Failed to create flame layer: {}", e);
+                    (None, None)
+                }
+            };
+
+            let filter = tracing_subscriber::EnvFilter::new(
+                "info,tokio=off,runtime=off",
+            );
+
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(flame_layer)
+                .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
+                .init();
+
+            tracing::info!(path = %path, "Profiling: flame only (no console overhead)");
+            guard
+        }
+        // Console only
+        (None, Some(port)) => {
+            let console_layer = console_subscriber::ConsoleLayer::builder()
+                .server_addr(([127, 0, 0, 1], port))
+                .spawn();
+
+            tracing_subscriber::registry()
+                .with(console_layer)
+                .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
+                .init();
+
+            tracing::info!(port = port, "Profiling: tokio-console only");
+            None
+        }
+        // Neither - just fmt logging
+        (None, None) => {
+            let filter = tracing_subscriber::EnvFilter::new(
+                "info,tokio=off,runtime=off",
+            );
+
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
+                .init();
+
+            tracing::info!("Profiling feature enabled but no FLAME_OUTPUT or TOKIO_CONSOLE_PORT set");
+            None
+        }
+    }
 }
 
 async fn handle_folder_token(
