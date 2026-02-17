@@ -101,6 +101,17 @@ pub fn process_ui_commands(shell: &Shell, ui_rx: &mut mpsc::Receiver<UiCommand>)
                 let result = handle_refresh_page(shell, &page_dir);
                 let _ = response_tx.send(result);
             }
+            UiCommand::RefreshApp {
+                app_name,
+                app_dir,
+                response_tx,
+            } => {
+                shell.invoke_refresh_app(app_name.as_str().into(), app_dir.as_str().into());
+                let _ = response_tx.send(Ok(format!(
+                    "App '{}' refresh triggered from '{}'",
+                    app_name, app_dir
+                )));
+            }
         }
     }
 }

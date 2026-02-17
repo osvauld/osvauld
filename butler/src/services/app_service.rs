@@ -117,9 +117,11 @@ fn extract_layer_names_from_permit(permit_json: &str) -> Result<Vec<String>> {
 
 /// Collect app files from a directory
 ///
-/// Returns a HashMap of relative_path -> content for text files.
+/// Returns a HashMap of relative_path -> content for text files (.slint, .lua, .json).
+///
+/// Public so `AppsApi::update` can read files before sending them to Scribe.
 #[instrument(skip_all)]
-fn collect_app_files(app_dir: &Path) -> Result<HashMap<String, String>> {
+pub fn collect_app_files_from_directory(app_dir: &Path) -> Result<HashMap<String, String>> {
     let mut files = HashMap::new();
 
     for entry in WalkDir::new(app_dir).into_iter().filter_map(|e| e.ok()) {
@@ -176,7 +178,7 @@ pub async fn import_app_from_directory(
     })?;
 
     // 3. Collect all app files
-    let files = collect_app_files(app_dir)?;
+    let files = collect_app_files_from_directory(app_dir)?;
 
     tracing::info!(
         app_name = %app_name,
@@ -250,7 +252,7 @@ pub async fn refresh_app_from_directory(
         .ok_or_else(|| ButlerError::NotFound(format!("Page {} not found", page_id)))?;
 
     // Collect new files from disk
-    let new_files = collect_app_files(app_dir)?;
+    let new_files = collect_app_files_from_directory(app_dir)?;
 
     // Get AES key and current layer
     let (decrypted, aes_key) = butler.pages().get_decrypted(page_id).await?;
@@ -361,7 +363,7 @@ pub async fn add_app_to_page(butler: &Butler, page_id: &str, app_dir: &Path) -> 
     }
 
     // Collect files
-    let files = collect_app_files(app_dir)?;
+    let files = collect_app_files_from_directory(app_dir)?;
 
     // Create app layer with files
     let app_layer = Layer::new();
@@ -509,7 +511,7 @@ pub async fn import_page_from_directory(
 
     // 8. Populate each app layer with files
     for (app_name, app_path) in &app_dirs {
-        let files = collect_app_files(app_path)?;
+        let files = collect_app_files_from_directory(app_path)?;
         let layer_name = app_layer_name(app_name);
 
         let app_layer = Layer::new();
@@ -587,7 +589,7 @@ pub async fn reload_page_from_directory(
             }
         } else {
             // Add new app
-            let files = collect_app_files(app_path)?;
+            let files = collect_app_files_from_directory(app_path)?;
             let layer_name = app_layer_name(app_name);
 
             let app_layer = Layer::new();

@@ -52,6 +52,11 @@ pub enum UiCommand {
         page_dir: String,
         response_tx: oneshot::Sender<Result<Vec<String>, String>>,
     },
+    RefreshApp {
+        app_name: String,
+        app_dir: String,
+        response_tx: oneshot::Sender<Result<String, String>>,
+    },
 }
 
 // Shell Handler
@@ -328,6 +333,38 @@ impl CommandHandler for ShellHandler {
                     }))),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
                     Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "RefreshPage command dropped")),
+                }
+            }
+
+            "refresh_app" => {
+                let app_name = get_param(&params, "app_name")?;
+                let app_dir = get_param(&params, "app_dir")?;
+
+                // Validate Slint files before refreshing
+                let app_path = std::path::PathBuf::from(&app_dir);
+                if app_path.exists() {
+                    if let Err(e) = renderer_slint::validate_slint_files(&app_path).await {
+                        return Some(Response::err(id, error_codes::OPERATION_FAILED, e));
+                    }
+                }
+
+                let ui_tx = self.ui_tx.read().await;
+                let Some(tx) = ui_tx.as_ref() else {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "UI automation not available"));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx.send(UiCommand::RefreshApp { app_name: app_name.clone(), app_dir: app_dir.clone(), response_tx }).await.is_err() {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send refresh_app command"));
+                }
+                match response_rx.await {
+                    Ok(Ok(msg)) => Some(Response::ok(id, serde_json::json!({
+                        "success": true,
+                        "app_name": app_name,
+                        "app_dir": app_dir,
+                        "message": msg
+                    }))),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "RefreshApp command dropped")),
                 }
             }
 

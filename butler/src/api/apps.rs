@@ -112,8 +112,10 @@ impl<'a> AppsApi<'a> {
     /// Update an existing app from a directory
     ///
     /// **Context**: Development workflow - update app with new version
+    /// **Flow**: Read manifest -> collect files -> ensure Scribe open -> send RefreshAppFiles
+    /// **Why Scribe**: Goes through Scribe so CRDT state, observers, and sync all fire correctly
     pub async fn update(&self, page_id: &str, app_dir: &Path) -> Result<()> {
-        // Read manifest to get app name
+        // Parse manifest to get app name
         let manifest_path = app_dir.join("manifest.json");
         let manifest_content = std::fs::read_to_string(&manifest_path)
             .map_err(|e| ButlerError::Database(format!("Failed to read manifest.json: {}", e)))?;
@@ -124,10 +126,31 @@ impl<'a> AppsApi<'a> {
             .and_then(|n| n.as_str())
             .ok_or_else(|| {
                 ButlerError::Database("manifest.json missing 'name' field".to_string())
-            })?;
+            })?
+            .to_string();
 
-        services::app_service::refresh_app_from_directory(self.butler, page_id, app_name, app_dir)
-            .await?;
+        // Read files from disk
+        let files =
+            services::app_service::collect_app_files_from_directory(app_dir)?;
+
+        // Ensure Scribe is open for this page (spawns if needed)
+        let scribe_ref = self.butler.open_page(page_id).await?;
+
+        // Send RefreshAppFiles to Scribe and await reply
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(crate::ScribeMessage::RefreshAppFiles {
+                app_name: app_name.clone(),
+                files,
+                reply: tx,
+            })
+            .map_err(|e| ButlerError::Internal(format!("Failed to send RefreshAppFiles: {}", e)))?;
+
+        rx.await
+            .map_err(|_| ButlerError::Internal("Scribe dropped reply channel".to_string()))?
+            .map_err(|e| ButlerError::Internal(format!("RefreshAppFiles failed: {}", e)))?;
+
+        tracing::info!(page_id = %page_id, app_name = %app_name, "App updated via Scribe");
         Ok(())
     }
 

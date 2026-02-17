@@ -39,9 +39,17 @@ client.list_spaces()                             # List all spaces
 client.list_pages(space_id)                      # List pages in a space
 client.list_apps(page_id)                        # List apps in a page
 client.open_app(page_id, app_name)               # Open an app
-client.refresh_app(app_name, app_dir)            # Hot reload a single app
-client.refresh_page(page_dir)                    # Hot reload all apps in page
+client.refresh_app(app_name, app_dir)            # Refresh one app dir (uses current selected page)
+client.refresh_page(page_dir)                    # Refresh all app dirs under a page directory
 ```
+
+### App Refresh Semantics
+
+- App refresh is offline-first: files are read locally, committed to Scribe first, then synced asynchronously.
+- `refresh_app` and `refresh_page` both flow through Scribe so running apps receive `LayerChanged` and restart in place when needed.
+- If peers are offline, they catch up on reconnect through normal sync (no request/response fetch path).
+- If an app is not currently open on a peer, refreshed files still sync and are used next time the app is opened.
+- `refresh_app` targets the shell's current page id; ensure the desired page is selected/open before calling it.
 
 ### P2P
 

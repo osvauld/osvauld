@@ -584,6 +584,15 @@ impl Actor for Scribe {
                 let _ = reply.send(result);
             }
 
+            ScribeMessage::RefreshAppFiles {
+                app_name,
+                files,
+                reply,
+            } => {
+                let result = handle_refresh_app_files(state, &app_name, files);
+                let _ = reply.send(result);
+            }
+
             ScribeMessage::GetSubscriberCount { reply } => {
                 let count = state.subscribers.read().map(|s| s.len()).unwrap_or(0);
                 let _ = reply.send(count);
@@ -876,6 +885,70 @@ fn handle_remote_ephemeral(
         _ => None,
     };
     broadcast_ephemeral_to_subscribers(state, payload, exclude);
+}
+
+/// Refresh app files in-memory via CRDT path (owner dev workflow)
+///
+/// **Context**: Butler read files from disk and sends them here via RefreshAppFiles message
+/// **We do**: Diff incoming files against current layer state, apply via set_all_files
+/// **Observer**: set_all_files calls commit() → Loro observer fires → broadcasts to subscribers
+/// **No filesystem I/O**: Caller reads files; Scribe only touches the CRDT layer
+#[instrument(skip_all, fields(page_id = %state.page_id, app_name = %app_name))]
+fn handle_refresh_app_files(
+    state: &mut ScribeState,
+    app_name: &str,
+    new_files: HashMap<String, String>,
+) -> std::result::Result<Vec<String>, String> {
+    let layer_name = format!("app:{}", app_name);
+
+    // Ensure layer exists with observer before writing
+    let created = if !state.units.contains_key(&layer_name) {
+        state
+            .units
+            .insert(layer_name.clone(), LayerUnit::new_empty());
+        loro_observer::setup_layer_observer(state, &layer_name);
+        true
+    } else {
+        false
+    };
+
+    let unit = state.units.get_mut(&layer_name).unwrap();
+
+    // Get current files to diff
+    let old_files = unit.layer().get_all_files();
+
+    // Compute changed files (modified + new + deleted)
+    let mut changed: Vec<String> = new_files
+        .iter()
+        .filter(|(path, content)| old_files.get(path.as_str()) != Some(content))
+        .map(|(path, _)| path.clone())
+        .collect();
+    for path in old_files.keys() {
+        if !new_files.contains_key(path.as_str()) {
+            changed.push(path.clone());
+        }
+    }
+
+    if changed.is_empty() {
+        debug!(app_name = %app_name, "No app file changes detected");
+        return Ok(changed);
+    }
+
+    // set_all_files clears + inserts + calls commit() → triggers Loro observer → broadcast
+    unit.layer()
+        .set_all_files(&new_files)
+        .map_err(|e| format!("Failed to update app layer: {}", e))?;
+
+    unit.mark_dirty();
+
+    info!(
+        app_name = %app_name,
+        changed_count = changed.len(),
+        created = created,
+        "App files refreshed, observer will broadcast"
+    );
+
+    Ok(changed)
 }
 
 // Tests
