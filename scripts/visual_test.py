@@ -40,9 +40,16 @@ PRESETS = {
     "chat10": {
         "app_dir": "sample_apps/osvauld-demos/group-chat",
         "peers": [
-            "Alice:owner", "Bob:viewer", "Carol:viewer", "Dave:viewer",
-            "Eve:viewer", "Frank:viewer", "Grace:viewer", "Heidi:viewer",
-            "Ivan:viewer", "Judy:viewer",
+            "Alice:owner",
+            "Bob:viewer",
+            "Carol:viewer",
+            "Dave:viewer",
+            "Eve:viewer",
+            "Frank:viewer",
+            "Grace:viewer",
+            "Heidi:viewer",
+            "Ivan:viewer",
+            "Judy:viewer",
         ],
     },
     "ecomm": {
@@ -64,14 +71,9 @@ BINARY = PROJECT_ROOT / "target" / "debug" / "examples" / "visual_test"
 
 def build_binary():
     """Build the visual_test binary if needed."""
-    print("Building visual_test...")
-    result = subprocess.run(
-        ["cargo", "build", "--example", "visual_test", "-p", "app_test"],
-        cwd=PROJECT_ROOT,
-    )
-    if result.returncode != 0:
-        print("Build failed!")
-        sys.exit(1)
+    print("visual_test is no longer available.")
+    print("The app_test crate was removed from this workspace.")
+    sys.exit(1)
 
 
 def launch(app_dir: str, peers: list[str]) -> subprocess.Popen:
@@ -112,6 +114,7 @@ def run(app_dir: str, peers: list[str]):
     # Wait for process to exit (user closed all windows)
     # Re-check after wait() returns — reload thread may have replaced proc
     import time
+
     while True:
         try:
             proc.wait()

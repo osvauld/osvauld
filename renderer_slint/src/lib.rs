@@ -11,10 +11,7 @@ mod types;
 mod validation;
 mod value_convert;
 
-pub use launch::{
-    create_slint_app, create_test_slint_app, handle_asset_pick, launch_slint_app,
-    launch_test_slint_app,
-};
+pub use launch::{create_slint_app, handle_asset_pick, launch_slint_app};
 pub use page_runtime::{
     generate_page_shell, parse_exported_types, write_shell_slint, AppTab, ExportedTypes,
 };

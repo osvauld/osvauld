@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tracing::trace;
 
 use super::convert::lua_to_json;
-use crate::scribe_handle::ScribeHandle;
+use crate::scribe_handle::ActorScribeHandle;
 
 // Lua Loro List
 
@@ -20,12 +20,12 @@ use crate::scribe_handle::ScribeHandle;
 /// **Design**: Doesn't hold direct LoroList handle - uses Scribe messages for all operations.
 /// This prevents stale handle issues after ReplaceLayer (SyncReset recovery).
 pub struct LuaLoroList {
-    scribe: Arc<dyn ScribeHandle>,
+    scribe: Arc<ActorScribeHandle>,
     layer_name: String,
 }
 
 impl LuaLoroList {
-    pub fn new(scribe: Arc<dyn ScribeHandle>, layer_name: String) -> Self {
+    pub fn new(scribe: Arc<ActorScribeHandle>, layer_name: String) -> Self {
         Self { scribe, layer_name }
     }
 
@@ -111,12 +111,12 @@ impl UserData for LuaLoroList {
 /// **Design**: Doesn't hold direct LoroMap handle - uses Scribe messages for all operations.
 /// This prevents stale handle issues after ReplaceLayer (SyncReset recovery).
 pub struct LuaLoroMap {
-    scribe: Arc<dyn ScribeHandle>,
+    scribe: Arc<ActorScribeHandle>,
     layer_name: String,
 }
 
 impl LuaLoroMap {
-    pub fn new(scribe: Arc<dyn ScribeHandle>, layer_name: String) -> Self {
+    pub fn new(scribe: Arc<ActorScribeHandle>, layer_name: String) -> Self {
         Self { scribe, layer_name }
     }
 

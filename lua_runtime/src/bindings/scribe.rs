@@ -32,7 +32,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use crate::scribe_handle::ScribeHandle;
+use crate::scribe_handle::ActorScribeHandle;
 
 use super::binding::{
     expand_pattern, is_wildcard_pattern, process_binding_data, BindingManager, BindingOptions,
@@ -45,7 +45,7 @@ use crate::ui_types::UiMutation;
 ///
 /// Provides identity, layers, contacts, binding, and ephemeral functionality.
 pub struct ScribeBindings {
-    scribe: Arc<dyn ScribeHandle>,
+    scribe: Arc<ActorScribeHandle>,
     page_id: String,
     our_did: String,
     our_name: Option<String>,
@@ -60,7 +60,7 @@ pub struct ScribeBindings {
 impl ScribeBindings {
     /// Create new ScribeBindings (no UI)
     pub fn new(
-        scribe: Arc<dyn ScribeHandle>,
+        scribe: Arc<ActorScribeHandle>,
         page_id: String,
         our_did: String,
         our_name: Option<String>,
@@ -78,7 +78,7 @@ impl ScribeBindings {
 
     /// Create ScribeBindings with UI support
     pub fn with_ui(
-        scribe: Arc<dyn ScribeHandle>,
+        scribe: Arc<ActorScribeHandle>,
         page_id: String,
         our_did: String,
         our_name: Option<String>,
@@ -475,7 +475,7 @@ impl UserData for ScribeBindings {
 
 /// Fetch layer data as JSON from Scribe
 fn fetch_layer_data(
-    scribe: &Arc<dyn ScribeHandle>,
+    scribe: &Arc<ActorScribeHandle>,
     layer_name: &str,
 ) -> Result<serde_json::Value, String> {
     match scribe.get_layer_json(layer_name)? {
@@ -485,7 +485,7 @@ fn fetch_layer_data(
 }
 
 fn aggregate_wildcard_layers(
-    scribe: &Arc<dyn ScribeHandle>,
+    scribe: &Arc<ActorScribeHandle>,
     expanded_pattern: &str,
 ) -> LuaResult<serde_json::Value> {
     let layer_names = scribe

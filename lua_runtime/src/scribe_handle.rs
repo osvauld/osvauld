@@ -1,115 +1,13 @@
-//! ScribeHandle trait — abstracts Scribe actor access for testability
+//! ActorScribeHandle — concrete Scribe actor access for Lua bindings
 //!
-//! **Pattern**: Follows the same trait extraction pattern as `LayerStorage`/`PeerVectorStorage`
-//! in `scribe/src/storage.rs`.
+//! **Pattern**: Wraps `ActorRef<ScribeMessage>` with a synchronous blocking bridge.
+//! All methods are synchronous because the Lua runtime runs on an OS thread
+//! without a tokio runtime. The async-to-sync bridge is handled internally.
 //!
-//! **Production**: `ActorScribeHandle` wraps `ActorRef<ScribeMessage>` with `block_on_async()`
-//! **Testing**: `MockScribeHandle` (in `mock_scribe.rs`) uses in-memory HashMap storage
+//! **Production**: `ActorScribeHandle` wraps `ActorRef<ScribeMessage>` with `block_in_place()`
 
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
-
-/// Abstraction over Scribe actor operations used by Lua bindings
-///
-/// All methods are synchronous (blocking) because Lua runtime runs on an OS thread
-/// without a tokio runtime. Implementations handle the async-to-sync bridge internally.
-pub trait ScribeHandle: Send + Sync {
-    // -- Layer lifecycle --
-
-    /// Ensure a list layer exists (creates if needed)
-    fn ensure_list(&self, layer_name: &str) -> Result<(), String>;
-
-    /// Ensure a map layer exists (creates if needed)
-    fn ensure_map(&self, layer_name: &str) -> Result<(), String>;
-
-    /// Create an empty derived layer (for derivation engine)
-    fn create_derived_layer(&self, target_layer: &str) -> Result<(), String>;
-
-    // -- List operations --
-
-    /// Push item to end of list
-    fn list_push(&self, layer_name: &str, path: &str, item: JsonValue) -> Result<(), String>;
-
-    /// Insert item at index
-    fn list_insert(
-        &self,
-        layer_name: &str,
-        path: &str,
-        index: usize,
-        item: JsonValue,
-    ) -> Result<(), String>;
-
-    /// Delete item at index
-    fn list_delete(&self, layer_name: &str, path: &str, index: usize) -> Result<(), String>;
-
-    /// Get item at index
-    fn list_get(&self, layer_name: &str, index: usize) -> Result<Option<JsonValue>, String>;
-
-    /// Get list length
-    fn list_length(&self, layer_name: &str) -> Result<usize, String>;
-
-    // -- Map operations --
-
-    /// Insert or update a key-value pair
-    fn map_insert(
-        &self,
-        layer_name: &str,
-        path: &str,
-        key: &str,
-        value: JsonValue,
-    ) -> Result<(), String>;
-
-    /// Get value by key
-    fn map_get(&self, layer_name: &str, key: &str) -> Result<Option<JsonValue>, String>;
-
-    /// Delete key from map
-    fn map_delete(&self, layer_name: &str, path: &str, key: &str) -> Result<(), String>;
-
-    /// Get map length
-    fn map_length(&self, layer_name: &str) -> Result<usize, String>;
-
-    /// Get all keys from map
-    fn map_keys(&self, layer_name: &str) -> Result<Vec<String>, String>;
-
-    // -- Query --
-
-    /// List layer names matching a glob pattern
-    fn list_layers(&self, pattern: &str) -> Result<Vec<String>, String>;
-
-    /// Get layer content as JSON (returns None if layer doesn't exist)
-    fn get_layer_json(&self, layer_name: &str) -> Result<Option<JsonValue>, String>;
-
-    /// Get layer data as JSON (returns error if layer doesn't exist)
-    fn get_layer_data(&self, layer_name: &str) -> Result<JsonValue, String>;
-
-    // -- Dynamic layers --
-
-    /// Create a dynamic layer from a schema pattern
-    ///
-    /// **Context**: Lua app calls `scribe:create_layer("channels/{id}/messages", "general")`
-    /// **Returns**: Full layer name (e.g., "{page_id}/channels/{our_did}/general/messages")
-    fn create_layer(
-        &self,
-        schema_key: &str,
-        layer_id: &str,
-        authorized_peers: Option<Vec<String>>,
-    ) -> Result<String, String>;
-
-    // -- Layer access --
-
-    /// Add DIDs as participants to an explicit dynamic layer
-    fn add_layer_access(&self, layer_name: &str, dids: &[String]) -> Result<(), String>;
-
-    // -- Peers & Ephemeral --
-
-    /// Get count of subscribers to this page
-    fn get_subscriber_count(&self) -> usize;
-
-    /// Send ephemeral data to all peers
-    fn send_ephemeral(&self, payload: Vec<u8>) -> Result<(), String>;
-}
-
-// -- Production implementation: ActorScribeHandle --
 
 use ractor::ActorRef;
 use scribe::ScribeMessage;
@@ -136,28 +34,29 @@ fn rpc_direct<T>(rx: oneshot::Receiver<T>) -> Result<T, String> {
     result.map_err(|e| format!("Channel error: {}", e))
 }
 
-/// Production ScribeHandle wrapping an `ActorRef<ScribeMessage>`
+/// Concrete Scribe handle wrapping an `ActorRef<ScribeMessage>`
 ///
-/// All operations delegate to the Scribe actor via cast/call with `block_on_async`.
+/// All operations delegate to the Scribe actor via cast/call with `block_in_place`.
 /// Identical behavior to the previous direct `scribe_ref` usage in bindings.
 pub struct ActorScribeHandle {
     scribe_ref: ActorRef<ScribeMessage>,
 }
 
 impl ActorScribeHandle {
-    pub fn new(scribe_ref: ActorRef<ScribeMessage>) -> Arc<dyn ScribeHandle> {
+    pub fn new(scribe_ref: ActorRef<ScribeMessage>) -> Arc<Self> {
         Arc::new(Self { scribe_ref })
     }
 
-    /// Get the underlying ActorRef (for operations not covered by the trait,
+    /// Get the underlying ActorRef (for operations not covered by the methods,
     /// like SubscribeToPageUpdates)
     pub fn actor_ref(&self) -> &ActorRef<ScribeMessage> {
         &self.scribe_ref
     }
-}
 
-impl ScribeHandle for ActorScribeHandle {
-    fn ensure_list(&self, layer_name: &str) -> Result<(), String> {
+    // -- Layer lifecycle --
+
+    /// Ensure a list layer exists (creates if needed)
+    pub fn ensure_list(&self, layer_name: &str) -> Result<(), String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::EnsureLoroList {
@@ -168,7 +67,8 @@ impl ScribeHandle for ActorScribeHandle {
         rpc(rx)
     }
 
-    fn ensure_map(&self, layer_name: &str) -> Result<(), String> {
+    /// Ensure a map layer exists (creates if needed)
+    pub fn ensure_map(&self, layer_name: &str) -> Result<(), String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::EnsureLoroMap {
@@ -179,7 +79,8 @@ impl ScribeHandle for ActorScribeHandle {
         rpc(rx)
     }
 
-    fn create_derived_layer(&self, target_layer: &str) -> Result<(), String> {
+    /// Create an empty derived layer (for derivation engine)
+    pub fn create_derived_layer(&self, target_layer: &str) -> Result<(), String> {
         self.scribe_ref
             .cast(ScribeMessage::CreateDerivedLayer {
                 target_layer: target_layer.to_string(),
@@ -187,7 +88,10 @@ impl ScribeHandle for ActorScribeHandle {
             .map_err(|e| format!("Failed to create derived layer: {}", e))
     }
 
-    fn list_push(&self, layer_name: &str, path: &str, item: JsonValue) -> Result<(), String> {
+    // -- List operations --
+
+    /// Push item to end of list
+    pub fn list_push(&self, layer_name: &str, path: &str, item: JsonValue) -> Result<(), String> {
         self.scribe_ref
             .cast(ScribeMessage::ListPush {
                 layer_name: layer_name.to_string(),
@@ -197,7 +101,8 @@ impl ScribeHandle for ActorScribeHandle {
             .map_err(|e| format!("Failed to push: {}", e))
     }
 
-    fn list_insert(
+    /// Insert item at index
+    pub fn list_insert(
         &self,
         layer_name: &str,
         path: &str,
@@ -214,7 +119,8 @@ impl ScribeHandle for ActorScribeHandle {
             .map_err(|e| format!("Failed to insert: {}", e))
     }
 
-    fn list_delete(&self, layer_name: &str, path: &str, index: usize) -> Result<(), String> {
+    /// Delete item at index
+    pub fn list_delete(&self, layer_name: &str, path: &str, index: usize) -> Result<(), String> {
         self.scribe_ref
             .cast(ScribeMessage::ListDelete {
                 layer_name: layer_name.to_string(),
@@ -224,7 +130,8 @@ impl ScribeHandle for ActorScribeHandle {
             .map_err(|e| format!("Failed to delete: {}", e))
     }
 
-    fn list_get(&self, layer_name: &str, index: usize) -> Result<Option<JsonValue>, String> {
+    /// Get item at index
+    pub fn list_get(&self, layer_name: &str, index: usize) -> Result<Option<JsonValue>, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::ListGet {
@@ -236,7 +143,8 @@ impl ScribeHandle for ActorScribeHandle {
         rpc(rx)
     }
 
-    fn list_length(&self, layer_name: &str) -> Result<usize, String> {
+    /// Get list length
+    pub fn list_length(&self, layer_name: &str) -> Result<usize, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::ListLength {
@@ -247,7 +155,10 @@ impl ScribeHandle for ActorScribeHandle {
         rpc(rx)
     }
 
-    fn map_insert(
+    // -- Map operations --
+
+    /// Insert or update a key-value pair
+    pub fn map_insert(
         &self,
         layer_name: &str,
         path: &str,
@@ -264,7 +175,8 @@ impl ScribeHandle for ActorScribeHandle {
             .map_err(|e| format!("Failed to set: {}", e))
     }
 
-    fn map_get(&self, layer_name: &str, key: &str) -> Result<Option<JsonValue>, String> {
+    /// Get value by key
+    pub fn map_get(&self, layer_name: &str, key: &str) -> Result<Option<JsonValue>, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::MapGet {
@@ -276,7 +188,8 @@ impl ScribeHandle for ActorScribeHandle {
         rpc(rx)
     }
 
-    fn map_delete(&self, layer_name: &str, path: &str, key: &str) -> Result<(), String> {
+    /// Delete key from map
+    pub fn map_delete(&self, layer_name: &str, path: &str, key: &str) -> Result<(), String> {
         self.scribe_ref
             .cast(ScribeMessage::MapDelete {
                 layer_name: layer_name.to_string(),
@@ -286,7 +199,8 @@ impl ScribeHandle for ActorScribeHandle {
             .map_err(|e| format!("Failed to delete: {}", e))
     }
 
-    fn map_length(&self, layer_name: &str) -> Result<usize, String> {
+    /// Get map length
+    pub fn map_length(&self, layer_name: &str) -> Result<usize, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::MapLength {
@@ -297,7 +211,8 @@ impl ScribeHandle for ActorScribeHandle {
         rpc(rx)
     }
 
-    fn map_keys(&self, layer_name: &str) -> Result<Vec<String>, String> {
+    /// Get all keys from map
+    pub fn map_keys(&self, layer_name: &str) -> Result<Vec<String>, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::MapKeys {
@@ -308,7 +223,10 @@ impl ScribeHandle for ActorScribeHandle {
         rpc(rx)
     }
 
-    fn list_layers(&self, pattern: &str) -> Result<Vec<String>, String> {
+    // -- Query --
+
+    /// List layer names matching a glob pattern
+    pub fn list_layers(&self, pattern: &str) -> Result<Vec<String>, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::ListLayers {
@@ -319,7 +237,8 @@ impl ScribeHandle for ActorScribeHandle {
         rpc_direct(rx)
     }
 
-    fn get_layer_json(&self, layer_name: &str) -> Result<Option<JsonValue>, String> {
+    /// Get layer content as JSON (returns None if layer doesn't exist)
+    pub fn get_layer_json(&self, layer_name: &str) -> Result<Option<JsonValue>, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::GetLayerJson {
@@ -330,7 +249,8 @@ impl ScribeHandle for ActorScribeHandle {
         rpc_direct(rx)
     }
 
-    fn get_layer_data(&self, layer_name: &str) -> Result<JsonValue, String> {
+    /// Get layer data as JSON (returns error if layer doesn't exist)
+    pub fn get_layer_data(&self, layer_name: &str) -> Result<JsonValue, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::GetLayerData {
@@ -341,7 +261,13 @@ impl ScribeHandle for ActorScribeHandle {
         rpc(rx)
     }
 
-    fn create_layer(
+    // -- Dynamic layers --
+
+    /// Create a dynamic layer from a schema pattern
+    ///
+    /// **Context**: Lua app calls `scribe:create_layer("channels/{id}/messages", "general")`
+    /// **Returns**: Full layer name (e.g., "{page_id}/channels/{our_did}/general/messages")
+    pub fn create_layer(
         &self,
         schema_key: &str,
         layer_id: &str,
@@ -359,7 +285,10 @@ impl ScribeHandle for ActorScribeHandle {
         rpc(rx)
     }
 
-    fn add_layer_access(&self, layer_name: &str, dids: &[String]) -> Result<(), String> {
+    // -- Layer access --
+
+    /// Add DIDs as participants to an explicit dynamic layer
+    pub fn add_layer_access(&self, layer_name: &str, dids: &[String]) -> Result<(), String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::AddLayerAccess {
@@ -371,7 +300,10 @@ impl ScribeHandle for ActorScribeHandle {
         rpc(rx)
     }
 
-    fn get_subscriber_count(&self) -> usize {
+    // -- Peers & Ephemeral --
+
+    /// Get count of subscribers to this page
+    pub fn get_subscriber_count(&self) -> usize {
         let (tx, rx) = oneshot::channel();
         if self
             .scribe_ref
@@ -387,7 +319,8 @@ impl ScribeHandle for ActorScribeHandle {
         result.unwrap_or(0)
     }
 
-    fn send_ephemeral(&self, payload: Vec<u8>) -> Result<(), String> {
+    /// Send ephemeral data to all peers
+    pub fn send_ephemeral(&self, payload: Vec<u8>) -> Result<(), String> {
         self.scribe_ref
             .cast(ScribeMessage::SendEphemeral { payload })
             .map_err(|e| format!("Failed to send ephemeral: {}", e))

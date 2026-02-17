@@ -1,18 +1,14 @@
 use crate::prepare::prepare_page;
 use crate::{
-    extract_panic_message, AppStatus, AppTab, AppVersion, AssetPickRequest, LaunchedApp, Manifest,
-    PreparedPage, RunningSlintApp, SlintRuntime, WindowGeometry,
+    extract_panic_message, AppStatus, AssetPickRequest, LaunchedApp, PreparedPage, RunningSlintApp,
+    SlintRuntime, WindowGeometry,
 };
 use butler::{Butler, PageUpdate, ScribeMessage};
-use lua_runtime::{
-    ActorScribeHandle, LuaCommand, LuaRuntime, LuaRuntimeConfig, ScribeHandle, UiMutation, UiQuery,
-};
+use lua_runtime::{ActorScribeHandle, LuaCommand, LuaRuntime, LuaRuntimeConfig, UiMutation, UiQuery};
 use ractor::ActorRef;
 use slint::ComponentHandle;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;
-use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -430,134 +426,6 @@ pub fn handle_asset_pick(
             Err(e) => tracing::error!(error = %e, "Failed to upload asset"),
         }
     });
-}
-
-pub fn create_test_slint_app(
-    app_dir: &Path,
-    page_id: &str,
-    user_did: &str,
-    user_name: &str,
-    user_role: &str,
-    scribe: Arc<dyn ScribeHandle>,
-) -> Option<RunningSlintApp> {
-    use std::fs;
-
-    let manifest_path = app_dir.join("manifest.json");
-    let manifest_content = fs::read_to_string(&manifest_path).ok()?;
-    let manifest: Manifest = serde_json::from_str(&manifest_content).ok()?;
-    let app_name = manifest.name.clone();
-
-    let lua_path = app_dir.join(&manifest.entry_logic);
-    let raw_lua_code = fs::read_to_string(&lua_path).ok()?;
-
-    let temp_dir = tempfile::tempdir().ok()?;
-    let temp_path = temp_dir.path().to_path_buf();
-    for entry in walkdir::WalkDir::new(app_dir).into_iter().filter_map(|e| e.ok()) {
-        if entry.file_type().is_file() {
-            let rel = entry.path().strip_prefix(app_dir).unwrap_or(entry.path());
-            let dest = temp_path.join(rel);
-            if let Some(parent) = dest.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
-            let _ = fs::copy(entry.path(), &dest);
-        }
-    }
-
-    let app_slint_path = temp_path.join(manifest.entry_ui.as_deref().unwrap_or("app.slint"));
-    let tab = AppTab {
-        name: app_name.clone(),
-        display_name: app_name.clone(),
-    };
-    let shell_source = crate::generate_page_shell(&app_slint_path, &[tab.clone()], &app_name, &app_name, None);
-    let shell_path = crate::write_shell_slint(&temp_path, &shell_source).ok()?;
-
-    let channels = AppChannels::new();
-    let lua_code = format!(
-        "package.path = '{}/?.lua;' .. package.path\n{}",
-        temp_path.display(),
-        raw_lua_code
-    );
-
-    let config = LuaRuntimeConfig {
-        page_id: page_id.to_string(),
-        app_name: app_name.clone(),
-        scribe,
-        user_did: user_did.to_string(),
-        user_name: user_name.to_string(),
-        user_role: user_role.to_string(),
-        lua_code,
-        ui_enabled: true,
-        ui_tx: Some(channels.ui_tx.clone()),
-        query_tx: Some(channels.query_tx.clone()),
-        navigate_tx: None,
-    };
-
-    let (lua_thread, lua_tx) = LuaRuntime::spawn(config).ok()?;
-    let mut slint_runtime = SlintRuntime::load(
-        shell_path,
-        app_name.clone(),
-        channels.ui_rx,
-        channels.query_rx,
-        lua_tx.clone(),
-    )
-    .ok()?;
-
-    configure_runtime_and_show(
-        &mut slint_runtime,
-        channels.tab_switch_tx.clone(),
-        channels.asset_pick_tx.clone(),
-        None,
-        &manifest.models,
-    )
-    .ok()?;
-
-    let _ = temp_dir.keep();
-    let files: HashMap<String, String> = HashMap::new();
-    let version = AppVersion::new(&manifest.version, &files);
-
-    Some(RunningSlintApp {
-        app_name,
-        page_id: page_id.to_string(),
-        page_name: page_id.to_string(),
-        all_apps: vec![tab],
-        slint_runtime,
-        lua_thread,
-        lua_tx,
-        page_update_rx: channels.page_update_rx,
-        tab_switch_rx: channels.tab_switch_rx,
-        asset_pick_rx: channels.asset_pick_rx,
-        version,
-    })
-}
-
-pub fn launch_test_slint_app(
-    app_dir: &Path,
-    page_id: &str,
-    user_did: &str,
-    user_name: &str,
-    user_role: &str,
-    scribe: Arc<dyn ScribeHandle>,
-) -> Option<LaunchedApp> {
-    let running = create_test_slint_app(app_dir, page_id, user_did, user_name, user_role, scribe)?;
-    let lua_tx_out = running.lua_tx.clone();
-    let running = Rc::new(RefCell::new(Some(running)));
-
-    let timer = slint::Timer::default();
-    timer.start(slint::TimerMode::Repeated, Duration::from_millis(100), move || {
-        let mut running_ref = running.borrow_mut();
-        let Some(running_app) = running_ref.as_mut() else {
-            return;
-        };
-        if let Err(e) = running_app.slint_runtime.process_ui_mutations() {
-            tracing::warn!(error = %e, "Failed to process UI mutations");
-        }
-        running_app.slint_runtime.process_ui_queries();
-    });
-
-    Some(LaunchedApp {
-        timer,
-        lua_tx: lua_tx_out,
-    })
 }
 
 fn capture_window_geometry(app: &RunningSlintApp) -> WindowGeometry {

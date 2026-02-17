@@ -35,8 +35,8 @@ Expands to current user's DID at bind time. Example: `scribe:bind("my_orders", "
 ### BindingManager
 Maintains: `bindings` (property -> LayerBinding), `layer_to_properties` (layer -> properties for exact match), `wildcard_patterns` (for prefix matching).
 
-### ScribeHandle Trait
-All methods are **synchronous** because Lua runs on an OS thread without tokio. `ActorScribeHandle` bridges async via `tokio::task::block_in_place(|| handle.block_on(rx))`.
+### ActorScribeHandle Bridge
+Lua-to-scribe methods are **synchronous** at the binding boundary because Lua runs on an OS thread without tokio. `ActorScribeHandle` bridges async actor messaging via `tokio::task::block_in_place(|| handle.block_on(rx))`.
 
 ## Key Files
 
@@ -44,7 +44,7 @@ All methods are **synchronous** because Lua runs on an OS thread without tokio. 
 |------|---------|
 | `bindings/scribe.rs` | ScribeBindings UserData: my_did, page_id, send, create_layer, add/remove_layer_access, list, map, list_layers, bind, rebind |
 | `bindings/binding.rs` | BindingManager, LayerBinding, BindingOptions, expand_pattern, apply_transform, process_binding_data, convert_delta_for_binding, data_to_ui_mutation |
-| `scribe_handle.rs` | ScribeHandle trait (sync), ActorScribeHandle (async bridge), MockScribeHandle |
+| `scribe_handle.rs` | ActorScribeHandle sync API and async bridge to Scribe actor |
 
 ## Gotchas
 

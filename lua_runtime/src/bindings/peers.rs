@@ -7,18 +7,18 @@ use mlua::{UserData, UserDataMethods};
 use std::sync::Arc;
 use tracing::debug;
 
-use crate::scribe_handle::ScribeHandle;
+use crate::scribe_handle::ActorScribeHandle;
 
 /// Peers bindings for Lua
 ///
 /// **Context**: Scripts need to check if anyone is listening before broadcasting.
 /// **Usage**: `if peers:count() > 0 then broadcast_position() end`
 pub struct PeersBindings {
-    scribe: Arc<dyn ScribeHandle>,
+    scribe: Arc<ActorScribeHandle>,
 }
 
 impl PeersBindings {
-    pub fn new(scribe: Arc<dyn ScribeHandle>) -> Self {
+    pub fn new(scribe: Arc<ActorScribeHandle>) -> Self {
         Self { scribe }
     }
 }
