@@ -1,5 +1,5 @@
 ---
-description: Lua runtime specialist -- mlua VM, bindings, scheduler, mock scribe, app lifecycle
+description: Lua runtime specialist -- mlua VM, bindings, scheduler, app lifecycle
 mode: subagent
 model: anthropic/claude-sonnet-4-5
 temperature: 0.2
@@ -56,7 +56,7 @@ Note: `page:on_change(...)` was removed.
 Dual-indexed BTreeMap: by ID for O(1) cancel, by deadline for efficient next-deadline. `setInterval`/`setTimeout`/`clearInterval`/`clearTimeout`. Callbacks in Lua `_G._timers[id]`.
 
 ### scribe_handle.rs -- Async-to-Sync Bridge
-`ScribeHandle` trait (all methods synchronous). `ActorScribeHandle` uses `block_in_place` bridge. `MockScribeHandle` for testing with `MockScribeState`.
+`ActorScribeHandle` provides synchronous methods for Lua bindings and bridges to async actor calls via `block_in_place`.
 
 ### commands.rs -- LuaCommand Enum
 Core variants include: `LayerChanged`, `UiCallback`, `UiEvent`, `Shutdown`, `TimerFired`, `Ephemeral`, `StructuredEphemeral`, `PeerJoined`, `PeerLeft`, `AssetUploaded`, `Validate`, `RebuildDerivation`, `DebugEval`, `DebugGetState`.
@@ -68,12 +68,12 @@ Note: `LoroChanged` + `LayerDiscovered` were unified into `LayerChanged { create
 
 ## Gotchas
 
-- **OS thread**: `std::thread::spawn` not `tokio::spawn`. All ScribeHandle methods must be sync.
+- **OS thread**: `std::thread::spawn` not `tokio::spawn`. Lua-to-scribe calls remain synchronous at the binding boundary.
 - **Handler cache**: Populated after `on_init()`. If handlers are defined inside `on_init()`, the cache catches them.
 - **Idle polling**: Runtime sleeps up to 1ms between idle steps for responsiveness.
 - **Derivation layer prefix**: Scribe uses bare names, derivation rules use `page_id/` prefix. `trigger_derivation()` re-adds it.
 - **Mutation batching**: Multiple `ui:set()` calls in one handler produce one `UiMutation`.
-- **`eval()` vs `eval_sync()`**: In app_test, `eval()` is async (returns Null), `eval_sync()` sends + ticks + returns.
+- **`eval()` vs `eval_sync()`**: `eval()` is async fire-and-forget, while `eval_sync()` runs a synchronous request path and returns the result.
 - **No `on_loro_change` callback**: app-level manual refresh must use bindings, discovery callback, or explicit reload logic.
 
 ## Skills to Load

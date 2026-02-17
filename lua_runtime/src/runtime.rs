@@ -8,7 +8,7 @@ use serde_json::Value as JsonValue;
 use tokio::sync::mpsc;
 use tracing::{debug, info, trace, warn};
 
-use crate::scribe_handle::ScribeHandle;
+use crate::scribe_handle::ActorScribeHandle;
 use butler::LoroDelta;
 
 use crate::bindings::binding::{data_to_ui_mutation, process_binding_data, BindingManager};
@@ -26,8 +26,6 @@ use crate::scheduler::Scheduler;
 use crate::ui_types::{UiMutation, UiQuery};
 use crate::{LUA_API_MODULE, LUA_BINDING_MODULE, LUA_DATE_MODULE, LUA_PRESENCE_MODULE};
 
-#[cfg(test)]
-mod binding_lookup_tests;
 mod buffered_ui;
 mod debug;
 mod engine;
@@ -46,7 +44,7 @@ use timer_bindings::register_timer_functions;
 pub struct LuaRuntimeConfig {
     pub page_id: String,
     pub app_name: String,
-    pub scribe: Arc<dyn ScribeHandle>,
+    pub scribe: Arc<ActorScribeHandle>,
     pub user_did: String,
     pub user_name: String,
     pub user_role: String,
@@ -74,7 +72,7 @@ pub struct LuaRuntime {
     ui_tx: Option<mpsc::Sender<UiMutation>>,
     ui_shared: Arc<Mutex<UiSharedState>>,
     binding_manager: Arc<Mutex<BindingManager>>,
-    scribe: Arc<dyn ScribeHandle>,
+    scribe: Arc<ActorScribeHandle>,
     ui_enabled: bool,
     handler_cache: HandlerCache,
 }

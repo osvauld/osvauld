@@ -12,7 +12,7 @@ use mlua::{
 use tracing::info;
 
 use super::convert::{json_to_lua, lua_to_json, matches_layer_pattern};
-use crate::scribe_handle::ScribeHandle;
+use crate::scribe_handle::ActorScribeHandle;
 
 // Local Derivation Rule
 
@@ -41,7 +41,7 @@ struct LocalDerivationRule {
 ///
 /// **Note**: Rules are stored locally (same Lua instance) to avoid cross-instance issues.
 pub struct DerivationBindings {
-    scribe: Arc<dyn ScribeHandle>,
+    scribe: Arc<ActorScribeHandle>,
     /// Locally stored rules (bound to this Lua instance)
     rules: Arc<RwLock<Vec<LocalDerivationRule>>>,
     /// Whether this is enabled (only on node)
@@ -50,7 +50,7 @@ pub struct DerivationBindings {
 }
 
 impl DerivationBindings {
-    pub fn new(scribe: Arc<dyn ScribeHandle>) -> Self {
+    pub fn new(scribe: Arc<ActorScribeHandle>) -> Self {
         Self {
             scribe,
             rules: Arc::new(RwLock::new(Vec::new())),

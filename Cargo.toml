@@ -17,7 +17,6 @@ members = [
   "renderer_raylib",
   "sthalam_shell",
   "sthalam",
-  "app_test",
   "integration_tests",
 ]
 

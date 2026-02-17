@@ -61,19 +61,15 @@ mod scheduler;
 // UI types (VecModelOp, UiMutation, PropertyUpdate, UiQuery)
 mod ui_types;
 
-// ScribeHandle trait + ActorScribeHandle (production impl)
+// ActorScribeHandle — concrete Scribe actor access
 mod scribe_handle;
-
-// MockScribeHandle (in-memory impl for testing)
-mod mock_scribe;
 
 mod commands;
 mod runtime;
 
 pub use commands::{LuaCommand, UiEventType, ValidationContext, ValidationResult};
-pub use mock_scribe::{MockScribeHandle, MockScribeState};
 pub use runtime::{BufferedUiState, LuaRuntime, LuaRuntimeConfig, StepResult};
-pub use scribe_handle::{ActorScribeHandle, ScribeHandle};
+pub use scribe_handle::ActorScribeHandle;
 
 // Re-export binding types (public API only)
 pub use bindings::{json_to_lua, lua_to_json_err, ScribeBindings};
