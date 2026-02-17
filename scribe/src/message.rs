@@ -643,6 +643,18 @@ pub enum ScribeMessage {
         reply: tokio::sync::oneshot::Sender<std::result::Result<HashMap<String, String>, String>>,
     },
 
+    /// Refresh app files in-memory (owner dev workflow)
+    ///
+    /// **Context**: Owner edited files on disk; Butler read them and sends here
+    /// **We do**: Compare with current layer, update LoroMap, commit, mark dirty
+    /// **Observer**: Loro observer broadcasts PageUpdate to subscribers
+    /// **Why**: Goes through Scribe so CRDT state, observers, and sync all fire correctly
+    RefreshAppFiles {
+        app_name: String,
+        files: HashMap<String, String>,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<Vec<String>, String>>,
+    },
+
     /// Get subscriber count (for Lua peers:count() binding)
     ///
     /// **Context**: Node script wants to check if anyone is listening before broadcasting

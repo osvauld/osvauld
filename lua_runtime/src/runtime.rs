@@ -105,6 +105,47 @@ impl HandlerCache {
 }
 
 impl LuaRuntime {
+    /// Whether a layer is internal protocol metadata and should be hidden from app discovery replay.
+    fn is_protocol_layer(layer_name: &str) -> bool {
+        layer_name.starts_with("__sync_meta:")
+    }
+
+    /// Replay all existing non-protocol layers into `on_layer_discovered` after runtime init.
+    ///
+    /// **Context**: App restarts (including refresh-triggered restart) create a fresh Lua VM.
+    /// Dynamic-layer UI state is often rebuilt from discovery callbacks.
+    /// **We do**: list all local layers from Scribe and synthesize discovery callbacks.
+    fn replay_existing_layer_discovery(&self) {
+        let layers = match self.scribe.list_layers("*") {
+            Ok(layers) => layers,
+            Err(error) => {
+                warn!(page_id = %self.page_id, error = %error, "Failed to list layers for startup discovery replay");
+                return;
+            }
+        };
+
+        let mut replayed = 0usize;
+        for layer_name in layers {
+            if Self::is_protocol_layer(&layer_name) {
+                continue;
+            }
+
+            if let Err(error) = self.handle_layer_discovered(&layer_name) {
+                warn!(
+                    page_id = %self.page_id,
+                    layer = %layer_name,
+                    error = %error,
+                    "Startup discovery replay failed for layer"
+                );
+                continue;
+            }
+
+            replayed += 1;
+        }
+
+        debug!(page_id = %self.page_id, layer_count = replayed, "Startup discovery replay complete");
+    }
+
     /// Spawn Lua runtime on an OS thread.
     pub fn spawn(
         config: LuaRuntimeConfig,
@@ -143,9 +184,14 @@ impl LuaRuntime {
             } else {
                 debug!(page_id = %self.page_id, "on_init completed");
             }
-            self.flush_mutations();
-            self.handler_cache = HandlerCache::populate(&self.lua);
         }
+
+        self.flush_mutations();
+        self.handler_cache = HandlerCache::populate(&self.lua);
+
+        // Rebuild app-visible layer discovery state from local CRDT inventory.
+        self.replay_existing_layer_discovery();
+        self.flush_mutations();
     }
 
     /// Process a single step of the event loop.

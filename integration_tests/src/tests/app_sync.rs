@@ -4,9 +4,66 @@
 //! Uses real sample_apps/ directories and import_page().
 
 use anyhow::Result;
+use std::fs;
+use std::path::{Path, PathBuf};
 
-use crate::fixtures::{init_tracing, wait_for_app_files, app_dir, PAGE_SYNC_TIMEOUT};
+use crate::fixtures::{app_dir, init_tracing, wait_for_app_files, PAGE_SYNC_TIMEOUT};
 use crate::scenario::Scenario;
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
+}
+
+fn make_modified_group_chat_copy(marker: &str) -> Result<(tempfile::TempDir, PathBuf)> {
+    let source = app_dir("osvauld-demos").join("group-chat");
+    let temp = tempfile::tempdir()?;
+    let dest = temp.path().join("group-chat");
+
+    copy_dir_recursive(&source, &dest)?;
+
+    let app_lua_path = dest.join("app.lua");
+    let original = fs::read_to_string(&app_lua_path)?;
+    let modified = format!("{}\n-- {}\n", original, marker);
+    fs::write(&app_lua_path, modified)?;
+
+    Ok((temp, dest))
+}
+
+async fn wait_for_app_lua_contains(
+    butler: &butler::Butler,
+    page_id: &str,
+    app_name: &str,
+    needle: &str,
+) -> Result<String> {
+    let deadline = tokio::time::Instant::now() + PAGE_SYNC_TIMEOUT;
+    loop {
+        if let Ok(files) = butler.apps().get_files(page_id, app_name).await {
+            if let Some(app_lua) = files.get("app.lua") {
+                if app_lua.contains(needle) {
+                    return Ok(app_lua.clone());
+                }
+            }
+        }
+        if tokio::time::Instant::now() > deadline {
+            return Err(anyhow::anyhow!(
+                "Timeout waiting for app.lua to contain marker '{}'",
+                needle
+            ));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
 
 /// Owner imports page from real app dir, app layer has files
 ///
@@ -136,6 +193,71 @@ async fn test_app_layer_syncs_to_viewer() -> Result<()> {
         parsed.get("name").and_then(|v| v.as_str()),
         Some("Group Chat"),
         "Manifest name should be 'Group Chat'"
+    );
+
+    s.shutdown().await;
+    Ok(())
+}
+
+/// Owner refresh propagates updated app files to node via sync.
+#[tokio::test]
+async fn test_refresh_app_propagates_to_node() -> Result<()> {
+    init_tracing();
+
+    let mut s = Scenario::builder()
+        .app("osvauld-demos")
+        .published()
+        .build()
+        .await?;
+
+    let page_id = s.space().page_id.clone();
+    let marker = "refresh-propagates-to-node";
+    let (_temp, modified_app_dir) = make_modified_group_chat_copy(marker)?;
+
+    s.owner()
+        .butler
+        .apps()
+        .update(&page_id, &modified_app_dir)
+        .await?;
+
+    let node_app_lua =
+        wait_for_app_lua_contains(&s.node().butler, &page_id, "Group Chat", marker).await?;
+    assert!(node_app_lua.contains(marker), "Node should receive refreshed app.lua content");
+
+    s.shutdown().await;
+    Ok(())
+}
+
+/// Owner refresh while disconnected syncs to node after reconnect.
+#[tokio::test]
+async fn test_refresh_app_catches_up_after_node_reconnect() -> Result<()> {
+    init_tracing();
+
+    let mut s = Scenario::builder()
+        .app("osvauld-demos")
+        .published()
+        .build()
+        .await?;
+
+    let page_id = s.space().page_id.clone();
+    let marker = "refresh-catches-up-after-reconnect";
+    let (_temp, modified_app_dir) = make_modified_group_chat_copy(marker)?;
+
+    s.disconnect_owner_from_node().await?;
+
+    s.owner()
+        .butler
+        .apps()
+        .update(&page_id, &modified_app_dir)
+        .await?;
+
+    s.reconnect_owner_to_node().await?;
+
+    let node_app_lua =
+        wait_for_app_lua_contains(&s.node().butler, &page_id, "Group Chat", marker).await?;
+    assert!(
+        node_app_lua.contains(marker),
+        "Node should catch up with refreshed app.lua after reconnect"
     );
 
     s.shutdown().await;

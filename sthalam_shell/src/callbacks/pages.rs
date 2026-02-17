@@ -1,8 +1,9 @@
 //! Page management callbacks
 //!
-//! Handles page operations: request, select, upload, reload.
+//! Handles page operations: request, select, upload, reload, refresh-app.
 //! Note: App launching is handled by the main binary, not here.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use butler::Butler;
@@ -18,6 +19,7 @@ pub fn register(shell: &Shell, butler: Arc<Butler>) {
     register_reload_page(shell, butler.clone());
     register_request_page_apps(shell, butler.clone());
     register_delete_app(shell);
+    register_refresh_app(shell, butler.clone());
 }
 
 /// Register request_pages callback - loads pages for a space
@@ -207,5 +209,80 @@ fn register_delete_app(shell: &Shell) {
     shell.on_delete_app(|app_id| {
         tracing::info!(app_id = %app_id, "Delete app");
         // TODO: Implement app deletion
+    });
+}
+
+/// Register refresh_app callback - updates an existing app from filesystem via Scribe
+///
+/// **Context**: Developer workflow -- hot-update an app in place without re-importing the page
+/// **Shell sends**: app_name (unused for routing), app_dir (path to app directory on disk)
+/// **We read**: current_page_id from shell state
+/// **We call**: butler.apps().update() which goes through Scribe so CRDT, observers, and sync fire
+/// **We emit**: info on success, warn/error on validation or update failure
+fn register_refresh_app(shell: &Shell, butler: Arc<Butler>) {
+    let shell_weak = shell.as_weak();
+    shell.on_refresh_app(move |app_name, app_dir| {
+        let app_dir_str = app_dir.to_string();
+        let app_name_str = app_name.to_string();
+
+        let current_page_id = if let Some(shell) = shell_weak.upgrade() {
+            shell.get_current_page_id().to_string()
+        } else {
+            tracing::warn!("refresh_app: shell handle gone, cannot read current page id");
+            return;
+        };
+
+        if current_page_id.is_empty() {
+            tracing::warn!(
+                app_name = %app_name_str,
+                "refresh_app: no page selected, ignoring refresh request"
+            );
+            return;
+        }
+
+        if app_dir_str.is_empty() {
+            tracing::warn!(
+                page_id = %current_page_id,
+                app_name = %app_name_str,
+                "refresh_app: app_dir is empty, ignoring refresh request"
+            );
+            return;
+        }
+
+        tracing::info!(
+            page_id = %current_page_id,
+            app_name = %app_name_str,
+            app_dir = %app_dir_str,
+            "Refreshing app via Scribe"
+        );
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let butler_inner = butler.clone();
+
+        let result = rt.block_on(async {
+            butler_inner
+                .apps()
+                .update(&current_page_id, Path::new(&app_dir_str))
+                .await
+        });
+
+        match result {
+            Ok(()) => {
+                tracing::info!(
+                    page_id = %current_page_id,
+                    app_name = %app_name_str,
+                    "App refreshed successfully"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    page_id = %current_page_id,
+                    app_name = %app_name_str,
+                    app_dir = %app_dir_str,
+                    error = %e,
+                    "Failed to refresh app"
+                );
+            }
+        }
     });
 }
