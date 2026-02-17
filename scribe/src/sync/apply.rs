@@ -17,6 +17,7 @@ use tracing::{debug, error, info, instrument, warn};
 use domains::Layer;
 
 use super::broadcast::{broadcast_update, notify_layer_discovered};
+use super::sync_meta;
 use crate::layer_unit::LayerUnit;
 use crate::loro_observer::{
     clear_pending_update_source, set_pending_update_source, setup_layer_observer,
@@ -172,7 +173,6 @@ pub async fn handle_apply_update(
             // Instead of doing fanout directly, emit SyncEvent::SubscribeLayers
             // so the node sends LayerSubscribe to the creator to get authority.
             if ctx.is_remote {
-                use super::sync_meta;
                 if sync_meta::is_sync_meta_layer(&layer_name) {
                     if let Some(creator_did) = sync_meta::extract_peer_did(&layer_name) {
                         let creator_did = creator_did.to_string();

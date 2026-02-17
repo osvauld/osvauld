@@ -103,11 +103,34 @@ pub fn write_sync_meta_entry(
     };
 
     let map = unit.layer().loro().get_map(meta_layer.as_str());
-    let value = if synced {
-        loro::LoroValue::Bool(true)
-    } else {
-        loro::LoroValue::Bool(false)
-    };
+
+    // synced=true is monotonic: once an entry is marked synced it must never go back to false.
+    // Without this guard, a concurrent false write (e.g. node fan-out) can win the Loro LWW
+    // conflict against a peer's true write, keeping the entry perpetually unsynced and
+    // causing repeated LayerSubscribe loops.
+    if !synced {
+        let already_synced = map
+            .get(layer_name)
+            .and_then(|v| {
+                if let loro::LoroValue::Bool(b) = v.get_deep_value() {
+                    Some(b)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(false);
+
+        if already_synced {
+            debug!(
+                meta_layer = %meta_layer,
+                entry = %layer_name,
+                "Skipping write_sync_meta_entry: already synced, not overwriting with false"
+            );
+            return;
+        }
+    }
+
+    let value = loro::LoroValue::Bool(synced);
 
     if let Err(e) = map.insert(layer_name, value) {
         warn!(
