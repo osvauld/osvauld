@@ -317,6 +317,18 @@ end
 function on_layer_discovered(layer_name)
     -- New layer found (e.g., customer's order layer appeared)
     -- NOTE: Wildcard bindings (orders/*) auto-include new layers
+    --
+    -- IMPORTANT: This is called in two situations:
+    --   1. Live: a new layer arrives via CRDT sync from a peer
+    --   2. Startup replay: after on_init, the runtime replays ALL existing
+    --      non-protocol local layers through this callback automatically
+    --
+    -- This means apps do NOT need to manually query/rebuild dynamic layer
+    -- indexes (e.g., DM lists, custom channels) on startup. Just implement
+    -- on_layer_discovered and it handles both new and pre-existing layers.
+    --
+    -- Apps should be idempotent — guard against processing the same layer twice:
+    --   if known_layers[layer_name] then return end
 end
 
 function on_click(target)

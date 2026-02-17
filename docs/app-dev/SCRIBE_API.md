@@ -400,6 +400,7 @@ end
 - **Transform receives full item**: Modify what's needed, return new table for UI
 - **Data arrives unwrapped**: Layer content is extracted from Loro document structure (no need to dig into `{"root": [...]}`)
 - **Wildcard transforms get layer_name**: `function(layer_name, item)` for wildcards vs `function(item)` for simple bindings
+- **`on_layer_discovered` replays on startup**: After `on_init`, the runtime automatically fires `on_layer_discovered` for every existing non-protocol layer. Apps never need manual layer hydration on startup — implement `on_layer_discovered` once and it covers both live discovery and post-restart recovery. Make it idempotent (guard with `if known[layer] then return end`).
 
 ---
 

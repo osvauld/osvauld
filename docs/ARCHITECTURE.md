@@ -329,6 +329,46 @@ pub enum CourierError {
 
 Errors don't leak across boundaries. Each crate presents its own error types.
 
+## App Refresh Lifecycle
+
+When a developer updates app files and triggers `refresh_app` (via control server RPC or Slint UI button):
+
+```
+Developer edits files on disk
+        │
+        ▼
+refresh_app RPC (control server socket)
+        │
+        ▼
+Butler AppsApi::update()
+  - Reads files from disk
+  - Sends ScribeMessage::RefreshAppFiles to Scribe
+        │
+        ▼
+Scribe actor (RefreshAppFiles handler)
+  - Diffs incoming files against current app: layer
+  - Writes updated files to app:{name} CRDT layer via set_all_files()
+  - Commits → Loro observer fires
+        │
+        ├──► Loro observer broadcasts LayerChanged to all layer subscribers
+        │           (connected peers receive updated app files via SyncOffer/SyncAccept)
+        │
+        └──► Local renderer detects app-layer change → restarts Lua runtime
+                  │
+                  ▼
+            on_init() runs in fresh Lua VM
+                  │
+                  ▼
+            Startup discovery replay:
+              runtime fires on_layer_discovered for every existing non-protocol layer
+              (DMs, custom channels, etc. reappear without app-specific hydration code)
+```
+
+Key properties:
+- **Offline-first**: refresh writes locally first; peers catch up via CRDT sync on reconnect
+- **No data loss**: only `app:{name}` layer is updated; data layers (`dms/*`, `channels/*`, `presence`, etc.) are untouched
+- **Transparent to app devs**: dynamic layer state is restored via startup replay, not manual app code
+
 ## Threading Model
 
 ```
