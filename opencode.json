@@ -21,47 +21,47 @@
     "peer-actor": {
       "description": "Courier PeerActor specialist -- handshake flows, 3-step sync protocol, publish/subscribe, viewer onboarding, consent, asset transfer",
       "mode": "subagent",
-      "model": "anthropic/claude-sonnet-4-5"
+      "model": "openai/gpt-5.3-codex"
     },
     "coordinator": {
       "description": "Courier Coordinator specialist -- peer lifecycle management, connection routing, PeerActor spawning, event emission",
       "mode": "subagent",
-      "model": "anthropic/claude-sonnet-4-5"
+      "model": "openai/gpt-5.3-codex"
     },
     "butler": {
       "description": "Butler storage and services specialist -- redb storage, facade API, auth, page lifecycle, scribe management, encryption",
       "mode": "subagent",
-      "model": "anthropic/claude-sonnet-4-5"
+      "model": "openai/gpt-5.3-codex"
     },
     "slint": {
       "description": "Slint UI specialist -- interpreter runtime, VecModel bindings, page shell generation, compiled shell UI, hot-reload, event bus",
       "mode": "subagent",
-      "model": "anthropic/claude-sonnet-4-5"
+      "model": "openai/gpt-5.3-codex"
     },
     "scribe-api": {
       "description": "Scribe API binding specialist -- Lua-to-Scribe bridge, declarative bind/rebind, transforms, surgical updates, key/max_items",
       "mode": "subagent",
-      "model": "anthropic/claude-sonnet-4-5"
+      "model": "openai/gpt-5.3-codex"
     },
     "lua": {
       "description": "Lua runtime specialist -- mlua VM, all binding modules, scheduler, event bus, mock scribe, app lifecycle",
       "mode": "subagent",
-      "model": "anthropic/claude-sonnet-4-5"
+      "model": "openai/gpt-5.3-codex"
     },
     "permit-template": {
       "description": "Permit template authoring specialist -- permit_template.json design, layer patterns, dynamic schemas, delegation chains, role hierarchy",
       "mode": "subagent",
-      "model": "anthropic/claude-sonnet-4-5"
+      "model": "openai/gpt-5.3-codex"
     },
     "gurkha": {
       "description": "Gurkha authorization engine specialist -- permit parsing, decision logic, TokenDecision, SyncContext, pattern matching, service API",
       "mode": "subagent",
-      "model": "anthropic/claude-sonnet-4-5"
+      "model": "openai/gpt-5.3-codex"
     },
     "docs": {
       "description": "Documentation specialist -- maintains all 18 doc files, ensures accuracy and cross-references",
       "mode": "subagent",
-      "model": "openrouter/zhipu/glm-5",
+      "model": "anthropic/claude-sonnet-4-5",
       "permission": {
         "bash": "deny"
       }
