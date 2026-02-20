@@ -658,6 +658,36 @@ class PeerHandle:
             f"Timeout waiting for {desc} on '{self.name}' (after {timeout}s)"
         )
 
+    def set_time(self, unix_seconds: int) -> int:
+        """Set runtime time to a specific Unix timestamp (test mode only).
+
+        Args:
+            unix_seconds: Unix timestamp in seconds
+
+        Returns:
+            New Unix timestamp
+        """
+        return self.client.set_time(unix_seconds)
+
+    def advance_time(self, seconds: int) -> int:
+        """Advance runtime time by a duration (test mode only).
+
+        Args:
+            seconds: Number of seconds to advance
+
+        Returns:
+            New Unix timestamp after advancing
+        """
+        return self.client.advance_time(seconds)
+
+    def go_offline(self) -> Dict[str, Any]:
+        """Simulate network loss for this peer without stopping process."""
+        return self.client.go_offline()
+
+    def go_online(self) -> Dict[str, Any]:
+        """Restore network connectivity for this peer."""
+        return self.client.go_online()
+
 
 class AppTestScenario:
     """One-call E2E test setup.
@@ -692,6 +722,7 @@ class AppTestScenario:
         peers: Dict[str, Dict[str, str]],
         base_dir: Optional[str] = None,
         release: bool = False,
+        test_mode: bool = False,
         profiling: bool = False,
         flame_only: bool = False,
         heaptrack: bool = False,
@@ -709,6 +740,7 @@ class AppTestScenario:
                    First peer with role "owner" creates the space.
             base_dir: Override base dir (default: /tmp/{name})
             release: Use release builds
+            test_mode: Run peers with --test-mode (ManualClock)
             profiling: Enable tokio-console + flame profiling
             flame_only: Enable flame graphs only (no tokio-console overhead)
             heaptrack: Wrap binaries with heaptrack for heap profiling
@@ -723,6 +755,7 @@ class AppTestScenario:
         self.peers_config = peers
         self.base_dir = Path(base_dir) if base_dir else Path(f"/tmp/{name}")
         self.release = release
+        self.test_mode = test_mode
         self.profiling = profiling
         self.flame_only = flame_only
         self.heaptrack = heaptrack
@@ -750,6 +783,78 @@ class AppTestScenario:
                 f"Peer '{name}' not found. Available: {list(self._handles.keys())}"
             )
         return self._handles[name]
+
+    def stop_peer(self, name: str, timeout: float = 10.0) -> None:
+        """Stop one peer process while keeping session alive."""
+        if self._tm is None:
+            raise RuntimeError("Scenario not started")
+        self._tm.stop_instance(name, timeout=timeout)
+
+    def stop_node(self, timeout: float = 10.0) -> None:
+        """Stop the node process while keeping peers alive."""
+        if self._tm is None:
+            raise RuntimeError("Scenario not started")
+        self._tm.stop_instance("node", timeout=timeout)
+
+    def start_peer(
+        self,
+        name: str,
+        timeout: float = 30.0,
+        reconnect: bool = True,
+    ) -> PeerHandle:
+        """Start one peer process and re-open app for continued testing."""
+        if self._tm is None:
+            raise RuntimeError("Scenario not started")
+        if name not in self.peers_config:
+            raise KeyError(f"Unknown peer '{name}'")
+
+        self._tm.start_instance(name, timeout=timeout)
+        client = self._tm.get_client(name)
+        role = self.peers_config[name]["role"]
+        app_name = self.peers_config[name]["app"]
+
+        client.signup_or_login(name)
+
+        if role == "viewer" and reconnect:
+            owner_name = next(
+                pname
+                for pname, pconfig in self.peers_config.items()
+                if pconfig["role"] == "owner"
+            )
+            owner_client = self._tm.get_client(owner_name)
+            conn_str = owner_client.get_connection_string()
+            try:
+                client.add_node(conn_str)
+            except Exception:
+                pass
+
+            if self._space_id is not None:
+                viewer_link = owner_client.get_viewer_link(self._space_id)
+                try:
+                    client.add_website(viewer_link)
+                except Exception:
+                    pass
+
+        if self._page_id is None:
+            raise RuntimeError("Page not created yet")
+        self._open_app_ready(client, self._page_id, app_name)
+
+        handle = PeerHandle(
+            name=name,
+            client=client,
+            role=role,
+            space_id=self.space_id,
+            page_id=self.page_id,
+            app_name=app_name,
+        )
+        self._handles[name] = handle
+        return handle
+
+    def start_node(self, timeout: float = 30.0) -> None:
+        """Start the node process after stop_node()."""
+        if self._tm is None:
+            raise RuntimeError("Scenario not started")
+        self._tm.start_instance("node", timeout=timeout)
 
     @property
     def owner(self) -> PeerHandle:
@@ -785,6 +890,7 @@ class AppTestScenario:
             "keep": args.keep,
             "debug": args.debug,
             "release": args.release,
+            "test_mode": args.test_mode,
         }
 
     @staticmethod
@@ -797,6 +903,11 @@ class AppTestScenario:
             "--debug", action="store_true", help="Keep session on failure for debugging"
         )
         parser.add_argument("--release", action="store_true", help="Use release builds")
+        parser.add_argument(
+            "--test-mode",
+            action="store_true",
+            help="Run instances with ManualClock for deterministic time",
+        )
         parser.add_argument(
             "--flame-only",
             action="store_true",
@@ -868,6 +979,7 @@ class AppTestScenario:
             session_name=self.name,
             base_dir=self.base_dir,
             release=self.release,
+            test_mode=self.test_mode,
             profiling=self.profiling,
             flame_only=self.flame_only,
             heaptrack=self.heaptrack,

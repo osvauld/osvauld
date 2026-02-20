@@ -237,6 +237,37 @@ pub struct LayerConfig {
 ///
 /// Dynamic layers are created at runtime and granted via permit re-issuance.
 /// The schema defines what types of dynamic layers an app supports.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LayerNamespace {
+    /// DID-namespaced dynamic layers.
+    /// Pattern `channels/{id}/messages` maps to `channels/{creator_did}/{id}/messages`.
+    #[default]
+    Creator,
+    /// Shared dynamic layers (no DID segment injected).
+    Shared,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageStrategy {
+    /// Single long-lived document.
+    #[default]
+    SingleDoc,
+    /// Time-partitioned documents keyed by `{period}`.
+    TimeSharded,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Resolution {
+    Minute,
+    Hour,
+    Day,
+    Week,
+    Month,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DynamicLayerSchema {
     /// Layer type: "map", "list", "text"
@@ -248,6 +279,26 @@ pub struct DynamicLayerSchema {
     /// Permissions for all peers (both Open and Explicit grants)
     #[serde(default)]
     pub permissions: LayerConfig,
+    /// Namespace behavior for generated paths.
+    #[serde(default)]
+    pub namespace: LayerNamespace,
+    /// Storage strategy for this dynamic schema.
+    #[serde(default)]
+    pub storage_strategy: StorageStrategy,
+    /// Time resolution (required for `time_sharded` schemas).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<Resolution>,
+}
+
+/// Parsed metadata for a dynamic layer path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DynamicLayerRef {
+    pub schema_key: String,
+    pub namespace: LayerNamespace,
+    pub creator_did: Option<String>,
+    pub placeholders: HashMap<String, String>,
+    pub storage_strategy: StorageStrategy,
+    pub resolution: Option<Resolution>,
 }
 
 /// How a dynamic layer is granted to peers
@@ -1127,6 +1178,11 @@ impl Permit {
         if crate::decision::matches_creator_schema(self, layer_name, page_id, our_did, "write") {
             return true;
         }
+        // Protocol-level fallback: time-sharded and shared-namespace dynamic layers
+        // are authorized by schema pattern match (no creator DID required).
+        if crate::decision::matches_dynamic_schema(self, layer_name, page_id, "write") {
+            return true;
+        }
         false
     }
 
@@ -1149,6 +1205,11 @@ impl Permit {
         }
         // Schema fallback for creator access to dynamic layers
         if crate::decision::matches_creator_schema(self, layer_name, page_id, our_did, "read") {
+            return true;
+        }
+        // Protocol-level fallback: time-sharded and shared-namespace dynamic layers
+        // are authorized by schema pattern match (no creator DID required).
+        if crate::decision::matches_dynamic_schema(self, layer_name, page_id, "read") {
             return true;
         }
         false
@@ -1263,7 +1324,148 @@ pub fn matches_schema_pattern(layer_path: &str, schema_pattern: &str) -> bool {
     path_parts
         .iter()
         .zip(pattern_parts.iter())
-        .all(|(path_seg, pat_seg)| *pat_seg == "{id}" || path_seg == pat_seg)
+        .all(|(path_seg, pat_seg)| is_placeholder(pat_seg) || path_seg == pat_seg)
+}
+
+fn is_placeholder(segment: &str) -> bool {
+    segment.starts_with('{') && segment.ends_with('}') && segment.len() > 2
+}
+
+fn placeholder_name(segment: &str) -> Option<&str> {
+    if !is_placeholder(segment) {
+        return None;
+    }
+    Some(&segment[1..segment.len() - 1])
+}
+
+fn is_valid_period_for_resolution(period: &str, resolution: &Resolution) -> bool {
+    use chrono::NaiveDate;
+
+    match resolution {
+        Resolution::Minute => {
+            chrono::NaiveDateTime::parse_from_str(period, "%Y-%m-%dT%H:%M").is_ok()
+        }
+        Resolution::Hour => {
+            chrono::NaiveDateTime::parse_from_str(&format!("{}:00", period), "%Y-%m-%dT%H:%M")
+                .is_ok()
+        }
+        Resolution::Day => NaiveDate::parse_from_str(period, "%Y-%m-%d").is_ok(),
+        Resolution::Week => {
+            let mut parts = period.split("-W");
+            let Some(year) = parts.next() else {
+                return false;
+            };
+            let Some(week) = parts.next() else {
+                return false;
+            };
+            if parts.next().is_some() {
+                return false;
+            }
+            let Ok(year) = year.parse::<i32>() else {
+                return false;
+            };
+            let Ok(week) = week.parse::<u32>() else {
+                return false;
+            };
+            (1..=53).contains(&week)
+                && chrono::NaiveDate::from_isoywd_opt(year, week, chrono::Weekday::Mon).is_some()
+        }
+        Resolution::Month => {
+            if period.len() != 7 {
+                return false;
+            }
+            NaiveDate::parse_from_str(&format!("{}-01", period), "%Y-%m-%d").is_ok()
+        }
+    }
+}
+
+/// Parse a layer name against dynamic schemas and extract structured metadata.
+pub fn parse_dynamic_layer(
+    schemas: &HashMap<String, DynamicLayerSchema>,
+    layer_name: &str,
+) -> Option<DynamicLayerRef> {
+    let path_parts: Vec<&str> = layer_name.split('/').collect();
+
+    for (schema_key, schema) in schemas {
+        let pattern_parts: Vec<&str> = schema_key.split('/').collect();
+        if pattern_parts.is_empty() || path_parts.is_empty() {
+            continue;
+        }
+
+        let mut placeholders = HashMap::new();
+        let creator_did = match schema.namespace {
+            LayerNamespace::Creator => {
+                if path_parts.len() != pattern_parts.len() + 1 {
+                    continue;
+                }
+                if path_parts[0] != pattern_parts[0] {
+                    continue;
+                }
+                let did = path_parts[1];
+                if !did.starts_with("did:") {
+                    continue;
+                }
+
+                let mut matched = true;
+                for (path_seg, pat_seg) in path_parts[2..].iter().zip(pattern_parts[1..].iter()) {
+                    if let Some(name) = placeholder_name(pat_seg) {
+                        placeholders.insert(name.to_string(), (*path_seg).to_string());
+                    } else if *path_seg != *pat_seg {
+                        matched = false;
+                        break;
+                    }
+                }
+                if !matched {
+                    continue;
+                }
+                Some(did.to_string())
+            }
+            LayerNamespace::Shared => {
+                if path_parts.len() != pattern_parts.len() {
+                    continue;
+                }
+
+                let mut matched = true;
+                for (path_seg, pat_seg) in path_parts.iter().zip(pattern_parts.iter()) {
+                    if let Some(name) = placeholder_name(pat_seg) {
+                        placeholders.insert(name.to_string(), (*path_seg).to_string());
+                    } else if *path_seg != *pat_seg {
+                        matched = false;
+                        break;
+                    }
+                }
+                if !matched {
+                    continue;
+                }
+                None
+            }
+        };
+
+        if let Some(period) = placeholders.get("period") {
+            if schema.storage_strategy != StorageStrategy::TimeSharded {
+                continue;
+            }
+            let Some(resolution) = schema.resolution.as_ref() else {
+                continue;
+            };
+            if !is_valid_period_for_resolution(period, resolution) {
+                continue;
+            }
+        } else if schema.storage_strategy == StorageStrategy::TimeSharded {
+            continue;
+        }
+
+        return Some(DynamicLayerRef {
+            schema_key: schema_key.clone(),
+            namespace: schema.namespace.clone(),
+            creator_did,
+            placeholders,
+            storage_strategy: schema.storage_strategy.clone(),
+            resolution: schema.resolution.clone(),
+        });
+    }
+
+    None
 }
 
 /// Check access across a page permit + set of layer permits (two-tier model)

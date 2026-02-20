@@ -43,6 +43,7 @@
 //!     ui_tx: None,
 //!     query_tx: None,
 //!     navigate_tx: None,
+//!     clock: std::sync::Arc::new(domains::RealClock),
 //! };
 //!
 //! let mut runtime = LuaRuntime::new(config).await?;

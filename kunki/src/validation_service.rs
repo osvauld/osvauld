@@ -131,6 +131,7 @@ impl ValidationService {
             ui_tx: None,
             query_tx: None,
             navigate_tx: None,
+            clock: std::sync::Arc::new(domains::RealClock),
         })?;
 
         // Build ValidationContext from JsonOps

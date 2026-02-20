@@ -274,14 +274,16 @@ pub fn detect_new_dynamic_layers(state: &ScribeState, creator_did: &str) -> Vec<
             continue;
         };
 
-        if path_creator_did != creator_did {
-            debug!(
-                layer = %entry.layer_name,
-                creator = %creator_did,
-                path_creator = %path_creator_did,
-                "Skipping non-owned __sync_meta entry"
-            );
-            continue;
+        if let Some(path_creator_did) = path_creator_did {
+            if path_creator_did != creator_did {
+                debug!(
+                    layer = %entry.layer_name,
+                    creator = %creator_did,
+                    path_creator = %path_creator_did,
+                    "Skipping non-owned __sync_meta entry"
+                );
+                continue;
+            }
         }
 
         new_layers.push(entry.layer_name.clone());

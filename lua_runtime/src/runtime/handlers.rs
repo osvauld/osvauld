@@ -2,6 +2,8 @@ use mlua::{Function, Table, Value};
 use serde_json::Value as JsonValue;
 use tracing::{debug, info, warn};
 
+use butler::DynamicLayerMeta;
+
 use crate::commands::UiEventType;
 use crate::ui_types::UiMutation;
 
@@ -22,7 +24,11 @@ impl LuaRuntime {
     ///
     /// Context: new layer arriving via sync (e.g., derived/orders_summary first appearance)
     /// We do: process bindings for the discovered layer, then call Lua callback.
-    pub(super) fn handle_layer_discovered(&self, layer_name: &str) -> Result<(), String> {
+    pub(super) fn handle_layer_discovered(
+        &self,
+        layer_name: &str,
+        dynamic_ref: Option<&DynamicLayerMeta>,
+    ) -> Result<(), String> {
         if self.ui_enabled {
             let normalized_layer = self.normalize_layer_name_for_lookup(layer_name);
             let has_bindings = {
@@ -38,7 +44,51 @@ impl LuaRuntime {
         }
 
         if self.handler_cache.on_layer_discovered {
-            if let Err(e) = self.call_handler("on_layer_discovered", layer_name.to_string()) {
+            let mut args = mlua::MultiValue::new();
+            args.push_back(Value::String(
+                self.lua
+                    .create_string(layer_name)
+                    .map_err(|e| format!("Lua string error: {}", e))?,
+            ));
+
+            match dynamic_ref {
+                Some(meta) => {
+                    let meta_table = self
+                        .lua
+                        .create_table()
+                        .map_err(|e| format!("Lua table error: {}", e))?;
+                    meta_table
+                        .set("schema_key", meta.schema_key.clone())
+                        .map_err(|e| format!("Lua table set error: {}", e))?;
+                    if let Some(creator_did) = &meta.creator_did {
+                        meta_table
+                            .set("creator_did", creator_did.clone())
+                            .map_err(|e| format!("Lua table set error: {}", e))?;
+                    } else {
+                        meta_table
+                            .set("creator_did", Value::Nil)
+                            .map_err(|e| format!("Lua table set error: {}", e))?;
+                    }
+
+                    let placeholders = self
+                        .lua
+                        .create_table()
+                        .map_err(|e| format!("Lua table error: {}", e))?;
+                    for (k, v) in &meta.placeholders {
+                        placeholders
+                            .set(k.as_str(), v.as_str())
+                            .map_err(|e| format!("Lua table set error: {}", e))?;
+                    }
+                    meta_table
+                        .set("placeholders", placeholders)
+                        .map_err(|e| format!("Lua table set error: {}", e))?;
+
+                    args.push_back(Value::Table(meta_table));
+                }
+                None => args.push_back(Value::Nil),
+            }
+
+            if let Err(e) = self.call_handler("on_layer_discovered", args) {
                 warn!(page_id = %self.page_id, layer = %layer_name, error = %e, "on_layer_discovered error");
             }
         }

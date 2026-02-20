@@ -102,11 +102,9 @@ pub fn matches_dynamic_schema(
     let page_prefix = format!("{}/", page_id);
     let bare_path = layer_name.strip_prefix(&page_prefix).unwrap_or(layer_name);
 
-    for (schema_pattern, schema) in schemas {
-        if matches_dynamic_path_any_did(bare_path, schema_pattern) {
-            if check_operation(&schema.permissions, operation) {
-                return true;
-            }
+    if let Some(dynamic_ref) = crate::parser::parse_dynamic_layer(schemas, bare_path) {
+        if let Some(schema) = schemas.get(&dynamic_ref.schema_key) {
+            return check_operation(&schema.permissions, operation);
         }
     }
 
@@ -174,21 +172,13 @@ pub fn matches_creator_schema(
     let page_prefix = format!("{}/", page_id);
     let bare_path = layer_name.strip_prefix(&page_prefix).unwrap_or(layer_name);
 
-    // For creator access, the path must contain the creator's DID
-    // Path format: {schema_prefix}/{creator_did}/{id_segments}/{schema_suffix}
-    if !bare_path.contains(our_did) {
-        return false;
-    }
-
-    // Try to match against each schema pattern
-    // Schema pattern: "channels/{id}/messages"
-    // Layer path:     "channels/did:key:alice/general/messages"
-    // We need to check if the path matches the schema with DID inserted
-    for (schema_pattern, schema) in schemas {
-        if matches_dynamic_path(bare_path, schema_pattern, our_did) {
-            if check_operation(&schema.permissions, operation) {
-                return true;
-            }
+    if let Some(dynamic_ref) = crate::parser::parse_dynamic_layer(schemas, bare_path) {
+        match dynamic_ref.creator_did.as_deref() {
+            Some(creator) if creator != our_did => return false,
+            _ => {}
+        }
+        if let Some(schema) = schemas.get(&dynamic_ref.schema_key) {
+            return check_operation(&schema.permissions, operation);
         }
     }
 

@@ -26,7 +26,7 @@ impl LuaRuntime {
         cmd_rx: mpsc::Receiver<LuaCommand>,
     ) -> Result<Self, String> {
         let lua = Lua::new();
-        let scheduler = Arc::new(Mutex::new(Scheduler::new()));
+        let scheduler = Arc::new(Mutex::new(Scheduler::new(config.clock.clone())));
         let ui_shared = Arc::new(Mutex::new(UiSharedState::new()));
 
         let timers_table: Table = lua
@@ -86,6 +86,9 @@ impl LuaRuntime {
         };
         set_global(&lua, "page", page)?;
 
+        let clock = ClockBindings::new(config.clock.clone());
+        set_global(&lua, "clock", clock)?;
+
         if config.ui_enabled {
             if let (Some(_ui_tx), Some(query_tx)) = (config.ui_tx.clone(), config.query_tx.clone())
             {
@@ -138,6 +141,7 @@ impl LuaRuntime {
             scribe: config.scribe,
             ui_enabled: config.ui_enabled,
             handler_cache,
+            clock: config.clock,
         })
     }
 }

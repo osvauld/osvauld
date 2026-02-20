@@ -12,8 +12,8 @@ use domains::{Layer, QueryDelta, QueryResult, QuerySpec};
 
 use crate::layer_unit::LayerUnit;
 use crate::{
-    BroadcastPayload, EphemeralOutbound, LayerStorageRef, PageUpdate, PeerResolverRef,
-    PeerVectorStorageRef, PermitIssuerRef, SyncEvent,
+    BroadcastPayload, DynamicLayerMeta, EphemeralOutbound, LayerStorageRef, PageUpdate,
+    PeerResolverRef, PeerVectorStorageRef, PermitIssuerRef, SyncEvent,
 };
 
 // Layer Name Normalization
@@ -271,6 +271,18 @@ pub struct ScribeArgs {
 }
 
 impl ScribeState {
+    /// Parse dynamic-layer metadata for a bare layer name using our permit schemas.
+    pub fn dynamic_ref_for_layer(&self, layer_name: &str) -> Option<DynamicLayerMeta> {
+        let permit = self.our_permit.as_ref()?;
+        let parsed = gurkha::parse_dynamic_layer(permit.dynamic_layer_schemas(), layer_name)?;
+
+        Some(DynamicLayerMeta {
+            schema_key: parsed.schema_key,
+            creator_did: parsed.creator_did,
+            placeholders: parsed.placeholders,
+        })
+    }
+
     /// Get the next capture sequence number (monotonically increasing)
     fn next_capture_seq(&self) -> u64 {
         self.capture_seq.fetch_add(1, Ordering::Relaxed)

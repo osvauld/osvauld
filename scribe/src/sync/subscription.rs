@@ -222,9 +222,22 @@ async fn send_initial_state_to_subscriber(
         Err(_) => HashMap::new(),
     };
 
+    debug!(
+        user_did = %user_did,
+        device_id = %device_id,
+        total_layers = state.units.len(),
+        stored_vectors = peer_vectors.len(),
+        "Starting initial state delivery"
+    );
+
+    let mut sent_count: usize = 0;
+    let mut skipped_count: usize = 0;
+
     for (layer_name, unit) in &state.units {
         // Only send to layers where subscriber was added
         if !unit.can_push_to(user_did, device_id) {
+            debug!(layer = %layer_name, "Skipping layer: subscriber not authorized");
+            skipped_count += 1;
             continue;
         }
 
@@ -232,14 +245,33 @@ async fn send_initial_state_to_subscriber(
 
         let data = if let Some(their_vector) = peer_vectors.get(layer_name) {
             if their_vector.is_empty() {
+                debug!(layer = %layer_name, "Empty stored vector, using snapshot");
                 layer.export_snapshot()
             } else {
                 match layer.export_updates(their_vector) {
                     Ok(updates) if updates.is_empty() => {
-                        debug!(user_did = %user_did, layer = %layer_name, "No new updates");
+                        debug!(layer = %layer_name, "Incremental export empty, peer is up to date");
+                        skipped_count += 1;
                         continue;
                     }
-                    Ok(updates) => updates,
+                    Ok(updates) => {
+                        // Guard against stale stored vectors: if incremental export is tiny
+                        // but the layer has substantial content, the stored vectors are stale
+                        // (e.g., after node restart with fresh Scribe). Fall back to snapshot.
+                        let snapshot = layer.export_snapshot();
+                        if updates.len() < 50 && snapshot.len() > updates.len() * 2 {
+                            info!(
+                                layer = %layer_name,
+                                updates_len = updates.len(),
+                                snapshot_len = snapshot.len(),
+                                "Stale stored vectors detected, using snapshot instead of tiny incremental update"
+                            );
+                            snapshot
+                        } else {
+                            debug!(layer = %layer_name, updates_len = updates.len(), "Using incremental export");
+                            updates
+                        }
+                    }
                     Err(e) => {
                         warn!(error = %e, layer = %layer_name, "Failed incremental export, using snapshot");
                         layer.export_snapshot()
@@ -253,9 +285,12 @@ async fn send_initial_state_to_subscriber(
         let state_vector = layer.version_vector();
 
         if data.is_empty() || state_vector.len() <= 1 {
-            debug!(user_did = %user_did, layer = %layer_name, "Skipping empty layer");
+            debug!(layer = %layer_name, data_len = data.len(), vv_len = state_vector.len(), "Skipping empty layer");
+            skipped_count += 1;
             continue;
         }
+
+        let data_len = data.len();
 
         let payload = BroadcastPayload {
             page_id: state.page_id.clone(),
@@ -268,9 +303,20 @@ async fn send_initial_state_to_subscriber(
         if let Err(e) = broadcast_tx.try_send(payload) {
             warn!(user_did = %user_did, layer = %layer_name, error = %e, "Failed to send initial state");
         } else {
-            debug!(user_did = %user_did, layer = %layer_name, "Sent initial state");
+            let current_vv = layer.version_vector();
+            unit.update_subscriber_vector(user_did, device_id, current_vv);
+            debug!(layer = %layer_name, data_size = data_len, "Sent initial state for layer");
+            sent_count += 1;
         }
     }
+
+    info!(
+        user_did = %user_did,
+        total_layers = state.units.len(),
+        sent = sent_count,
+        skipped = skipped_count,
+        "Completed initial state delivery"
+    );
 }
 
 /// Handle AuthorizeLayerSubscriber message

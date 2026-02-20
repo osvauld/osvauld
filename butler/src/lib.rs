@@ -56,11 +56,11 @@ pub use services::{
 use herald::Identity;
 use ractor::ActorRef;
 pub use scribe::{
-    BroadcastPayload, EphemeralBroadcast, EphemeralOutbound, JsonOp, LayerStorage, LayerStorageRef,
-    ListOp, LoroDelta, NullPermitIssuer, PageUpdate, PageUpdateTx, PeerConnection, PeerResolver,
-    PeerResolverRef, PeerVectorStorage, PeerVectorStorageRef, PermitIssuer, PermitIssuerRef,
-    Scribe, ScribeArgs, ScribeError, ScribeMessage, SyncConfig, SyncEvent, SyncMode,
-    ValidationHandle, ValidationRequest,
+    BroadcastPayload, DynamicLayerMeta, EphemeralBroadcast, EphemeralOutbound, JsonOp,
+    LayerStorage, LayerStorageRef, ListOp, LoroDelta, NullPermitIssuer, PageUpdate, PageUpdateTx,
+    PeerConnection, PeerResolver, PeerResolverRef, PeerVectorStorage, PeerVectorStorageRef,
+    PermitIssuer, PermitIssuerRef, Scribe, ScribeArgs, ScribeError, ScribeMessage, SyncConfig,
+    SyncEvent, SyncMode, ValidationHandle, ValidationRequest,
 };
 use std::collections::HashMap;
 use std::sync::Arc;

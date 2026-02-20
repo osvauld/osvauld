@@ -16,6 +16,7 @@
 //! - **Query**: Query types for data access
 
 pub mod asset;
+pub mod clock;
 pub mod contact;
 pub mod device;
 pub mod identity;
@@ -28,6 +29,7 @@ pub mod space;
 
 // Re-export all public types
 pub use asset::{AssetAck, AssetMetadata, AssetReady, AssetRequest};
+pub use clock::*;
 pub use contact::{ConnectionDeviceInfo, ContactData, ContactType, DeviceInfo};
 pub use device::DeviceData;
 pub use identity::*;

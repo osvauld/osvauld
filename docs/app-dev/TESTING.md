@@ -226,8 +226,28 @@ with AppTestScenario(
 Each peer returned by `s.peer(name)` provides:
 - `peer.eval(lua_code)` — execute Lua and return the result
 - `peer.wait_for(fn, timeout=15, interval=0.5, desc="...")` — poll until truthy
+- `peer.set_time(unix_seconds)` — set deterministic runtime clock (test mode only)
+- `peer.advance_time(seconds)` — advance deterministic runtime clock by seconds
+- `peer.go_offline()` — simulate peer network loss without stopping the process
+- `peer.go_online()` — restore peer connectivity and trigger reconnect flow
 - `peer.client` — the underlying `ControlClient` for advanced operations
 - `peer.name`, `peer.role`, `peer.space_id`, `peer.page_id`, `peer.app_name`
+
+### Offline-First Network Simulation
+
+Use `go_offline()` / `go_online()` to simulate peer disconnect/reconnect while keeping all processes running.
+
+- This models real offline-first behavior: peer writes local CRDT updates while disconnected.
+- On `go_online()`, updates converge through normal async sync.
+- Prefer this over process kill/restart for peer network-loss scenarios.
+
+### Deterministic Time Control
+
+For time-sensitive tests (daily shards, period bucketing, long-horizon simulation), run with `--test-mode` and control runtime time explicitly.
+
+- Set a fixed base timestamp with `peer.set_time(unix_seconds)`.
+- Advance deterministically with `peer.advance_time(seconds)`.
+- Useful for validating day-based shard paths like `channels/{channel}/messages/{YYYY-MM-DD}`.
 
 ### CLI Flags
 
@@ -235,6 +255,7 @@ All `AppTestScenario` tests support:
 - `--keep` — keep tmux session alive after test
 - `--debug` — keep session on failure for debugging
 - `--release` — use release builds
+- `--test-mode` — use `ManualClock` for deterministic time control
 
 For custom flags, use `AppTestScenario.add_args(parser)` with your own parser.
 
@@ -245,6 +266,10 @@ For custom flags, use `AppTestScenario.add_args(parser)` with your own parser.
 python e2e_tests/test_chat.py
 python e2e_tests/test_ecommerce.py
 python e2e_tests/test_chat_perf.py --messages 100
+python e2e_tests/test_offline_write_merge.py --test-mode
+python e2e_tests/test_reconnect_cycles.py --test-mode
+python e2e_tests/test_chat_daily_shards.py --test-mode
+python e2e_tests/test_chat_daily_shards_offline_3peers.py --test-mode
 
 # With flags
 python e2e_tests/test_chat.py --keep

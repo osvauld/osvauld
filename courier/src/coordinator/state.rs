@@ -78,6 +78,10 @@ pub struct CoordinatorState<C: Connection> {
 
     /// Broadcast channel for capture system (pre-serialized JSON lines)
     pub capture_tx: Option<broadcast::Sender<String>>,
+
+    /// Offline mode flag (for E2E test control)
+    /// When true, all connections are rejected
+    pub is_offline: bool,
 }
 
 impl<C: Connection> CoordinatorState<C> {
@@ -104,6 +108,7 @@ impl<C: Connection> CoordinatorState<C> {
             connect_tx,
             message_tx,
             capture_tx,
+            is_offline: false,
         }
     }
 

@@ -7,6 +7,7 @@
 //! **Production**: `ActorScribeHandle` wraps `ActorRef<ScribeMessage>` with `block_in_place()`
 
 use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use ractor::ActorRef;
@@ -265,24 +266,37 @@ impl ActorScribeHandle {
 
     /// Create a dynamic layer from a schema pattern
     ///
-    /// **Context**: Lua app calls `scribe:create_layer("channels/{id}/messages", "general")`
-    /// **Returns**: Full layer name (e.g., "{page_id}/channels/{our_did}/general/messages")
+    /// **Context**: Lua app calls
+    /// `scribe:create_layer("channels/{channel}/messages/{period}", { channel = "general", period = "2025-02" })`
+    /// **Returns**: Full layer name (e.g., "{page_id}/channels/{our_did}/general/messages/2025-02")
     pub fn create_layer(
         &self,
         schema_key: &str,
-        layer_id: &str,
+        placeholders: HashMap<String, String>,
         authorized_peers: Option<Vec<String>>,
     ) -> Result<String, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::CreateDynamicLayer {
                 schema_key: schema_key.to_string(),
-                layer_id: layer_id.to_string(),
+                placeholders,
                 authorized_peers,
                 reply: tx,
             })
             .map_err(|e| format!("Failed to create dynamic layer: {}", e))?;
         rpc(rx)
+    }
+
+    /// Backward-compatible helper for `{id}`-only schemas.
+    pub fn create_layer_with_id(
+        &self,
+        schema_key: &str,
+        layer_id: &str,
+        authorized_peers: Option<Vec<String>>,
+    ) -> Result<String, String> {
+        let mut placeholders = HashMap::new();
+        placeholders.insert("id".to_string(), layer_id.to_string());
+        self.create_layer(schema_key, placeholders, authorized_peers)
     }
 
     // -- Layer access --

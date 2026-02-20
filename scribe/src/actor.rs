@@ -435,14 +435,14 @@ impl Actor for Scribe {
 
             ScribeMessage::CreateDynamicLayer {
                 schema_key,
-                layer_id,
+                placeholders,
                 authorized_peers,
                 reply,
             } => {
                 let result = crate::layer_unit::handle_create_dynamic_layer(
                     state,
                     &schema_key,
-                    &layer_id,
+                    &placeholders,
                     authorized_peers.as_deref(),
                 );
                 let _ = reply.send(result);

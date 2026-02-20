@@ -530,3 +530,45 @@ class ControlClient:
             Dict with status
         """
         return self.send("capture_end")
+
+    def go_offline(self) -> Dict:
+        """Simulate peer network loss without stopping the process."""
+        return self.send("go_offline")
+
+    def go_online(self) -> Dict:
+        """Restore peer network connectivity and trigger reconnect."""
+        return self.send("go_online")
+
+    # ============================================================
+    # Time control commands (test mode only)
+    # ============================================================
+
+    def set_time(self, unix_seconds: int) -> int:
+        """Set runtime time to a specific Unix timestamp (ManualClock only).
+
+        Args:
+            unix_seconds: Unix timestamp in seconds
+
+        Returns:
+            New Unix timestamp
+
+        Raises:
+            RuntimeError: If runtime is not in test mode (ManualClock required)
+        """
+        result = self.send("set_time", {"unix_seconds": unix_seconds})
+        return result.get("unix_seconds") if isinstance(result, dict) else unix_seconds
+
+    def advance_time(self, seconds: int) -> int:
+        """Advance runtime time by a duration (ManualClock only).
+
+        Args:
+            seconds: Number of seconds to advance
+
+        Returns:
+            New Unix timestamp after advancing
+
+        Raises:
+            RuntimeError: If runtime is not in test mode (ManualClock required)
+        """
+        result = self.send("advance_time", {"seconds": seconds})
+        return result.get("unix_seconds") if isinstance(result, dict) else 0

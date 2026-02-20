@@ -40,13 +40,16 @@ pub use decision::{
     matches_dynamic_schema, should_send_updates, DelegationDecision, SyncContext, TokenDecision,
 };
 pub use parser::{
-    expand_pattern, matches_schema_pattern, matches_wildcard, resolve_page_id_in_facts,
+    expand_pattern, matches_schema_pattern, matches_wildcard, parse_dynamic_layer,
+    resolve_page_id_in_facts,
 }; // Pattern/resolution utilities
 pub use parser::{
     DelegationTemplate, LayerConfig, LayerPatternConfig, PeerCapabilities, Permit, PermitError,
     PermitResult,
 };
-pub use parser::{DynamicLayerSchema, GrantType}; // Dynamic layer types
+pub use parser::{
+    DynamicLayerRef, DynamicLayerSchema, GrantType, LayerNamespace, Resolution, StorageStrategy,
+}; // Dynamic layer types
 pub use types::*;
 
 // Re-export stateless permit functions

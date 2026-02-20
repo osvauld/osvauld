@@ -6,7 +6,7 @@
 use serde_json::Value as JsonValue;
 use tokio::sync::oneshot;
 
-use butler::LoroDelta;
+use butler::{DynamicLayerMeta, LoroDelta};
 
 // Debug State (for introspection)
 
@@ -36,6 +36,7 @@ pub enum LuaCommand {
         created: bool,
         delta: Option<LoroDelta>,
         full_data: Option<JsonValue>,
+        dynamic_ref: Option<DynamicLayerMeta>,
     },
 
     /// UI callback triggered (button click, etc.)
@@ -135,6 +136,24 @@ pub enum LuaCommand {
     /// **Returns**: DebugState with globals, timer count, etc.
     DebugGetState {
         response_tx: oneshot::Sender<DebugState>,
+    },
+
+    /// Test: Set runtime time (ManualClock only)
+    ///
+    /// **Context**: Test automation needs deterministic time control
+    /// **Returns**: New unix timestamp or error if not in test mode
+    SetTime {
+        unix_seconds: i64,
+        response_tx: oneshot::Sender<Result<i64, String>>,
+    },
+
+    /// Test: Advance runtime time (ManualClock only)
+    ///
+    /// **Context**: Test automation needs deterministic time control
+    /// **Returns**: New unix timestamp or error if not in test mode
+    AdvanceTime {
+        seconds: u64,
+        response_tx: oneshot::Sender<Result<i64, String>>,
     },
 }
 

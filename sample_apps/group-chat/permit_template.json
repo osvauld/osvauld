@@ -56,6 +56,17 @@
                     "sync": true,
                     "write": true
                 }
+            },
+            "channels/{channel}/messages/{period}": {
+                "type": "map",
+                "grant": "open",
+                "permissions": {
+                    "sync": true,
+                    "write": true
+                },
+                "namespace": "shared",
+                "storage_strategy": "time_sharded",
+                "resolution": "day"
             }
         },
         "presence": {
@@ -94,6 +105,17 @@
                             "sync": true,
                             "write": true
                         }
+                    },
+                    "channels/{channel}/messages/{period}": {
+                        "type": "map",
+                        "grant": "open",
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        },
+                        "namespace": "shared",
+                        "storage_strategy": "time_sharded",
+                        "resolution": "day"
                     }
                 },
                 "auth_capabilities": {
@@ -164,6 +186,17 @@
                             "sync": true,
                             "write": true
                         }
+                    },
+                    "channels/{channel}/messages/{period}": {
+                        "type": "map",
+                        "grant": "open",
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        },
+                        "namespace": "shared",
+                        "storage_strategy": "time_sharded",
+                        "resolution": "day"
                     }
                 },
                 "auth_capabilities": {
@@ -202,6 +235,17 @@
                                     "sync": true,
                                     "write": true
                                 }
+                            },
+                            "channels/{channel}/messages/{period}": {
+                                "type": "map",
+                                "grant": "open",
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                },
+                                "namespace": "shared",
+                                "storage_strategy": "time_sharded",
+                                "resolution": "day"
                             }
                         },
                         "auth_capabilities": {
@@ -272,6 +316,17 @@
                                     "sync": true,
                                     "write": true
                                 }
+                            },
+                            "channels/{channel}/messages/{period}": {
+                                "type": "map",
+                                "grant": "open",
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                },
+                                "namespace": "shared",
+                                "storage_strategy": "time_sharded",
+                                "resolution": "day"
                             }
                         },
                         "auth_capabilities": {
@@ -314,6 +369,17 @@
                                             "sync": true,
                                             "write": true
                                         }
+                                    },
+                                    "channels/{channel}/messages/{period}": {
+                                        "type": "map",
+                                        "grant": "open",
+                                        "permissions": {
+                                            "sync": true,
+                                            "write": true
+                                        },
+                                        "namespace": "shared",
+                                        "storage_strategy": "time_sharded",
+                                        "resolution": "day"
                                     }
                                 },
                                 "auth_capabilities": {
@@ -384,6 +450,17 @@
                             "sync": true,
                             "write": true
                         }
+                    },
+                    "channels/{channel}/messages/{period}": {
+                        "type": "map",
+                        "grant": "open",
+                        "permissions": {
+                            "sync": true,
+                            "write": true
+                        },
+                        "namespace": "shared",
+                        "storage_strategy": "time_sharded",
+                        "resolution": "day"
                     }
                 },
                 "auth_capabilities": {
@@ -426,6 +503,17 @@
                                     "sync": true,
                                     "write": true
                                 }
+                            },
+                            "channels/{channel}/messages/{period}": {
+                                "type": "map",
+                                "grant": "open",
+                                "permissions": {
+                                    "sync": true,
+                                    "write": true
+                                },
+                                "namespace": "shared",
+                                "storage_strategy": "time_sharded",
+                                "resolution": "day"
                             }
                         },
                         "auth_capabilities": {
@@ -495,6 +583,17 @@
                     "sync": true,
                     "write": true
                 }
+            },
+            "channels/{channel}/messages/{period}": {
+                "type": "map",
+                "grant": "open",
+                "permissions": {
+                    "sync": true,
+                    "write": true
+                },
+                "namespace": "shared",
+                "storage_strategy": "time_sharded",
+                "resolution": "day"
             }
         },
         "auth_capabilities": {

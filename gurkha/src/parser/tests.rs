@@ -801,18 +801,18 @@ fn test_is_peer_authorized_null() {
     // Test null authorized_peers by manually constructing a token
     use crate::builder::GurkhaPermitBuilder;
     use crate::decision::TokenDecision;
-    use crate::types::Capability;
+    use std::collections::HashMap;
 
     let signing_key = [1u8; 32];
     let builder = GurkhaPermitBuilder::from_bytes(&signing_key);
 
     let mut decision = TokenDecision {
         audience: "did:key:audience".to_string(),
-        capabilities: vec![Capability::from_str("test/read").unwrap()],
+        capabilities: vec![("test".to_string(), "read".to_string())],
         facts: serde_json::Map::new(),
         expiry: None,
         proofs: vec![],
-        proof_tokens: vec![],
+        proof_tokens: HashMap::new(),
     };
 
     decision
@@ -959,18 +959,18 @@ fn test_is_peer_authorized_malformed() {
     // Test malformed authorized_peers by manually constructing a token
     use crate::builder::GurkhaPermitBuilder;
     use crate::decision::TokenDecision;
-    use crate::types::Capability;
+    use std::collections::HashMap;
 
     let signing_key = [1u8; 32];
     let builder = GurkhaPermitBuilder::from_bytes(&signing_key);
 
     let mut decision = TokenDecision {
         audience: "did:key:audience".to_string(),
-        capabilities: vec![Capability::from_str("test/read").unwrap()],
+        capabilities: vec![("test".to_string(), "read".to_string())],
         facts: serde_json::Map::new(),
         expiry: None,
         proofs: vec![],
-        proof_tokens: vec![],
+        proof_tokens: HashMap::new(),
     };
 
     decision
@@ -993,4 +993,61 @@ fn test_is_peer_authorized_malformed() {
         !permit.is_peer_authorized("did:key:viewer2"),
         "Malformed authorized_peers should deny all peers"
     );
+}
+
+#[test]
+fn parse_dynamic_layer_creator_namespace_named_placeholders() {
+    let mut schemas = std::collections::HashMap::new();
+    schemas.insert(
+        "channels/{channel}/messages/{period}".to_string(),
+        DynamicLayerSchema {
+            layer_type: "list".to_string(),
+            grant: GrantType::Open,
+            permissions: LayerConfig {
+                sync: true,
+                write: true,
+                layer_type: Some("list".to_string()),
+            },
+            namespace: LayerNamespace::Creator,
+            storage_strategy: StorageStrategy::TimeSharded,
+            resolution: Some(Resolution::Month),
+        },
+    );
+
+    let parsed = parse_dynamic_layer(&schemas, "channels/did:key:alice/general/messages/2025-02")
+        .expect("expected dynamic layer match");
+
+    assert_eq!(parsed.schema_key, "channels/{channel}/messages/{period}");
+    assert_eq!(parsed.creator_did.as_deref(), Some("did:key:alice"));
+    assert_eq!(
+        parsed.placeholders.get("channel"),
+        Some(&"general".to_string())
+    );
+    assert_eq!(
+        parsed.placeholders.get("period"),
+        Some(&"2025-02".to_string())
+    );
+}
+
+#[test]
+fn parse_dynamic_layer_shared_namespace_month_validation() {
+    let mut schemas = std::collections::HashMap::new();
+    schemas.insert(
+        "channels/{channel}/messages/{period}".to_string(),
+        DynamicLayerSchema {
+            layer_type: "list".to_string(),
+            grant: GrantType::Open,
+            permissions: LayerConfig {
+                sync: true,
+                write: true,
+                layer_type: Some("list".to_string()),
+            },
+            namespace: LayerNamespace::Shared,
+            storage_strategy: StorageStrategy::TimeSharded,
+            resolution: Some(Resolution::Month),
+        },
+    );
+
+    assert!(parse_dynamic_layer(&schemas, "channels/general/messages/2025-02").is_some());
+    assert!(parse_dynamic_layer(&schemas, "channels/general/messages/2025-W08").is_none());
 }

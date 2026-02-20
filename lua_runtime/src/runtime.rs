@@ -12,6 +12,7 @@ use crate::scribe_handle::ActorScribeHandle;
 use butler::LoroDelta;
 
 use crate::bindings::binding::{data_to_ui_mutation, process_binding_data, BindingManager};
+use crate::bindings::clock::ClockBindings;
 use crate::bindings::convert::{json_to_lua, lua_to_json};
 use crate::bindings::derivation::DerivationBindings;
 use crate::bindings::emoji::EmojiBindings;
@@ -53,6 +54,7 @@ pub struct LuaRuntimeConfig {
     pub ui_tx: Option<mpsc::Sender<UiMutation>>,
     pub query_tx: Option<mpsc::Sender<UiQuery>>,
     pub navigate_tx: Option<std::sync::mpsc::Sender<String>>,
+    pub clock: Arc<dyn domains::ClockSource>,
 }
 
 /// Result of a single step of the event loop.
@@ -75,6 +77,7 @@ pub struct LuaRuntime {
     scribe: Arc<ActorScribeHandle>,
     ui_enabled: bool,
     handler_cache: HandlerCache,
+    clock: Arc<dyn domains::ClockSource>,
 }
 
 struct HandlerCache {
@@ -130,7 +133,7 @@ impl LuaRuntime {
                 continue;
             }
 
-            if let Err(error) = self.handle_layer_discovered(&layer_name) {
+            if let Err(error) = self.handle_layer_discovered(&layer_name, None) {
                 warn!(
                     page_id = %self.page_id,
                     layer = %layer_name,

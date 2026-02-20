@@ -1,4 +1,5 @@
 use super::*;
+use domains::ClockSource;
 use mlua::ObjectLike;
 
 impl LuaRuntime {
@@ -64,9 +65,10 @@ impl LuaRuntime {
                 created,
                 delta,
                 full_data,
+                dynamic_ref,
             } => {
                 let result = if created {
-                    self.handle_layer_discovered(&layer_name)
+                    self.handle_layer_discovered(&layer_name, dynamic_ref.as_ref())
                 } else {
                     self.handle_loro_change(&layer_name, delta, full_data)
                 };
@@ -166,6 +168,24 @@ impl LuaRuntime {
                 let _ = response_tx.send(state);
                 false
             }
+
+            LuaCommand::SetTime {
+                unix_seconds,
+                response_tx,
+            } => {
+                let result = self.set_time(unix_seconds);
+                let _ = response_tx.send(result);
+                false
+            }
+
+            LuaCommand::AdvanceTime {
+                seconds,
+                response_tx,
+            } => {
+                let result = self.advance_time(seconds);
+                let _ = response_tx.send(result);
+                false
+            }
         }
     }
 
@@ -202,6 +222,33 @@ impl LuaRuntime {
                 warn!(page_id = %self.page_id, layer = %layer_name, error = %e, "derivation:on_source_change() failed");
             }
         }
+    }
+
+    fn aggregate_wildcard_binding_data(&self, expanded_pattern: &str) -> Result<JsonValue, String> {
+        let layer_names = self.scribe.list_layers(expanded_pattern)?;
+        let mut aggregated = Vec::new();
+
+        for layer in &layer_names {
+            if let Some(data) = self.scribe.get_layer_json(layer)? {
+                match data {
+                    JsonValue::Array(items) => aggregated.extend(items),
+                    JsonValue::Object(map) => {
+                        for value in map.into_values() {
+                            aggregated.push(value);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        aggregated.sort_by(|a, b| {
+            let ta = a.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+            let tb = b.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+            ta.cmp(&tb)
+        });
+
+        Ok(JsonValue::Array(aggregated))
     }
 
     pub(super) fn process_bindings(
@@ -246,6 +293,62 @@ impl LuaRuntime {
             }
 
             let ui_property = &binding.ui_property;
+
+            if binding.is_wildcard {
+                let aggregated =
+                    match self.aggregate_wildcard_binding_data(&binding.expanded_pattern) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            warn!(
+                                page_id = %self.page_id,
+                                layer = %layer_name,
+                                ui_property = %ui_property,
+                                error = %e,
+                                "Failed to aggregate wildcard binding data"
+                            );
+                            continue;
+                        }
+                    };
+
+                let processed =
+                    match process_binding_data(&self.lua, binding, &aggregated, Some(layer_name)) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            warn!(
+                                page_id = %self.page_id,
+                                layer = %layer_name,
+                                ui_property = %ui_property,
+                                error = %e,
+                                "Failed to process wildcard binding data"
+                            );
+                            continue;
+                        }
+                    };
+
+                if let Some(ref ui_tx) = self.ui_tx {
+                    if let Some(mutation) =
+                        data_to_ui_mutation(&self.page_id, ui_property, processed)
+                    {
+                        if let Err(e) = ui_tx.try_send(mutation) {
+                            warn!(
+                                page_id = %self.page_id,
+                                ui_property = %ui_property,
+                                error = %e,
+                                "Failed to send wildcard binding UI mutation"
+                            );
+                        } else {
+                            debug!(
+                                page_id = %self.page_id,
+                                layer = %layer_name,
+                                ui_property = %ui_property,
+                                "Wildcard binding auto-synced to UI"
+                            );
+                        }
+                    }
+                }
+
+                continue;
+            }
 
             if let Some(delta) = delta {
                 if !binding.is_wildcard {
@@ -352,5 +455,31 @@ impl LuaRuntime {
             },
             failed_op_index: None,
         })
+    }
+
+    /// Set runtime time (ManualClock only)
+    fn set_time(&self, unix_seconds: i64) -> Result<i64, String> {
+        // Try to downcast to ManualClock
+        let manual_clock = self
+            .clock
+            .as_any()
+            .downcast_ref::<domains::ManualClock>()
+            .ok_or_else(|| "Runtime not in test mode (ManualClock required)".to_string())?;
+
+        manual_clock.set_unix(unix_seconds);
+        Ok(manual_clock.now_unix())
+    }
+
+    /// Advance runtime time (ManualClock only)
+    fn advance_time(&self, seconds: u64) -> Result<i64, String> {
+        // Try to downcast to ManualClock
+        let manual_clock = self
+            .clock
+            .as_any()
+            .downcast_ref::<domains::ManualClock>()
+            .ok_or_else(|| "Runtime not in test mode (ManualClock required)".to_string())?;
+
+        manual_clock.advance(std::time::Duration::from_secs(seconds));
+        Ok(manual_clock.now_unix())
     }
 }

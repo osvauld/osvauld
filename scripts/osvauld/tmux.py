@@ -23,6 +23,7 @@ Usage:
 """
 
 import os
+import signal
 import shutil
 import subprocess
 import time
@@ -113,6 +114,7 @@ class TmuxManager:
         shell_binary: Optional[Path] = None,
         kunki_binary: Optional[Path] = None,
         release: bool = False,
+        test_mode: bool = False,
         profiling: bool = False,
         flame_only: bool = False,
         heaptrack: bool = False,
@@ -125,6 +127,7 @@ class TmuxManager:
             shell_binary: Path to slint_shell binary
             kunki_binary: Path to kunki binary
             release: Use release builds (default: debug)
+            test_mode: Run instances with --test-mode (ManualClock)
             profiling: Enable profiling mode (tokio-console + flame graphs)
             flame_only: Enable flame graphs only (no tokio-console overhead)
             heaptrack: Wrap binaries with heaptrack for heap profiling
@@ -133,6 +136,7 @@ class TmuxManager:
         self.base_dir = Path(base_dir) if base_dir else Path("/tmp/p2p_test")
         self.passphrase = passphrase
         self.release = release
+        self.test_mode = test_mode
         self.profiling = profiling
         self.flame_only = flame_only
         self.heaptrack = heaptrack
@@ -312,6 +316,81 @@ class TmuxManager:
             raise ValueError(f"Instance '{name}' not found")
         return self._instances[name].client
 
+    def stop_instance(self, name: str, timeout: float = 10.0) -> None:
+        """Stop a single instance process, keeping tmux session alive."""
+        if name not in self._instances:
+            raise ValueError(f"Instance '{name}' not found")
+
+        inst = self._instances[name]
+        if not self._started:
+            return
+
+        window_index = self._instance_order.index(name)
+        subprocess.run(
+            [
+                "tmux",
+                "send-keys",
+                "-t",
+                f"{self.session_name}:{window_index}",
+                "C-c",
+            ],
+            capture_output=True,
+        )
+
+        start = time.time()
+        while time.time() - start < timeout:
+            if not inst.is_ready():
+                inst._client = None
+                return
+            time.sleep(0.1)
+
+        pid = self.get_instance_pid(name)
+        if pid is not None:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+        start = time.time()
+        while time.time() - start < 3.0:
+            if not inst.is_ready():
+                inst._client = None
+                return
+            time.sleep(0.1)
+
+        pid = self.get_instance_pid(name)
+        if pid is not None:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+        inst._client = None
+
+    def start_instance(self, name: str, timeout: float = 30.0) -> None:
+        """Start a single stopped instance in its existing tmux pane."""
+        if name not in self._instances:
+            raise ValueError(f"Instance '{name}' not found")
+
+        if not self._started:
+            raise RuntimeError("Tmux session not started")
+
+        inst = self._instances[name]
+        if inst.is_ready():
+            return
+
+        window_index = self._instance_order.index(name)
+        self._start_instance_in_window(inst, window_index)
+
+        start = time.time()
+        while time.time() - start < timeout:
+            if inst.is_ready():
+                inst._client = None
+                return
+            time.sleep(0.1)
+
+        raise TimeoutError(f"Timeout waiting for instance '{name}' to start")
+
     def get_socket_path(self, name: str) -> Path:
         """Get socket path for an instance."""
         if name not in self._instances:
@@ -460,13 +539,14 @@ class TmuxManager:
             heaptrack_prefix = f"heaptrack -o {heaptrack_output} "
 
         log_file = inst.data_dir / f"{inst.name}.log"
+        test_mode_flag = " --test-mode" if self.test_mode else ""
         if inst.instance_type == "shell":
             cmd = (
                 f"cd {PROJECT_ROOT} && "
                 f"{env_prefix}"
                 f"STHALAM_DATA_DIR={inst.data_dir} "
                 f"{heaptrack_prefix}"
-                f"{inst.binary} -d {inst.name} --debug-socket {inst.socket_path} "
+                f"{inst.binary} -d {inst.name}{test_mode_flag} --debug-socket {inst.socket_path} "
                 f"2>&1 | tee {log_file}"
             )
         else:  # node
@@ -475,7 +555,7 @@ class TmuxManager:
                 f"{env_prefix}"
                 f"{heaptrack_prefix}"
                 f"{inst.binary} --db-path {inst.data_dir}/{inst.name} start "
-                f"--passphrase {self.passphrase} --debug-socket {inst.socket_path} "
+                f"--passphrase {self.passphrase}{test_mode_flag} --debug-socket {inst.socket_path} "
                 f"2>&1 | tee {log_file}"
             )
 

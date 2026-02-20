@@ -39,6 +39,7 @@ pub struct KunkiHandler {
     butler: Option<Arc<Butler>>,
     validation_handle: Arc<RwLock<Option<ValidationHandle>>>,
     capture_handle: Arc<RwLock<Option<CaptureHandle>>>,
+    node_runtime: Arc<RwLock<Option<Arc<crate::node_runtime::NodeRuntimeManager>>>>,
 }
 
 impl KunkiHandler {
@@ -48,7 +49,13 @@ impl KunkiHandler {
             butler,
             validation_handle: Arc::new(RwLock::new(None)),
             capture_handle: Arc::new(RwLock::new(None)),
+            node_runtime: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Set node runtime manager (for test-time controls)
+    pub async fn set_node_runtime(&self, runtime: Arc<crate::node_runtime::NodeRuntimeManager>) {
+        *self.node_runtime.write().await = Some(runtime);
     }
 
     /// Set capture handle (for event capture)
@@ -214,6 +221,75 @@ impl CommandHandler for KunkiHandler {
                 }
             }
 
+            // Test-time controls
+            "set_time" => {
+                let Some(params_obj) = params.as_ref().and_then(|p| p.as_object()) else {
+                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Invalid params object"));
+                };
+
+                let Some(unix_seconds) = params_obj.get("unix_seconds").and_then(|v| v.as_i64()) else {
+                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing unix_seconds parameter"));
+                };
+
+                let Some(page_id) = params_obj.get("page_id").and_then(|v| v.as_str()) else {
+                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing page_id parameter"));
+                };
+
+                let runtime_guard = self.node_runtime.read().await;
+                let Some(ref runtime) = *runtime_guard else {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Node runtime not available"));
+                };
+
+                let Some(cmd_tx) = runtime.get_cmd_tx(page_id).await else {
+                    return Some(Response::err(id, error_codes::NOT_FOUND, format!("No node runtime for page {}", page_id)));
+                };
+
+                let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+                if cmd_tx.send(lua_runtime::LuaCommand::SetTime { unix_seconds, response_tx }).await.is_err() {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send set_time command"));
+                }
+
+                match response_rx.await {
+                    Ok(Ok(new_time)) => Some(Response::ok(id, serde_json::json!({"unix_seconds": new_time}))),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "SetTime command dropped")),
+                }
+            }
+
+            "advance_time" => {
+                let Some(params_obj) = params.as_ref().and_then(|p| p.as_object()) else {
+                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Invalid params object"));
+                };
+
+                let Some(seconds) = params_obj.get("seconds").and_then(|v| v.as_u64()) else {
+                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing seconds parameter"));
+                };
+
+                let Some(page_id) = params_obj.get("page_id").and_then(|v| v.as_str()) else {
+                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing page_id parameter"));
+                };
+
+                let runtime_guard = self.node_runtime.read().await;
+                let Some(ref runtime) = *runtime_guard else {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Node runtime not available"));
+                };
+
+                let Some(cmd_tx) = runtime.get_cmd_tx(page_id).await else {
+                    return Some(Response::err(id, error_codes::NOT_FOUND, format!("No node runtime for page {}", page_id)));
+                };
+
+                let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+                if cmd_tx.send(lua_runtime::LuaCommand::AdvanceTime { seconds, response_tx }).await.is_err() {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send advance_time command"));
+                }
+
+                match response_rx.await {
+                    Ok(Ok(new_time)) => Some(Response::ok(id, serde_json::json!({"unix_seconds": new_time}))),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "AdvanceTime command dropped")),
+                }
+            }
+
             _ => None, // Let base server handle or return method not found
         }
     }
@@ -250,6 +326,11 @@ impl KunkiControlServer {
         self.handler.set_capture_handle(handle).await;
     }
 
+    /// Set node runtime manager (for test-time controls)
+    pub async fn set_node_runtime(&self, runtime: Arc<crate::node_runtime::NodeRuntimeManager>) {
+        self.handler.set_node_runtime(runtime).await;
+    }
+
     /// Update node state
     pub async fn set_state(&self, state: NodeState) {
         self.handler.set_state(state).await;
@@ -269,6 +350,7 @@ impl Clone for KunkiHandler {
             butler: self.butler.clone(),
             validation_handle: self.validation_handle.clone(),
             capture_handle: self.capture_handle.clone(),
+            node_runtime: self.node_runtime.clone(),
         }
     }
 }

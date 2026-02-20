@@ -537,6 +537,30 @@ impl CommandHandler for ShellHandler {
                 })))
             }
 
+            "go_offline" => {
+                let courier = self.courier_handle.read().await;
+                let Some(courier_handle) = courier.as_ref() else {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "P2P not connected"));
+                };
+
+                match courier_handle.go_offline().await {
+                    Ok(()) => Some(Response::ok(id, serde_json::json!({"status": "offline"}))),
+                    Err(e) => Some(Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to go offline: {}", e))),
+                }
+            }
+
+            "go_online" => {
+                let courier = self.courier_handle.read().await;
+                let Some(courier_handle) = courier.as_ref() else {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "P2P not connected"));
+                };
+
+                match courier_handle.go_online().await {
+                    Ok(()) => Some(Response::ok(id, serde_json::json!({"status": "online"}))),
+                    Err(e) => Some(Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to go online: {}", e))),
+                }
+            }
+
             // Capture commands
             "capture_start" => {
                 let handle_guard = self.capture_handle.read().await;
@@ -569,6 +593,55 @@ impl CommandHandler for ShellHandler {
                 match handle.stop_capture().await {
                     Ok(()) => Some(Response::ok(id, serde_json::json!({"status": "stopped"}))),
                     Err(e) => Some(Response::err(id, error_codes::INTERNAL_ERROR, &e)),
+                }
+            }
+
+            // Time control commands (test mode only)
+            "set_time" => {
+                let Some(unix_seconds) = params.as_ref()?.get("unix_seconds")?.as_i64() else {
+                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing or invalid unix_seconds"));
+                };
+
+                let lua_tx = self.lua_worker_tx.read().await;
+                let Some(tx) = lua_tx.as_ref() else {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Lua runtime not available"));
+                };
+
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx.send(lua_runtime::LuaCommand::SetTime { unix_seconds, response_tx }).await.is_err() {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send set_time command"));
+                }
+
+                match response_rx.await {
+                    Ok(Ok(new_time)) => Some(Response::ok(id, serde_json::json!({
+                        "unix_seconds": new_time
+                    }))),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "SetTime command dropped")),
+                }
+            }
+
+            "advance_time" => {
+                let Some(seconds) = params.as_ref()?.get("seconds")?.as_u64() else {
+                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing or invalid seconds"));
+                };
+
+                let lua_tx = self.lua_worker_tx.read().await;
+                let Some(tx) = lua_tx.as_ref() else {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Lua runtime not available"));
+                };
+
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx.send(lua_runtime::LuaCommand::AdvanceTime { seconds, response_tx }).await.is_err() {
+                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send advance_time command"));
+                }
+
+                match response_rx.await {
+                    Ok(Ok(new_time)) => Some(Response::ok(id, serde_json::json!({
+                        "unix_seconds": new_time
+                    }))),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "AdvanceTime command dropped")),
                 }
             }
 

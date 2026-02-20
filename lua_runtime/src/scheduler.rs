@@ -24,8 +24,10 @@
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use domains::ClockSource;
 use tracing::{debug, trace};
 
 // Timer Entry
@@ -60,21 +62,25 @@ pub struct Scheduler {
 
     /// Next timer ID
     next_id: AtomicU64,
+
+    /// Clock source for time operations
+    clock: Arc<dyn ClockSource>,
 }
 
 impl Default for Scheduler {
     fn default() -> Self {
-        Self::new()
+        Self::new(Arc::new(domains::RealClock))
     }
 }
 
 impl Scheduler {
-    /// Create a new scheduler
-    pub fn new() -> Self {
+    /// Create a new scheduler with the given clock source
+    pub fn new(clock: Arc<dyn ClockSource>) -> Self {
         Self {
             timers: BTreeMap::new(),
             by_deadline: BTreeMap::new(),
             next_id: AtomicU64::new(1),
+            clock,
         }
     }
 
@@ -83,7 +89,7 @@ impl Scheduler {
     /// Returns the timer ID for later cancellation
     pub fn register_timer(&mut self, delay_ms: u64, repeat: bool) -> u64 {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let now = Instant::now();
+        let now = self.clock.now_monotonic();
         let delay = Duration::from_millis(delay_ms);
         let deadline = now + delay;
 
@@ -143,7 +149,7 @@ impl Scheduler {
     pub fn time_until_next(&self) -> Duration {
         match self.next_deadline() {
             Some(deadline) => {
-                let now = Instant::now();
+                let now = self.clock.now_monotonic();
                 if deadline <= now {
                     Duration::ZERO
                 } else {
@@ -158,7 +164,7 @@ impl Scheduler {
     ///
     /// Returns list of timer IDs that fired (for Lua to call callbacks)
     pub fn fire_due_timers(&mut self) -> Vec<u64> {
-        let now = Instant::now();
+        let now = self.clock.now_monotonic();
         let mut fired = Vec::new();
         let mut to_reschedule = Vec::new();
         let mut deadlines_to_remove = Vec::new();
@@ -195,7 +201,7 @@ impl Scheduler {
         // Reschedule repeating timers
         for (id, interval) in to_reschedule {
             if let Some(entry) = self.timers.get_mut(&id) {
-                let new_deadline = Instant::now() + interval;
+                let new_deadline = self.clock.now_monotonic() + interval;
                 entry.deadline = new_deadline;
 
                 self.by_deadline
@@ -232,11 +238,12 @@ impl Scheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread::sleep;
+    use domains::ManualClock;
 
     #[test]
-    fn test_register_and_fire() {
-        let mut scheduler = Scheduler::new();
+    fn test_register_and_fire_with_manual_clock() {
+        let clock = Arc::new(ManualClock::new(1708444800));
+        let mut scheduler = Scheduler::new(clock.clone());
 
         // Timeout (one-shot)
         let id = scheduler.register_timer(10, false);
@@ -246,37 +253,42 @@ mod tests {
             scheduler.fire_due_timers().is_empty(),
             "Should not fire immediately"
         );
-        sleep(Duration::from_millis(15));
+
+        // Advance time past the deadline
+        clock.advance(Duration::from_millis(15));
         assert_eq!(scheduler.fire_due_timers(), vec![1]);
-        assert!(
-            scheduler.active_timer_count() == 0,
+        assert_eq!(
+            scheduler.active_timer_count(),
+            0,
             "One-shot removed after firing"
         );
 
         // Interval (repeating)
         let id = scheduler.register_timer(10, true);
-        sleep(Duration::from_millis(15));
+        clock.advance(Duration::from_millis(15));
         assert_eq!(scheduler.fire_due_timers(), vec![id]);
         assert_eq!(scheduler.active_timer_count(), 1, "Interval still pending");
-        sleep(Duration::from_millis(15));
+        clock.advance(Duration::from_millis(15));
         assert_eq!(scheduler.fire_due_timers(), vec![id], "Fires again");
     }
 
     #[test]
     fn test_cancel_timer() {
-        let mut scheduler = Scheduler::new();
+        let clock = Arc::new(ManualClock::new(1708444800));
+        let mut scheduler = Scheduler::new(clock.clone());
 
         let id = scheduler.register_timer(10, false);
         assert_eq!(scheduler.active_timer_count(), 1);
         assert!(scheduler.clear_timer(id));
 
-        sleep(Duration::from_millis(15));
+        clock.advance(Duration::from_millis(15));
         assert!(scheduler.fire_due_timers().is_empty());
     }
 
     #[test]
     fn test_multiple_timers_and_deadlines() {
-        let mut scheduler = Scheduler::new();
+        let clock = Arc::new(ManualClock::new(1708444800));
+        let mut scheduler = Scheduler::new(clock.clone());
 
         // No timers → no deadline
         assert!(scheduler.next_deadline().is_none());
@@ -291,14 +303,14 @@ mod tests {
         assert!(until <= Duration::from_millis(10));
 
         // First batch: id1 and id3 fire
-        sleep(Duration::from_millis(15));
+        clock.advance(Duration::from_millis(15));
         let fired = scheduler.fire_due_timers();
         assert!(fired.contains(&id1));
         assert!(fired.contains(&id3));
         assert!(!fired.contains(&id2));
 
         // Second batch: id2 fires
-        sleep(Duration::from_millis(10));
+        clock.advance(Duration::from_millis(10));
         assert_eq!(scheduler.fire_due_timers(), vec![id2]);
     }
 }

@@ -3,8 +3,10 @@
 //! Butler's implementations of the scribe storage traits using RedbStore.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 
+use gurkha::errors::ServiceResult;
 use scribe::{LayerStorage, PeerResolver, PeerVectorStorage, PermitIssuer, Result, ScribeError};
 
 use crate::storage::RedbStore;
@@ -39,6 +41,22 @@ impl ButlerPermitIssuer {
     }
 }
 
+fn block_on_gurkha<T>(future: impl Future<Output = ServiceResult<T>>) -> ServiceResult<T> {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => {
+            if matches!(
+                handle.runtime_flavor(),
+                tokio::runtime::RuntimeFlavor::MultiThread
+            ) {
+                tokio::task::block_in_place(|| handle.block_on(future))
+            } else {
+                futures::executor::block_on(future)
+            }
+        }
+        Err(_) => futures::executor::block_on(future),
+    }
+}
+
 impl PermitIssuer for ButlerPermitIssuer {
     #[instrument(skip_all, fields(audience = %audience, layer_name = %layer_name))]
     fn issue_layer_permit(
@@ -49,17 +67,15 @@ impl PermitIssuer for ButlerPermitIssuer {
         intent_cid: Option<&str>,
     ) -> Result<(String, String)> {
         info!(page_id = %self.page_id, "ButlerPermitIssuer::issue_layer_permit");
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(gurkha::issue_layer_permit(
-                &self.signing_key,
-                &self.node_permit_token,
-                audience,
-                &self.page_id,
-                layer_name,
-                config,
-                intent_cid,
-            ))
-        })
+        block_on_gurkha(gurkha::issue_layer_permit(
+            &self.signing_key,
+            &self.node_permit_token,
+            audience,
+            &self.page_id,
+            layer_name,
+            config,
+            intent_cid,
+        ))
         .map_err(|e| {
             warn!(error = %e, "Permit issuance failed");
             ScribeError::Other(format!("Permit issuance failed: {}", e))
@@ -103,17 +119,15 @@ impl PermitIssuer for ButlerPermitIssuer {
         authorized_peers: Option<Vec<String>>,
         version: u64,
     ) -> Result<(String, String)> {
-        let (token, cid) = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(gurkha::issue_layer_authority_permit(
-                &self.signing_key,
-                &self.node_permit_token,
-                audience,
-                layer_name,
-                config,
-                authorized_peers,
-                version,
-            ))
-        })
+        let (token, cid) = block_on_gurkha(gurkha::issue_layer_authority_permit(
+            &self.signing_key,
+            &self.node_permit_token,
+            audience,
+            layer_name,
+            config,
+            authorized_peers,
+            version,
+        ))
         .map_err(|e| {
             warn!(error = %e, "Layer authority permit issuance failed");
             ScribeError::Other(format!("Layer authority permit issuance failed: {}", e))
