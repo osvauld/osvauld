@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 // Butler for storage and identity
-use butler::{Butler, RedbStore, LayerCache};
+use butler::{Butler, LayerCache, RedbStore};
 use tokio::sync::RwLock;
 
 mod control_server;
@@ -106,14 +106,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(false);
 
     #[cfg(not(feature = "profiling"))]
-    let (_guard, capture_handle) = logging_utils::init_rich_tracing_with_capture(logging_utils::LogConfig {
-        level: "debug".to_string(),
-        log_to_stdout: true,
-        use_tree_format: !use_json,
-        stdout_json: use_json,
-        instance_name: Some("kunki".to_string()),
-        ..Default::default()
-    })?;
+    let (_guard, capture_handle) =
+        logging_utils::init_rich_tracing_with_capture(logging_utils::LogConfig {
+            level: "debug".to_string(),
+            log_to_stdout: true,
+            use_tree_format: !use_json,
+            stdout_json: use_json,
+            instance_name: Some("kunki".to_string()),
+            ..Default::default()
+        })?;
 
     info!("🚀 Kunki CLI starting");
 
@@ -121,14 +122,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize Butler's RedbStore for storage
     // Check for STHALAM_DATA_DIR env var (like sthalam does for test automation)
-    let (db_path, data_dir): (std::path::PathBuf, std::path::PathBuf) = if let Ok(data_dir_str) = std::env::var("STHALAM_DATA_DIR") {
+    let (db_path, data_dir): (std::path::PathBuf, std::path::PathBuf) = if let Ok(data_dir_str) =
+        std::env::var("STHALAM_DATA_DIR")
+    {
         let dir = std::path::PathBuf::from(&data_dir_str);
         std::fs::create_dir_all(&dir).expect("Failed to create data directory");
         (dir.join(format!("{}.db", cli.db_path)), dir)
     } else {
         // Default: use db_path directly with .db extension, assets in current dir
         let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        (std::path::PathBuf::from(format!("{}.db", cli.db_path)), current_dir)
+        (
+            std::path::PathBuf::from(format!("{}.db", cli.db_path)),
+            current_dir,
+        )
     };
     info!("Using database: {:?}", db_path);
 
@@ -148,20 +154,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let pass = get_passphrase(passphrase, "Enter passphrase:")?;
             handle_init(&username, &pass, redb_store.clone()).await?;
         }
-        Commands::Start { passphrase, debug_socket, test_mode } => {
+        Commands::Start {
+            passphrase,
+            debug_socket,
+            test_mode,
+        } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
             #[cfg(not(feature = "profiling"))]
-            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir, Some(capture_handle), test_mode).await?;
+            handle_start(
+                &pass,
+                redb_store.clone(),
+                debug_socket,
+                &data_dir,
+                Some(capture_handle),
+                test_mode,
+            )
+            .await?;
             #[cfg(feature = "profiling")]
-            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir, None, test_mode).await?;
+            handle_start(
+                &pass,
+                redb_store.clone(),
+                debug_socket,
+                &data_dir,
+                None,
+                test_mode,
+            )
+            .await?;
         }
         Commands::FolderToken {
             passphrase,
             folder_id,
         } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
-            handle_folder_token(&pass, &folder_id, redb_store.clone())
-                .await?;
+            handle_folder_token(&pass, &folder_id, redb_store.clone()).await?;
         }
     }
 
@@ -233,7 +258,8 @@ async fn handle_start(
     // Create Butler with LayerCache, AssetStore and set identity
     let layer_cache = Arc::new(RwLock::new(LayerCache::new(redb_store.clone(), 100)));
     let assets_path = data_dir.join("assets");
-    let asset_store = Arc::new(butler::AssetStore::new(&assets_path).expect("Failed to create asset store"));
+    let asset_store =
+        Arc::new(butler::AssetStore::new(&assets_path).expect("Failed to create asset store"));
 
     // Create sync event channel (Scribe → Coordinator)
     // Node mode DOES need EnsureSync - to trigger RefreshSubscriptions when pages are opened
@@ -242,7 +268,12 @@ async fn handle_start(
     // Create page opened channel for node runtime auto-start
     let (page_opened_tx, mut page_opened_rx) = tokio::sync::mpsc::channel::<String>(32);
 
-    let butler = Arc::new(Butler::new(redb_store.clone(), layer_cache, asset_store, Some(sync_tx)));
+    let butler = Arc::new(Butler::new(
+        redb_store.clone(),
+        layer_cache,
+        asset_store,
+        Some(sync_tx),
+    ));
     butler.set_identity(identity.clone()).await;
     butler.set_page_opened_tx(page_opened_tx).await;
 
@@ -281,10 +312,11 @@ async fn handle_start(
         }
     });
 
-
     // Initialize Transport layer using the device key from Butler
     info!("Initializing transport layer...");
-    let device_key = butler.device_key().await
+    let device_key = butler
+        .device_key()
+        .await
         .map_err(|e| format!("Failed to get device key: {:?}", e))?;
     let transport_config = TransportConfig::new(device_key);
     let (transport, event_rx) = Transport::init(transport_config)
@@ -304,41 +336,48 @@ async fn handle_start(
     }
 
     // Start debug server if requested (keep reference for updating state later)
-    let debug_server_arc: Option<Arc<KunkiControlServer>> = if let Some(ref socket_path) = debug_socket {
-        let socket_path = PathBuf::from(socket_path);
-        let debug_server = Arc::new(KunkiControlServer::new(socket_path.clone(), "kunki".to_string(), Some(butler.clone())));
+    let debug_server_arc: Option<Arc<KunkiControlServer>> =
+        if let Some(ref socket_path) = debug_socket {
+            let socket_path = PathBuf::from(socket_path);
+            let debug_server = Arc::new(KunkiControlServer::new(
+                socket_path.clone(),
+                "kunki".to_string(),
+                Some(butler.clone()),
+            ));
 
-        // Set initial state (connection_string will be updated after generation)
-        debug_server.set_state(NodeState {
-            node_id: node_id.to_string(),
-            did: identity.did().to_string(),
-            username: identity_data.username.clone(),
-            connected_peers: vec![],
-            relay_url: relay_urls.first().cloned(),
-            connection_string: None,
-        }).await;
+            // Set initial state (connection_string will be updated after generation)
+            debug_server
+                .set_state(NodeState {
+                    node_id: node_id.to_string(),
+                    did: identity.did().to_string(),
+                    username: identity_data.username.clone(),
+                    connected_peers: vec![],
+                    relay_url: relay_urls.first().cloned(),
+                    connection_string: None,
+                })
+                .await;
 
-        // Set capture handle for event capture commands
-        if let Some(ref ch) = capture_handle {
-            debug_server.set_capture_handle(ch.clone()).await;
-        }
-
-        // Set node runtime manager for test-time controls
-        debug_server.set_node_runtime(node_runtime.clone()).await;
-
-        // Spawn debug server
-        let server = debug_server.clone();
-        tokio::spawn(async move {
-            if let Err(e) = server.start().await {
-                error!(error = %e, "Debug server error");
+            // Set capture handle for event capture commands
+            if let Some(ref ch) = capture_handle {
+                debug_server.set_capture_handle(ch.clone()).await;
             }
-        });
 
-        info!("✔ Debug server enabled on: {:?}", socket_path);
-        Some(debug_server)
-    } else {
-        None
-    };
+            // Set node runtime manager for test-time controls
+            debug_server.set_node_runtime(node_runtime.clone()).await;
+
+            // Spawn debug server
+            let server = debug_server.clone();
+            tokio::spawn(async move {
+                if let Err(e) = server.start().await {
+                    error!(error = %e, "Debug server error");
+                }
+            });
+
+            info!("✔ Debug server enabled on: {:?}", socket_path);
+            Some(debug_server)
+        } else {
+            None
+        };
 
     // Create HandshakeServices with Butler
     let handshake_services = Arc::new(HandshakeServices::new(butler.clone()));
@@ -384,14 +423,19 @@ async fn handle_start(
                         tracing::info!(user_did = %user_did, "Node forwarded EnsureSync to Coordinator");
                     }
                 }
-                butler::SyncEvent::SubscribeLayers { page_id, creator_did, layers } => {
+                butler::SyncEvent::SubscribeLayers {
+                    page_id,
+                    creator_did,
+                    layers,
+                } => {
                     tracing::info!(
                         page_id = %page_id,
                         creator_did = %creator_did,
                         count = layers.len(),
                         "Node received SubscribeLayers from Scribe, forwarding to Coordinator"
                     );
-                    if let Err(e) = handle_for_sync.subscribe_layers(&page_id, &creator_did, layers) {
+                    if let Err(e) = handle_for_sync.subscribe_layers(&page_id, &creator_did, layers)
+                    {
                         tracing::warn!(error = %e, "Failed to forward SubscribeLayers");
                     }
                 }
@@ -448,22 +492,33 @@ async fn handle_start(
                 } => {
                     info!(
                         "🔗 Shareable link generated for {}: {} (permit: {}...)",
-                        node_id, space_id, &permit[..permit.len().min(20)]
+                        node_id,
+                        space_id,
+                        &permit[..permit.len().min(20)]
                     );
                 }
                 CourierEvent::ConnectRequested { node_id, permit } => {
                     info!(
                         "🔌 Connection requested to {}: permit={}...",
-                        node_id, &permit[..permit.len().min(20)]
+                        node_id,
+                        &permit[..permit.len().min(20)]
                     );
                 }
-                CourierEvent::ViewerSpaceReceived { node_id, space, page_count } => {
+                CourierEvent::ViewerSpaceReceived {
+                    node_id,
+                    space,
+                    page_count,
+                } => {
                     info!(
                         "📂 Viewer received space {} ({}) from {} ({} pages)",
                         space.id, space.name, node_id, page_count
                     );
                 }
-                CourierEvent::PageReceived { node_id, page, is_last } => {
+                CourierEvent::PageReceived {
+                    node_id,
+                    page,
+                    is_last,
+                } => {
                     info!(
                         "📄 Viewer received page {} ({}) from {} for space {} (last: {})",
                         page.id, page.name, node_id, page.space_id, is_last
@@ -478,6 +533,12 @@ async fn handle_start(
                 CourierEvent::ConnectionFailed { node_id, error } => {
                     warn!("❌ Connection failed to {}: {}", node_id, error);
                 }
+                CourierEvent::PermitUpdated { page_id, version } => {
+                    info!(
+                        "🔑 Permit updated for page {}: version {}",
+                        page_id, version
+                    );
+                }
             }
         }
     });
@@ -488,23 +549,27 @@ async fn handle_start(
     println!("╚══════════════════════════════════════════╝");
 
     // Generate connection string using Butler
-    let encoded_connection = butler.nodes().generate_connection_string(
-        relay_urls.first().map(|s| s.as_str()),
-    ).await.map_err(|e| format!("Failed to generate connection string: {:?}", e))?;
+    let encoded_connection = butler
+        .nodes()
+        .generate_connection_string(relay_urls.first().map(|s| s.as_str()))
+        .await
+        .map_err(|e| format!("Failed to generate connection string: {:?}", e))?;
 
     println!("{}", encoded_connection);
     println!("╚══════════════════════════════════════════╝");
 
     // Update debug server state with connection string
     if let Some(ref debug_server) = debug_server_arc {
-        debug_server.set_state(NodeState {
-            node_id: node_id.to_string(),
-            did: identity.did().to_string(),
-            username: identity_data.username.clone(),
-            connected_peers: vec![],
-            relay_url: relay_urls.first().cloned(),
-            connection_string: Some(encoded_connection.clone()),
-        }).await;
+        debug_server
+            .set_state(NodeState {
+                node_id: node_id.to_string(),
+                did: identity.did().to_string(),
+                username: identity_data.username.clone(),
+                connected_peers: vec![],
+                relay_url: relay_urls.first().cloned(),
+                connection_string: Some(encoded_connection.clone()),
+            })
+            .await;
     }
 
     println!("\nℹ️  User: {}", identity_data.username);
@@ -574,7 +639,11 @@ fn setup_profiling() -> Option<tracing_flame::FlushGuard<std::io::BufWriter<File
             tracing_subscriber::registry()
                 .with(console_layer)
                 .with(flame_layer)
-                .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_target(true)
+                        .with_level(true),
+                )
                 .init();
 
             tracing::info!(port = port, path = %path, "Profiling: tokio-console + flame");
@@ -591,14 +660,16 @@ fn setup_profiling() -> Option<tracing_flame::FlushGuard<std::io::BufWriter<File
                 }
             };
 
-            let filter = tracing_subscriber::EnvFilter::new(
-                "info,tokio=off,runtime=off",
-            );
+            let filter = tracing_subscriber::EnvFilter::new("info,tokio=off,runtime=off");
 
             tracing_subscriber::registry()
                 .with(filter)
                 .with(flame_layer)
-                .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_target(true)
+                        .with_level(true),
+                )
                 .init();
 
             tracing::info!(path = %path, "Profiling: flame only (no console overhead)");
@@ -612,7 +683,11 @@ fn setup_profiling() -> Option<tracing_flame::FlushGuard<std::io::BufWriter<File
 
             tracing_subscriber::registry()
                 .with(console_layer)
-                .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_target(true)
+                        .with_level(true),
+                )
                 .init();
 
             tracing::info!(port = port, "Profiling: tokio-console only");
@@ -620,16 +695,20 @@ fn setup_profiling() -> Option<tracing_flame::FlushGuard<std::io::BufWriter<File
         }
         // Neither - just fmt logging
         (None, None) => {
-            let filter = tracing_subscriber::EnvFilter::new(
-                "info,tokio=off,runtime=off",
-            );
+            let filter = tracing_subscriber::EnvFilter::new("info,tokio=off,runtime=off");
 
             tracing_subscriber::registry()
                 .with(filter)
-                .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_target(true)
+                        .with_level(true),
+                )
                 .init();
 
-            tracing::info!("Profiling feature enabled but no FLAME_OUTPUT or TOKIO_CONSOLE_PORT set");
+            tracing::info!(
+                "Profiling feature enabled but no FLAME_OUTPUT or TOKIO_CONSOLE_PORT set"
+            );
             None
         }
     }

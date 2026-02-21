@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, info};
 
 use butler::{Butler, JsonOp, ScribeMessage, ValidationHandle, ValidationRequest};
-use lua_runtime::{LuaCommand, LuaRuntimeConfig, LuaRuntime, ActorScribeHandle, ValidationContext};
+use lua_runtime::{ActorScribeHandle, LuaCommand, LuaRuntime, LuaRuntimeConfig, ValidationContext};
 
 /// Validation service - spawns LuaRuntime per validation request
 ///
@@ -95,14 +95,19 @@ impl ValidationService {
         role: &str,
     ) -> Result<(bool, Option<String>), String> {
         // Open page to get scribe reference
-        let scribe_ref = butler.open_page(page_id).await
+        let scribe_ref = butler
+            .open_page(page_id)
+            .await
             .map_err(|e| format!("Failed to open page: {}", e))?;
 
         // Get identity info
-        let identity = butler.get_identity().await
+        let identity = butler
+            .get_identity()
+            .await
             .map_err(|e| format!("Failed to get identity: {}", e))?;
 
-        let identity_data = butler.identity_data()
+        let identity_data = butler
+            .identity_data()
             .ok()
             .flatten()
             .ok_or_else(|| "Identity data not found".to_string())?;
@@ -137,10 +142,9 @@ impl ValidationService {
         // Build ValidationContext from JsonOps
         let ctx = ValidationContext {
             layer_name: layer_name.to_string(),
-            ops: ops.iter()
-                .map(|op| serde_json::to_value(op)
-                    .map(|v| serde_json::from_value(v).unwrap())
-                )
+            ops: ops
+                .iter()
+                .map(|op| serde_json::to_value(op).map(|v| serde_json::from_value(v).unwrap()))
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| format!("Failed to serialize ops: {}", e))?,
             from_did: from_did.to_string(),
@@ -150,10 +154,13 @@ impl ValidationService {
 
         // Send Validate command and await result
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
-        cmd_tx.send(LuaCommand::Validate { ctx, response_tx }).await
+        cmd_tx
+            .send(LuaCommand::Validate { ctx, response_tx })
+            .await
             .map_err(|_| "Failed to send Validate command")?;
 
-        let validation_result = response_rx.await
+        let validation_result = response_rx
+            .await
             .map_err(|_| "Validation response channel dropped")?;
 
         // Shutdown the runtime
@@ -176,7 +183,9 @@ impl ValidationService {
         scribe_ref: &ractor::ActorRef<ScribeMessage>,
         page_id: &str,
     ) -> Result<Option<String>, String> {
-        let apps = butler.apps().list(page_id)
+        let apps = butler
+            .apps()
+            .list(page_id)
             .map_err(|e| format!("Failed to list apps: {}", e))?;
 
         if apps.is_empty() {
@@ -185,12 +194,15 @@ impl ValidationService {
 
         for app_name in apps {
             let (tx, rx) = tokio::sync::oneshot::channel();
-            scribe_ref.cast(ScribeMessage::GetAppFiles {
-                app_name: app_name.clone(),
-                reply: tx,
-            }).map_err(|e| format!("Failed to request app files: {}", e))?;
+            scribe_ref
+                .cast(ScribeMessage::GetAppFiles {
+                    app_name: app_name.clone(),
+                    reply: tx,
+                })
+                .map_err(|e| format!("Failed to request app files: {}", e))?;
 
-            let files = rx.await
+            let files = rx
+                .await
                 .map_err(|_| "Failed to receive app files")?
                 .map_err(|e| format!("Failed to get app files: {}", e))?;
 

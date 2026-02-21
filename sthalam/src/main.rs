@@ -74,15 +74,16 @@ fn main() {
         .unwrap_or(false);
 
     #[cfg(not(feature = "profiling"))]
-    let (_log_guard, capture_handle) = logging_utils::init_rich_tracing_with_capture(logging_utils::LogConfig {
-        level: "info".to_string(),
-        log_to_stdout: true,
-        use_tree_format: !use_json,
-        stdout_json: use_json,
-        instance_name: Some(args.db_name.clone()),
-        ..Default::default()
-    })
-    .expect("Failed to initialize logging");
+    let (_log_guard, capture_handle) =
+        logging_utils::init_rich_tracing_with_capture(logging_utils::LogConfig {
+            level: "info".to_string(),
+            log_to_stdout: true,
+            use_tree_format: !use_json,
+            stdout_json: use_json,
+            instance_name: Some(args.db_name.clone()),
+            ..Default::default()
+        })
+        .expect("Failed to initialize logging");
 
     tracing::info!("Sthalam starting...");
 
@@ -130,7 +131,12 @@ fn main() {
     let (sync_tx, sync_rx) = tokio::sync::mpsc::channel::<SyncEvent>(32);
     let sync_event_rx = Arc::new(std::sync::Mutex::new(Some(sync_rx)));
 
-    let butler = Arc::new(Butler::new(store.clone(), layer_cache, asset_store, Some(sync_tx)));
+    let butler = Arc::new(Butler::new(
+        store.clone(),
+        layer_cache,
+        asset_store,
+        Some(sync_tx),
+    ));
 
     // P2P state - initialized after login
     let courier_handle: Arc<RwLock<Option<CourierHandle>>> = Arc::new(RwLock::new(None));
@@ -147,8 +153,7 @@ fn main() {
         ui_rx = Some(rx);
 
         // Create debug server and set UI channel + butler + capture
-        let server =
-            ControlServer::new(socket_path.clone(), instance_name, courier_handle.clone());
+        let server = ControlServer::new(socket_path.clone(), instance_name, courier_handle.clone());
         server.set_butler(butler.clone());
         server.set_ui_channel(ui_tx);
 
@@ -235,7 +240,12 @@ fn main() {
                             spawn_auto_reconnect(butler.clone(), handle.clone());
 
                             // Spawn event listener (with handle for auto-reconnect on disconnect)
-                            events::spawn_event_listener(event_rx, shell_weak, butler, handle.clone());
+                            events::spawn_event_listener(
+                                event_rx,
+                                shell_weak,
+                                butler,
+                                handle.clone(),
+                            );
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "Failed to initialize P2P");
@@ -272,17 +282,14 @@ fn main() {
     // App launching (select_app callback)
 
     // Channel for sending prepared apps from tokio to Slint thread
-    let (app_ready_tx, app_ready_rx) = std::sync::mpsc::channel::<(
-        PreparedPage,
-        ractor::ActorRef<ScribeMessage>,
-    )>();
+    let (app_ready_tx, app_ready_rx) =
+        std::sync::mpsc::channel::<(PreparedPage, ractor::ActorRef<ScribeMessage>)>();
 
     // Store launched app timers (drop = window stops processing)
     let app_timers: Rc<RefCell<Vec<LaunchedApp>>> = Rc::new(RefCell::new(vec![]));
 
     // App status for debug server
-    let app_status: Option<Arc<RwLock<AppStatus>>> =
-        debug_server.as_ref().map(|s| s.app_status());
+    let app_status: Option<Arc<RwLock<AppStatus>>> = debug_server.as_ref().map(|s| s.app_status());
 
     {
         let butler = butler.clone();
@@ -386,16 +393,17 @@ fn main() {
                         "Launching app window"
                     );
 
-                    let launch_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        renderer_slint::launch_slint_app(
-                            prepared,
-                            scribe_ref,
-                            butler.clone(),
-                            tokio_handle.clone(),
-                            app_status.clone(),
-                            clock.clone(),
-                        )
-                    }));
+                    let launch_result =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            renderer_slint::launch_slint_app(
+                                prepared,
+                                scribe_ref,
+                                butler.clone(),
+                                tokio_handle.clone(),
+                                app_status.clone(),
+                                clock.clone(),
+                            )
+                        }));
 
                     let launched = match launch_result {
                         Ok(opt) => opt,
@@ -537,7 +545,10 @@ async fn launch_raylib_app(
         }
     };
 
-    let lua_code = match files.get("app.lua").or_else(|| files.get(&manifest.entry_logic)) {
+    let lua_code = match files
+        .get("app.lua")
+        .or_else(|| files.get(&manifest.entry_logic))
+    {
         Some(code) => code.clone(),
         None => {
             tracing::error!("No Lua entry file found for Raylib app");
@@ -545,14 +556,9 @@ async fn launch_raylib_app(
         }
     };
 
-    if let Err(e) = renderer_raylib::spawn_app(
-        page_id,
-        app_name,
-        butler,
-        scribe_ref,
-        manifest,
-        lua_code,
-    ) {
+    if let Err(e) =
+        renderer_raylib::spawn_app(page_id, app_name, butler, scribe_ref, manifest, lua_code)
+    {
         tracing::error!(error = %e, "Failed to spawn Raylib app");
     }
 }
@@ -594,7 +600,11 @@ fn setup_profiling() -> Option<tracing_flame::FlushGuard<std::io::BufWriter<File
             tracing_subscriber::registry()
                 .with(console_layer)
                 .with(flame_layer)
-                .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_target(true)
+                        .with_level(true),
+                )
                 .init();
 
             tracing::info!(port = port, path = %path, "Profiling: tokio-console + flame");
@@ -611,14 +621,16 @@ fn setup_profiling() -> Option<tracing_flame::FlushGuard<std::io::BufWriter<File
                 }
             };
 
-            let filter = tracing_subscriber::EnvFilter::new(
-                "info,tokio=off,runtime=off",
-            );
+            let filter = tracing_subscriber::EnvFilter::new("info,tokio=off,runtime=off");
 
             tracing_subscriber::registry()
                 .with(filter)
                 .with(flame_layer)
-                .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_target(true)
+                        .with_level(true),
+                )
                 .init();
 
             tracing::info!(path = %path, "Profiling: flame only (no console overhead)");
@@ -632,7 +644,11 @@ fn setup_profiling() -> Option<tracing_flame::FlushGuard<std::io::BufWriter<File
 
             tracing_subscriber::registry()
                 .with(console_layer)
-                .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_target(true)
+                        .with_level(true),
+                )
                 .init();
 
             tracing::info!(port = port, "Profiling: tokio-console only");
@@ -640,16 +656,20 @@ fn setup_profiling() -> Option<tracing_flame::FlushGuard<std::io::BufWriter<File
         }
         // Neither - just fmt logging
         (None, None) => {
-            let filter = tracing_subscriber::EnvFilter::new(
-                "info,tokio=off,runtime=off",
-            );
+            let filter = tracing_subscriber::EnvFilter::new("info,tokio=off,runtime=off");
 
             tracing_subscriber::registry()
                 .with(filter)
-                .with(tracing_subscriber::fmt::layer().with_target(true).with_level(true))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_target(true)
+                        .with_level(true),
+                )
                 .init();
 
-            tracing::info!("Profiling feature enabled but no FLAME_OUTPUT or TOKIO_CONSOLE_PORT set");
+            tracing::info!(
+                "Profiling feature enabled but no FLAME_OUTPUT or TOKIO_CONSOLE_PORT set"
+            );
             None
         }
     }

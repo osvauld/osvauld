@@ -20,7 +20,8 @@ async fn test_owner_can_publish() -> Result<()> {
         .await?;
 
     // PublishSpaceAck means node accepted the publish
-    s.tracer().assert_contains_sequence(&["PublishSpace", "PublishSpaceAck"]);
+    s.tracer()
+        .assert_contains_sequence(&["PublishSpace", "PublishSpaceAck"]);
 
     s.shutdown().await;
     Ok(())

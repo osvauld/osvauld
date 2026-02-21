@@ -29,14 +29,23 @@ pub struct ImageLoadRequest {
     pub row_index: usize,
 }
 
-/// Response with decoded image (sent back to Slint main thread)
+/// Response with decoded image data (sent back to Slint main thread)
 ///
-/// **Context**: Background task successfully decoded the image
+/// **Context**: Background task successfully decoded the image.
+///
+/// **Why raw bytes instead of `slint::Image`**: `slint::Image` is `!Send` (it contains
+/// `VRc<OpaqueImageVTable>` which wraps a raw pointer).  We carry the decoded RGBA8 pixels
+/// across the thread boundary as a plain `Vec<u8>` and reconstruct the `slint::Image` on
+/// the Slint main thread inside `apply_loaded_images`.
 pub struct ImageLoadResponse {
     /// Blake3 hash of the asset
     pub hash: String,
-    /// Decoded Slint image ready for rendering
-    pub image: Image,
+    /// Raw RGBA8 pixel data (row-major, 4 bytes per pixel)
+    pub rgba_bytes: Vec<u8>,
+    /// Image width in pixels
+    pub width: u32,
+    /// Image height in pixels
+    pub height: u32,
     /// Model name to update
     pub model_name: String,
     /// Row index to update
@@ -47,6 +56,7 @@ pub struct ImageLoadResponse {
 ///
 /// **Lifecycle**: Lives as long as the SlintRuntime (per-app window)
 /// **Key**: Blake3 hash of the asset
+/// **Threading**: Only accessed on the Slint main thread — `slint::Image` is `!Send`.
 pub struct ImageCache {
     /// Cached decoded images
     images: HashMap<String, Image>,
@@ -83,10 +93,30 @@ impl ImageCache {
         self.loading.insert(hash);
     }
 
+    /// Clear a hash from the loading set (used on terminal failure)
+    pub fn clear_loading(&mut self, hash: &str) {
+        self.loading.remove(hash);
+    }
+
     /// Check if a hash is already cached
     pub fn is_cached(&self, hash: &str) -> bool {
         self.images.contains_key(hash)
     }
+}
+
+/// Reconstruct a `slint::Image` from raw RGBA8 pixel bytes on the main thread.
+///
+/// **Context**: Called in `apply_loaded_images` after receiving `ImageLoadResponse` from the
+/// background task.  The background task cannot produce `slint::Image` directly because
+/// `slint::Image` is `!Send`.
+///
+/// # Arguments
+/// * `rgba_bytes` - Raw RGBA8 pixel data (row-major, 4 bytes per pixel)
+/// * `width`      - Image width in pixels
+/// * `height`     - Image height in pixels
+pub fn image_from_rgba_bytes(rgba_bytes: &[u8], width: u32, height: u32) -> Image {
+    let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(rgba_bytes, width, height);
+    Image::from_rgba8(buffer)
 }
 
 /// Decode raw image bytes (PNG, JPEG, GIF, WebP, BMP) into a Slint Image
@@ -140,6 +170,43 @@ pub fn decode_image_thumbnail(bytes: &[u8], max_dimension: u32) -> Result<Image,
     let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(rgba.as_raw(), width, height);
 
     Ok(Image::from_rgba8(buffer))
+}
+
+/// Decode raw image bytes into RGBA8 pixel data suitable for cross-thread transfer.
+///
+/// **Context**: Called on a background thread (tokio task).  Returns raw bytes + dimensions
+/// rather than `slint::Image` because `slint::Image` is `!Send`.  The caller reconstructs
+/// the `slint::Image` on the Slint main thread via `image_from_rgba_bytes`.
+///
+/// **Constraint**: Resizes to fit within `max_dimension` while preserving aspect ratio.
+///
+/// # Returns
+/// `(rgba_bytes, width, height)` on success, or an error string.
+pub fn decode_image_thumbnail_bytes(
+    bytes: &[u8],
+    max_dimension: u32,
+) -> Result<(Vec<u8>, u32, u32), String> {
+    let reader = image::ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| format!("Failed to guess image format: {}", e))?;
+
+    let dynamic_image = reader
+        .decode()
+        .map_err(|e| format!("Failed to decode image: {}", e))?;
+
+    let resized = if dynamic_image.width() > max_dimension || dynamic_image.height() > max_dimension
+    {
+        dynamic_image.thumbnail(max_dimension, max_dimension)
+    } else {
+        dynamic_image
+    };
+
+    let rgba = resized.to_rgba8();
+    let width = rgba.width();
+    let height = rgba.height();
+    let raw = rgba.into_raw();
+
+    Ok((raw, width, height))
 }
 
 /// Check if a MIME type is a renderable image

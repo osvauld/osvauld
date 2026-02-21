@@ -12,11 +12,7 @@ pub struct SpacesApi<'a> {
 
 impl<'a> SpacesApi<'a> {
     /// Create a new space
-    pub async fn create(
-        &self,
-        name: String,
-        owner_did: String,
-    ) -> Result<Space> {
+    pub async fn create(&self, name: String, owner_did: String) -> Result<Space> {
         let signing_key = self.butler.signing_key().await?;
         space_service::create_space(self.butler.store(), name, owner_did, &signing_key).await
     }

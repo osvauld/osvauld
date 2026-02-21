@@ -4,18 +4,18 @@
 //! Tests cover: owner→node, owner→node→viewer, dynamic layer creation,
 //! second message propagation, viewer writes, and late joiners.
 
-use std::time::Duration;
 use std::collections::HashMap;
+use std::time::Duration;
 
 use anyhow::Result;
-use tokio::time::sleep;
 use serde_json::Value;
+use tokio::time::sleep;
 use tracing::info;
 
-use butler::ScribeMessage;
 use crate::fixtures::{init_tracing, wait_for_layer_data};
 use crate::peer::Peer;
 use crate::scenario::Scenario;
+use butler::ScribeMessage;
 
 fn day_period(offset_days: i32) -> String {
     let now = std::time::SystemTime::now()
@@ -59,7 +59,9 @@ async fn wait_for_layer_json_key(
         if tokio::time::Instant::now() > deadline {
             return Err(anyhow::anyhow!(
                 "Timeout waiting for key '{}' in layer '{}' on page '{}'",
-                key, layer_name, page_id
+                key,
+                layer_name,
+                page_id
             ));
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -83,32 +85,40 @@ async fn test_static_channel_syncs_owner_to_node() -> Result<()> {
     let owner_scribe = s.owner().butler.open_page(&page_id).await?;
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    owner_scribe.cast(ScribeMessage::EnsureLoroMap {
-        layer_name: "channels/general/messages".to_string(),
-        reply: reply_tx,
-    }).map_err(|e| anyhow::anyhow!("EnsureLoroMap failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::EnsureLoroMap {
+            layer_name: "channels/general/messages".to_string(),
+            reply: reply_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("EnsureLoroMap failed: {:?}", e))?;
     reply_rx.await??;
 
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: "channels/general/messages".to_string(),
-        path: String::new(),
-        key: "msg1".to_string(),
-        value: serde_json::json!({
-            "id": "msg1",
-            "text": "Hello from owner",
-            "sender_did": "did:key:owner",
-            "timestamp": 1234567890
-        }),
-    }).map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: "channels/general/messages".to_string(),
+            path: String::new(),
+            key: "msg1".to_string(),
+            value: serde_json::json!({
+                "id": "msg1",
+                "text": "Hello from owner",
+                "sender_did": "did:key:owner",
+                "timestamp": 1234567890
+            }),
+        })
+        .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
     let node_data = wait_for_layer_data(
         &s.node().butler,
         &page_id,
         "channels/general/messages",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
-    assert!(!node_data.is_empty(), "Node should receive static channel layer data");
+    assert!(
+        !node_data.is_empty(),
+        "Node should receive static channel layer data"
+    );
 
     s.shutdown().await;
     Ok(())
@@ -134,23 +144,27 @@ async fn test_static_channel_syncs_owner_to_viewer() -> Result<()> {
     let owner_scribe = s.owner().butler.open_page(&page_id).await?;
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    owner_scribe.cast(ScribeMessage::EnsureLoroMap {
-        layer_name: "channels/general/messages".to_string(),
-        reply: reply_tx,
-    }).map_err(|e| anyhow::anyhow!("EnsureLoroMap failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::EnsureLoroMap {
+            layer_name: "channels/general/messages".to_string(),
+            reply: reply_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("EnsureLoroMap failed: {:?}", e))?;
     reply_rx.await??;
 
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: "channels/general/messages".to_string(),
-        path: String::new(),
-        key: "msg1".to_string(),
-        value: serde_json::json!({
-            "id": "msg1",
-            "text": "Pre-viewer message",
-            "sender_did": "did:key:owner",
-            "timestamp": 1234567890
-        }),
-    }).map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: "channels/general/messages".to_string(),
+            path: String::new(),
+            key: "msg1".to_string(),
+            value: serde_json::json!({
+                "id": "msg1",
+                "text": "Pre-viewer message",
+                "sender_did": "did:key:owner",
+                "timestamp": 1234567890
+            }),
+        })
+        .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
     // Wait for data on node first
     wait_for_layer_data(
@@ -158,7 +172,8 @@ async fn test_static_channel_syncs_owner_to_viewer() -> Result<()> {
         &page_id,
         "channels/general/messages",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     // Connect viewer
     let viewer_link = s.get_viewer_link(&space_id).await?;
@@ -170,9 +185,13 @@ async fn test_static_channel_syncs_owner_to_viewer() -> Result<()> {
         &page_id,
         "channels/general/messages",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
-    assert!(!viewer_data.is_empty(), "Viewer should receive static channel data");
+    assert!(
+        !viewer_data.is_empty(),
+        "Viewer should receive static channel data"
+    );
 
     s.shutdown().await;
     Ok(())
@@ -205,16 +224,19 @@ async fn test_dynamic_channel_first_message_reaches_viewer() -> Result<()> {
     let owner_scribe = s.owner().butler.open_page(&page_id).await?;
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    owner_scribe.cast(ScribeMessage::CreateDynamicLayer {
-        schema_key: "channels/{id}/messages".to_string(),
-        placeholders: [("id".to_string(), "project-x".to_string())]
-            .into_iter()
-            .collect(),
-        authorized_peers: None,
-        reply: reply_tx,
-    }).map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::CreateDynamicLayer {
+            schema_key: "channels/{id}/messages".to_string(),
+            placeholders: [("id".to_string(), "project-x".to_string())]
+                .into_iter()
+                .collect(),
+            authorized_peers: None,
+            reply: reply_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
 
-    let full_layer_name = reply_rx.await
+    let full_layer_name = reply_rx
+        .await
         .map_err(|_| anyhow::anyhow!("CreateDynamicLayer channel closed"))?
         .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {}", e))?;
 
@@ -222,17 +244,19 @@ async fn test_dynamic_channel_first_message_reaches_viewer() -> Result<()> {
         .strip_prefix(&format!("{}/", page_id))
         .unwrap_or(&full_layer_name);
 
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare_layer.to_string(),
-        path: String::new(),
-        key: "msg1".to_string(),
-        value: serde_json::json!({
-            "id": "msg1",
-            "text": "First message in dynamic channel",
-            "sender_did": "did:key:owner",
-            "timestamp": 1234567890
-        }),
-    }).map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare_layer.to_string(),
+            path: String::new(),
+            key: "msg1".to_string(),
+            value: serde_json::json!({
+                "id": "msg1",
+                "text": "First message in dynamic channel",
+                "sender_did": "did:key:owner",
+                "timestamp": 1234567890
+            }),
+        })
+        .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
     // Node should receive it
     wait_for_layer_data(
@@ -240,7 +264,8 @@ async fn test_dynamic_channel_first_message_reaches_viewer() -> Result<()> {
         &page_id,
         bare_layer,
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     // Viewer should receive msg1
     wait_for_layer_json_key(
@@ -249,7 +274,8 @@ async fn test_dynamic_channel_first_message_reaches_viewer() -> Result<()> {
         bare_layer,
         "msg1",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     info!("Viewer received msg1 on dynamic channel");
 
@@ -285,16 +311,19 @@ async fn test_dynamic_channel_second_message_reaches_viewer() -> Result<()> {
     let owner_scribe = s.owner().butler.open_page(&page_id).await?;
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    owner_scribe.cast(ScribeMessage::CreateDynamicLayer {
-        schema_key: "channels/{id}/messages".to_string(),
-        placeholders: [("id".to_string(), "project-y".to_string())]
-            .into_iter()
-            .collect(),
-        authorized_peers: None,
-        reply: reply_tx,
-    }).map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::CreateDynamicLayer {
+            schema_key: "channels/{id}/messages".to_string(),
+            placeholders: [("id".to_string(), "project-y".to_string())]
+                .into_iter()
+                .collect(),
+            authorized_peers: None,
+            reply: reply_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
 
-    let full_layer_name = reply_rx.await
+    let full_layer_name = reply_rx
+        .await
         .map_err(|_| anyhow::anyhow!("CreateDynamicLayer channel closed"))?
         .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {}", e))?;
 
@@ -303,17 +332,19 @@ async fn test_dynamic_channel_second_message_reaches_viewer() -> Result<()> {
         .unwrap_or(&full_layer_name)
         .to_string();
 
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare_layer.clone(),
-        path: String::new(),
-        key: "msg1".to_string(),
-        value: serde_json::json!({
-            "id": "msg1",
-            "text": "First message",
-            "sender_did": "did:key:owner",
-            "timestamp": 1234567890
-        }),
-    }).map_err(|e| anyhow::anyhow!("MapInsert msg1 failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare_layer.clone(),
+            path: String::new(),
+            key: "msg1".to_string(),
+            value: serde_json::json!({
+                "id": "msg1",
+                "text": "First message",
+                "sender_did": "did:key:owner",
+                "timestamp": 1234567890
+            }),
+        })
+        .map_err(|e| anyhow::anyhow!("MapInsert msg1 failed: {:?}", e))?;
 
     // Wait for viewer to receive msg1
     wait_for_layer_json_key(
@@ -322,22 +353,25 @@ async fn test_dynamic_channel_second_message_reaches_viewer() -> Result<()> {
         &bare_layer,
         "msg1",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     info!("Viewer received msg1, now sending msg2");
 
     // Owner writes msg2
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare_layer.clone(),
-        path: String::new(),
-        key: "msg2".to_string(),
-        value: serde_json::json!({
-            "id": "msg2",
-            "text": "Second message",
-            "sender_did": "did:key:owner",
-            "timestamp": 1234567891
-        }),
-    }).map_err(|e| anyhow::anyhow!("MapInsert msg2 failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare_layer.clone(),
+            path: String::new(),
+            key: "msg2".to_string(),
+            value: serde_json::json!({
+                "id": "msg2",
+                "text": "Second message",
+                "sender_did": "did:key:owner",
+                "timestamp": 1234567891
+            }),
+        })
+        .map_err(|e| anyhow::anyhow!("MapInsert msg2 failed: {:?}", e))?;
 
     // Viewer should receive msg2
     wait_for_layer_json_key(
@@ -346,11 +380,15 @@ async fn test_dynamic_channel_second_message_reaches_viewer() -> Result<()> {
         &bare_layer,
         "msg2",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     // Both keys present
     let viewer_json = get_layer_json(s.viewer(0), &page_id, &bare_layer).await?;
-    assert!(viewer_json.get("msg1").is_some(), "Viewer should still have msg1");
+    assert!(
+        viewer_json.get("msg1").is_some(),
+        "Viewer should still have msg1"
+    );
     assert!(viewer_json.get("msg2").is_some(), "Viewer should have msg2");
 
     s.shutdown().await;
@@ -385,16 +423,19 @@ async fn test_viewer_writes_to_dynamic_channel() -> Result<()> {
     let owner_scribe = s.owner().butler.open_page(&page_id).await?;
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    owner_scribe.cast(ScribeMessage::CreateDynamicLayer {
-        schema_key: "channels/{id}/messages".to_string(),
-        placeholders: [("id".to_string(), "project-z".to_string())]
-            .into_iter()
-            .collect(),
-        authorized_peers: None,
-        reply: reply_tx,
-    }).map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::CreateDynamicLayer {
+            schema_key: "channels/{id}/messages".to_string(),
+            placeholders: [("id".to_string(), "project-z".to_string())]
+                .into_iter()
+                .collect(),
+            authorized_peers: None,
+            reply: reply_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
 
-    let full_layer_name = reply_rx.await
+    let full_layer_name = reply_rx
+        .await
         .map_err(|_| anyhow::anyhow!("CreateDynamicLayer channel closed"))?
         .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {}", e))?;
 
@@ -403,17 +444,19 @@ async fn test_viewer_writes_to_dynamic_channel() -> Result<()> {
         .unwrap_or(&full_layer_name)
         .to_string();
 
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare_layer.clone(),
-        path: String::new(),
-        key: "msg1".to_string(),
-        value: serde_json::json!({
-            "id": "msg1",
-            "text": "Owner's first message",
-            "sender_did": "did:key:owner",
-            "timestamp": 1234567890
-        }),
-    }).map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare_layer.clone(),
+            path: String::new(),
+            key: "msg1".to_string(),
+            value: serde_json::json!({
+                "id": "msg1",
+                "text": "Owner's first message",
+                "sender_did": "did:key:owner",
+                "timestamp": 1234567890
+            }),
+        })
+        .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
     // Viewer receives msg1
     wait_for_layer_json_key(
@@ -422,23 +465,26 @@ async fn test_viewer_writes_to_dynamic_channel() -> Result<()> {
         &bare_layer,
         "msg1",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     info!("Viewer received msg1, now viewer writes msg2");
 
     // Viewer writes msg2 to the same dynamic channel
     let viewer_scribe = s.viewer(0).butler.open_page(&page_id).await?;
-    viewer_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare_layer.clone(),
-        path: String::new(),
-        key: "msg2".to_string(),
-        value: serde_json::json!({
-            "id": "msg2",
-            "text": "Viewer's reply",
-            "sender_did": "did:key:viewer",
-            "timestamp": 1234567891
-        }),
-    }).map_err(|e| anyhow::anyhow!("Viewer MapInsert failed: {:?}", e))?;
+    viewer_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare_layer.clone(),
+            path: String::new(),
+            key: "msg2".to_string(),
+            value: serde_json::json!({
+                "id": "msg2",
+                "text": "Viewer's reply",
+                "sender_did": "did:key:viewer",
+                "timestamp": 1234567891
+            }),
+        })
+        .map_err(|e| anyhow::anyhow!("Viewer MapInsert failed: {:?}", e))?;
 
     // Node should receive viewer's msg2
     wait_for_layer_json_key(
@@ -447,7 +493,8 @@ async fn test_viewer_writes_to_dynamic_channel() -> Result<()> {
         &bare_layer,
         "msg2",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     // Owner should also receive viewer's msg2
     wait_for_layer_json_key(
@@ -456,7 +503,8 @@ async fn test_viewer_writes_to_dynamic_channel() -> Result<()> {
         &bare_layer,
         "msg2",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     s.shutdown().await;
     Ok(())
@@ -482,16 +530,19 @@ async fn test_dynamic_channel_late_joiner() -> Result<()> {
     let owner_scribe = s.owner().butler.open_page(&page_id).await?;
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    owner_scribe.cast(ScribeMessage::CreateDynamicLayer {
-        schema_key: "channels/{id}/messages".to_string(),
-        placeholders: [("id".to_string(), "late-join".to_string())]
-            .into_iter()
-            .collect(),
-        authorized_peers: None,
-        reply: reply_tx,
-    }).map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::CreateDynamicLayer {
+            schema_key: "channels/{id}/messages".to_string(),
+            placeholders: [("id".to_string(), "late-join".to_string())]
+                .into_iter()
+                .collect(),
+            authorized_peers: None,
+            reply: reply_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
 
-    let full_layer_name = reply_rx.await
+    let full_layer_name = reply_rx
+        .await
         .map_err(|_| anyhow::anyhow!("CreateDynamicLayer channel closed"))?
         .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {}", e))?;
 
@@ -500,17 +551,19 @@ async fn test_dynamic_channel_late_joiner() -> Result<()> {
         .unwrap_or(&full_layer_name)
         .to_string();
 
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare_layer.clone(),
-        path: String::new(),
-        key: "msg1".to_string(),
-        value: serde_json::json!({
-            "id": "msg1",
-            "text": "Message before viewer joins",
-            "sender_did": "did:key:owner",
-            "timestamp": 1234567890
-        }),
-    }).map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare_layer.clone(),
+            path: String::new(),
+            key: "msg1".to_string(),
+            value: serde_json::json!({
+                "id": "msg1",
+                "text": "Message before viewer joins",
+                "sender_did": "did:key:owner",
+                "timestamp": 1234567890
+            }),
+        })
+        .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
     // Wait for node to receive the data first
     wait_for_layer_data(
@@ -518,7 +571,8 @@ async fn test_dynamic_channel_late_joiner() -> Result<()> {
         &page_id,
         &bare_layer,
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     // Now connect late-joining viewer
     let viewer_link = s.get_viewer_link(&space_id).await?;
@@ -531,7 +585,8 @@ async fn test_dynamic_channel_late_joiner() -> Result<()> {
         &bare_layer,
         "msg1",
         Duration::from_secs(12),
-    ).await?;
+    )
+    .await?;
 
     info!("Late-joining viewer received dynamic channel data");
 
@@ -560,16 +615,19 @@ async fn test_dynamic_channel_node_offline_sync() -> Result<()> {
     let owner_scribe = s.owner().butler.open_page(&page_id).await?;
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    owner_scribe.cast(ScribeMessage::CreateDynamicLayer {
-        schema_key: "channels/{id}/messages".to_string(),
-        placeholders: [("id".to_string(), "offline-test".to_string())]
-            .into_iter()
-            .collect(),
-        authorized_peers: None,
-        reply: reply_tx,
-    }).map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::CreateDynamicLayer {
+            schema_key: "channels/{id}/messages".to_string(),
+            placeholders: [("id".to_string(), "offline-test".to_string())]
+                .into_iter()
+                .collect(),
+            authorized_peers: None,
+            reply: reply_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
 
-    let full_layer_name = reply_rx.await
+    let full_layer_name = reply_rx
+        .await
         .map_err(|_| anyhow::anyhow!("CreateDynamicLayer channel closed"))?
         .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {}", e))?;
 
@@ -578,17 +636,19 @@ async fn test_dynamic_channel_node_offline_sync() -> Result<()> {
         .unwrap_or(&full_layer_name)
         .to_string();
 
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare_layer.clone(),
-        path: String::new(),
-        key: "msg1".to_string(),
-        value: serde_json::json!({
-            "id": "msg1",
-            "text": "Written while node was offline",
-            "sender_did": "did:key:owner",
-            "timestamp": 1234567890
-        }),
-    }).map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare_layer.clone(),
+            path: String::new(),
+            key: "msg1".to_string(),
+            value: serde_json::json!({
+                "id": "msg1",
+                "text": "Written while node was offline",
+                "sender_did": "did:key:owner",
+                "timestamp": 1234567890
+            }),
+        })
+        .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
     // Give local write time to settle
     sleep(Duration::from_millis(200)).await;
@@ -603,7 +663,8 @@ async fn test_dynamic_channel_node_offline_sync() -> Result<()> {
         &bare_layer,
         "msg1",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     info!("Node received dynamic channel data after reconnect");
 
@@ -640,16 +701,19 @@ async fn test_dm_explicit_grant_syncs_to_viewer() -> Result<()> {
     let owner_scribe = s.owner().butler.open_page(&page_id).await?;
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    owner_scribe.cast(ScribeMessage::CreateDynamicLayer {
-        schema_key: "dms/{id}/messages".to_string(),
-        placeholders: [("id".to_string(), "dm-test".to_string())]
-            .into_iter()
-            .collect(),
-        authorized_peers: None,
-        reply: reply_tx,
-    }).map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::CreateDynamicLayer {
+            schema_key: "dms/{id}/messages".to_string(),
+            placeholders: [("id".to_string(), "dm-test".to_string())]
+                .into_iter()
+                .collect(),
+            authorized_peers: None,
+            reply: reply_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
 
-    let full_layer_name = reply_rx.await
+    let full_layer_name = reply_rx
+        .await
         .map_err(|_| anyhow::anyhow!("CreateDynamicLayer channel closed"))?
         .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {}", e))?;
 
@@ -659,17 +723,19 @@ async fn test_dm_explicit_grant_syncs_to_viewer() -> Result<()> {
         .to_string();
 
     // Owner writes a message to the DM layer
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare_layer.clone(),
-        path: String::new(),
-        key: "dm1".to_string(),
-        value: serde_json::json!({
-            "id": "dm1",
-            "text": "Private DM message",
-            "sender_did": "did:key:owner",
-            "timestamp": 1234567890
-        }),
-    }).map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare_layer.clone(),
+            path: String::new(),
+            key: "dm1".to_string(),
+            value: serde_json::json!({
+                "id": "dm1",
+                "text": "Private DM message",
+                "sender_did": "did:key:owner",
+                "timestamp": 1234567890
+            }),
+        })
+        .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
     // Wait for data to reach the node first
     wait_for_layer_data(
@@ -677,21 +743,28 @@ async fn test_dm_explicit_grant_syncs_to_viewer() -> Result<()> {
         &page_id,
         &bare_layer,
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     // Grant viewer explicit access to the DM layer
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    owner_scribe.cast(ScribeMessage::AddLayerAccess {
-        layer_name: full_layer_name.clone(),
-        dids: vec![viewer_did.clone()],
-        reply: reply_tx,
-    }).map_err(|e| anyhow::anyhow!("AddLayerAccess failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::AddLayerAccess {
+            layer_name: full_layer_name.clone(),
+            dids: vec![viewer_did.clone()],
+            reply: reply_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("AddLayerAccess failed: {:?}", e))?;
 
-    reply_rx.await
+    reply_rx
+        .await
         .map_err(|_| anyhow::anyhow!("AddLayerAccess channel closed"))?
         .map_err(|e| anyhow::anyhow!("AddLayerAccess failed: {}", e))?;
 
-    info!("Granted viewer {} access to DM layer {}", viewer_did, full_layer_name);
+    info!(
+        "Granted viewer {} access to DM layer {}",
+        viewer_did, full_layer_name
+    );
 
     // Viewer should receive the DM data via LayerSync
     wait_for_layer_json_key(
@@ -700,7 +773,8 @@ async fn test_dm_explicit_grant_syncs_to_viewer() -> Result<()> {
         &bare_layer,
         "dm1",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     info!("Viewer received DM data via explicit grant");
 
@@ -740,16 +814,19 @@ async fn test_dm_explicit_grant_isolation() -> Result<()> {
     let owner_scribe = s.owner().butler.open_page(&page_id).await?;
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    owner_scribe.cast(ScribeMessage::CreateDynamicLayer {
-        schema_key: "dms/{id}/messages".to_string(),
-        placeholders: [("id".to_string(), "private-dm".to_string())]
-            .into_iter()
-            .collect(),
-        authorized_peers: Some(vec![viewer0_did.clone()]),
-        reply: reply_tx,
-    }).map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::CreateDynamicLayer {
+            schema_key: "dms/{id}/messages".to_string(),
+            placeholders: [("id".to_string(), "private-dm".to_string())]
+                .into_iter()
+                .collect(),
+            authorized_peers: Some(vec![viewer0_did.clone()]),
+            reply: reply_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
 
-    let full_layer_name = reply_rx.await
+    let full_layer_name = reply_rx
+        .await
         .map_err(|_| anyhow::anyhow!("CreateDynamicLayer channel closed"))?
         .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {}", e))?;
 
@@ -758,17 +835,19 @@ async fn test_dm_explicit_grant_isolation() -> Result<()> {
         .unwrap_or(&full_layer_name)
         .to_string();
 
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare_layer.clone(),
-        path: String::new(),
-        key: "secret".to_string(),
-        value: serde_json::json!({
-            "id": "secret",
-            "text": "Only viewer0 should see this",
-            "sender_did": "did:key:owner",
-            "timestamp": 1234567890
-        }),
-    }).map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare_layer.clone(),
+            path: String::new(),
+            key: "secret".to_string(),
+            value: serde_json::json!({
+                "id": "secret",
+                "text": "Only viewer0 should see this",
+                "sender_did": "did:key:owner",
+                "timestamp": 1234567890
+            }),
+        })
+        .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
     // Wait for data on node
     wait_for_layer_data(
@@ -776,17 +855,21 @@ async fn test_dm_explicit_grant_isolation() -> Result<()> {
         &page_id,
         &bare_layer,
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     // Grant access ONLY to viewer0
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    owner_scribe.cast(ScribeMessage::AddLayerAccess {
-        layer_name: full_layer_name.clone(),
-        dids: vec![viewer0_did.clone()],
-        reply: reply_tx,
-    }).map_err(|e| anyhow::anyhow!("AddLayerAccess failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::AddLayerAccess {
+            layer_name: full_layer_name.clone(),
+            dids: vec![viewer0_did.clone()],
+            reply: reply_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("AddLayerAccess failed: {:?}", e))?;
 
-    reply_rx.await
+    reply_rx
+        .await
         .map_err(|_| anyhow::anyhow!("AddLayerAccess channel closed"))?
         .map_err(|e| anyhow::anyhow!("AddLayerAccess failed: {}", e))?;
 
@@ -797,7 +880,8 @@ async fn test_dm_explicit_grant_isolation() -> Result<()> {
         &bare_layer,
         "secret",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     info!("Viewer0 received DM data (granted)");
 
@@ -808,7 +892,8 @@ async fn test_dm_explicit_grant_isolation() -> Result<()> {
         Ok(json) => {
             assert!(
                 json.get("secret").is_none(),
-                "Viewer1 should NOT have access to DM data, but got: {:?}", json
+                "Viewer1 should NOT have access to DM data, but got: {:?}",
+                json
             );
         }
         Err(_) => {
@@ -847,12 +932,14 @@ async fn test_time_sharded_daily_layers_sync_to_viewer() -> Result<()> {
     let mut placeholders0 = HashMap::new();
     placeholders0.insert("channel".to_string(), "general".to_string());
     placeholders0.insert("period".to_string(), day0.clone());
-    owner_scribe.cast(ScribeMessage::CreateDynamicLayer {
-        schema_key: "channels/{channel}/messages/{period}".to_string(),
-        placeholders: placeholders0,
-        authorized_peers: None,
-        reply: reply0_tx,
-    }).map_err(|e| anyhow::anyhow!("CreateDynamicLayer day0 failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::CreateDynamicLayer {
+            schema_key: "channels/{channel}/messages/{period}".to_string(),
+            placeholders: placeholders0,
+            authorized_peers: None,
+            reply: reply0_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("CreateDynamicLayer day0 failed: {:?}", e))?;
     let full0 = reply0_rx
         .await
         .map_err(|_| anyhow::anyhow!("CreateDynamicLayer day0 channel closed"))?
@@ -862,12 +949,14 @@ async fn test_time_sharded_daily_layers_sync_to_viewer() -> Result<()> {
     let mut placeholders1 = HashMap::new();
     placeholders1.insert("channel".to_string(), "general".to_string());
     placeholders1.insert("period".to_string(), day1.clone());
-    owner_scribe.cast(ScribeMessage::CreateDynamicLayer {
-        schema_key: "channels/{channel}/messages/{period}".to_string(),
-        placeholders: placeholders1,
-        authorized_peers: None,
-        reply: reply1_tx,
-    }).map_err(|e| anyhow::anyhow!("CreateDynamicLayer day1 failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::CreateDynamicLayer {
+            schema_key: "channels/{channel}/messages/{period}".to_string(),
+            placeholders: placeholders1,
+            authorized_peers: None,
+            reply: reply1_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("CreateDynamicLayer day1 failed: {:?}", e))?;
     let full1 = reply1_rx
         .await
         .map_err(|_| anyhow::anyhow!("CreateDynamicLayer day1 channel closed"))?
@@ -882,19 +971,23 @@ async fn test_time_sharded_daily_layers_sync_to_viewer() -> Result<()> {
         .unwrap_or(&full1)
         .to_string();
 
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare0.clone(),
-        path: String::new(),
-        key: "msg-day0".to_string(),
-        value: serde_json::json!({"id":"msg-day0","text":"d0","timestamp":1}),
-    }).map_err(|e| anyhow::anyhow!("MapInsert day0 failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare0.clone(),
+            path: String::new(),
+            key: "msg-day0".to_string(),
+            value: serde_json::json!({"id":"msg-day0","text":"d0","timestamp":1}),
+        })
+        .map_err(|e| anyhow::anyhow!("MapInsert day0 failed: {:?}", e))?;
 
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare1.clone(),
-        path: String::new(),
-        key: "msg-day1".to_string(),
-        value: serde_json::json!({"id":"msg-day1","text":"d1","timestamp":2}),
-    }).map_err(|e| anyhow::anyhow!("MapInsert day1 failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare1.clone(),
+            path: String::new(),
+            key: "msg-day1".to_string(),
+            value: serde_json::json!({"id":"msg-day1","text":"d1","timestamp":2}),
+        })
+        .map_err(|e| anyhow::anyhow!("MapInsert day1 failed: {:?}", e))?;
 
     wait_for_layer_json_key(
         s.viewer(0),
@@ -902,14 +995,16 @@ async fn test_time_sharded_daily_layers_sync_to_viewer() -> Result<()> {
         &bare0,
         "msg-day0",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
     wait_for_layer_json_key(
         s.viewer(0),
         &page_id,
         &bare1,
         "msg-day1",
         Duration::from_secs(10),
-    ).await?;
+    )
+    .await?;
 
     s.shutdown().await;
     Ok(())
@@ -934,12 +1029,14 @@ async fn test_time_sharded_daily_layer_offline_merge() -> Result<()> {
     let mut placeholders = HashMap::new();
     placeholders.insert("channel".to_string(), "general".to_string());
     placeholders.insert("period".to_string(), day);
-    owner_scribe.cast(ScribeMessage::CreateDynamicLayer {
-        schema_key: "channels/{channel}/messages/{period}".to_string(),
-        placeholders,
-        authorized_peers: None,
-        reply: reply_tx,
-    }).map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::CreateDynamicLayer {
+            schema_key: "channels/{channel}/messages/{period}".to_string(),
+            placeholders,
+            authorized_peers: None,
+            reply: reply_tx,
+        })
+        .map_err(|e| anyhow::anyhow!("CreateDynamicLayer failed: {:?}", e))?;
     let full = reply_rx
         .await
         .map_err(|_| anyhow::anyhow!("CreateDynamicLayer channel closed"))?
@@ -951,20 +1048,24 @@ async fn test_time_sharded_daily_layer_offline_merge() -> Result<()> {
 
     s.disconnect_owner_from_node().await?;
 
-    owner_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare.clone(),
-        path: String::new(),
-        key: "owner-msg".to_string(),
-        value: serde_json::json!({"id":"owner-msg","text":"owner offline","timestamp":1}),
-    }).map_err(|e| anyhow::anyhow!("Owner offline insert failed: {:?}", e))?;
+    owner_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare.clone(),
+            path: String::new(),
+            key: "owner-msg".to_string(),
+            value: serde_json::json!({"id":"owner-msg","text":"owner offline","timestamp":1}),
+        })
+        .map_err(|e| anyhow::anyhow!("Owner offline insert failed: {:?}", e))?;
 
     let node_scribe = s.node().butler.open_page(&page_id).await?;
-    node_scribe.cast(ScribeMessage::MapInsert {
-        layer_name: bare.clone(),
-        path: String::new(),
-        key: "node-msg".to_string(),
-        value: serde_json::json!({"id":"node-msg","text":"node offline","timestamp":2}),
-    }).map_err(|e| anyhow::anyhow!("Node offline insert failed: {:?}", e))?;
+    node_scribe
+        .cast(ScribeMessage::MapInsert {
+            layer_name: bare.clone(),
+            path: String::new(),
+            key: "node-msg".to_string(),
+            value: serde_json::json!({"id":"node-msg","text":"node offline","timestamp":2}),
+        })
+        .map_err(|e| anyhow::anyhow!("Node offline insert failed: {:?}", e))?;
 
     s.reconnect_owner_to_node().await?;
 
@@ -974,14 +1075,16 @@ async fn test_time_sharded_daily_layer_offline_merge() -> Result<()> {
         &bare,
         "node-msg",
         Duration::from_secs(12),
-    ).await?;
+    )
+    .await?;
     wait_for_layer_json_key(
         s.node(),
         &page_id,
         &bare,
         "owner-msg",
         Duration::from_secs(12),
-    ).await?;
+    )
+    .await?;
 
     s.shutdown().await;
     Ok(())

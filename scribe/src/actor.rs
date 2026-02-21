@@ -180,8 +180,7 @@ impl Actor for Scribe {
                 reply,
             } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result =
-                    sync::handle_replace_layer(state, &layer_name, &snapshot, from_peer);
+                let result = sync::handle_replace_layer(state, &layer_name, &snapshot, from_peer);
                 let _ = reply.send(result);
             }
 

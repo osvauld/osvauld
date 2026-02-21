@@ -85,6 +85,31 @@ impl<'a> AssetsApi<'a> {
         Ok(metadata.hash)
     }
 
+    /// Retrieve and decrypt an asset from local storage
+    ///
+    /// **Context**: App or UI wants to display/use an asset (e.g. render an image)
+    /// **Flow**:
+    ///   1. Decrypt the page's AES key using the caller's identity
+    ///   2. Pass the key and hash to `asset_service::get_asset`, which reads the
+    ///      encrypted file, derives the per-asset key via HKDF, and decrypts it
+    ///   3. Return plaintext bytes to the caller
+    ///
+    /// # Arguments
+    /// * `page_id` - The page the asset belongs to
+    /// * `hash`    - Blake3 hex hash of the asset (its storage ID)
+    ///
+    /// # Returns
+    /// Decrypted plaintext bytes, or an error if the asset is missing or
+    /// decryption fails
+    #[tracing::instrument(skip(self), fields(page_id = %page_id, hash = %hash))]
+    pub async fn get_bytes(&self, page_id: &str, hash: &str) -> Result<Vec<u8>> {
+        // 1. Decrypt the page's AES key
+        let (_decrypted, aes_key) = self.butler.pages().get_decrypted(page_id).await?;
+
+        // 2. Read, derive per-asset key, and decrypt
+        services::asset_service::get_asset(self.butler.asset_store(), &aes_key, hash)
+    }
+
     /// Upload an asset to local storage (sync version)
     ///
     /// **Note**: Requires a tokio runtime to be available on current thread.

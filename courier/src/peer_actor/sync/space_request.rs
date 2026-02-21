@@ -467,14 +467,13 @@ impl<C: Connection> PeerActor<C> {
         );
 
         // Notify coordinator that viewer received space metadata
-        if let Err(e) = state
-            .coordinator
-            .cast(crate::coordinator::CoordinatorMessage::ViewerSpaceReceived {
+        if let Err(e) = state.coordinator.cast(
+            crate::coordinator::CoordinatorMessage::ViewerSpaceReceived {
                 node_id: self.node_id,
                 space: butler_space.clone(),
                 page_count: pages.len(),
-            })
-        {
+            },
+        ) {
             warn!(
                 "Failed to notify coordinator of ViewerSpaceReceived: {:?}",
                 e

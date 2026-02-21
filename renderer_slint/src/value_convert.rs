@@ -23,12 +23,41 @@ pub(crate) fn slint_value_to_json(value: &SlintValue) -> serde_json::Value {
     }
 }
 
-/// Convert JSON to Slint value.
+/// Check whether a struct field name indicates an `image`-typed Slint property.
+///
+/// **Context**: The Slint interpreter panics (`"First argument not an image"`) when
+/// built-in functions like `ImageSize` evaluate a `Void` value where `Image` is expected.
+/// JSON has no image type, so `null` → `Void` for these fields triggers the panic.
+/// We detect image fields by naming convention and substitute a default (0×0) `Image`.
+fn is_image_field(field_name: &str) -> bool {
+    field_name.ends_with("_image") || field_name == "image" || field_name == "source"
+}
+
+/// Convert JSON to Slint value (type-unaware, top-level).
 pub(crate) fn json_to_slint_value(
     value: &serde_json::Value,
 ) -> Result<SlintValue, Box<dyn std::error::Error>> {
+    json_to_slint_value_inner(value, None)
+}
+
+/// Convert JSON to Slint value with optional field-name context.
+///
+/// When `field_name` is provided and matches an image-field naming convention,
+/// `null` values produce `SlintValue::Image(Image::default())` (0×0 empty image)
+/// instead of `SlintValue::Void`, preventing Slint interpreter panics.
+fn json_to_slint_value_inner(
+    value: &serde_json::Value,
+    field_name: Option<&str>,
+) -> Result<SlintValue, Box<dyn std::error::Error>> {
     match value {
-        serde_json::Value::Null => Ok(SlintValue::Void),
+        serde_json::Value::Null => {
+            // Image-typed fields must never be Void — Slint panics on .width/.height access.
+            if field_name.map_or(false, is_image_field) {
+                Ok(SlintValue::Image(slint::Image::default()))
+            } else {
+                Ok(SlintValue::Void)
+            }
+        }
         serde_json::Value::Bool(b) => Ok(SlintValue::Bool(*b)),
         serde_json::Value::Number(n) => {
             if let Some(f) = n.as_f64() {
@@ -41,13 +70,18 @@ pub(crate) fn json_to_slint_value(
             Ok(SlintValue::String(slint::SharedString::from(s.as_str())))
         }
         serde_json::Value::Array(arr) => {
-            let items: Result<Vec<_>, _> = arr.iter().map(json_to_slint_value).collect();
+            let items: Result<Vec<_>, _> = arr
+                .iter()
+                .map(|v| json_to_slint_value_inner(v, None))
+                .collect();
             Ok(SlintValue::Model(Rc::new(VecModel::from(items?)).into()))
         }
         serde_json::Value::Object(obj) => {
             let fields: Result<Vec<_>, _> = obj
                 .iter()
-                .map(|(k, v)| json_to_slint_value(v).map(|val| (k.clone(), val)))
+                .map(|(k, v)| {
+                    json_to_slint_value_inner(v, Some(k.as_str())).map(|val| (k.clone(), val))
+                })
                 .collect();
             Ok(SlintValue::Struct(
                 slint_interpreter::Struct::from_iter(fields?).into(),

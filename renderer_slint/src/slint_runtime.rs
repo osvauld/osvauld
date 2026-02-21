@@ -8,6 +8,7 @@
 //! **Pattern**: Pull mutations from channel via process_ui_mutations()
 //! **Global API**: Uses `set_global_property` and `set_global_callback` for AppAPI
 
+use crate::asset_image::{image_from_rgba_bytes, ImageCache, ImageLoadRequest, ImageLoadResponse};
 use crate::value_convert::{json_to_slint_value, slint_value_to_json};
 use lua_runtime::{LuaCommand, PropertyUpdate, UiMutation, UiQuery, VecModelOp};
 use slint::{Model, VecModel};
@@ -58,6 +59,15 @@ pub struct SlintRuntime {
 
     /// Channel to send asset pick requests (std::sync for Slint callback)
     asset_pick_tx: Option<std::sync::mpsc::Sender<AssetPickRequest>>,
+
+    /// In-memory cache of decoded asset images (keyed by blake3 hash)
+    image_cache: ImageCache,
+
+    /// Channel to send image load requests to the background tokio task
+    image_req_tx: Option<mpsc::Sender<ImageLoadRequest>>,
+
+    /// Channel to receive decoded images from the background tokio task
+    image_resp_rx: Option<mpsc::Receiver<ImageLoadResponse>>,
 }
 
 impl SlintRuntime {
@@ -69,6 +79,8 @@ impl SlintRuntime {
     /// - `ui_rx`: Channel to receive UI mutations from Lua
     /// - `query_rx`: Channel to receive UI queries from Lua (for ui:get)
     /// - `lua_tx`: Channel to send commands to Lua
+    /// - `image_req_tx`: Channel to send image load requests to background task (None = no image loading)
+    /// - `image_resp_rx`: Channel to receive decoded images from background task (None = no image loading)
     ///
     /// **Returns**: SlintRuntime ready to process mutations
     pub fn load(
@@ -77,6 +89,8 @@ impl SlintRuntime {
         ui_rx: mpsc::Receiver<UiMutation>,
         query_rx: mpsc::Receiver<UiQuery>,
         lua_tx: mpsc::Sender<LuaCommand>,
+        image_req_tx: Option<mpsc::Sender<ImageLoadRequest>>,
+        image_resp_rx: Option<mpsc::Receiver<ImageLoadResponse>>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         tracing::info!(
             page_id = %page_id,
@@ -145,6 +159,9 @@ impl SlintRuntime {
             lua_tx,
             tab_switch_tx: None,
             asset_pick_tx: None,
+            image_cache: ImageCache::new(),
+            image_req_tx,
+            image_resp_rx,
         };
 
         // Models are initialized via init_models() after load, passing manifest.models
@@ -376,7 +393,8 @@ impl SlintRuntime {
             Push { model_name, item } => {
                 let model = self.ensure_model(&model_name, "Push")?;
                 let slint_val = json_to_slint_value(&item)?;
-                model.push(slint_val);
+                let row_index = model.row_count(); // index after push
+                model.push(slint_val.clone());
 
                 tracing::debug!(
                     page_id = %self.page_id,
@@ -385,6 +403,9 @@ impl SlintRuntime {
                     row_count = model.row_count(),
                     "VecModel::push"
                 );
+
+                // Check for attachment_hash and enqueue image load if needed
+                self.check_row_for_attachment(&model_name, row_index, &slint_val);
             }
             Insert {
                 model_name,
@@ -393,7 +414,7 @@ impl SlintRuntime {
             } => {
                 let model = self.ensure_model(&model_name, "Insert")?;
                 let slint_val = json_to_slint_value(&item)?;
-                model.insert(index, slint_val);
+                model.insert(index, slint_val.clone());
 
                 tracing::trace!(
                     page_id = %self.page_id,
@@ -402,6 +423,9 @@ impl SlintRuntime {
                     index = index,
                     "VecModel::insert"
                 );
+
+                // Check for attachment_hash and enqueue image load if needed
+                self.check_row_for_attachment(&model_name, index, &slint_val);
             }
             Remove { model_name, index } => {
                 let model = self.ensure_model(&model_name, "Remove")?;
@@ -434,7 +458,7 @@ impl SlintRuntime {
                 let model = self.ensure_model(&model_name, "Set")?;
                 if index < model.row_count() {
                     let slint_val = json_to_slint_value(&item)?;
-                    model.set_row_data(index, slint_val);
+                    model.set_row_data(index, slint_val.clone());
 
                     tracing::trace!(
                         page_id = %self.page_id,
@@ -443,6 +467,9 @@ impl SlintRuntime {
                         index = index,
                         "VecModel::set"
                     );
+
+                    // Check for attachment_hash and enqueue image load if needed
+                    self.check_row_for_attachment(&model_name, index, &slint_val);
                 } else {
                     tracing::warn!(
                         page_id = %self.page_id,
@@ -479,7 +506,7 @@ impl SlintRuntime {
                 let count = slint_items.len();
 
                 // Use set_vec for atomic replacement (single UI update)
-                model.set_vec(slint_items);
+                model.set_vec(slint_items.clone());
 
                 tracing::debug!(
                     page_id = %self.page_id,
@@ -488,10 +515,249 @@ impl SlintRuntime {
                     items = count,
                     "VecModel::replace (atomic)"
                 );
+
+                // Check every replaced row for attachment_hash
+                for (row_index, slint_val) in slint_items.iter().enumerate() {
+                    self.check_row_for_attachment(&model_name, row_index, slint_val);
+                }
             }
         }
 
         Ok(())
+    }
+
+    /// Inspect a Slint struct value for `attachment_hash` and enqueue an image load if needed.
+    ///
+    /// **Context**: Called after Push/Insert/Set/Replace so every new or updated row that
+    /// carries an `attachment_hash` gets its image loaded asynchronously.
+    ///
+    /// **Behaviour**:
+    /// - If the hash is already cached → inject `attachment_image` immediately via `set_row_data`.
+    /// - If the hash is not cached and not already loading → send `ImageLoadRequest` to the
+    ///   background tokio task.
+    /// - If the hash is already loading → do nothing (response will arrive later).
+    fn check_row_for_attachment(&mut self, model_name: &str, row_index: usize, value: &SlintValue) {
+        // Only structs can carry attachment_hash
+        let fields = match value {
+            SlintValue::Struct(s) => s.clone(),
+            _ => return,
+        };
+
+        // Extract attachment_hash string field
+        let hash = match fields.get_field("attachment_hash") {
+            Some(SlintValue::String(s)) if !s.is_empty() => s.to_string(),
+            _ => return,
+        };
+
+        // If already cached, inject immediately
+        if let Some(cached_image) = self.image_cache.get(&hash) {
+            let cached_image = cached_image.clone();
+            self.inject_image_into_row(model_name, row_index, &hash, cached_image);
+            return;
+        }
+
+        // If already loading, wait for the response
+        if self.image_cache.is_loading(&hash) {
+            tracing::trace!(
+                page_id = %self.page_id,
+                model = %model_name,
+                row = row_index,
+                hash = %hash,
+                "Image already loading — will inject on response"
+            );
+            return;
+        }
+
+        // Enqueue a new load request
+        self.enqueue_image_load(hash, model_name.to_string(), row_index);
+    }
+
+    /// Send an `ImageLoadRequest` to the background task and mark the hash as loading.
+    fn enqueue_image_load(&mut self, hash: String, model_name: String, row_index: usize) {
+        let Some(ref tx) = self.image_req_tx else {
+            tracing::debug!(
+                page_id = %self.page_id,
+                hash = %hash,
+                "Image load requested but no image channel configured"
+            );
+            return;
+        };
+
+        let req = ImageLoadRequest {
+            hash: hash.clone(),
+            page_id: self.page_id.clone(),
+            model_name,
+            row_index,
+        };
+
+        match tx.try_send(req) {
+            Ok(_) => {
+                self.image_cache.mark_loading(hash.clone());
+                tracing::debug!(
+                    page_id = %self.page_id,
+                    hash = %hash,
+                    "Image load request enqueued"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    hash = %hash,
+                    error = %e,
+                    "Failed to enqueue image load request"
+                );
+            }
+        }
+    }
+
+    /// Write a decoded `slint::Image` into the `attachment_image` field of a model row.
+    ///
+    /// Reads the current row struct, sets `attachment_image`, and calls `set_row_data`.
+    fn inject_image_into_row(
+        &self,
+        model_name: &str,
+        row_index: usize,
+        hash: &str,
+        image: slint::Image,
+    ) {
+        let Some(model) = self.global_models.get(model_name) else {
+            tracing::warn!(
+                page_id = %self.page_id,
+                model = %model_name,
+                hash = %hash,
+                "Cannot inject image — model not found"
+            );
+            return;
+        };
+
+        if row_index >= model.row_count() {
+            tracing::warn!(
+                page_id = %self.page_id,
+                model = %model_name,
+                row = row_index,
+                len = model.row_count(),
+                hash = %hash,
+                "Cannot inject image — row index out of bounds"
+            );
+            return;
+        }
+
+        // Read current row and patch attachment_image
+        let current = model.row_data(row_index);
+        let updated = match current {
+            Some(SlintValue::Struct(mut s)) => {
+                s.set_field("attachment_image".into(), SlintValue::Image(image));
+                SlintValue::Struct(s)
+            }
+            Some(other) => {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    model = %model_name,
+                    row = row_index,
+                    "Row is not a struct — cannot inject attachment_image"
+                );
+                other
+            }
+            None => {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    model = %model_name,
+                    row = row_index,
+                    "Row data is None — cannot inject attachment_image"
+                );
+                return;
+            }
+        };
+
+        model.set_row_data(row_index, updated);
+
+        tracing::debug!(
+            page_id = %self.page_id,
+            model = %model_name,
+            row = row_index,
+            hash = %hash,
+            "attachment_image injected into row"
+        );
+    }
+
+    /// Drain decoded image responses and apply them to VecModel rows.
+    ///
+    /// **Pattern**: Called from the Slint timer loop after `process_ui_mutations` and
+    /// `process_ui_queries`.  Non-blocking — drains all pending responses in one pass.
+    ///
+    /// **On cache hit**: Scans every model row whose `attachment_hash` matches the
+    /// newly decoded image and injects `attachment_image` via `set_row_data`.
+    pub fn apply_loaded_images(&mut self) {
+        let Some(ref mut rx) = self.image_resp_rx else {
+            return;
+        };
+
+        // Collect all ready responses without holding a borrow on self
+        let mut responses = Vec::new();
+        while let Ok(resp) = rx.try_recv() {
+            responses.push(resp);
+        }
+
+        for resp in responses {
+            tracing::debug!(
+                page_id = %self.page_id,
+                hash = %resp.hash,
+                model = %resp.model_name,
+                row = resp.row_index,
+                "Image load response received"
+            );
+
+            if resp.rgba_bytes.is_empty() || resp.width == 0 || resp.height == 0 {
+                self.image_cache.clear_loading(&resp.hash);
+                tracing::debug!(
+                    page_id = %self.page_id,
+                    hash = %resp.hash,
+                    "Image load failed; cleared loading state"
+                );
+                continue;
+            }
+
+            // Reconstruct slint::Image from raw RGBA bytes on the main thread.
+            // (slint::Image is !Send so it cannot cross thread boundaries.)
+            let image = image_from_rgba_bytes(&resp.rgba_bytes, resp.width, resp.height);
+
+            // Cache the decoded image
+            self.image_cache.insert(resp.hash.clone(), image.clone());
+
+            // Scan all models for rows with this hash and inject the image.
+            // We collect model names first to avoid borrow conflicts.
+            let model_names: Vec<String> = self.global_models.keys().cloned().collect();
+            for model_name in model_names {
+                let row_count = self
+                    .global_models
+                    .get(&model_name)
+                    .map(|m| m.row_count())
+                    .unwrap_or(0);
+
+                for row_index in 0..row_count {
+                    let row_hash = self
+                        .global_models
+                        .get(&model_name)
+                        .and_then(|m| m.row_data(row_index))
+                        .and_then(|v| match v {
+                            SlintValue::Struct(s) => match s.get_field("attachment_hash") {
+                                Some(SlintValue::String(h)) if !h.is_empty() => Some(h.to_string()),
+                                _ => None,
+                            },
+                            _ => None,
+                        });
+
+                    if row_hash.as_deref() == Some(resp.hash.as_str()) {
+                        self.inject_image_into_row(
+                            &model_name,
+                            row_index,
+                            &resp.hash,
+                            image.clone(),
+                        );
+                    }
+                }
+            }
+        }
     }
 
     fn ensure_model(

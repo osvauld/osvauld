@@ -644,6 +644,13 @@ impl<C: Connection> PeerActor<C> {
         scope: &PermitScope,
         state: &mut PeerActorState<C>,
     ) {
+        fn permit_version(token: &str) -> u64 {
+            gurkha::PolicyPermit::from_token(token)
+                .ok()
+                .and_then(|p| p.get_fact("version").and_then(|v| v.as_u64()))
+                .unwrap_or(0)
+        }
+
         if require_auth(&state.state).is_err() {
             warn!("PermitUpdate from unauthenticated peer: {}", self.node_id);
             return;
@@ -660,6 +667,26 @@ impl<C: Connection> PeerActor<C> {
         match scope {
             PermitScope::Space { space_id } => {
                 info!("PermitUpdate for space {} from {}", space_id, self.node_id);
+                let incoming_version = permit_version(permit);
+                let existing_version = state
+                    .butler
+                    .spaces()
+                    .get_data(space_id)
+                    .ok()
+                    .flatten()
+                    .and_then(|s| s.get_permit().cloned())
+                    .map(|p| permit_version(&p))
+                    .unwrap_or(0);
+                if incoming_version < existing_version {
+                    warn!(
+                        scope = "space",
+                        space_id = %space_id,
+                        incoming_version,
+                        existing_version,
+                        "Rejecting stale PermitUpdate"
+                    );
+                    return;
+                }
                 if let Err(e) = state.butler.spaces().store_permit(
                     space_id,
                     &parsed.parsed().issuer().to_string(),
@@ -670,6 +697,26 @@ impl<C: Connection> PeerActor<C> {
             }
             PermitScope::Page { page_id } => {
                 info!("PermitUpdate for page {} from {}", page_id, self.node_id);
+                let incoming_version = permit_version(permit);
+                let existing_version = state
+                    .butler
+                    .pages()
+                    .get(page_id)
+                    .ok()
+                    .flatten()
+                    .and_then(|p| p.get_permit().cloned())
+                    .map(|p| permit_version(&p))
+                    .unwrap_or(0);
+                if incoming_version < existing_version {
+                    warn!(
+                        scope = "page",
+                        page_id = %page_id,
+                        incoming_version,
+                        existing_version,
+                        "Rejecting stale PermitUpdate"
+                    );
+                    return;
+                }
                 // Store in USER_PAGE_PERMITS table (for peer_resolver lookups on node)
                 if let Err(e) = state.butler.permits().page().store(
                     page_id,
@@ -684,6 +731,19 @@ impl<C: Connection> PeerActor<C> {
                 // and Scribe rejects all incoming SyncOffers.
                 if let Err(e) = state.butler.pages().set_permit(page_id, permit.to_string()) {
                     error!("Failed to set page permit on PageData: {}", e);
+                }
+
+                // Notify coordinator so app can observe permit changes
+                if let Err(e) =
+                    state
+                        .coordinator
+                        .cast(crate::coordinator::CoordinatorMessage::PermitUpdated {
+                            node_id: self.node_id,
+                            page_id: page_id.to_string(),
+                            version: incoming_version,
+                        })
+                {
+                    warn!("Failed to notify coordinator of PermitUpdated: {:?}", e);
                 }
 
                 // Track viewer initial sync progress (viewer mode only)

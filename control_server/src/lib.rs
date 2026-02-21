@@ -24,22 +24,14 @@
 //! server.start().await?;
 //! ```
 
-pub mod types;
-pub mod server;
 pub mod commands;
+pub mod server;
+pub mod types;
 
 // Re-export main types
-pub use types::{
-    Request,
-    Response,
-    ErrorResponse,
-    error_codes,
-};
+pub use types::{error_codes, ErrorResponse, Request, Response};
 
-pub use server::{
-    ControlServer,
-    CommandHandler,
-};
+pub use server::{CommandHandler, ControlServer};
 
 // Re-export async_trait for convenience
 pub use async_trait::async_trait;

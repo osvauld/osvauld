@@ -243,10 +243,7 @@ fn generate_tab_bar(tabs: &[AppTab], current_app: &str) -> String {
 }
 
 /// Write generated shell to temp directory
-pub fn write_shell_slint(
-    temp_dir: &Path,
-    source: &str,
-) -> std::io::Result<std::path::PathBuf> {
+pub fn write_shell_slint(temp_dir: &Path, source: &str) -> std::io::Result<std::path::PathBuf> {
     let path = temp_dir.join("_shell.slint");
     std::fs::write(&path, source)?;
     Ok(path)
@@ -260,8 +257,14 @@ mod tests {
     #[test]
     fn test_generate_shell() {
         let tabs = vec![
-            AppTab { name: "signup".to_string(), display_name: "Signup".to_string() },
-            AppTab { name: "admin".to_string(), display_name: "Admin".to_string() },
+            AppTab {
+                name: "signup".to_string(),
+                display_name: "Signup".to_string(),
+            },
+            AppTab {
+                name: "admin".to_string(),
+                display_name: "Admin".to_string(),
+            },
         ];
 
         let shell = generate_page_shell(

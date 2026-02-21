@@ -23,11 +23,17 @@ async fn test_owner_first_connection() -> Result<()> {
         .await?;
 
     // Verify OwnerInfo stored on node
-    let owner_info = s.node().butler.nodes().get_owner()?.expect("Node should have owner info");
+    let owner_info = s
+        .node()
+        .butler
+        .nodes()
+        .get_owner()?
+        .expect("Node should have owner info");
     assert_eq!(owner_info.username, "owner");
 
     // Verify protocol message sequence
-    s.tracer().assert_contains_sequence(&["Hello", "Welcome", "PermitGrant", "Ack"]);
+    s.tracer()
+        .assert_contains_sequence(&["Hello", "Welcome", "PermitGrant", "Ack"]);
 
     s.shutdown().await;
     Ok(())
@@ -73,10 +79,15 @@ async fn test_invalid_permit_rejected() -> Result<()> {
     init_tracing();
 
     let blobs = transport::MockBlobStore::new();
-    let mut owner =
-        crate::peer::Peer::new("owner", courier::coordinator::CourierMode::User, blobs.clone(), None).await?;
-    let node =
-        crate::peer::Peer::new("node", courier::coordinator::CourierMode::Node, blobs, None).await?;
+    let mut owner = crate::peer::Peer::new(
+        "owner",
+        courier::coordinator::CourierMode::User,
+        blobs.clone(),
+        None,
+    )
+    .await?;
+    let node = crate::peer::Peer::new("node", courier::coordinator::CourierMode::Node, blobs, None)
+        .await?;
 
     owner.connect_to(&node)?;
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;

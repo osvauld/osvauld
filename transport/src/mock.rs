@@ -250,7 +250,8 @@ impl Connection for MockConnection {
 
     async fn read_datagram(&self) -> Result<Bytes> {
         let mut rx = self.inner.datagram_rx.lock().await;
-        let data = rx.recv()
+        let data = rx
+            .recv()
             .await
             .map(Bytes::from)
             .ok_or_else(|| anyhow!("channel closed"))?;
@@ -272,10 +273,7 @@ impl Connection for MockConnection {
 
         // Otherwise wait for stream data from peer
         let mut rx = self.inner.stream_rx.lock().await;
-        let data = rx
-            .recv()
-            .await
-            .ok_or_else(|| anyhow!("channel closed"))?;
+        let data = rx.recv().await.ok_or_else(|| anyhow!("channel closed"))?;
         Ok(MockBiStream::new(data))
     }
 

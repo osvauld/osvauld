@@ -112,13 +112,29 @@ impl ScenarioBuilder {
 
         // Create peers
         let owner = if self.has_owner {
-            Some(Peer::new("owner", courier::coordinator::CourierMode::User, blobs.clone(), message_tx.clone()).await?)
+            Some(
+                Peer::new(
+                    "owner",
+                    courier::coordinator::CourierMode::User,
+                    blobs.clone(),
+                    message_tx.clone(),
+                )
+                .await?,
+            )
         } else {
             None
         };
 
         let node = if self.has_node {
-            Some(Peer::new("node", courier::coordinator::CourierMode::Node, blobs.clone(), message_tx.clone()).await?)
+            Some(
+                Peer::new(
+                    "node",
+                    courier::coordinator::CourierMode::Node,
+                    blobs.clone(),
+                    message_tx.clone(),
+                )
+                .await?,
+            )
         } else {
             None
         };
@@ -126,7 +142,15 @@ impl ScenarioBuilder {
         let mut viewers = Vec::with_capacity(self.viewer_count);
         for i in 0..self.viewer_count {
             let name = format!("viewer{}", i);
-            viewers.push(Peer::new(&name, courier::coordinator::CourierMode::User, blobs.clone(), message_tx.clone()).await?);
+            viewers.push(
+                Peer::new(
+                    &name,
+                    courier::coordinator::CourierMode::User,
+                    blobs.clone(),
+                    message_tx.clone(),
+                )
+                .await?,
+            );
         }
 
         let mut scenario = Scenario {
@@ -202,11 +226,15 @@ impl Scenario {
     }
 
     pub fn tracer(&self) -> &Tracer {
-        self.tracer.as_ref().expect("Scenario has no tracer (use .with_tracer())")
+        self.tracer
+            .as_ref()
+            .expect("Scenario has no tracer (use .with_tracer())")
     }
 
     pub fn space(&self) -> &SpaceInfo {
-        self.space_info.as_ref().expect("Scenario has no space (use .published() or import_app())")
+        self.space_info
+            .as_ref()
+            .expect("Scenario has no space (use .published() or import_app())")
     }
 
     // -- Operations --
@@ -220,9 +248,14 @@ impl Scenario {
         let conn_string = node.butler.nodes().generate_connection_string(None).await?;
 
         // Owner parses and stores sovereign node
-        let sovereign = owner.butler.nodes().add(&conn_string)
+        let sovereign = owner
+            .butler
+            .nodes()
+            .add(&conn_string)
             .map_err(|e| anyhow::anyhow!("add_sovereign_node failed: {}", e))?;
-        let permit = sovereign.permit.expect("Connection string should have permit");
+        let permit = sovereign
+            .permit
+            .expect("Connection string should have permit");
 
         // Inject mock connection
         owner.connect_to(node)?;
@@ -258,7 +291,11 @@ impl Scenario {
         info!("Space created: {}", space.id);
 
         // Import page from app directory (app.osv + app subdirs with manifest.json)
-        let page = owner.butler.apps().import_page(&space.id, &app_path).await?;
+        let page = owner
+            .butler
+            .apps()
+            .import_page(&space.id, &app_path)
+            .await?;
         info!("Page imported: {} from {:?}", page.id, app_path);
 
         Ok(SpaceInfo {
@@ -308,7 +345,12 @@ impl Scenario {
     }
 
     /// Full viewer flow: connect, handshake, request space, wait for page
-    pub async fn add_viewer(&mut self, index: usize, conn_string: &str, page_id: &str) -> Result<()> {
+    pub async fn add_viewer(
+        &mut self,
+        index: usize,
+        conn_string: &str,
+        page_id: &str,
+    ) -> Result<()> {
         use butler::ConnectionStringExt;
 
         let node = self.node.as_ref().expect("Scenario has no node");
@@ -435,9 +477,13 @@ impl Scenario {
 
         // Get reconnection permit from Butler (stored during first connection)
         let node_id_str = node.node_id.to_string();
-        let sovereign = owner.butler.nodes().get(&node_id_str)?
+        let sovereign = owner
+            .butler
+            .nodes()
+            .get(&node_id_str)?
             .ok_or_else(|| anyhow::anyhow!("No sovereign node record for reconnection"))?;
-        let reconnect_permit = sovereign.permit
+        let reconnect_permit = sovereign
+            .permit
             .ok_or_else(|| anyhow::anyhow!("No reconnection permit stored"))?;
 
         // Create fresh mock connection
@@ -473,7 +519,9 @@ impl Scenario {
     pub async fn reconnect_viewer_to_node(&mut self, index: usize, page_id: &str) -> Result<()> {
         use butler::ConnectionStringExt;
 
-        let space_id = self.space_info.as_ref()
+        let space_id = self
+            .space_info
+            .as_ref()
             .map(|s| s.space_id.clone())
             .ok_or_else(|| anyhow::anyhow!("No space_info for viewer reconnection"))?;
 
@@ -483,11 +531,14 @@ impl Scenario {
         let node = self.node.as_ref().expect("Scenario has no node");
         let viewer = &self.viewers[index];
 
-        let conn = viewer.butler.nodes()
+        let conn = viewer
+            .butler
+            .nodes()
             .parse_connection_string(&conn_string)
             .map_err(|e| anyhow::anyhow!("parse_connection_string failed: {}", e))?;
         let permit = conn.permit.clone();
-        let space_id = conn.space_id()
+        let space_id = conn
+            .space_id()
             .map_err(|e| anyhow::anyhow!("space_id from permit failed: {}", e))?;
 
         // Fresh connection + handshake
@@ -501,19 +552,24 @@ impl Scenario {
         // Request space to re-establish subscriptions
         let viewer = &self.viewers[index];
         let (tx, rx) = tokio::sync::oneshot::channel();
-        viewer.coordinator
+        viewer
+            .coordinator
             .cast(CoordinatorMessage::GetPeerActor {
                 node_id: self.node.as_ref().unwrap().node_id,
                 response: tx,
             })
             .map_err(|e| anyhow::anyhow!("GetPeerActor failed: {:?}", e))?;
 
-        let peer_actor = rx.await
+        let peer_actor = rx
+            .await
             .map_err(|_| anyhow::anyhow!("GetPeerActor channel closed"))?
             .ok_or_else(|| anyhow::anyhow!("No PeerActor for node on viewer"))?;
 
         peer_actor
-            .cast(PeerMessage::RequestSpace { space_id, viewer_permit: permit })
+            .cast(PeerMessage::RequestSpace {
+                space_id,
+                viewer_permit: permit,
+            })
             .map_err(|e| anyhow::anyhow!("RequestSpace failed: {:?}", e))?;
 
         // Wait for page data

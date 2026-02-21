@@ -144,7 +144,7 @@ fn register_add_website(
             let request_timeout = std::time::Duration::from_secs(15);
             let retry_interval = std::time::Duration::from_millis(200);
             let start = std::time::Instant::now();
-            
+
             loop {
                 match courier_handle
                     .request_space_as_viewer(&space_id, &node_id, &permit)

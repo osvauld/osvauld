@@ -27,8 +27,7 @@ pub mod tracer;
 mod tests;
 
 pub use fixtures::{
-    app_dir, init_tracing, workspace_root,
-    SpaceInfo, MOCK_TIMEOUT, PAGE_SYNC_TIMEOUT,
+    app_dir, init_tracing, workspace_root, SpaceInfo, MOCK_TIMEOUT, PAGE_SYNC_TIMEOUT,
 };
 pub use peer::Peer;
 pub use scenario::{Scenario, ScenarioBuilder};

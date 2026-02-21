@@ -11,7 +11,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tracing::{debug, error, info, warn};
 
-use crate::types::{Request, Response, error_codes};
+use crate::types::{error_codes, Request, Response};
 
 /// Trait for handling commands
 ///
@@ -22,7 +22,12 @@ pub trait CommandHandler: Send + Sync {
     ///
     /// Returns Some(Response) if the command was handled, None if not recognized.
     /// The base server handles common commands (ping) automatically.
-    async fn handle(&self, method: &str, params: Option<serde_json::Value>, id: u64) -> Option<Response>;
+    async fn handle(
+        &self,
+        method: &str,
+        params: Option<serde_json::Value>,
+        id: u64,
+    ) -> Option<Response>;
 
     /// Get the connection string for this instance (if applicable)
     async fn get_connection_string(&self) -> Option<String> {
@@ -78,11 +83,7 @@ impl<H: CommandHandler + 'static> ControlServer<H> {
                     let instance_name = self.instance_name.clone();
 
                     tokio::spawn(async move {
-                        if let Err(e) = handle_connection(
-                            stream,
-                            handler,
-                            instance_name,
-                        ).await {
+                        if let Err(e) = handle_connection(stream, handler, instance_name).await {
                             debug!(error = %e, "Connection handler error");
                         }
                     });
@@ -116,13 +117,7 @@ async fn handle_connection<H: CommandHandler>(
 
         // Parse request
         let response = match serde_json::from_str::<Request>(trimmed) {
-            Ok(request) => {
-                process_request(
-                    &request,
-                    &handler,
-                    &instance_name,
-                ).await
-            }
+            Ok(request) => process_request(&request, &handler, &instance_name).await,
             Err(e) => {
                 warn!(error = %e, "Failed to parse request");
                 Response::err(0, error_codes::PARSE_ERROR, format!("Parse error: {}", e))
@@ -154,16 +149,23 @@ async fn process_request<H: CommandHandler>(
     // Handle common commands first
     match method {
         "ping" => {
-            return Response::ok(id, serde_json::json!({
-                "status": "ok",
-                "instance": instance_name
-            }));
+            return Response::ok(
+                id,
+                serde_json::json!({
+                    "status": "ok",
+                    "instance": instance_name
+                }),
+            );
         }
         "get_connection_string" => {
             if let Some(conn_str) = handler.get_connection_string().await {
                 return Response::ok(id, serde_json::json!({"connection_string": conn_str}));
             } else {
-                return Response::err(id, error_codes::NOT_FOUND, "Connection string not available");
+                return Response::err(
+                    id,
+                    error_codes::NOT_FOUND,
+                    "Connection string not available",
+                );
             }
         }
         _ => {}
@@ -175,5 +177,9 @@ async fn process_request<H: CommandHandler>(
     }
 
     // Method not found
-    Response::err(id, error_codes::METHOD_NOT_FOUND, format!("Unknown method: {}", method))
+    Response::err(
+        id,
+        error_codes::METHOD_NOT_FOUND,
+        format!("Unknown method: {}", method),
+    )
 }

@@ -329,7 +329,11 @@ impl<C: Connection> PeerActor<C> {
             format!("{}/{}", payload.page_id, payload.layer_name)
         };
 
-        let cache_key = (payload.page_id.clone(), full_layer_name.clone(), peer_did.clone());
+        let cache_key = (
+            payload.page_id.clone(),
+            full_layer_name.clone(),
+            peer_did.clone(),
+        );
         let authority_permit = if let Some(cached) = state.authority_permit_cache.get(&cache_key) {
             cached.clone()
         } else {
@@ -351,7 +355,9 @@ impl<C: Connection> PeerActor<C> {
                     None
                 }
             };
-            state.authority_permit_cache.insert(cache_key, result.clone());
+            state
+                .authority_permit_cache
+                .insert(cache_key, result.clone());
             result
         };
 

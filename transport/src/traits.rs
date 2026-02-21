@@ -128,10 +128,7 @@ pub trait Transport: Send + Sync + 'static {
     fn local_node_id(&self) -> NodeId;
 
     /// Check if connected to a peer
-    fn is_connected(
-        &self,
-        node_id: &NodeId,
-    ) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
+    fn is_connected(&self, node_id: &NodeId) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
 }
 
 /// Event emitted by transport layer
@@ -140,14 +137,9 @@ pub trait Transport: Send + Sync + 'static {
 #[derive(Debug, Clone)]
 pub enum ConnectionEvent<C: Connection> {
     /// New peer connection established
-    Connected {
-        node_id: NodeId,
-        conn: C,
-    },
+    Connected { node_id: NodeId, conn: C },
     /// Peer disconnected
-    Disconnected {
-        node_id: NodeId,
-    },
+    Disconnected { node_id: NodeId },
 }
 
 #[cfg(test)]

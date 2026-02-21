@@ -84,6 +84,7 @@ function M.to_ui_message(msg)
         reactions = reactions,
         has_attachment = (msg.attachment_hash and msg.attachment_hash ~= "") and true or false,
         attachment_name = msg.attachment_name or "",
+        attachment_hash = msg.attachment_hash or "",
     }
 end
 

@@ -686,6 +686,10 @@ mod layer_permits {
             pollster::block_on(issue_page_owner_token(&TEST_KEY, "shop1", &template)).unwrap();
         let owner = Permit::from_token(&owner_token).unwrap();
         let original_count = owner.layers().len();
+        let original_version = owner
+            .get_fact("version")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
 
         // Reissue with new app layer
         let mut new_layers = std::collections::HashMap::new();
@@ -706,11 +710,20 @@ mod layer_permits {
         ))
         .unwrap();
         let reissued = Permit::from_token(&reissued_token).unwrap();
+        let reissued_version = reissued
+            .get_fact("version")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
 
         assert_eq!(
             reissued.layers().len(),
             original_count + 1,
             "Should have one more layer"
+        );
+        assert_eq!(
+            reissued_version,
+            original_version + 1,
+            "Reissued permit should increment version"
         );
         assert!(
             reissued.can_write_layer("app:NewGame", "shop1", "did:key:owner"),

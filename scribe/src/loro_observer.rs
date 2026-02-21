@@ -340,14 +340,15 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
             }
 
             // Check if there are page_update subscribers (Lua/UI) that need notification
-            let has_page_subscribers = if crate::sync::sync_meta::is_protocol_layer(&layer_name_for_task) {
-                false
-            } else {
-                page_update_subscribers_for_task
-                    .read()
-                    .map(|subs| !subs.is_empty())
-                    .unwrap_or(false)
-            };
+            let has_page_subscribers =
+                if crate::sync::sync_meta::is_protocol_layer(&layer_name_for_task) {
+                    false
+                } else {
+                    page_update_subscribers_for_task
+                        .read()
+                        .map(|subs| !subs.is_empty())
+                        .unwrap_or(false)
+                };
 
             // If no subscribers need notification AND we won't broadcast, skip all expensive work
             let will_broadcast = !is_local_only && !is_remote;
@@ -383,7 +384,9 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
                     created: false,
                     dynamic_ref: dynamic_schemas_for_task
                         .as_ref()
-                        .and_then(|schemas| gurkha::parse_dynamic_layer(schemas, &layer_name_for_task))
+                        .and_then(|schemas| {
+                            gurkha::parse_dynamic_layer(schemas, &layer_name_for_task)
+                        })
                         .map(|parsed| crate::message::DynamicLayerMeta {
                             schema_key: parsed.schema_key,
                             creator_did: parsed.creator_did,

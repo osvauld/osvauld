@@ -26,6 +26,7 @@ pub mod node;
 pub mod page;
 pub mod query;
 pub mod space;
+pub mod sthithi;
 
 // Re-export all public types
 pub use asset::{AssetAck, AssetMetadata, AssetReady, AssetRequest};
@@ -39,3 +40,4 @@ pub use node::*;
 pub use page::{DecryptedPage, Page, PageData, PageMeta, PreparedPage};
 pub use query::*;
 pub use space::*;
+pub use sthithi::*;

@@ -61,7 +61,11 @@ impl UpdateContext {
     ///
     /// **Context**: Computes all decisions based on state and update metadata
     /// **Note**: Permission checks are done separately (may reject before context is useful)
-    pub fn new(state: &mut ScribeState, layer_name: &str, from_peer: Option<(String, String)>) -> Self {
+    pub fn new(
+        state: &mut ScribeState,
+        layer_name: &str,
+        from_peer: Option<(String, String)>,
+    ) -> Self {
         let is_remote = from_peer.is_some();
         let is_local_only = Permissions::is_local_only(state, layer_name);
         let is_new_layer = !state.units.contains_key(layer_name);
@@ -393,7 +397,11 @@ fn create_layer_from_peer(state: &mut ScribeState, layer_name: &str) {
                             can_write,
                             info.broadcast_tx.clone(),
                         );
-                        state.emit_layer_auth_capture(layer_name, did, "subscriber_added_from_peer");
+                        state.emit_layer_auth_capture(
+                            layer_name,
+                            did,
+                            "subscriber_added_from_peer",
+                        );
                     }
                 }
             }
@@ -538,7 +546,9 @@ fn get_peer_role(state: &mut ScribeState, peer_did: &str) -> String {
     }
 
     let role = get_peer_role_uncached(state, peer_did);
-    state.peer_role_cache.insert(peer_did.to_string(), role.clone());
+    state
+        .peer_role_cache
+        .insert(peer_did.to_string(), role.clone());
     role
 }
 

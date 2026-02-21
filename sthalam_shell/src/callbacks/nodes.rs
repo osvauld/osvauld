@@ -20,7 +20,12 @@ pub fn register(
     tokio_handle: tokio::runtime::Handle,
 ) {
     register_request_nodes(shell, butler.clone());
-    register_add_node(shell, butler.clone(), courier_handle.clone(), tokio_handle.clone());
+    register_add_node(
+        shell,
+        butler.clone(),
+        courier_handle.clone(),
+        tokio_handle.clone(),
+    );
     register_delete_node(shell, butler.clone());
     register_connect_node(shell, butler.clone(), courier_handle, tokio_handle);
     register_navigate_to_nodes(shell);
@@ -35,10 +40,8 @@ fn register_request_nodes(shell: &Shell, butler: Arc<Butler>) {
         println!("Found {} sovereign nodes", nodes.len());
 
         if let Some(shell) = shell_weak.upgrade() {
-            let node_infos: Vec<crate::NodeInfo> = nodes
-                .iter()
-                .map(sovereign_node_to_node_info)
-                .collect();
+            let node_infos: Vec<crate::NodeInfo> =
+                nodes.iter().map(sovereign_node_to_node_info).collect();
             shell.set_nodes(slint::ModelRc::new(slint::VecModel::from(node_infos)));
         }
     });
@@ -110,7 +113,9 @@ fn register_add_node(
                     slint::invoke_from_event_loop(move || {
                         if let Some(shell) = shell_weak.upgrade() {
                             shell.set_connecting(false);
-                            shell.set_error_message("P2P not initialized. Please login first.".into());
+                            shell.set_error_message(
+                                "P2P not initialized. Please login first.".into(),
+                            );
                         }
                     })
                     .ok();
@@ -146,10 +151,8 @@ fn register_delete_node(shell: &Shell, butler: Arc<Butler>) {
 
                 if let Some(shell) = shell_weak.upgrade() {
                     let nodes = butler.nodes().list().unwrap_or_default();
-                    let node_infos: Vec<crate::NodeInfo> = nodes
-                        .iter()
-                        .map(sovereign_node_to_node_info)
-                        .collect();
+                    let node_infos: Vec<crate::NodeInfo> =
+                        nodes.iter().map(sovereign_node_to_node_info).collect();
                     shell.set_nodes(slint::ModelRc::new(slint::VecModel::from(node_infos)));
                 }
             }
@@ -188,7 +191,10 @@ fn register_connect_node(
             let permit = match &node.permit {
                 Some(p) => p.clone(),
                 None => {
-                    println!("No permit stored for node {}, cannot reconnect", node_id_str);
+                    println!(
+                        "No permit stored for node {}, cannot reconnect",
+                        node_id_str
+                    );
                     return;
                 }
             };

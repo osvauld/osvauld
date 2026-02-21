@@ -33,7 +33,9 @@ pub fn spawn_event_listener(
 
         while let Some(event) = event_rx.recv().await {
             match event {
-                CourierEvent::PeerAuthenticated { node_id, username, .. } => {
+                CourierEvent::PeerAuthenticated {
+                    node_id, username, ..
+                } => {
                     tracing::info!(username = %username, node_id = %node_id, "Peer authenticated");
 
                     // Cancel any pending reconnection task for this node
@@ -115,12 +117,7 @@ pub fn spawn_event_listener(
                     let (cancel_tx, cancel_rx) = watch::channel(false);
                     reconnect_cancellers.insert(node_id.clone(), cancel_tx);
 
-                    spawn_reconnect_task(
-                        node_id,
-                        butler.clone(),
-                        handle.clone(),
-                        cancel_rx,
-                    );
+                    spawn_reconnect_task(node_id, butler.clone(), handle.clone(), cancel_rx);
                 }
                 CourierEvent::SpacePublished { node_id, space_id } => {
                     tracing::info!(space_id = %space_id, node_id = %node_id, "Space published");
@@ -138,7 +135,8 @@ pub fn spawn_event_listener(
                             let current_space_id = shell.get_current_space_id().to_string();
                             if current_space_id == published_space_id {
                                 let published_node_dids: HashSet<String> = butler
-                                    .publish().get_nodes_with_permits(&current_space_id)
+                                    .publish()
+                                    .get_nodes_with_permits(&current_space_id)
                                     .unwrap_or_default()
                                     .into_iter()
                                     .collect();
@@ -147,9 +145,16 @@ pub fn spawn_event_listener(
                                 let connected_nodes: Vec<sthalam_shell::NodeInfo> = nodes
                                     .iter()
                                     .filter(|n| n.is_connected)
-                                    .map(|n| sthalam_shell::sovereign_node_to_node_info_with_published(n, &published_node_dids))
+                                    .map(|n| {
+                                        sthalam_shell::sovereign_node_to_node_info_with_published(
+                                            n,
+                                            &published_node_dids,
+                                        )
+                                    })
                                     .collect();
-                                shell.set_connected_nodes(slint::ModelRc::new(slint::VecModel::from(connected_nodes)));
+                                shell.set_connected_nodes(slint::ModelRc::new(
+                                    slint::VecModel::from(connected_nodes),
+                                ));
                             }
                         }
                     })
@@ -212,9 +217,12 @@ pub fn spawn_event_listener(
                                     app_count: 0,
                                 })
                                 .collect();
-                            shell.set_spaces(slint::ModelRc::new(slint::VecModel::from(space_infos)));
+                            shell.set_spaces(slint::ModelRc::new(slint::VecModel::from(
+                                space_infos,
+                            )));
 
-                            shell.set_toast_message(format!("Synced {} pages", pages_synced).into());
+                            shell
+                                .set_toast_message(format!("Synced {} pages", pages_synced).into());
                             shell.set_toast_is_error(false);
                             shell.set_toast_visible(true);
                         }

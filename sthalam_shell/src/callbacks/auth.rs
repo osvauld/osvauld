@@ -16,11 +16,7 @@ use crate::Shell;
 pub type OnLoginSuccess = Arc<dyn Fn(Identity) + Send + Sync + 'static>;
 
 /// Register authentication callbacks on the shell
-pub fn register(
-    shell: &Shell,
-    butler: Arc<Butler>,
-    on_login_success: OnLoginSuccess,
-) {
+pub fn register(shell: &Shell, butler: Arc<Butler>, on_login_success: OnLoginSuccess) {
     register_import_key(shell);
     register_login(shell, butler.clone(), on_login_success);
     register_signup(shell, butler);
@@ -33,11 +29,7 @@ fn register_import_key(shell: &Shell) {
     });
 }
 
-fn register_login(
-    shell: &Shell,
-    butler: Arc<Butler>,
-    on_login_success: OnLoginSuccess,
-) {
+fn register_login(shell: &Shell, butler: Arc<Butler>, on_login_success: OnLoginSuccess) {
     let shell_weak = shell.as_weak();
 
     shell.on_login(move |passphrase| {

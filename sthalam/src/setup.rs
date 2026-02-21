@@ -2,9 +2,12 @@
 //!
 //! Handles Butler, transport, and P2P initialization.
 
-use std::sync::Arc;
 use butler::{Butler, SyncEvent};
-use courier::{Courier, CourierEvent, CourierHandle, CourierMode, HandshakeServices, Transport, TransportConfig};
+use courier::{
+    Courier, CourierEvent, CourierHandle, CourierMode, HandshakeServices, Transport,
+    TransportConfig,
+};
+use std::sync::Arc;
 
 /// Initialize P2P after login (matches Tauri pattern)
 ///
@@ -39,8 +42,12 @@ pub async fn init_p2p(
     let handshake_services = Arc::new(HandshakeServices::new(butler.clone()));
 
     // Initialize Courier with services and optional capture
-    let (handle, event_rx, courier) =
-        Courier::init_with_services_and_capture(CourierMode::User, transport, Some(handshake_services), capture_tx);
+    let (handle, event_rx, courier) = Courier::init_with_services_and_capture(
+        CourierMode::User,
+        transport,
+        Some(handshake_services),
+        capture_tx,
+    );
 
     // Spawn courier event loop
     tokio::spawn(async move {
@@ -61,14 +68,19 @@ pub async fn init_p2p(
                         tracing::info!(user_did = %user_did, "Forwarded EnsureSync to Coordinator");
                     }
                 }
-                SyncEvent::SubscribeLayers { page_id, creator_did, layers } => {
+                SyncEvent::SubscribeLayers {
+                    page_id,
+                    creator_did,
+                    layers,
+                } => {
                     tracing::info!(
                         page_id = %page_id,
                         creator_did = %creator_did,
                         count = layers.len(),
                         "Received SubscribeLayers from Scribe, forwarding to Coordinator"
                     );
-                    if let Err(e) = handle_for_sync.subscribe_layers(&page_id, &creator_did, layers) {
+                    if let Err(e) = handle_for_sync.subscribe_layers(&page_id, &creator_did, layers)
+                    {
                         tracing::warn!(error = %e, "Failed to forward SubscribeLayers");
                     }
                 }

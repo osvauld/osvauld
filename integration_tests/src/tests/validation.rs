@@ -9,7 +9,7 @@
 
 use anyhow::Result;
 use domains::Layer;
-use mlua::{Lua, Function, Value};
+use mlua::{Function, Lua, Value};
 use std::fs;
 
 use crate::fixtures::{init_tracing, workspace_root};
@@ -41,7 +41,8 @@ impl AppValidationRuntime {
     }
 
     fn has_validate_ops(&self) -> bool {
-        self.lua.globals()
+        self.lua
+            .globals()
             .get::<Value>("validate_ops")
             .map(|v| matches!(v, Value::Function(_)))
             .unwrap_or(false)
@@ -57,7 +58,8 @@ impl AppValidationRuntime {
     ) -> Result<bool> {
         let globals = self.lua.globals();
 
-        let validate_fn: Function = globals.get("validate_ops")
+        let validate_fn: Function = globals
+            .get("validate_ops")
             .map_err(|e| anyhow::anyhow!("validate_ops not found: {}", e))?;
 
         let ops_table = self.lua.create_table()?;
@@ -66,13 +68,9 @@ impl AppValidationRuntime {
             ops_table.set(i + 1, op_lua)?;
         }
 
-        let result: bool = validate_fn.call((
-            layer_name,
-            ops_table,
-            from_did,
-            role,
-            page_id,
-        )).map_err(|e| anyhow::anyhow!("validate_ops error: {}", e))?;
+        let result: bool = validate_fn
+            .call((layer_name, ops_table, from_did, role, page_id))
+            .map_err(|e| anyhow::anyhow!("validate_ops error: {}", e))?;
 
         Ok(result)
     }
@@ -92,9 +90,7 @@ fn json_to_lua(lua: &Lua, value: &serde_json::Value) -> Result<Value> {
                 Ok(Value::Nil)
             }
         }
-        serde_json::Value::String(s) => {
-            Ok(Value::String(lua.create_string(s)?))
-        }
+        serde_json::Value::String(s) => Ok(Value::String(lua.create_string(s)?)),
         serde_json::Value::Array(arr) => {
             let table = lua.create_table()?;
             for (i, v) in arr.iter().enumerate() {
@@ -129,13 +125,20 @@ fn test_extract_ops_format_matches_validation_expectations() -> Result<()> {
         [
             ("id".to_string(), loro::LoroValue::String("msg1".into())),
             ("text".to_string(), loro::LoroValue::String("hello".into())),
-            ("sender_did".to_string(), loro::LoroValue::String("did:key:alice".into())),
-        ].into_iter().collect::<std::collections::HashMap<_, _>>().into()
+            (
+                "sender_did".to_string(),
+                loro::LoroValue::String("did:key:alice".into()),
+            ),
+        ]
+        .into_iter()
+        .collect::<std::collections::HashMap<_, _>>()
+        .into(),
     );
     messages.push(msg)?;
     layer.loro().commit();
 
-    let update = layer.loro()
+    let update = layer
+        .loro()
         .export(loro::ExportMode::updates(&loro::VersionVector::new()))
         .expect("export");
 
@@ -202,8 +205,12 @@ fn test_myshop_orders_ownership() -> Result<()> {
     let result = runtime.validate_ops(&layer_name, &ops, customer_did, "customer", page_id)?;
     assert!(result, "Customer should be able to modify their own orders");
 
-    let result = runtime.validate_ops(&layer_name, &ops, other_customer_did, "customer", page_id)?;
-    assert!(!result, "Customer should not be able to modify other's orders");
+    let result =
+        runtime.validate_ops(&layer_name, &ops, other_customer_did, "customer", page_id)?;
+    assert!(
+        !result,
+        "Customer should not be able to modify other's orders"
+    );
 
     let result = runtime.validate_ops(&layer_name, &ops, "did:key:owner", "owner", page_id)?;
     assert!(result, "Owner should be able to modify any orders");
@@ -228,7 +235,8 @@ fn test_myshop_order_initial_state() -> Result<()> {
         "value": {"id": "order1", "status": "pending"}
     })];
 
-    let result = runtime.validate_ops(&layer_name, &valid_ops, customer_did, "customer", page_id)?;
+    let result =
+        runtime.validate_ops(&layer_name, &valid_ops, customer_did, "customer", page_id)?;
     assert!(result, "Pending order should be allowed");
 
     let invalid_ops = vec![serde_json::json!({
@@ -237,8 +245,12 @@ fn test_myshop_order_initial_state() -> Result<()> {
         "value": {"id": "order2", "status": "draft"}
     })];
 
-    let result = runtime.validate_ops(&layer_name, &invalid_ops, customer_did, "customer", page_id)?;
-    assert!(!result, "Draft order should be rejected (drafts are local-only)");
+    let result =
+        runtime.validate_ops(&layer_name, &invalid_ops, customer_did, "customer", page_id)?;
+    assert!(
+        !result,
+        "Draft order should be rejected (drafts are local-only)"
+    );
 
     Ok(())
 }
@@ -266,7 +278,8 @@ fn test_mybooking_schedule_owner_only() -> Result<()> {
     let result = runtime.validate_ops(&layer_name, &ops, "did:key:owner", "owner", page_id)?;
     assert!(result, "Owner should be able to modify schedule");
 
-    let result = runtime.validate_ops(&layer_name, &ops, "did:key:customer", "customer", page_id)?;
+    let result =
+        runtime.validate_ops(&layer_name, &ops, "did:key:customer", "customer", page_id)?;
     assert!(!result, "Customer should not be able to modify schedule");
 
     Ok(())
@@ -292,10 +305,17 @@ fn test_mybooking_calendar_node_only() -> Result<()> {
     assert!(result, "Node should be able to modify derived calendar");
 
     let result = runtime.validate_ops(&layer_name, &ops, "did:key:owner", "owner", page_id)?;
-    assert!(!result, "Owner should not be able to modify derived calendar");
+    assert!(
+        !result,
+        "Owner should not be able to modify derived calendar"
+    );
 
-    let result = runtime.validate_ops(&layer_name, &ops, "did:key:customer", "customer", page_id)?;
-    assert!(!result, "Customer should not be able to modify derived calendar");
+    let result =
+        runtime.validate_ops(&layer_name, &ops, "did:key:customer", "customer", page_id)?;
+    assert!(
+        !result,
+        "Customer should not be able to modify derived calendar"
+    );
 
     Ok(())
 }
@@ -323,7 +343,8 @@ fn test_mybooking_booking_initial_state() -> Result<()> {
         }
     })];
 
-    let result = runtime.validate_ops(&layer_name, &valid_ops, customer_did, "customer", page_id)?;
+    let result =
+        runtime.validate_ops(&layer_name, &valid_ops, customer_did, "customer", page_id)?;
     assert!(result, "Pending booking should be allowed");
 
     let invalid_ops = vec![serde_json::json!({
@@ -335,8 +356,12 @@ fn test_mybooking_booking_initial_state() -> Result<()> {
         }
     })];
 
-    let result = runtime.validate_ops(&layer_name, &invalid_ops, customer_did, "customer", page_id)?;
-    assert!(!result, "Booking without required fields should be rejected");
+    let result =
+        runtime.validate_ops(&layer_name, &invalid_ops, customer_did, "customer", page_id)?;
+    assert!(
+        !result,
+        "Booking without required fields should be rejected"
+    );
 
     Ok(())
 }
