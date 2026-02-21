@@ -61,9 +61,10 @@ impl<'a> AssetsApi<'a> {
         let assets_layer_name = "assets".to_string();
         let scribe = self.butler.open_page(page_id).await?;
 
-        // Serialize metadata to JSON for MapInsert
+        // Serialize metadata to Sthithi for MapInsert
         let metadata_json = serde_json::to_value(&metadata)
             .map_err(|e| ButlerError::Database(format!("Failed to serialize metadata: {}", e)))?;
+        let metadata_sthithi = domains::Sthithi::from(metadata_json);
 
         // Send MapInsert to add metadata to assets layer (key = hash)
         scribe
@@ -71,7 +72,7 @@ impl<'a> AssetsApi<'a> {
                 layer_name: assets_layer_name,
                 path: "root".to_string(),
                 key: metadata.hash.clone(),
-                value: metadata_json,
+                value: metadata_sthithi,
             })
             .map_err(|e| ButlerError::Database(format!("Failed to send to scribe: {}", e)))?;
 

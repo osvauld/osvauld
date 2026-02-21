@@ -512,8 +512,8 @@ fn fetch_layer_data(
     scribe: &Arc<ActorScribeHandle>,
     layer_name: &str,
 ) -> Result<serde_json::Value, String> {
-    match scribe.get_layer_json(layer_name)? {
-        Some(data) => Ok(data),
+    match scribe.get_layer_sthithi(layer_name)? {
+        Some(data) => Ok(serde_json::Value::from(&data)),
         None => Ok(serde_json::Value::Array(vec![])),
     }
 }

@@ -10,7 +10,7 @@
 use tracing::{debug, info, instrument};
 
 use crate::{Result, ScribeError};
-use domains::json_to_loro_value;
+use domains::Sthithi;
 
 use crate::layer_unit::{find_matching_dynamic_schema, LayerUnit};
 use crate::loro_observer;
@@ -23,17 +23,16 @@ pub fn handle_list_get(
     state: &ScribeState,
     layer_name: &str,
     index: usize,
-) -> Result<Option<serde_json::Value>> {
+) -> Result<Option<Sthithi>> {
     let layer = state
         .units
         .get(layer_name)
         .map(|unit| unit.layer())
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
     let list = layer.loro().get_list(layer_name);
-    Ok(list.get(index).map(|v| {
-        let deep = v.get_deep_value();
-        domains::loro_value_to_json(deep)
-    }))
+    Ok(list
+        .get(index)
+        .map(|v| Sthithi::from(v.get_deep_value())))
 }
 
 /// Handle ListLength - get the length of a list container
@@ -52,17 +51,14 @@ pub fn handle_map_get(
     state: &ScribeState,
     layer_name: &str,
     key: &str,
-) -> Result<Option<serde_json::Value>> {
+) -> Result<Option<Sthithi>> {
     let layer = state
         .units
         .get(layer_name)
         .map(|unit| unit.layer())
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))?;
     let map = layer.loro().get_map(layer_name);
-    Ok(map.get(key).map(|v| {
-        let deep = v.get_deep_value();
-        domains::loro_value_to_json(deep)
-    }))
+    Ok(map.get(key).map(|v| Sthithi::from(v.get_deep_value())))
 }
 
 /// Handle MapLength - get the number of entries in a map container
@@ -193,7 +189,7 @@ pub async fn handle_list_push(
     state: &mut ScribeState,
     layer_name: &str,
     path: &str,
-    item: serde_json::Value,
+    item: Sthithi,
 ) -> Result<()> {
     info!("ListPush operation");
 
@@ -208,14 +204,14 @@ pub async fn handle_list_push(
     if path.is_empty() {
         // Lua pattern: use layer_name as container name directly
         let list = unit.layer().loro().get_list(layer_name);
-        let loro_value = json_to_loro_value(&item);
+        let loro_value = loro::LoroValue::from(&item);
         list.push(loro_value)
             .map_err(|e| ScribeError::CrdtError(format!("ListPush: {}", e)))?;
         unit.layer().commit();
     } else {
         // Template pattern: use root map with nested path
         unit.layer()
-            .list_push(path, &item)
+            .list_push_sthithi(path, &item)
             .map_err(|e| ScribeError::CrdtError(format!("Layer: {}", e)))?;
     }
 
@@ -239,7 +235,7 @@ pub async fn handle_list_insert(
     layer_name: &str,
     path: &str,
     index: usize,
-    item: serde_json::Value,
+    item: Sthithi,
 ) -> Result<()> {
     info!("ListInsert operation");
 
@@ -253,14 +249,14 @@ pub async fn handle_list_insert(
     if path.is_empty() {
         // Lua pattern: use layer_name as container name directly
         let list = unit.layer().loro().get_list(layer_name);
-        let loro_value = json_to_loro_value(&item);
+        let loro_value = loro::LoroValue::from(&item);
         list.insert(index, loro_value)
             .map_err(|e| ScribeError::CrdtError(format!("ListInsert: {}", e)))?;
         unit.layer().commit();
     } else {
         // Template pattern: use root map with nested path
         unit.layer()
-            .list_insert(path, index, &item)
+            .list_insert_sthithi(path, index, &item)
             .map_err(|e| ScribeError::CrdtError(format!("Layer: {}", e)))?;
     }
 
@@ -325,7 +321,7 @@ pub async fn handle_map_insert(
     layer_name: &str,
     path: &str,
     key: &str,
-    value: serde_json::Value,
+    value: Sthithi,
 ) -> Result<()> {
     info!("MapInsert operation");
 
@@ -339,14 +335,14 @@ pub async fn handle_map_insert(
     if path.is_empty() {
         // Lua pattern: use layer_name as container name directly
         let map = unit.layer().loro().get_map(layer_name);
-        let loro_value = json_to_loro_value(&value);
+        let loro_value = loro::LoroValue::from(&value);
         map.insert(key, loro_value)
             .map_err(|e| ScribeError::CrdtError(format!("MapInsert: {}", e)))?;
         unit.layer().commit();
     } else {
         // Template pattern: use root map with nested path
         unit.layer()
-            .map_insert(path, key, &value)
+            .map_insert_sthithi(path, key, &value)
             .map_err(|e| ScribeError::CrdtError(format!("Layer: {}", e)))?;
     }
 

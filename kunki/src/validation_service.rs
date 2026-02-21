@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
-use butler::{Butler, JsonOp, ScribeMessage, ValidationHandle, ValidationRequest};
+use butler::{Butler, Parivarta, ScribeMessage, ValidationHandle, ValidationRequest};
 use lua_runtime::{ActorScribeHandle, LuaCommand, LuaRuntime, LuaRuntimeConfig, ValidationContext};
 
 /// Validation service - spawns LuaRuntime per validation request
@@ -90,7 +90,7 @@ impl ValidationService {
         butler: &Arc<Butler>,
         page_id: &str,
         layer_name: &str,
-        ops: &[JsonOp],
+        ops: &[Parivarta],
         from_did: &str,
         role: &str,
     ) -> Result<(bool, Option<String>), String> {
@@ -139,14 +139,10 @@ impl ValidationService {
             clock: std::sync::Arc::new(domains::RealClock),
         })?;
 
-        // Build ValidationContext from JsonOps
+        // Build ValidationContext from Parivarta ops
         let ctx = ValidationContext {
             layer_name: layer_name.to_string(),
-            ops: ops
-                .iter()
-                .map(|op| serde_json::to_value(op).map(|v| serde_json::from_value(v).unwrap()))
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| format!("Failed to serialize ops: {}", e))?,
+            ops: ops.to_vec(),
             from_did: from_did.to_string(),
             role: role.to_string(),
             page_id: page_id.to_string(),

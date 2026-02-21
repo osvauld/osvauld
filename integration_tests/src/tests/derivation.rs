@@ -191,7 +191,7 @@ async fn test_ecomm_derivation_auto_trigger() -> Result<()> {
                 "created_at": 1700000000,
                 "submitted_at": 1700000060,
                 "updated_at": 1700000060,
-            }),
+            }).into(),
         })
         .map_err(|e| anyhow::anyhow!("Failed to push order: {:?}", e))?;
 
@@ -208,7 +208,8 @@ async fn test_ecomm_derivation_auto_trigger() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to get layer: {:?}", e))?;
 
     let summary = rx.await?;
-    let summary_data = summary.expect("derived/orders_summary should exist");
+    let summary_sthithi = summary.expect("derived/orders_summary should exist");
+    let summary_data = serde_json::Value::from(&summary_sthithi);
     let summary_obj = summary_data
         .as_object()
         .expect("orders_summary should be a map");

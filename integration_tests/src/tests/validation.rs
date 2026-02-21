@@ -108,9 +108,9 @@ fn json_to_lua(lua: &Lua, value: &serde_json::Value) -> Result<Value> {
     }
 }
 
-// Layer::extract_ops_from_bytes
+// Layer::extract_ops
 
-/// extract_ops_from_bytes produces JsonOp format compatible with validation.lua
+/// extract_ops produces Parivarta format compatible with validation.lua
 #[test]
 fn test_extract_ops_format_matches_validation_expectations() -> Result<()> {
     init_tracing();
@@ -142,12 +142,12 @@ fn test_extract_ops_format_matches_validation_expectations() -> Result<()> {
         .export(loro::ExportMode::updates(&loro::VersionVector::new()))
         .expect("export");
 
-    let ops = Layer::extract_ops_from_bytes(&update)?;
+    let ops = Layer::extract_ops(&update)?;
 
     assert!(!ops.is_empty(), "Should have ops");
 
     for op in &ops {
-        assert!(!op.op.is_empty(), "op.op should not be empty");
+        assert!(!op.op.to_string().is_empty(), "op.op should not be empty");
         assert!(!op.path.is_empty(), "op.path should not be empty");
     }
 

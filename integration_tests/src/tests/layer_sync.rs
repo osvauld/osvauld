@@ -35,10 +35,12 @@ async fn get_layer_json(peer: &Peer, page_id: &str, layer_name: &str) -> Result<
         })
         .map_err(|e| anyhow::anyhow!("GetLayerData cast failed: {:?}", e))?;
 
-    reply_rx
+    let sthithi = reply_rx
         .await
         .map_err(|_| anyhow::anyhow!("GetLayerData channel closed"))?
-        .map_err(|e| anyhow::anyhow!("GetLayerData failed: {}", e))
+        .map_err(|e| anyhow::anyhow!("GetLayerData failed: {}", e))?;
+
+    Ok(serde_json::Value::from(&sthithi))
 }
 
 /// Poll `get_layer_json` until a specific key appears in the map.
@@ -103,7 +105,7 @@ async fn test_static_channel_syncs_owner_to_node() -> Result<()> {
                 "text": "Hello from owner",
                 "sender_did": "did:key:owner",
                 "timestamp": 1234567890
-            }),
+            }).into(),
         })
         .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
@@ -162,7 +164,7 @@ async fn test_static_channel_syncs_owner_to_viewer() -> Result<()> {
                 "text": "Pre-viewer message",
                 "sender_did": "did:key:owner",
                 "timestamp": 1234567890
-            }),
+            }).into(),
         })
         .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
@@ -254,7 +256,7 @@ async fn test_dynamic_channel_first_message_reaches_viewer() -> Result<()> {
                 "text": "First message in dynamic channel",
                 "sender_did": "did:key:owner",
                 "timestamp": 1234567890
-            }),
+            }).into(),
         })
         .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
@@ -342,7 +344,7 @@ async fn test_dynamic_channel_second_message_reaches_viewer() -> Result<()> {
                 "text": "First message",
                 "sender_did": "did:key:owner",
                 "timestamp": 1234567890
-            }),
+            }).into(),
         })
         .map_err(|e| anyhow::anyhow!("MapInsert msg1 failed: {:?}", e))?;
 
@@ -369,7 +371,7 @@ async fn test_dynamic_channel_second_message_reaches_viewer() -> Result<()> {
                 "text": "Second message",
                 "sender_did": "did:key:owner",
                 "timestamp": 1234567891
-            }),
+            }).into(),
         })
         .map_err(|e| anyhow::anyhow!("MapInsert msg2 failed: {:?}", e))?;
 
@@ -454,7 +456,7 @@ async fn test_viewer_writes_to_dynamic_channel() -> Result<()> {
                 "text": "Owner's first message",
                 "sender_did": "did:key:owner",
                 "timestamp": 1234567890
-            }),
+            }).into(),
         })
         .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
@@ -482,7 +484,7 @@ async fn test_viewer_writes_to_dynamic_channel() -> Result<()> {
                 "text": "Viewer's reply",
                 "sender_did": "did:key:viewer",
                 "timestamp": 1234567891
-            }),
+            }).into(),
         })
         .map_err(|e| anyhow::anyhow!("Viewer MapInsert failed: {:?}", e))?;
 
@@ -561,7 +563,7 @@ async fn test_dynamic_channel_late_joiner() -> Result<()> {
                 "text": "Message before viewer joins",
                 "sender_did": "did:key:owner",
                 "timestamp": 1234567890
-            }),
+            }).into(),
         })
         .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
@@ -646,7 +648,7 @@ async fn test_dynamic_channel_node_offline_sync() -> Result<()> {
                 "text": "Written while node was offline",
                 "sender_did": "did:key:owner",
                 "timestamp": 1234567890
-            }),
+            }).into(),
         })
         .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
@@ -733,7 +735,7 @@ async fn test_dm_explicit_grant_syncs_to_viewer() -> Result<()> {
                 "text": "Private DM message",
                 "sender_did": "did:key:owner",
                 "timestamp": 1234567890
-            }),
+            }).into(),
         })
         .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
@@ -845,7 +847,7 @@ async fn test_dm_explicit_grant_isolation() -> Result<()> {
                 "text": "Only viewer0 should see this",
                 "sender_did": "did:key:owner",
                 "timestamp": 1234567890
-            }),
+            }).into(),
         })
         .map_err(|e| anyhow::anyhow!("MapInsert failed: {:?}", e))?;
 
@@ -976,7 +978,7 @@ async fn test_time_sharded_daily_layers_sync_to_viewer() -> Result<()> {
             layer_name: bare0.clone(),
             path: String::new(),
             key: "msg-day0".to_string(),
-            value: serde_json::json!({"id":"msg-day0","text":"d0","timestamp":1}),
+            value: serde_json::json!({"id":"msg-day0","text":"d0","timestamp":1}).into(),
         })
         .map_err(|e| anyhow::anyhow!("MapInsert day0 failed: {:?}", e))?;
 
@@ -985,7 +987,7 @@ async fn test_time_sharded_daily_layers_sync_to_viewer() -> Result<()> {
             layer_name: bare1.clone(),
             path: String::new(),
             key: "msg-day1".to_string(),
-            value: serde_json::json!({"id":"msg-day1","text":"d1","timestamp":2}),
+            value: serde_json::json!({"id":"msg-day1","text":"d1","timestamp":2}).into(),
         })
         .map_err(|e| anyhow::anyhow!("MapInsert day1 failed: {:?}", e))?;
 
@@ -1053,7 +1055,7 @@ async fn test_time_sharded_daily_layer_offline_merge() -> Result<()> {
             layer_name: bare.clone(),
             path: String::new(),
             key: "owner-msg".to_string(),
-            value: serde_json::json!({"id":"owner-msg","text":"owner offline","timestamp":1}),
+            value: serde_json::json!({"id":"owner-msg","text":"owner offline","timestamp":1}).into(),
         })
         .map_err(|e| anyhow::anyhow!("Owner offline insert failed: {:?}", e))?;
 
@@ -1063,7 +1065,7 @@ async fn test_time_sharded_daily_layer_offline_merge() -> Result<()> {
             layer_name: bare.clone(),
             path: String::new(),
             key: "node-msg".to_string(),
-            value: serde_json::json!({"id":"node-msg","text":"node offline","timestamp":2}),
+            value: serde_json::json!({"id":"node-msg","text":"node offline","timestamp":2}).into(),
         })
         .map_err(|e| anyhow::anyhow!("Node offline insert failed: {:?}", e))?;
 

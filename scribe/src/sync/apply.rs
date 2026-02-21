@@ -27,7 +27,7 @@ use crate::permit::Permissions;
 use crate::policy_compat;
 use crate::state::normalize_layer_name;
 use crate::state::ScribeState;
-use crate::JsonOp;
+use crate::Parivarta;
 
 // Update Context - Centralized Decision Logic
 
@@ -109,7 +109,7 @@ pub enum ApplyOutcome {
         /// Layer that was updated
         layer_name: String,
         /// Ops extracted from update (for derivation)
-        ops: Vec<JsonOp>,
+        ops: Vec<Parivarta>,
         /// Was a new layer created?
         created_layer: bool,
     },
@@ -246,8 +246,8 @@ async fn apply_update_core(
 
     // Step 3: Extract ops for validation (using optimized pre-commit method)
     let extracted_ops = if ctx.should_validate {
-        // Use Layer::extract_ops_from_bytes (5-10x faster than old fork+diff)
-        match Layer::extract_ops_from_bytes(update) {
+        // Use canonical Parivarta extraction path
+        match Layer::extract_ops(update) {
             Ok(ops) => Some(ops),
             Err(e) => {
                 // Log extraction failure - validation will proceed with empty ops
@@ -304,7 +304,7 @@ async fn apply_update_core(
 async fn validate_update_with_context(
     state: &ScribeState,
     ctx: &UpdateContext,
-    extracted_ops: &Option<Vec<JsonOp>>,
+    extracted_ops: &Option<Vec<Parivarta>>,
 ) -> Result<(), String> {
     let Some(ref ops) = extracted_ops else {
         return Ok(()); // No ops to validate

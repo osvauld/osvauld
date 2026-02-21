@@ -3,6 +3,8 @@
 use tokio::sync::mpsc;
 use tracing::{debug, info, instrument, warn};
 
+use domains::Sthithi;
+
 use crate::message::{BroadcastPayload, PageUpdate};
 use crate::state::ScribeState;
 
@@ -92,8 +94,8 @@ pub fn notify_layer_discovered(state: &ScribeState, layer_name: &str) {
     let full_data = state
         .units
         .get(layer_name)
-        .map(|unit| unit.layer().get_content(layer_name))
-        .unwrap_or(serde_json::Value::Null);
+        .map(|unit| unit.layer().get_content_sthithi(layer_name))
+        .unwrap_or(Sthithi::Null);
 
     let state_vector = state
         .units

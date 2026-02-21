@@ -2,7 +2,7 @@
 //!
 //! Uses shared control_server infrastructure with node-specific commands.
 
-use butler::{Butler, JsonOp, ValidationHandle};
+use butler::{Butler, Parivarta, ValidationHandle};
 use control_server::{
     async_trait, commands::butler as butler_cmds, error_codes, CommandHandler, ControlServer,
     Response,
@@ -141,7 +141,7 @@ impl KunkiHandler {
 
     /// Handle validate_ops command (for testing validation RPC)
     ///
-    /// **Params**: page_id, layer_name, ops (array of JsonOp), from_did, role
+    /// **Params**: page_id, layer_name, ops (array of Parivarta), from_did, role
     /// **Returns**: {passed: bool, error?: string}
     async fn handle_validate_ops(&self, params: Option<serde_json::Value>, id: u64) -> Response {
         let handle_guard = self.validation_handle.read().await;
@@ -179,7 +179,7 @@ impl KunkiHandler {
         };
 
         // Parse ops
-        let ops: Vec<JsonOp> = match ops_array
+        let ops: Vec<Parivarta> = match ops_array
             .iter()
             .map(|v| serde_json::from_value(v.clone()))
             .collect()

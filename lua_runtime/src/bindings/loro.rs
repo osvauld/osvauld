@@ -10,7 +10,7 @@ use mlua::{Error as LuaError, UserData, UserDataMethods, Value as LuaValue};
 use std::sync::Arc;
 use tracing::trace;
 
-use super::convert::lua_to_json;
+use super::convert::{lua_to_sthithi, sthithi_to_lua};
 use crate::scribe_handle::ActorScribeHandle;
 
 // Lua Loro List
@@ -31,11 +31,11 @@ impl LuaLoroList {
 
     /// Push value to the list (via ScribeHandle)
     pub(crate) fn push_value(&self, value: LuaValue) -> Result<(), LuaError> {
-        let json_value = lua_to_json(&value)?;
+        let sthithi_value = lua_to_sthithi(&value)?;
         trace!(layer = %self.layer_name, "LuaLoroList::push via ScribeHandle");
 
         self.scribe
-            .list_push(&self.layer_name, "", json_value)
+            .list_push(&self.layer_name, "", sthithi_value)
             .map_err(|e| LuaError::RuntimeError(e))?;
         Ok(())
     }
@@ -48,14 +48,14 @@ impl LuaLoroList {
             .map_err(|e| LuaError::RuntimeError(e))?;
 
         match result {
-            Some(json_value) => super::convert::json_to_lua(lua, &json_value),
+            Some(sthithi_value) => sthithi_to_lua(lua, &sthithi_value),
             None => Ok(LuaValue::Nil),
         }
     }
 
     /// Set item at index (delete + insert via ScribeHandle)
     pub(crate) fn set_at(&self, index: usize, value: LuaValue) -> Result<(), LuaError> {
-        let json_value = lua_to_json(&value)?;
+        let sthithi_value = lua_to_sthithi(&value)?;
         trace!(layer = %self.layer_name, index, "LuaLoroList::set_at via ScribeHandle");
 
         // Delete at index first
@@ -65,7 +65,7 @@ impl LuaLoroList {
 
         // Insert at index
         self.scribe
-            .list_insert(&self.layer_name, "", index, json_value)
+            .list_insert(&self.layer_name, "", index, sthithi_value)
             .map_err(|e| LuaError::RuntimeError(e))?;
         Ok(())
     }
@@ -122,11 +122,11 @@ impl LuaLoroMap {
 
     /// Set value for key (via ScribeHandle)
     pub(crate) fn set_value(&self, key: &str, value: LuaValue) -> Result<(), LuaError> {
-        let json_value = lua_to_json(&value)?;
+        let sthithi_value = lua_to_sthithi(&value)?;
         trace!(layer = %self.layer_name, key, "LuaLoroMap::set via ScribeHandle");
 
         self.scribe
-            .map_insert(&self.layer_name, "", key, json_value)
+            .map_insert(&self.layer_name, "", key, sthithi_value)
             .map_err(|e| LuaError::RuntimeError(e))?;
         Ok(())
     }
@@ -139,7 +139,7 @@ impl LuaLoroMap {
             .map_err(|e| LuaError::RuntimeError(e))?;
 
         match result {
-            Some(json_value) => super::convert::json_to_lua(lua, &json_value),
+            Some(sthithi_value) => sthithi_to_lua(lua, &sthithi_value),
             None => Ok(LuaValue::Nil),
         }
     }

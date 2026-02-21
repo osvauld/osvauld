@@ -13,7 +13,7 @@
 //!
 //! - Message types (BroadcastPayload, PageUpdate, LoroDelta, etc.)
 //! - ValidationHandle for delegating validation to kunki
-//! - JsonOp (re-exported from domains for ops extraction)
+//! - Parivarta (re-exported from domains for ops extraction)
 //!
 //! ## Design
 //!
@@ -52,8 +52,8 @@ pub use message::{
     PageUpdate, PageUpdateTx, ScribeMessage, SyncEvent,
 };
 
-// JsonOp comes from domains (Layer::extract_ops_from_bytes)
-pub use domains::JsonOp;
+// Op types from domains
+pub use domains::{OpKind, Parivarta, Sthithi};
 pub use validation_handle::{ValidationHandle, ValidationRequest};
 
 pub use error::{Result, ScribeError};

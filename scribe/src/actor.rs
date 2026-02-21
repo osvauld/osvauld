@@ -18,7 +18,7 @@ use ractor::{Actor, ActorProcessingErr, ActorRef};
 use tokio::time::{interval, Duration};
 use tracing::{debug, info, instrument, warn};
 
-use domains::Layer;
+use domains::{Layer, Sthithi};
 
 use crate::ephemeral::{
     broadcast_ephemeral_to_subscribers, emit_raw_ephemeral, handle_remote_structured_ephemeral,
@@ -218,10 +218,7 @@ impl Actor for Scribe {
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
                         let list = layer.loro().get_list(layer_name.clone());
-                        list.get(index).map(|v| {
-                            let deep = v.get_deep_value();
-                            domains::loro_value_to_json(deep)
-                        })
+                        list.get(index).map(|v| Sthithi::from(v.get_deep_value()))
                     });
                 let _ = reply.send(result);
             }
@@ -253,10 +250,7 @@ impl Actor for Scribe {
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
                         let map = layer.loro().get_map(layer_name.clone());
-                        map.get(&key).map(|v| {
-                            let deep = v.get_deep_value();
-                            domains::loro_value_to_json(deep)
-                        })
+                        map.get(&key).map(|v| Sthithi::from(v.get_deep_value()))
                     });
                 let _ = reply.send(result);
             }
@@ -319,12 +313,12 @@ impl Actor for Scribe {
                     state
                         .units
                         .get(&layer_name)
-                        .map(|unit| unit.layer().get_content(&layer_name)),
+                        .map(|unit| unit.layer().get_content_sthithi(&layer_name)),
                 );
             }
 
             ScribeMessage::GetContext { reply } => {
-                let _ = reply.send(query::build_context_json(state));
+                let _ = reply.send(query::build_context_sthithi(state));
             }
 
             ScribeMessage::Query { spec, reply } => {
@@ -340,14 +334,14 @@ impl Actor for Scribe {
                 debug!(page_id = %state.page_id, query_id = %query_id, "Query subscription removed");
             }
 
-            ScribeMessage::UpdateFromJson {
+            ScribeMessage::UpdateFromSthithi {
                 layer_name,
                 path,
                 value,
                 reply,
             } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result = handle_update_from_json(state, &layer_name, &path, value).await;
+                let result = handle_update_from_sthithi(state, &layer_name, &path, value).await;
                 if let Some(tx) = reply {
                     let _ = tx.send(result);
                 }
@@ -805,17 +799,17 @@ fn emit_ensure_sync_on_open(state: &ScribeState) {
 
 // Message Handler Helpers
 
-/// Handle JSON update from UI (CEL commit())
+/// Handle Sthithi update from UI (CEL commit())
 ///
 /// **Broadcast**: Handled automatically by Loro observer after commit()
 #[instrument(skip_all, fields(page_id = %state.page_id, layer = %layer_name, path = %path))]
-async fn handle_update_from_json(
+async fn handle_update_from_sthithi(
     state: &mut ScribeState,
     layer_name: &str,
     path: &str,
-    value: serde_json::Value,
+    value: Sthithi,
 ) -> Result<()> {
-    info!(layer = %layer_name, path = %path, "Updating layer from JSON");
+    info!(layer = %layer_name, path = %path, "Updating layer from Sthithi");
 
     let unit = state
         .units
@@ -823,13 +817,13 @@ async fn handle_update_from_json(
         .or_insert_with(LayerUnit::new_empty);
 
     unit.layer()
-        .set_from_json(path, &value)
+        .set_from_sthithi(path, &value)
         .map_err(|e| ScribeError::CrdtError(format!("Layer: {}", e)))?;
 
     unit.layer().commit();
     unit.mark_dirty();
 
-    debug!("Layer update from JSON complete, observer will broadcast");
+    debug!("Layer update from Sthithi complete, observer will broadcast");
     Ok(())
 }
 

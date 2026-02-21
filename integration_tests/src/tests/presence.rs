@@ -112,7 +112,9 @@ async fn query_presence(
         .map_err(|_| anyhow::anyhow!("Failed to receive response"))?
         .ok_or_else(|| anyhow::anyhow!("Presence layer '{}' does not exist", layer_name))?;
 
-    let map: HashMap<String, serde_json::Value> = data
+    let data_json = serde_json::Value::from(&data);
+
+    let map: HashMap<String, serde_json::Value> = data_json
         .as_object()
         .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
         .unwrap_or_default();

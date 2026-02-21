@@ -6,10 +6,10 @@
 //!
 //! **Production**: `ActorScribeHandle` wraps `ActorRef<ScribeMessage>` with `block_in_place()`
 
-use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use domains::Sthithi;
 use ractor::ActorRef;
 use scribe::ScribeMessage;
 use tokio::sync::oneshot;
@@ -92,7 +92,7 @@ impl ActorScribeHandle {
     // -- List operations --
 
     /// Push item to end of list
-    pub fn list_push(&self, layer_name: &str, path: &str, item: JsonValue) -> Result<(), String> {
+    pub fn list_push(&self, layer_name: &str, path: &str, item: Sthithi) -> Result<(), String> {
         self.scribe_ref
             .cast(ScribeMessage::ListPush {
                 layer_name: layer_name.to_string(),
@@ -108,7 +108,7 @@ impl ActorScribeHandle {
         layer_name: &str,
         path: &str,
         index: usize,
-        item: JsonValue,
+        item: Sthithi,
     ) -> Result<(), String> {
         self.scribe_ref
             .cast(ScribeMessage::ListInsert {
@@ -132,7 +132,7 @@ impl ActorScribeHandle {
     }
 
     /// Get item at index
-    pub fn list_get(&self, layer_name: &str, index: usize) -> Result<Option<JsonValue>, String> {
+    pub fn list_get(&self, layer_name: &str, index: usize) -> Result<Option<Sthithi>, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::ListGet {
@@ -164,7 +164,7 @@ impl ActorScribeHandle {
         layer_name: &str,
         path: &str,
         key: &str,
-        value: JsonValue,
+        value: Sthithi,
     ) -> Result<(), String> {
         self.scribe_ref
             .cast(ScribeMessage::MapInsert {
@@ -177,7 +177,7 @@ impl ActorScribeHandle {
     }
 
     /// Get value by key
-    pub fn map_get(&self, layer_name: &str, key: &str) -> Result<Option<JsonValue>, String> {
+    pub fn map_get(&self, layer_name: &str, key: &str) -> Result<Option<Sthithi>, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::MapGet {
@@ -238,8 +238,8 @@ impl ActorScribeHandle {
         rpc_direct(rx)
     }
 
-    /// Get layer content as JSON (returns None if layer doesn't exist)
-    pub fn get_layer_json(&self, layer_name: &str) -> Result<Option<JsonValue>, String> {
+    /// Get layer content as Sthithi (returns None if layer doesn't exist)
+    pub fn get_layer_sthithi(&self, layer_name: &str) -> Result<Option<Sthithi>, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::GetLayerJson {
@@ -250,8 +250,8 @@ impl ActorScribeHandle {
         rpc_direct(rx)
     }
 
-    /// Get layer data as JSON (returns error if layer doesn't exist)
-    pub fn get_layer_data(&self, layer_name: &str) -> Result<JsonValue, String> {
+    /// Get layer data as Sthithi (returns error if layer doesn't exist)
+    pub fn get_layer_data(&self, layer_name: &str) -> Result<Sthithi, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::GetLayerData {

@@ -8,7 +8,7 @@ Validation runs on the **node** before syncing remote updates to other peers:
 
 ```
 Remote update arrives
-  → Scribe extracts ops (Layer::extract_ops_from_bytes)
+  → Scribe extracts ops (Layer::extract_ops)
   → Scribe sends ValidationRequest to kunki (via ValidationHandle)
   → kunki's LuaRuntime calls validate_ops() in validation.lua
   → validation.lua returns true/false
@@ -34,7 +34,7 @@ end
 
 ## Operation Structure
 
-Each operation in the `ops` array:
+Each operation in the `ops` array (`Parivarta` serialized to Lua table):
 
 ```lua
 {

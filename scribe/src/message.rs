@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::Result;
-use domains::{JsonOp, QueryDelta, QueryResult, QuerySpec};
+use domains::{Parivarta, QueryDelta, QueryResult, QuerySpec, Sthithi};
 
 /// Payload sent to PeerActor for broadcast (3-step sync protocol)
 ///
@@ -66,7 +66,7 @@ pub enum LoroDelta {
 
     /// Map delta: updated keys
     Map {
-        updated: HashMap<String, Option<serde_json::Value>>,
+        updated: HashMap<String, Option<Sthithi>>,
     },
 }
 
@@ -81,7 +81,7 @@ pub enum ListOp {
     Retain { count: usize },
 
     /// Insert values at current position
-    Insert { values: Vec<serde_json::Value> },
+    Insert { values: Vec<Sthithi> },
 
     /// Delete N items at current position
     Delete { count: usize },
@@ -110,12 +110,12 @@ pub enum PageUpdate {
         from_peer: Option<(String, String)>, // (did, device_id)
         /// Structured operations extracted from the update (same format as validation)
         /// Enables surgical UI updates - Lua can process individual ops
-        ops: Option<Vec<JsonOp>>,
+        ops: Option<Vec<Parivarta>>,
         delta: Option<LoroDelta>,
         state_vector: Vec<u8>,
-        /// Full layer state as JSON — None when delta is available (avoids O(N) serialization)
+        /// Full layer state — None when delta is available (avoids O(N) serialization)
         /// Some for initial load, wildcard bindings, or fallback scenarios
-        full_data: Option<serde_json::Value>,
+        full_data: Option<Sthithi>,
         /// True if this is a newly created layer (first time seeing it)
         created: bool,
         /// Parsed metadata when layer matches a dynamic schema.
@@ -318,7 +318,7 @@ pub enum ScribeMessage {
     ListGet {
         layer_name: String,
         index: usize,
-        reply: tokio::sync::oneshot::Sender<Result<Option<serde_json::Value>>>,
+        reply: tokio::sync::oneshot::Sender<Result<Option<Sthithi>>>,
     },
 
     /// Get list length
@@ -335,7 +335,7 @@ pub enum ScribeMessage {
     MapGet {
         layer_name: String,
         key: String,
-        reply: tokio::sync::oneshot::Sender<Result<Option<serde_json::Value>>>,
+        reply: tokio::sync::oneshot::Sender<Result<Option<Sthithi>>>,
     },
 
     /// Get map length
@@ -371,13 +371,13 @@ pub enum ScribeMessage {
     /// **Design**: Unified channel for layer changes, ephemeral data, and peer presence
     SubscribeToPageUpdates { tx: mpsc::Sender<PageUpdate> },
 
-    /// Get layer data as JSON value
+    /// Get layer data as Sthithi value
     ///
     /// **Context**: Lua bindings need to read layer content
-    /// **We do**: Export layer as serde_json::Value
+    /// **We do**: Export layer as Sthithi
     GetLayerData {
         layer_name: String,
-        reply: tokio::sync::oneshot::Sender<Result<serde_json::Value>>,
+        reply: tokio::sync::oneshot::Sender<Result<Sthithi>>,
     },
 
     /// Get current snapshot for a layer (for testing/debugging)
@@ -389,21 +389,21 @@ pub enum ScribeMessage {
         reply: tokio::sync::oneshot::Sender<Option<Vec<u8>>>,
     },
 
-    /// Get layer data as JSON (for egui rendering)
+    /// Get layer data as Sthithi (for rendering)
     ///
-    /// **Context**: egui window wants to read Loro data directly
-    /// **We do**: Export layer content as JSON value
+    /// **Context**: renderer wants to read Loro data directly
+    /// **We do**: Export layer content as Sthithi value
     GetLayerJson {
         layer_name: String,
-        reply: tokio::sync::oneshot::Sender<Option<serde_json::Value>>,
+        reply: tokio::sync::oneshot::Sender<Option<Sthithi>>,
     },
 
-    /// Get all layers as JSON context (for egui rendering)
+    /// Get all layers as Sthithi context (for rendering)
     ///
-    /// **Context**: egui window wants full context for CEL evaluation
-    /// **We do**: Export all layer contents as a single JSON object
+    /// **Context**: renderer wants full context for CEL evaluation
+    /// **We do**: Export all layer contents as a single Sthithi map
     GetContext {
-        reply: tokio::sync::oneshot::Sender<serde_json::Value>,
+        reply: tokio::sync::oneshot::Sender<Sthithi>,
     },
 
     /// Execute a query and return results
@@ -428,14 +428,14 @@ pub enum ScribeMessage {
     /// Unsubscribe from query updates
     UnsubscribeQuery { query_id: String },
 
-    /// Update layer from JSON (for UI commits via CEL commit())
+    /// Update layer from Sthithi (for UI commits via CEL commit())
     ///
-    /// **Context**: HUML renderer's CEL `commit()` returns JSON values to persist.
+    /// **Context**: HUML renderer's CEL `commit()` returns values to persist.
     /// **We do**: Update the layer at the given path, notify query subscribers.
-    UpdateFromJson {
+    UpdateFromSthithi {
         layer_name: String,
         path: String,
-        value: serde_json::Value,
+        value: Sthithi,
         /// Optional reply for error handling
         reply: Option<tokio::sync::oneshot::Sender<Result<()>>>,
     },
@@ -448,7 +448,7 @@ pub enum ScribeMessage {
     ListPush {
         layer_name: String,
         path: String,
-        item: serde_json::Value,
+        item: Sthithi,
     },
 
     /// Insert item at index in a list
@@ -456,7 +456,7 @@ pub enum ScribeMessage {
         layer_name: String,
         path: String,
         index: usize,
-        item: serde_json::Value,
+        item: Sthithi,
     },
 
     /// Delete item at index from a list
@@ -473,7 +473,7 @@ pub enum ScribeMessage {
         layer_name: String,
         path: String,
         key: String,
-        value: serde_json::Value,
+        value: Sthithi,
     },
 
     /// Delete key from a map

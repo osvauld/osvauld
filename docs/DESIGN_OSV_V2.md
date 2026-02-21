@@ -572,8 +572,8 @@ If validation fails, the `Parivarta` is hard-rejected.
 
 ```
 Peer update bytes
-  -> Layer::extract_ops_from_bytes() (empty temp LoroDoc + subscribe)
-  -> Vec<JsonOp>
+  -> Layer::extract_ops() (empty temp LoroDoc + subscribe)
+  -> Vec<Parivarta>
   -> mpsc channel to kunki ValidationService
   -> spawn LuaRuntime per request
   -> page.lua validate(ops) runs in Lua
@@ -589,7 +589,7 @@ Problems:
 
 ```
 Peer update bytes
-  -> Layer::extract_parivarta() (same technique, produces Vec<Parivarta>)
+  -> Layer::extract_ops() (produces Vec<Parivarta>)
   -> Grammar validation (schema, transitions, predicates — pure Rust)
   -> If validate_decl exists: Lua fallback validation (reuse existing runtime)
   -> accept/reject
@@ -895,9 +895,15 @@ app "group-chat" version "2.0.0" {
 3. Implement direct `Sthithi -> LuaValue` and `LuaValue -> Sthithi` conversions in `lua_runtime`.
 4. Implement direct `Sthithi -> SlintValue` conversion in `renderer_slint`.
 5. Migrate `Layer::to_json_value()` to `Layer::to_sthithi()`.
-6. Migrate `JsonOp` to `Parivarta` in `Layer::extract_ops_from_bytes`.
+6. Migrate `JsonOp` to `Parivarta` in `Layer::extract_ops`.
 7. Update `scribe/src/loro_observer.rs` to use `Sthithi` instead of `loro_value_to_json`.
 8. Remove duplicate conversion functions.
+
+**Current status (Feb 2026):**
+- Completed: `Sthithi` and `Parivarta` runtime types and direct Loro/Lua conversions.
+- Completed: `JsonOp` removed from runtime validation path; `Layer::extract_ops()` now returns `Vec<Parivarta>`.
+- Completed: Scribe message payloads for CRDT writes/reads now use `Sthithi`.
+- In progress: Query/UI edges still bridge through JSON in selected paths while parser/compiler phases are pending.
 
 **Verification**: All existing integration tests pass. The 3-hop conversion path is replaced by direct conversions.
 

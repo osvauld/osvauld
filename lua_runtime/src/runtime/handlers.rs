@@ -100,8 +100,8 @@ impl LuaRuntime {
 
     /// Fetch layer data as JSON from Scribe.
     pub(super) fn fetch_layer_data(&self, layer_name: &str) -> Result<JsonValue, String> {
-        match self.scribe.get_layer_json(layer_name)? {
-            Some(data) => Ok(data),
+        match self.scribe.get_layer_sthithi(layer_name)? {
+            Some(data) => Ok(JsonValue::from(&data)),
             None => Ok(JsonValue::Array(vec![])),
         }
     }

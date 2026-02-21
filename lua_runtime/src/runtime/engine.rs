@@ -193,7 +193,7 @@ impl LuaRuntime {
         &self,
         layer_name: &str,
         delta: Option<LoroDelta>,
-        full_data: Option<JsonValue>,
+        full_data: Option<butler::Sthithi>,
     ) -> Result<(), String> {
         trace!(
             page_id = %self.page_id,
@@ -203,8 +203,10 @@ impl LuaRuntime {
             "handle_loro_change ENTRY"
         );
 
+        let full_data_json = full_data.as_ref().map(serde_json::Value::from);
+
         let bindings_processed =
-            self.process_bindings(layer_name, full_data.as_ref(), delta.as_ref());
+            self.process_bindings(layer_name, full_data_json.as_ref(), delta.as_ref());
 
         if bindings_processed {
             self.trigger_derivation(layer_name);
@@ -229,7 +231,8 @@ impl LuaRuntime {
         let mut aggregated = Vec::new();
 
         for layer in &layer_names {
-            if let Some(data) = self.scribe.get_layer_json(layer)? {
+            if let Some(sthithi) = self.scribe.get_layer_sthithi(layer)? {
+                let data = serde_json::Value::from(&sthithi);
                 match data {
                     JsonValue::Array(items) => aggregated.extend(items),
                     JsonValue::Object(map) => {
@@ -430,8 +433,45 @@ impl LuaRuntime {
             return Ok(ValidationResult::default());
         }
 
-        let ops_json = serde_json::to_value(&ctx.ops)
-            .map_err(|e| format!("Failed to serialize ops: {}", e))?;
+        let ops_json = serde_json::Value::Array(
+            ctx.ops
+                .iter()
+                .map(|op| {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert(
+                        "layer".to_string(),
+                        serde_json::Value::String(op.layer.clone()),
+                    );
+                    obj.insert(
+                        "op".to_string(),
+                        serde_json::Value::String(op.op.to_string()),
+                    );
+                    obj.insert(
+                        "path".to_string(),
+                        serde_json::Value::String(op.path.clone()),
+                    );
+                    if let Some(key) = &op.key {
+                        obj.insert("key".to_string(), serde_json::Value::String(key.clone()));
+                    }
+                    if let Some(index) = op.index {
+                        obj.insert("index".to_string(), serde_json::Value::Number(index.into()));
+                    }
+                    if let Some(value) = &op.value {
+                        obj.insert("value".to_string(), serde_json::Value::from(value));
+                    }
+                    if let Some(old_value) = &op.old_value {
+                        obj.insert("old_value".to_string(), serde_json::Value::from(old_value));
+                    }
+                    if let Some(intent) = &op.intent {
+                        obj.insert(
+                            "intent".to_string(),
+                            serde_json::Value::String(intent.clone()),
+                        );
+                    }
+                    serde_json::Value::Object(obj)
+                })
+                .collect(),
+        );
         let ops_lua =
             json_to_lua(&self.lua, &ops_json).map_err(|e| format!("Ops to Lua: {}", e))?;
 

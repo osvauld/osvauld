@@ -36,6 +36,10 @@ use butler::{ListOp, LoroDelta};
 
 use super::convert::{json_to_lua, lua_to_json};
 
+fn sthithi_to_json_value(value: &butler::Sthithi) -> serde_json::Value {
+    serde_json::Value::from(value)
+}
+
 /// Options for a binding (transform, key, max_items)
 ///
 /// **Note**: Sorting is NOT done in bindings - it's a Slint view concern.
@@ -478,10 +482,15 @@ pub fn convert_delta_for_binding(
                     ListOp::Insert { values } => {
                         // Apply transform to each inserted value if binding has one
                         for (i, value) in values.iter().enumerate() {
+                            let value_json = sthithi_to_json_value(value);
                             let item = if let Some(ref transform_key) = binding.options.transform {
                                 // Transform single item
-                                match apply_transform_single(lua, transform_key, value, layer_name)
-                                {
+                                match apply_transform_single(
+                                    lua,
+                                    transform_key,
+                                    &value_json,
+                                    layer_name,
+                                ) {
                                     Ok(Some(transformed)) => transformed,
                                     Ok(None) => continue, // nil = skip (filtered out by transform)
                                     Err(e) => {
@@ -490,7 +499,7 @@ pub fn convert_delta_for_binding(
                                     }
                                 }
                             } else {
-                                value.clone()
+                                value_json
                             };
 
                             // When max_items is active, the model is shorter than
@@ -540,9 +549,11 @@ pub fn convert_delta_for_binding(
             for (map_key, value) in updated {
                 match value {
                     Some(val) => {
+                        let val_json = sthithi_to_json_value(val);
                         // Apply transform if binding has one
                         let item = if let Some(ref transform_key) = binding.options.transform {
-                            match apply_transform_single(lua, transform_key, val, layer_name) {
+                            match apply_transform_single(lua, transform_key, &val_json, layer_name)
+                            {
                                 Ok(Some(transformed)) => transformed,
                                 Ok(None) => continue, // nil = filtered out
                                 Err(e) => {
@@ -551,7 +562,7 @@ pub fn convert_delta_for_binding(
                                 }
                             }
                         } else {
-                            val.clone()
+                            val_json
                         };
 
                         if let Some(&existing_idx) = cache.get(map_key) {

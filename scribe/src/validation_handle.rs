@@ -7,14 +7,14 @@
 use tokio::sync::{mpsc, oneshot};
 use tracing::instrument;
 
-use domains::JsonOp;
+use domains::Parivarta;
 
 /// Validation request sent to validation service
 #[derive(Debug)]
 pub struct ValidationRequest {
     pub page_id: String,
     pub layer_name: String,
-    pub ops: Vec<JsonOp>,
+    pub ops: Vec<Parivarta>,
     pub from_did: String,
     pub role: String,
     pub reply: oneshot::Sender<Result<(bool, Option<String>), String>>,
@@ -48,7 +48,7 @@ impl ValidationHandle {
         &self,
         page_id: &str,
         layer_name: &str,
-        ops: &[JsonOp],
+        ops: &[Parivarta],
         from_did: &str,
         role: &str,
     ) -> Result<(bool, Option<String>), String> {

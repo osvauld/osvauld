@@ -9,7 +9,7 @@ use crate::message::PageUpdate;
 use crate::permit::glob_match;
 use crate::Result;
 use crate::ScribeError;
-use domains::{QueryDelta, QueryResult, QuerySpec, SortOrder};
+use domains::{QueryDelta, QueryResult, QuerySpec, SortOrder, Sthithi};
 
 use crate::state::{QuerySubscriberInfo, ScribeState};
 
@@ -61,12 +61,12 @@ pub fn handle_list_layers(state: &ScribeState, pattern: &str) -> Vec<String> {
 /// Handle GetLayerData message
 ///
 /// **Context**: Lua/UI wants the full content of a specific layer.
-/// **We do**: Return the layer's content as JSON, or error if not found.
-pub fn handle_get_layer_data(state: &ScribeState, layer_name: &str) -> Result<serde_json::Value> {
+/// **We do**: Return the layer's content as Sthithi, or error if not found.
+pub fn handle_get_layer_data(state: &ScribeState, layer_name: &str) -> Result<Sthithi> {
     state
         .units
         .get(layer_name)
-        .map(|unit| unit.layer().get_content(layer_name))
+        .map(|unit| unit.layer().get_content_sthithi(layer_name))
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))
 }
 
@@ -91,7 +91,8 @@ pub fn handle_query(state: &ScribeState, spec: &QuerySpec) -> Result<QueryResult
     };
 
     // Get the data at the specified path
-    let layer_json = unit.layer().to_json();
+    let layer_sthithi = unit.layer().to_sthithi();
+    let layer_json = serde_json::Value::from(&layer_sthithi);
     let data = get_path_value(&layer_json, &spec.path);
 
     // Extract array items
@@ -163,29 +164,29 @@ pub async fn handle_subscribe_query(
     );
 }
 
-/// Build a JSON context from all layers for egui rendering
+/// Build a Sthithi context from all layers for rendering
 ///
-/// **Context**: egui window needs all layer data for CEL evaluation
-/// **We do**: Export each layer's JSON and merge into a single object
+/// **Context**: renderer needs all layer data for CEL evaluation
+/// **We do**: Export each layer's Sthithi and merge into a single map
 #[instrument(skip(state), fields(page_id = %state.page_id))]
-pub fn build_context_json(state: &ScribeState) -> serde_json::Value {
-    let mut context = serde_json::Map::new();
+pub fn build_context_sthithi(state: &ScribeState) -> Sthithi {
+    let mut context = Vec::new();
 
     for (layer_name, unit) in &state.units {
-        let layer_json = unit.layer().to_json();
+        let layer_sthithi = unit.layer().to_sthithi();
 
-        // If layer JSON is an object, flatten its fields into context
+        // If layer value is a map, flatten its fields into context
         // Otherwise, store under layer name
-        if let serde_json::Value::Object(map) = layer_json {
+        if let Sthithi::Map(map) = layer_sthithi {
             for (key, value) in map {
-                context.insert(key, value);
+                context.push((key, value));
             }
         } else {
-            context.insert(layer_name.clone(), layer_json);
+            context.push((layer_name.clone(), layer_sthithi));
         }
     }
 
-    serde_json::Value::Object(context)
+    Sthithi::Map(context)
 }
 
 // Helper Functions

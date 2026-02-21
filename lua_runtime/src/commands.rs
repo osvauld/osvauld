@@ -35,7 +35,7 @@ pub enum LuaCommand {
         layer_name: String,
         created: bool,
         delta: Option<LoroDelta>,
-        full_data: Option<JsonValue>,
+        full_data: Option<butler::Sthithi>,
         dynamic_ref: Option<DynamicLayerMeta>,
     },
 
@@ -177,8 +177,8 @@ pub struct ValidationContext {
     /// Layer being modified
     pub layer_name: String,
 
-    /// Operations to validate (uses butler::JsonOp from domains for consistency)
-    pub ops: Vec<butler::JsonOp>,
+    /// Operations to validate (Parivarta from domains for consistency)
+    pub ops: Vec<butler::Parivarta>,
 
     /// Who's doing the operation
     pub from_did: String,

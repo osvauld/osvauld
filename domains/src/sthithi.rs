@@ -9,8 +9,6 @@ use base64::Engine;
 use loro::LoroValue;
 use serde::{Deserialize, Serialize};
 
-use super::layer::JsonOp;
-
 // ---------------------------------------------------------------------------
 // Sthithi — canonical runtime value
 // ---------------------------------------------------------------------------
@@ -37,6 +35,7 @@ pub enum Sthithi {
 
 /// Operation kind for a change event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum OpKind {
     Insert,
     Update,
@@ -186,33 +185,6 @@ impl From<&Sthithi> for serde_json::Value {
                     .collect();
                 serde_json::Value::Object(map)
             }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// JsonOp → Parivarta conversion (backward compatibility)
-// ---------------------------------------------------------------------------
-
-impl From<&JsonOp> for Parivarta {
-    fn from(op: &JsonOp) -> Self {
-        let kind = match op.op.as_str() {
-            "insert" => OpKind::Insert,
-            "update" | "set" => OpKind::Set,
-            "delete" => OpKind::Delete,
-            _ => OpKind::Set,
-        };
-
-        Parivarta {
-            layer: String::new(),
-            op: kind,
-            path: op.path.clone(),
-            key: op.key.clone(),
-            index: op.index,
-            value: op.value.as_ref().map(|v| Sthithi::from(v.clone())),
-            old_value: op.old_value.as_ref().map(|v| Sthithi::from(v.clone())),
-            intent: None,
-            from_peer: None,
         }
     }
 }
@@ -384,79 +356,6 @@ mod tests {
         // Converting back from JSON gives us a Str, not Bytes (lossy)
         let back = Sthithi::from(json);
         assert_eq!(back, Sthithi::Str(expected_b64));
-    }
-
-    /// JsonOp → Parivarta conversion
-    #[test]
-    fn json_op_to_parivarta() {
-        let json_op = JsonOp {
-            op: "insert".to_string(),
-            path: "root/items".to_string(),
-            key: Some("name".to_string()),
-            index: None,
-            value: Some(serde_json::json!("Alice")),
-            old_value: None,
-        };
-
-        let p = Parivarta::from(&json_op);
-        assert_eq!(p.op, OpKind::Insert);
-        assert_eq!(p.path, "root/items");
-        assert_eq!(p.key, Some("name".to_string()));
-        assert_eq!(p.index, None);
-        assert_eq!(p.value, Some(Sthithi::Str("Alice".to_string())));
-        assert_eq!(p.old_value, None);
-        assert_eq!(p.layer, "");
-        assert_eq!(p.intent, None);
-        assert_eq!(p.from_peer, None);
-    }
-
-    #[test]
-    fn json_op_update_maps_to_set() {
-        let json_op = JsonOp {
-            op: "update".to_string(),
-            path: "root".to_string(),
-            key: None,
-            index: Some(0),
-            value: Some(serde_json::json!(42)),
-            old_value: Some(serde_json::json!(10)),
-        };
-
-        let p = Parivarta::from(&json_op);
-        assert_eq!(p.op, OpKind::Set);
-        assert_eq!(p.value, Some(Sthithi::Int(42)));
-        assert_eq!(p.old_value, Some(Sthithi::Int(10)));
-    }
-
-    #[test]
-    fn json_op_delete() {
-        let json_op = JsonOp {
-            op: "delete".to_string(),
-            path: "root/items".to_string(),
-            key: Some("obsolete".to_string()),
-            index: None,
-            value: None,
-            old_value: Some(serde_json::json!("old")),
-        };
-
-        let p = Parivarta::from(&json_op);
-        assert_eq!(p.op, OpKind::Delete);
-        assert_eq!(p.value, None);
-        assert_eq!(p.old_value, Some(Sthithi::Str("old".to_string())));
-    }
-
-    #[test]
-    fn json_op_unknown_op_maps_to_set() {
-        let json_op = JsonOp {
-            op: "unknown_op".to_string(),
-            path: "root".to_string(),
-            key: None,
-            index: None,
-            value: None,
-            old_value: None,
-        };
-
-        let p = Parivarta::from(&json_op);
-        assert_eq!(p.op, OpKind::Set);
     }
 
     /// Nested structures: Map containing List containing Int
