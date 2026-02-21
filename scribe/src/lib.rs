@@ -35,6 +35,7 @@ pub mod layer_unit;
 pub mod loro_observer;
 pub mod operations;
 pub mod permit;
+mod policy_compat;
 pub mod query;
 pub mod state;
 pub mod sync;

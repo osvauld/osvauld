@@ -8,21 +8,19 @@ use crate::storage::RedbStore;
 use tracing::instrument;
 
 /// Create a new space with owner permit
-#[instrument(skip(store, signing_key, permit_template_json), fields(name = %name, owner_did = %owner_did))]
+#[instrument(skip(store, signing_key), fields(name = %name, owner_did = %owner_did))]
 pub async fn create_space(
     store: &RedbStore,
     name: String,
     owner_did: String,
     signing_key: &[u8; 32],
-    permit_template_json: &str,
 ) -> Result<Space> {
     let meta = SpaceMeta::new(name, owner_did);
 
     // Issue space owner permit via gurkha
-    let (owner_permit, _cid) =
-        gurkha::issue_space_owner_token(signing_key, &meta.id, permit_template_json)
-            .await
-            .map_err(|e| ButlerError::permit_error(e.to_string()))?;
+    let (owner_permit, _cid) = gurkha::issue_space_owner_token_from_defaults(signing_key, &meta.id)
+        .await
+        .map_err(|e| ButlerError::permit_error(e.to_string()))?;
 
     // Store space with owner's permit
     let mut data = SpaceData::new(meta.clone());

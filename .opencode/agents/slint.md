@@ -1,7 +1,7 @@
 ---
 description: Slint UI specialist -- interpreter runtime, VecModel bindings, page shell generation, compiled shell UI, hot-reload, event bus
 mode: subagent
-model: anthropic/claude-sonnet-4-5
+model: anthropic/claude-sonnet-4-6
 temperature: 0.2
 ---
 

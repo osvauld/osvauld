@@ -1,7 +1,6 @@
 //! Test fixtures — helpers, paths, wait functions
 //!
-//! No hardcoded page templates. Page templates come from sample app dirs
-//! via `butler.apps().import_page()`. Space template is the only fixture JSON.
+//! No hardcoded page/space templates. Policies come from sample app `app.osv`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -35,15 +34,6 @@ pub fn workspace_root() -> PathBuf {
 /// Example: `app_dir("osvauld-demos")` -> `<workspace>/sample_apps/osvauld-demos`
 pub fn app_dir(name: &str) -> PathBuf {
     workspace_root().join("sample_apps").join(name)
-}
-
-/// Read space template JSON from fixtures
-pub fn space_template() -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("fixtures")
-        .join("space_template.json");
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Failed to read space_template.json at {:?}: {}", path, e))
 }
 
 /// Initialize tracing for tests (idempotent)

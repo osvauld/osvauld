@@ -304,8 +304,8 @@ grep -i "error" ~/.local/share/osvauld/logs/*.log
 
 **Permit denied**
 - Symptom: Sync fails, "not authorized" errors
-- Check: `layer_patterns` in permit_template.json
-- Fix: Verify `{page_id}/orders/{aud}` expansion matches layer name
+- Check: relevant layer path and `allow` rules in `app.osv`
+- Fix: Verify the app policy grants the required action (`read`/`write`/`sync`) to the active role
 
 **State divergence (peers have different data)**
 - Symptom: Data appears on owner but not customer
@@ -333,6 +333,6 @@ grep -i "error" ~/.local/share/osvauld/logs/*.log
 - **Always `wait_for_sync()` after mutations** -- P2P sync is async, data doesn't appear instantly on other peers
 - **Use `eval()` to inspect state**, not log parsing -- it's more reliable
 - **`show_ui=False`** for headless testing (uses Slint testing backend)
-- **Clean DB** (`rm -rf ~/.local/share/osvauld`) when state gets corrupted or permit templates change
+- **Clean DB** (`rm -rf ~/.local/share/osvauld`) when state gets corrupted or policy declarations/permits change
 - **`fresh=True`** in Scenario constructor clears the test directory before starting
 - **Node must be started before owner connects** -- the Scenario class handles this order automatically

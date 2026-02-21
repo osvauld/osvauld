@@ -41,7 +41,7 @@ pub trait ConnectionStringExt {
 
 impl ConnectionStringExt for ConnectionString {
     fn space_id(&self) -> Result<String, String> {
-        let permit = gurkha::Permit::from_token(&self.permit)
+        let permit = gurkha::PolicyPermit::from_token(&self.permit)
             .map_err(|e| format!("Invalid permit: {}", e))?;
         permit
             .space_id()

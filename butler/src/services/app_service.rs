@@ -8,7 +8,7 @@
 //! - No prefix - Data layers (LoroList/LoroMap from page definition)
 //!
 //! ## Page Definition
-//! Pages are defined using `page.lua` - the single source of truth for roles, layers, and apps.
+//! Pages are defined using `app.osv` as the policy/source-of-truth declaration.
 
 use crate::error::{ButlerError, Result};
 use crate::models::Layer;
@@ -48,71 +48,65 @@ pub fn app_layer_name(app_name: &str) -> String {
     format!("{}{}", APP_LAYER_PREFIX, app_name)
 }
 
-/// Result of loading page templates
-pub struct PageTemplateResult {
+/// Result of loading page policy
+pub struct PagePolicyResult {
     /// Optional page name (from manifest.json or empty)
     pub page_name: Option<String>,
-    /// The permit template JSON string (from permit_template.json)
-    pub permit_template: String,
-    /// Layer names extracted from the permit template
+    /// Compiled typed policy facts from app.osv.
+    pub policy: policy_model::PolicyFacts,
+    /// Layer names extracted from compiled typed policy
     pub layer_names: Vec<String>,
 }
 
-/// Load page templates from permit_template.json
-///
-/// # Arguments
-/// * `page_dir` - Directory containing permit_template.json
-///
-/// # Returns
-/// * `Ok(PageTemplateResult)` - Permit template and layer names from JSON file
-/// * `Err(ButlerError)` - If permit_template.json is missing or invalid
-#[instrument(skip_all)]
-fn load_page_templates(page_dir: &Path) -> Result<PageTemplateResult> {
-    let permit_template_path = page_dir.join("permit_template.json");
+fn extract_layer_names_from_policy(policy: &policy_model::PolicyFacts) -> Vec<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for rule in &policy.policy_rules {
+        if let policy_model::ResourceSelector::Layer { name } = &rule.resource {
+            if !name.contains('{') {
+                names.insert(name.clone());
+            }
+        }
+    }
+    names.into_iter().collect()
+}
 
-    if !permit_template_path.exists() {
+
+/// Load page policy from app.osv.
+#[instrument(skip_all)]
+fn load_page_policy(page_dir: &Path) -> Result<PagePolicyResult> {
+    let app_osv_path = page_dir.join("app.osv");
+    if !app_osv_path.exists() {
         return Err(ButlerError::Database(format!(
-            "Page directory must contain permit_template.json: {}",
+            "Page directory must contain app.osv: {}",
             page_dir.display()
         )));
     }
 
-    // Load permit template from JSON file
-    let permit_json = std::fs::read_to_string(&permit_template_path).map_err(|e| {
-        ButlerError::Database(format!("Failed to read permit_template.json: {}", e))
+    let app_osv_source = std::fs::read_to_string(&app_osv_path)
+        .map_err(|e| ButlerError::Database(format!("Failed to read app.osv: {}", e)))?;
+
+    let compiled = osv_decl::compile_source(&app_osv_source).map_err(|diagnostics| {
+        let joined = diagnostics
+            .iter()
+            .map(|d| d.message.as_str())
+            .collect::<Vec<_>>()
+            .join("; ");
+        ButlerError::permit_error(format!("app.osv compile failed: {}", joined))
     })?;
 
-    // Extract layer names from the permit template
-    let layer_names = extract_layer_names_from_permit(&permit_json)?;
+    let policy = compiled.permit.osv_policy;
+    let layer_names = extract_layer_names_from_policy(&policy);
 
     tracing::info!(
         layer_count = layer_names.len(),
-        "Loaded permit_template.json"
+        "Loaded app.osv policy"
     );
 
-    Ok(PageTemplateResult {
+    Ok(PagePolicyResult {
         page_name: None, // Page name comes from directory or manifest
-        permit_template: permit_json,
+        policy,
         layer_names,
     })
-}
-
-/// Extract layer names from permit template JSON
-#[instrument(skip_all)]
-fn extract_layer_names_from_permit(permit_json: &str) -> Result<Vec<String>> {
-    let permit: serde_json::Value = serde_json::from_str(permit_json).map_err(|e| {
-        ButlerError::Serialization(format!("Failed to parse permit template: {}", e))
-    })?;
-
-    let layers = permit
-        .get("owner_template")
-        .and_then(|t| t.get("layers"))
-        .and_then(|l| l.as_object())
-        .ok_or_else(|| {
-            ButlerError::permit_error("Permit template missing owner_template.layers")
-        })?;
-
-    Ok(layers.keys().map(|k| k.to_string()).collect())
 }
 
 /// Collect app files from a directory
@@ -166,16 +160,8 @@ pub async fn import_app_from_directory(
         .and_then(|n| n.as_str())
         .ok_or_else(|| ButlerError::Database("manifest.json missing 'name' field".to_string()))?;
 
-    // 2. Read permit template
-    let template_filename = manifest
-        .get("permit_template")
-        .and_then(|p| p.as_str())
-        .unwrap_or("permit_template.json");
-
-    let template_path = app_dir.join(template_filename);
-    let permit_template = std::fs::read_to_string(&template_path).map_err(|e| {
-        ButlerError::Database(format!("Failed to read {}: {}", template_filename, e))
-    })?;
+    // 2. Compile app policy from app.osv
+    let policy_result = load_page_policy(app_dir)?;
 
     // 3. Collect all app files
     let files = collect_app_files_from_directory(app_dir)?;
@@ -187,8 +173,8 @@ pub async fn import_app_from_directory(
         "Importing app to Butler storage"
     );
 
-    // 4. Extract data layer names from permit template
-    let mut layer_names = extract_layer_names_from_permit(&permit_template)?;
+    // 4. Extract data layer names from policy
+    let mut layer_names = policy_result.layer_names;
 
     // 5. Add app layer to the list
     let app_layer_name = app_layer_name(app_name);
@@ -203,7 +189,7 @@ pub async fn import_app_from_directory(
     // 6. Create page with all layers (data + app)
     let page = butler
         .pages()
-        .create(space_id, app_name, layer_names, &permit_template)
+        .create(space_id, app_name, layer_names, &policy_result.policy)
         .await?;
 
     tracing::info!(page_id = %page.id, page_name = %page.name, "Created page for app");
@@ -444,14 +430,14 @@ fn scan_app_subdirectories(page_dir: &Path) -> Result<Vec<(String, std::path::Pa
 /// Directory name becomes page name. Each subdirectory with manifest.json
 /// becomes an app layer.
 ///
-/// Requires page.lua in the page directory for roles, layers, and app definitions.
+/// Requires app.osv in the page directory for roles, layers, and app definitions.
 #[instrument(skip(butler, page_dir), fields(space_id = %space_id))]
 pub async fn import_page_from_directory(
     butler: &Butler,
     space_id: &str,
     page_dir: &Path,
 ) -> Result<Page> {
-    // 1. Get page name from directory name (or from page.lua if present)
+    // 1. Get page name from directory name.
     let default_page_name = page_dir
         .file_name()
         .and_then(|n| n.to_str())
@@ -464,11 +450,11 @@ pub async fn import_page_from_directory(
         "Importing page from directory"
     );
 
-    // 2. Load permit template from JSON file
-    let template_result = load_page_templates(page_dir)?;
+    // 2. Load policy from app.osv
+    let policy_result = load_page_policy(page_dir)?;
 
     // Use directory name as page name (or could read from manifest.json in future)
-    let page_name = template_result.page_name.unwrap_or(default_page_name);
+    let page_name = policy_result.page_name.unwrap_or(default_page_name);
 
     // 3. Scan for app subdirectories
     let app_dirs = scan_app_subdirectories(page_dir)?;
@@ -486,11 +472,14 @@ pub async fn import_page_from_directory(
     );
 
     // 4. Get layer names from page definition
-    let mut layer_names = template_result.layer_names;
+    let mut layer_names = policy_result.layer_names;
 
     // 5. Add app layers to the list
+    let mut app_layer_names = Vec::new();
     for (app_name, _) in &app_dirs {
-        layer_names.push(app_layer_name(app_name));
+        let layer = app_layer_name(app_name);
+        app_layer_names.push(layer.clone());
+        layer_names.push(layer);
     }
 
     // 6. Create page with all layers
@@ -500,7 +489,7 @@ pub async fn import_page_from_directory(
             space_id,
             &page_name,
             layer_names,
-            &template_result.permit_template,
+            &policy_result.policy,
         )
         .await?;
 

@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, instrument, warn};
 
 use crate::message::{BroadcastPayload, ListOp, LoroDelta, PageUpdate};
+use crate::policy_compat;
 use crate::state::ScribeState;
 use domains::JsonOp;
 
@@ -271,7 +272,7 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
     let dynamic_schemas_for_task = state
         .our_permit
         .as_ref()
-        .map(|permit| permit.dynamic_layer_schemas().clone());
+        .map(policy_compat::dynamic_layer_schemas);
     // Capture LayerUnit's subscriber map for broadcast filtering and sending
     let layer_subscribers_for_task = state.units.get(layer_name).unwrap().subscribers().clone();
     // Clone capture_tx for the observer task

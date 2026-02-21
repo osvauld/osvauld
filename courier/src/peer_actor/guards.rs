@@ -46,8 +46,8 @@ pub fn require_auth<'a>(state: &'a PeerState) -> Result<(&'a str, &'a str), &'st
 }
 
 /// Parse and validate permit
-pub fn parse_permit(token: &str) -> Result<gurkha::Permit, String> {
-    gurkha::Permit::from_token(token).map_err(|e| format!("Invalid permit: {:?}", e))
+pub fn parse_permit(token: &str) -> Result<gurkha::PolicyPermit, String> {
+    gurkha::PolicyPermit::from_token(token).map_err(|e| format!("Invalid permit: {:?}", e))
 }
 
 /// Convert butler::Space → message::PublishedSpace

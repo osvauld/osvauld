@@ -7,11 +7,12 @@ use tracing::{debug, info, instrument, warn};
 
 use crate::ephemeral::{emit_peer_subscribed, emit_peer_unsubscribed};
 use crate::message::{BroadcastPayload, EphemeralOutbound};
+use crate::policy_compat;
 use crate::state::{normalize_layer_name, PeerConnection, ScribeState};
 
 /// Extract permit holder's DID from the permit's audience field
 fn extract_permit_holder_did(permit: &str, fallback_did: &str) -> String {
-    match gurkha::Permit::from_token(permit) {
+    match gurkha::PolicyPermit::from_token(permit) {
         Ok(parsed) => {
             let raw_aud = parsed.parsed().audience().to_string();
             if raw_aud.starts_with("did:key:") {
@@ -48,7 +49,7 @@ pub async fn handle_subscribe(
 ) {
     info!(user_did = %user_did, device_id = %device_id, "Peer subscribing");
 
-    let permit = match gurkha::Permit::from_token(&permit_token) {
+    let permit = match gurkha::PolicyPermit::from_token(&permit_token) {
         Ok(p) => p,
         Err(e) => {
             warn!(error = ?e, "Failed to parse permit, rejecting subscription");
@@ -58,15 +59,15 @@ pub async fn handle_subscribe(
 
     let permit_holder_did = extract_permit_holder_did(&permit_token, &user_did);
 
-    let is_visible = permit.is_visible();
-    let can_see_others = permit.can_see_others();
-    let display_name = permit.display_name().map(String::from);
+    let is_visible = policy_compat::is_visible(&permit);
+    let can_see_others = policy_compat::can_see_others(&permit);
+    let display_name = policy_compat::display_name(&permit);
 
     info!(
         user_did = %user_did,
         permit_holder_did = %permit_holder_did,
         is_visible = is_visible,
-        layers = ?permit.layers().keys().collect::<Vec<_>>(),
+        roles = ?policy_compat::actor_roles(&permit),
         "Subscription with permit"
     );
 
@@ -126,7 +127,7 @@ fn add_subscriber_to_layers(
     state: &ScribeState,
     user_did: &str,
     device_id: &str,
-    permit: &gurkha::Permit,
+    permit: &gurkha::PolicyPermit,
     permit_holder_did: &str,
     can_see_others: bool,
     broadcast_tx: &mpsc::Sender<BroadcastPayload>,
@@ -141,11 +142,7 @@ fn add_subscriber_to_layers(
             continue;
         }
 
-        if permit
-            .sync_facts()
-            .no_incoming_updates
-            .contains(&layer_name.to_string())
-        {
+        if policy_compat::no_incoming_updates(permit).contains(&layer_name.to_string()) {
             continue;
         }
 
@@ -161,8 +158,8 @@ fn add_subscriber_to_layers(
             continue;
         }
 
-        if permit.can_read_layer(layer_name, &state.page_id, permit_holder_did) {
-            let can_write = permit.can_write_layer(layer_name, &state.page_id, permit_holder_did);
+        if policy_compat::can_read_layer(permit, layer_name, permit_holder_did) {
+            let can_write = policy_compat::can_write_layer(permit, layer_name, permit_holder_did);
             unit.add_subscriber(
                 user_did.to_string(),
                 device_id.to_string(),
@@ -425,7 +422,7 @@ pub fn handle_layer_subscribe(
 fn bootstrap_sync_meta(
     state: &mut ScribeState,
     peer_did: &str,
-    peer_permit: &gurkha::Permit,
+    peer_permit: &gurkha::PolicyPermit,
     broadcast_tx: &mpsc::Sender<BroadcastPayload>,
 ) {
     use super::sync_meta;
@@ -434,7 +431,7 @@ fn bootstrap_sync_meta(
     let meta_layer_name = sync_meta::ensure_sync_meta_layer(state, peer_did);
 
     // 2. Populate with static layer entries
-    let is_owner = peer_permit.relationship() == Some("owner");
+    let is_owner = policy_compat::relationship(peer_permit).as_deref() == Some("owner");
     sync_meta::populate_static_layers(state, peer_did, peer_permit, is_owner);
 
     // 3. Populate dynamic layers for late joiners

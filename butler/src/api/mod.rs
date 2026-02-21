@@ -14,10 +14,10 @@
 //! ## Usage
 //! ```ignore
 //! // Old style (still works)
-//! butler.create_space(name, owner, template).await?;
+//! butler.create_space(name, owner).await?;
 //!
 //! // New style (preferred)
-//! butler.spaces().create(name, owner, template).await?;
+//! butler.spaces().create(name, owner).await?;
 //! butler.apps().get_files(page_id, app_name).await?;
 //! butler.files().save(page_id, path, content).await?;
 //! butler.publish().prepare_page(page_id, node_pubkey, enc_key).await?;

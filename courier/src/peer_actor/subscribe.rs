@@ -495,7 +495,7 @@ impl<C: Connection> PeerActor<C> {
         };
 
         // Detect permit type to determine handling path
-        let is_authority = gurkha::Permit::from_token(layer_permit)
+        let is_authority = gurkha::PolicyPermit::from_token(layer_permit)
             .ok()
             .and_then(|p| p.get_fact("token_type").cloned())
             .and_then(|v| v.as_str().map(|s| s.to_string()))

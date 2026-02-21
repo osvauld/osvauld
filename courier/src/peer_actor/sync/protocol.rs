@@ -374,7 +374,7 @@ impl<C: Connection> PeerActor<C> {
         };
 
         if let Some(permit) = authority_permit {
-            match gurkha::Permit::from_token(permit) {
+            match gurkha::PolicyPermit::from_token(permit) {
                 Ok(parsed) => {
                     if parsed.token_type() == Some("layer_authority") {
                         let audience = parsed.parsed().audience().to_string();

@@ -83,26 +83,15 @@ fn register_request_spaces(shell: &Shell, butler: Arc<Butler>) {
 fn register_create_space(shell: &Shell, butler: Arc<Butler>) {
     let shell_weak = shell.as_weak();
     let butler_create = butler.clone();
-    shell.on_create_space(move |name, template_path| {
-        println!("Creating space: {} from {}", name, template_path);
+    shell.on_create_space(move |name, _template_path| {
+        println!("Creating space: {}", name);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let butler_inner = butler_create.clone();
         let name_str = name.to_string();
-        let template_path_str = template_path.to_string();
-
         let result = rt.block_on(async {
-            // Read space_permit_template.json from app folder
-            let template_file = std::path::Path::new(&template_path_str).join("space_permit_template.json");
-            let permit_template = std::fs::read_to_string(&template_file)
-                .map_err(|e| butler::error::ButlerError::Database(
-                    format!("Failed to read space_permit_template.json from {}: {}", template_path_str, e)
-                ))?;
-
             let user_info = butler_inner.user_info().await?;
-            butler_inner
-                .spaces().create(name_str, user_info.did, &permit_template)
-                .await
+            butler_inner.spaces().create(name_str, user_info.did).await
         });
 
         match result {

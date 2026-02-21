@@ -31,6 +31,9 @@ anyhow = "1.0"
 # Logging
 tracing = { version = "0.1", features = ["attributes"] }
 
+# Shared typed policy model
+policy_model = { path = "../policy_model" }
+
 # Time (for token expiry)
 chrono = "0.4"
 

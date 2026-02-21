@@ -6,15 +6,17 @@ UCAN-based capability authorization for osvauld apps.
 
 Osvauld uses [UCAN](https://ucan.xyz/) tokens for capability-based authorization. A permit is a signed token granting specific capabilities -- what layers you can access, what operations you can perform, and what roles you can delegate.
 
+Policy definitions are now authored in `app.osv` and lowered into typed policy facts (`policy_model::PolicyFacts`) by `osv_decl`. Those facts are embedded in permit facts and consumed by Gurkha's typed policy parser/validator/decision path.
+
 ```
 Owner (operations.own: allow)
   └── issues → Node Permit (relay: true, can_delegate: true)
                   └── issues → Viewer Permit (layer_patterns: {page_id}/orders/{aud})
 ```
 
-## permit_template.json Structure
+## Legacy Template Structure (Compatibility)
 
-Every app directory contains a `permit_template.json` that defines the capability hierarchy:
+Historically, apps used `permit_template.json` to define capability hierarchy. This format still appears in sample fixtures and some compatibility paths while migration to `app.osv`-first import is completed.
 
 ```json
 {
@@ -313,4 +315,10 @@ end
 - **`dynamic_layer_schemas` must be in ALL roles** -- owner, node, viewer, and consent templates all need the same schemas for dynamic layers to sync through the full chain
 - **`role_permissions` keys must match `relationship` values** -- if viewer's permit has `"relationship": "collaborator"`, use `"collaborator"` (not `"viewer"`) in `role_permissions`
 - **`ephemeral_funcs`**: List of allowed ephemeral function names for structured ephemeral messages
-- **Clean the DB** (`rm -rf ~/.local/share/osvauld`) when changing permit templates -- old permits are cached
+- **Clean the DB** (`rm -rf ~/.local/share/osvauld`) when changing policy declarations/templates -- old permits are cached
+
+## Migration Notes
+
+- Typed policy contracts now live in `policy_model` and are shared by compiler (`osv_decl`) and authorization (`gurkha`).
+- `gurkha::policy::types` now re-exports `policy_model` types instead of maintaining a duplicate model.
+- App declarations should be authored in `app.osv`; template JSON files are considered legacy inputs.

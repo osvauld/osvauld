@@ -321,7 +321,7 @@ impl Butler {
             .flatten()
             .and_then(|page| page.get_permit().cloned())
             .and_then(|permit| {
-                gurkha::Permit::from_token(&permit)
+                gurkha::PolicyPermit::from_token(&permit)
                     .ok()
                     .map(|p| p.token_type().unwrap_or("owner").to_string())
             })
@@ -596,7 +596,7 @@ impl Butler {
     async fn resolve_sync_config(&self, page_id: &str) -> Option<SyncConfig> {
         let page_data = self.pages().get(page_id).ok()??;
         let permit_str = page_data.permit.as_ref()?;
-        let parsed = gurkha::Permit::from_token(permit_str).ok()?;
+        let parsed = gurkha::PolicyPermit::from_token(permit_str).ok()?;
 
         let peer_caps = parsed.peer_capabilities();
         let mode = if peer_caps.relay {

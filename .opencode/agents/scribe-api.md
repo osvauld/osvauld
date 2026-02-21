@@ -1,7 +1,7 @@
 ---
 description: Scribe API binding specialist -- Lua-to-Scribe bridge, declarative bind/rebind, transforms, surgical updates, key/max_items
 mode: subagent
-model: anthropic/claude-sonnet-4-5
+model: anthropic/claude-sonnet-4-6
 temperature: 0.2
 ---
 

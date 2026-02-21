@@ -1,13 +1,14 @@
 //! Permit parsing and permission checking for Scribe actor
 //!
 //! Handles:
-//! - Layer access control (read/write permissions via gurkha::Permit)
+//! - Layer access control (read/write permissions via policy decisions)
 //! - Sync policy extraction and enforcement
 //! - Pattern-based permission rules
 //! - Glob matching for layer names
 
 use tracing::{debug, info, trace, warn};
 
+use crate::policy_compat;
 use crate::state::ScribeState;
 use crate::storage::PermitIssuer;
 
@@ -59,7 +60,7 @@ impl Permissions {
     /// 3. OR peer has a stored permit with write access (node mode - permit-based sync auth)
     /// 4. OR our permit's dynamic_layer_schemas grant write for peer's role (dynamic layers)
     ///
-    /// **Security**: For pattern-based layers, gurkha::Permit validates that:
+    /// **Security**: Pattern-based layers are validated against declared schemas.
     /// - The layer name matches the expanded pattern
     /// - Patterns with {aud} expand to the peer's actual DID (namespace enforcement)
     pub fn can_write(state: &ScribeState, peer: &(String, String), layer_name: &str) -> bool {
@@ -127,8 +128,8 @@ impl Permissions {
         if let Some(ref resolver) = state.peer_resolver {
             if let Some(permit_token) = resolver.load_user_permit(peer_did) {
                 // Parse permit and check write permissions
-                if let Ok(permit) = gurkha::Permit::from_token(&permit_token) {
-                    if permit.can_write_layer(layer_name, &state.page_id, peer_did) {
+                if let Ok(permit) = gurkha::PolicyPermit::from_token(&permit_token) {
+                    if policy_compat::can_write_layer(&permit, layer_name, peer_did) {
                         debug!(user_did = %peer_did, layer = %layer_name, "Write allowed via stored permit");
                         state.emit_permission_check_capture(
                             layer_name,
@@ -149,7 +150,11 @@ impl Permissions {
         // The node's own permit has dynamic_layer_schemas with permissions that grant
         // write access to all peers. We check the schema permissions directly.
         if let Some(ref our_permit) = state.our_permit {
-            if gurkha::matches_dynamic_schema(our_permit, layer_name, &state.page_id, "write") {
+            if policy_compat::matches_dynamic_schema_for_write(
+                our_permit,
+                layer_name,
+                &state.page_id,
+            ) {
                 debug!(
                     user_did = %peer_did,
                     layer = %layer_name,
@@ -188,8 +193,10 @@ impl Permissions {
 /// **Context**: Peer sent LayerSubscribe, we need to issue a permit.
 /// Permit-driven priority:
 /// 1. Self-permit check: I'm the creator → issue authority permit
-/// 2. Stored authority check: I'm the node → issue layer_permit
-/// 3. Static layer: defined in our permit → issue layer_permit
+/// 2. Stored authority check: I'm the node with a stored creator authority → issue layer_permit
+/// 3. Static layer: defined in our permit's `layers` fact → issue layer_permit
+/// 3b. Dynamic schema: layer matches a `dynamic_layer_schemas` pattern from the `.osv` → issue layer_permit
+///     (fully offline — no creator connection needed; `.osv` is the source of truth)
 pub fn issue_layer_permit_for_subscribe(
     state: &ScribeState,
     peer_did: &str,
@@ -238,18 +245,15 @@ fn try_self_authority_permit(
 ) -> std::result::Result<Option<String>, String> {
     match issuer.get_layer_authority_permit(&state.our_did, full_layer_name) {
         Ok(Some((_version, self_authority_token))) => {
-            if let Ok(self_permit) = gurkha::Permit::from_token(&self_authority_token) {
-                let authorized_peers = self_permit.authorized_peers();
-                let config = self_permit
-                    .layers()
-                    .get(full_layer_name)
-                    .or_else(|| self_permit.layers().get(bare_layer_name))
-                    .cloned()
-                    .unwrap_or(gurkha::LayerConfig {
-                        sync: true,
-                        write: true,
-                        layer_type: None,
-                    });
+            if let Ok(self_permit) = gurkha::PolicyPermit::from_token(&self_authority_token) {
+                let authorized_peers = policy_compat::authorized_peers(&self_permit);
+                let config =
+                    policy_compat::layer_config_for(&self_permit, full_layer_name, bare_layer_name)
+                        .unwrap_or(gurkha::LayerConfig {
+                            sync: true,
+                            write: true,
+                            layer_type: None,
+                        });
 
                 match issuer.issue_layer_authority_permit(
                     peer_did,
@@ -315,20 +319,20 @@ fn try_stored_authority_permit(
 ) -> std::result::Result<Option<String>, String> {
     match issuer.get_authority_for_layer(bare_layer_name) {
         Ok(Some((_creator_did, _version, authority_token))) => {
-            if let Ok(authority_permit) = gurkha::Permit::from_token(&authority_token) {
-                let is_authorized = authority_permit.is_peer_authorized(peer_did);
+            if let Ok(authority_permit) = gurkha::PolicyPermit::from_token(&authority_token) {
+                let is_authorized = policy_compat::is_peer_authorized(&authority_permit, peer_did);
 
                 if is_authorized {
-                    let config = authority_permit
-                        .layers()
-                        .get(full_layer_name)
-                        .or_else(|| authority_permit.layers().get(bare_layer_name))
-                        .cloned()
-                        .unwrap_or(gurkha::LayerConfig {
-                            sync: true,
-                            write: true,
-                            layer_type: None,
-                        });
+                    let config = policy_compat::layer_config_for(
+                        &authority_permit,
+                        full_layer_name,
+                        bare_layer_name,
+                    )
+                    .unwrap_or(gurkha::LayerConfig {
+                        sync: true,
+                        write: true,
+                        layer_type: None,
+                    });
 
                     let intent_cid = gurkha::crypto::get_permit_cid(&authority_token).ok();
                     match issuer.issue_layer_permit(
@@ -395,6 +399,10 @@ fn try_stored_authority_permit(
 }
 
 /// Strategy 3: Static layer from our own permit
+///
+/// **Strategy 3b**: If not found in the static `layers` fact, fall through to
+/// `dynamic_layer_schemas` — these are baked into the node's permit from the `.osv`
+/// at page creation and are available fully offline without the creator connected.
 fn try_static_layer_permit(
     state: &ScribeState,
     issuer: &dyn PermitIssuer,
@@ -402,7 +410,9 @@ fn try_static_layer_permit(
     full_layer_name: &str,
 ) -> std::result::Result<String, String> {
     if let Some(ref our_permit) = state.our_permit {
-        if let Some(config) = our_permit.layers().get(full_layer_name) {
+        if let Some(config) =
+            policy_compat::layer_config_for(our_permit, full_layer_name, full_layer_name)
+        {
             match issuer.issue_layer_permit(peer_did, full_layer_name, config.clone(), None) {
                 Ok((token, _cid)) => {
                     state.emit_permit_issue_capture(
@@ -426,13 +436,64 @@ fn try_static_layer_permit(
                 }
             }
         } else {
-            state.emit_permit_issue_capture(
-                full_layer_name,
-                peer_did,
-                "static_layer",
-                "skip",
-                Some("layer not in our permit"),
-            );
+            // Strategy 3b: Dynamic layer schema — .osv is the source of truth
+            //
+            // **Context**: The layer is not in the static `layers` fact, but may match a
+            // `dynamic_layer_schemas` pattern (e.g. "presence", "channels/{id}/messages").
+            // These schemas are compiled from the `.osv` at page creation and stored in the
+            // node's page permit in redb — no creator connection is needed to issue permits.
+            let bare = full_layer_name
+                .strip_prefix(&format!("{}/", state.page_id))
+                .unwrap_or(full_layer_name);
+            let schemas = policy_compat::dynamic_layer_schemas(our_permit);
+            if let Some(parsed) = gurkha::parse_dynamic_layer(&schemas, bare) {
+                if let Some(schema) = schemas.get(&parsed.schema_key) {
+                    if schema.grant == gurkha::GrantType::Explicit {
+                        // Explicit-grant dynamic layers must use authority flow (strategy 2)
+                        // so authorized_peers restrictions are preserved.
+                        state.emit_permit_issue_capture(
+                            full_layer_name,
+                            peer_did,
+                            "dynamic_schema",
+                            "skip",
+                            Some("dynamic schema uses explicit grant; requires authority permit"),
+                        );
+                    } else {
+                        let config = schema.permissions.clone();
+                        match issuer.issue_layer_permit(peer_did, full_layer_name, config, None) {
+                            Ok((token, _cid)) => {
+                                info!(layer = %full_layer_name, peer = %peer_did, "Issued layer permit from dynamic schema (.osv offline)");
+                                state.emit_permit_issue_capture(
+                                    full_layer_name,
+                                    peer_did,
+                                    "dynamic_schema",
+                                    "ok",
+                                    None,
+                                );
+                                return Ok(token);
+                            }
+                            Err(e) => {
+                                warn!(error = %e, layer = %full_layer_name, "Failed to issue permit from dynamic schema");
+                                state.emit_permit_issue_capture(
+                                    full_layer_name,
+                                    peer_did,
+                                    "dynamic_schema",
+                                    "err",
+                                    Some(&e.to_string()),
+                                );
+                            }
+                        }
+                    }
+                }
+            } else {
+                state.emit_permit_issue_capture(
+                    full_layer_name,
+                    peer_did,
+                    "static_layer",
+                    "skip",
+                    Some("layer not in our permit or dynamic schemas"),
+                );
+            }
         }
     }
 

@@ -125,9 +125,10 @@ async fn wait_for_presence_entry(
 ) -> Result<HashMap<String, serde_json::Value>> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        let presence = query_presence(scribe_ref, layer_name).await?;
-        if presence.contains_key(did) {
-            return Ok(presence);
+        match query_presence(scribe_ref, layer_name).await {
+            Ok(presence) if presence.contains_key(did) => return Ok(presence),
+            // Layer doesn't exist yet or DID not present — treat as transient, retry
+            Ok(_) | Err(_) => {}
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(anyhow::anyhow!(

@@ -19,24 +19,25 @@
 //! - **Uniform handshake**: Same flow for all peers, capabilities determine behavior
 //! - **Bidirectional permits**: Both sides issue permits to authenticate
 
-use gurkha::{PeerCapabilities, Permit};
+use gurkha::policy::parser::PeerCapabilities;
+use gurkha::PolicyPermit;
 
 /// Extract peer capabilities from permit
 ///
 /// **Context**: Determining behavior from the permit in connection string
 /// **We read**: `peer_capabilities` from permit facts
 /// **We return**: PeerCapabilities struct with all capability flags
-pub fn extract_capabilities(permit: &Permit) -> PeerCapabilities {
-    permit.peer_capabilities().clone()
+pub fn extract_capabilities(permit: &PolicyPermit) -> PeerCapabilities {
+    permit.peer_capabilities()
 }
 
 /// Check if permit indicates first connection
-pub fn is_first_connection(permit: &Permit) -> bool {
+pub fn is_first_connection(permit: &PolicyPermit) -> bool {
     permit.is_first_connection()
 }
 
 /// Check if permit allows publishing spaces
-pub fn can_publish(permit: &Permit) -> bool {
+pub fn can_publish(permit: &PolicyPermit) -> bool {
     permit.peer_capabilities().accept_publish
 }
 
@@ -76,7 +77,7 @@ pub enum HelloDecision {
 /// **Context**: Node building decision context from incoming Hello
 /// **Courier provides**: Parsed permit, incoming DID, existing owner info
 pub struct HelloContext<'a> {
-    pub incoming_permit: &'a Permit,
+    pub incoming_permit: &'a PolicyPermit,
     pub incoming_did: &'a str,
     pub existing_owner_did: Option<&'a str>,
     pub existing_owner_permit: Option<&'a str>,
@@ -146,13 +147,13 @@ pub enum WelcomeDecision {
 /// **User provides**: Our permit (for capabilities), our identifiers, expected node pubkey, received permit
 pub struct WelcomeContext<'a> {
     /// Our outgoing permit (to extract capabilities)
-    pub our_permit: &'a Permit,
+    pub our_permit: &'a PolicyPermit,
     pub our_did: &'a str,
     /// Our public key in base64 - permits use this as audience, not DID
     pub our_pubkey_b64: &'a str,
     pub expected_node_pubkey: &'a [u8],
     pub received_node_pubkey: &'a [u8],
-    pub received_permit: &'a Permit,
+    pub received_permit: &'a PolicyPermit,
 }
 
 /// Decide how to respond to Welcome (User mode)
@@ -175,10 +176,9 @@ pub fn decide_welcome_response(ctx: &WelcomeContext) -> WelcomeDecision {
 
     // 2. Verify permit audience is us (or wildcard)
     // Note: Permits use base64 pubkey as audience, not DID
-    if let Some(aud) = ctx.received_permit.audience() {
-        if aud != "*" && aud != ctx.our_pubkey_b64 && aud != ctx.our_did {
-            return WelcomeDecision::RejectAudienceMismatch;
-        }
+    let aud = ctx.received_permit.audience();
+    if aud != "*" && aud != ctx.our_pubkey_b64 && aud != ctx.our_did {
+        return WelcomeDecision::RejectAudienceMismatch;
     }
 
     // Extract our capabilities to pass through
@@ -217,7 +217,7 @@ pub struct PermitGrantContext<'a> {
     /// Our public key base64-encoded - this is what peer uses as audience
     pub our_pubkey_b64: &'a str,
     pub their_did: &'a str,
-    pub received_permit: &'a Permit,
+    pub received_permit: &'a PolicyPermit,
 }
 
 /// Decide how to respond to PermitGrant (Node mode)
@@ -232,17 +232,15 @@ pub struct PermitGrantContext<'a> {
 /// Decision enum indicating acceptance or rejection
 pub fn decide_permit_grant_response(ctx: &PermitGrantContext) -> PermitGrantDecision {
     // 1. Verify permit audience is our base64-encoded public key
-    if let Some(aud) = ctx.received_permit.audience() {
-        if aud != ctx.our_pubkey_b64 {
-            return PermitGrantDecision::RejectAudienceMismatch;
-        }
+    let aud = ctx.received_permit.audience();
+    if aud != ctx.our_pubkey_b64 {
+        return PermitGrantDecision::RejectAudienceMismatch;
     }
 
     // 2. Verify permit issuer is them
-    if let Some(iss) = ctx.received_permit.issuer() {
-        if iss != ctx.their_did {
-            return PermitGrantDecision::RejectIssuerMismatch;
-        }
+    let iss = ctx.received_permit.issuer();
+    if iss != ctx.their_did {
+        return PermitGrantDecision::RejectIssuerMismatch;
     }
 
     // Accept with capability info

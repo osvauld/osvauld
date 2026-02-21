@@ -1,7 +1,7 @@
 ---
 description: Courier Coordinator specialist -- peer lifecycle management, connection routing, PeerActor spawning, event emission
 mode: subagent
-model: anthropic/claude-sonnet-4-5
+model: anthropic/claude-sonnet-4-6
 temperature: 0.2
 ---
 

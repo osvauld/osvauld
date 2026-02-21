@@ -296,11 +296,51 @@ mod tests {
     const TEST_KEY: [u8; 32] = [1u8; 32];
 
     fn load_shop_template() -> String {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join("sample_apps/my-shop/permit_template.json");
-        std::fs::read_to_string(path).unwrap()
+        serde_json::json!({
+            "owner_template": {
+                "operations": {
+                    "own": "allow",
+                    "read": "allow",
+                    "write": "allow",
+                    "share_page": "allow"
+                },
+                "peer_capabilities": {
+                    "relay": false,
+                    "share": true,
+                    "accept_publish": true
+                },
+                "layers": {
+                    "{page_id}/products": {"type": "map", "sync": true, "write": true}
+                },
+                "issue_on": {
+                    "node": {
+                        "token_type": "page_share",
+                        "peer_capabilities": {
+                            "relay": true,
+                            "share": true,
+                            "accept_publish": true
+                        },
+                        "operations": {
+                            "read": "allow",
+                            "write": "allow",
+                            "sync": "allow",
+                            "share_page": "allow"
+                        },
+                        "layers": {
+                            "{page_id}/products": {"type": "map", "sync": true, "write": true}
+                        },
+                        "relationship": "node",
+                        "issue_on": {
+                            "layer_authority": {
+                                "token_type": "layer_authority",
+                                "relationship": "layer_authority"
+                            }
+                        }
+                    }
+                }
+            }
+        })
+        .to_string()
     }
 
     /// C5: ButlerPermitIssuer issues valid layer permits via gurkha

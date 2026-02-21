@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+use crate::policy_compat;
 use crate::state::{PeerConnection, ScribeArgs, SyncConfig, SyncMode};
 use crate::storage::{
     LayerStorageRef, NullLayerStorage, NullPeerResolver, NullPeerVectorStorage,
@@ -16,6 +17,11 @@ use crate::storage::{
 };
 use crate::BroadcastPayload;
 use domains::Layer;
+
+fn to_policy_permit(permit: gurkha::Permit) -> gurkha::PolicyPermit {
+    gurkha::PolicyPermit::from_token(permit.raw_token())
+        .expect("fixture permit should parse as PolicyPermit")
+}
 
 // Mock Storage
 
@@ -124,11 +130,11 @@ pub fn viewer_scribe_args(page_id: &str, sync_target: &str) -> ScribeArgs {
 // PeerConnection Builders
 
 /// Create a mock PeerConnection for testing
-pub fn mock_subscriber_info(permit: gurkha::Permit, subscriber_did: &str) -> PeerConnection {
+pub fn mock_subscriber_info(permit: gurkha::PolicyPermit, subscriber_did: &str) -> PeerConnection {
     let (tx, _rx) = mpsc::channel::<BroadcastPayload>(16);
-    let is_visible = permit.is_visible();
-    let can_see_others = permit.can_see_others();
-    let display_name = permit.display_name().map(String::from);
+    let is_visible = policy_compat::is_visible(&permit);
+    let can_see_others = policy_compat::can_see_others(&permit);
+    let display_name = policy_compat::display_name(&permit);
     PeerConnection {
         permit,
         subscriber_did: subscriber_did.to_string(),
@@ -142,13 +148,13 @@ pub fn mock_subscriber_info(permit: gurkha::Permit, subscriber_did: &str) -> Pee
 
 /// Create a subscriber with shop customer permit
 pub fn shop_customer_subscriber(page_id: &str, did: &str) -> PeerConnection {
-    let permit = gurkha::test_fixtures::shop_customer(page_id, did);
+    let permit = to_policy_permit(gurkha::test_fixtures::shop_customer(page_id, did));
     mock_subscriber_info(permit, did)
 }
 
 /// Create a subscriber with shop owner permit
 pub fn shop_owner_subscriber(page_id: &str, did: &str) -> PeerConnection {
-    let permit = gurkha::test_fixtures::shop_owner(page_id, did);
+    let permit = to_policy_permit(gurkha::test_fixtures::shop_owner(page_id, did));
     mock_subscriber_info(permit, did)
 }
 
@@ -189,14 +195,14 @@ use crate::EphemeralOutbound;
 ///
 /// Returns (PeerConnection, ephemeral_rx) so test can verify ephemerals arrive
 pub fn mock_subscriber_with_ephemeral(
-    permit: gurkha::Permit,
+    permit: gurkha::PolicyPermit,
     subscriber_did: &str,
 ) -> (PeerConnection, mpsc::Receiver<EphemeralOutbound>) {
     let (broadcast_tx, _broadcast_rx) = mpsc::channel::<BroadcastPayload>(16);
     let (ephemeral_tx, ephemeral_rx) = mpsc::channel::<EphemeralOutbound>(16);
-    let is_visible = permit.is_visible();
-    let can_see_others = permit.can_see_others();
-    let display_name = permit.display_name().map(String::from);
+    let is_visible = policy_compat::is_visible(&permit);
+    let can_see_others = policy_compat::can_see_others(&permit);
+    let display_name = policy_compat::display_name(&permit);
 
     let info = PeerConnection {
         permit,

@@ -22,8 +22,6 @@ cargo test -p integration_tests layer_sync
 ```
 integration_tests/
 ├── Cargo.toml
-├── fixtures/
-│   └── space_template.json      # Space-level permissions (app-independent)
 └── src/
     ├── lib.rs                   # Re-exports
     ├── fixtures.rs              # Paths, wait helpers, constants
@@ -64,7 +62,6 @@ integration_tests/
 **Fixtures** (`fixtures.rs`) — Helper functions and constants:
 
 - `app_dir("osvauld-demos")` → `<workspace>/sample_apps/osvauld-demos`
-- `space_template()` → reads `fixtures/space_template.json`
 - `wait_for_layer_data(butler, page_id, layer, timeout)` → polls `store().get_layer()`
 - `wait_for_app_files(butler, page_id, app_name, timeout)` → polls `apps().get_files()`
 - `MOCK_TIMEOUT` (500ms), `PAGE_SYNC_TIMEOUT` (10s)
@@ -125,7 +122,7 @@ async fn test_my_layer_sync() -> Result<()> {
     // Open page on owner → returns ActorRef<ScribeMessage>
     let scribe = s.owner().butler.open_page(&page_id).await?;
 
-    // Write to a layer (must be in the app's permit_template.json)
+    // Write to a layer (must be declared in the app's app.osv policy)
     let (tx, rx) = tokio::sync::oneshot::channel();
     scribe.cast(ScribeMessage::EnsureLoroMap {
         layer_name: "reactions".to_string(),
@@ -209,7 +206,10 @@ async fn test_dynamic_layer_syncs() -> Result<()> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     owner_scribe.cast(ScribeMessage::CreateDynamicLayer {
         schema_key: "channels/{id}/messages".to_string(),
-        layer_id: "my-channel".to_string(),
+        placeholders: [("id".to_string(), "my-channel".to_string())]
+            .into_iter()
+            .collect(),
+        authorized_peers: None,
         reply: tx,
     })?;
     let full_name = rx.await??;
@@ -238,8 +238,8 @@ async fn test_dynamic_layer_syncs() -> Result<()> {
 ```
 
 Dynamic layers require:
-- `dynamic_layer_schemas` in the permit template for ALL roles (owner, node, viewer, consent)
-- `role_permissions` keys matching peer `relationship` values
+- A matching dynamic layer schema in `app.osv`
+- Role/action policy that allows the sync path for participating peers
 - Node mode Scribe with `PermitIssuer` wired (handled automatically by Butler)
 
 ### Validation test (standalone Lua, no P2P)
@@ -298,7 +298,7 @@ thread.join().unwrap();
 
 ## Available Sample Apps
 
-Tests use real sample apps from `sample_apps/`. Each app's `permit_template.json` defines which layers exist and who can write to them.
+Tests use real sample apps from `sample_apps/`. Each app's `app.osv` defines which layers exist and which roles can read, write, and sync them.
 
 | App | Layers | Use for |
 |-----|--------|---------|
@@ -308,19 +308,18 @@ Tests use real sample apps from `sample_apps/`. Each app's `permit_template.json
 
 ### Layer constraints
 
-Layer names in `permit_template.json` use `{page_id}` prefix patterns (e.g. `{page_id}/messages`). Scribe strips the prefix internally, so tests use bare names (`"messages"`, `"reactions"`).
+Layer names in test writes are bare names (for example, `"messages"`, `"reactions"`). Scribe normalizes layer names against page context internally.
 
-**Only layers defined in the permit can sync between peers.** If you write to a layer not in the permit, the write succeeds locally but the node will reject the SyncOffer. This is the most common gotcha when porting tests — if a test writes to `"template_doc"` but the app permit only has `"messages"` and `"reactions"`, the node never receives the data.
+**Only layers declared in app policy can sync between peers.** If you write to a layer that is not declared in `app.osv`, the write can succeed locally but the node will reject sync for that layer. This is a common gotcha when porting tests.
 
 ### Adding a new sample app for testing
 
 If your test requires layers not in any existing app:
 
 1. Create `sample_apps/my-test-app/`
-2. Add `permit_template.json` with your layer definitions
-3. Add `space_permit_template.json` (or fall back to `fixtures/space_template.json`)
-4. Add at least one app subdirectory with `manifest.json`
-5. Use `.app("my-test-app")` in the Scenario builder
+2. Add `app.osv` with roles, layer definitions, and app declarations
+3. Add at least one app subdirectory with `manifest.json`
+4. Use `.app("my-test-app")` in the Scenario builder
 
 ## Scenario Builder Reference
 
@@ -426,11 +425,9 @@ Tests use `transport::MockConnection` — in-memory bidirectional channels. When
 
 The old test infrastructure had `Peer<C: Connection>` with both `IrohConnection` and `MockConnection` support. The new crate uses `MockConnection` exclusively — no generics, no type parameters, simpler code.
 
-### Template source
+### Policy source
 
-**Page templates** come from real `sample_apps/` directories via `butler.apps().import_page()`. This reads `permit_template.json` from the app dir and creates layers accordingly. No hardcoded template constants.
-
-**Space templates** come from `fixtures/space_template.json` (or the app's `space_permit_template.json` if it exists). Space templates are app-independent infrastructure.
+Page policy comes from real `sample_apps/` directories via `butler.apps().import_page()`. This reads `app.osv` from the app directory and creates roles/layers accordingly. No hardcoded page template constants.
 
 ### Sync flow
 
@@ -471,13 +468,13 @@ Layer data sync happens afterward via the Scribe subscription system:
 
 ## Gotchas
 
-- **Layer names must be in the permit.** Writing to a layer not in `permit_template.json` works locally but won't sync to other peers. Always check the app's permit before writing.
+- **Layer names must be in app policy.** Writing to a layer not declared in `app.osv` can work locally but will not sync to other peers. Always check the app policy before writing.
 
 - **Sleep after publish.** After `.published()`, add `sleep(Duration::from_millis(500)).await` before writing layers. This gives time for PageAnnounceAck and Scribe subscription setup.
 
 - **App name in `wait_for_app_files`.** The app name parameter must match the `name` field in `manifest.json`, not the directory name. For `osvauld-demos`, the app name is `"Group Chat"`.
 
-- **Scribe strips `{page_id}/` prefix.** Layer names in the permit use `{page_id}/messages` but you write to `"messages"` (bare name). The Scribe normalizes internally.
+- **Scribe normalizes page-scoped names.** Tests usually write bare names like `"messages"`; Scribe resolves them in page context.
 
 - **`ActorScribeHandle` uses `block_on`.** When passing a Scribe to `LuaRuntime`, use `ActorScribeHandle::new(scribe_ref)`. This bridges sync Lua calls to the async Scribe actor. Don't call it from an async context directly.
 
@@ -485,4 +482,4 @@ Layer data sync happens afterward via the Scribe subscription system:
 
 - **Dynamic layer sync requires `PermitIssuer`.** The node's Scribe needs a `PermitIssuer` to issue layer permits for dynamic layers. Butler wires this automatically for node mode via `ButlerPermitIssuer`.
 
-- **Presence requires permit entry.** Cross-peer presence sync only works if the permit includes the presence layer (e.g. `{page_id}/presence`). The `osvauld-demos` app doesn't have one, so presence tests use local-only verification.
+- **Presence requires policy entry.** Cross-peer presence sync only works if `presence` is defined and permitted in `app.osv`.

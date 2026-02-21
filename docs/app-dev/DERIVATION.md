@@ -260,21 +260,20 @@ Both are specified in the shared manifest:
 
 If you only need derivation, `init.lua` is sufficient. If you need active logic (game loop, real-time event processing), use `node.lua`.
 
-## Permit Requirements
+## Policy Requirements
 
-Derived layers must be configured in `permit_template.json`:
+Derived layers must be configured in `app.osv` layer access rules:
 
 - **Node role**: `write: true` (node writes the derived data)
 - **Owner role**: `write: false` (owner can read but not write)
 - **Customer role**: typically no access to derived layers
 
-```json
-"layers": {
-    "{page_id}/derived/orders_summary": {
-        "type": "map",
-        "sync": true,
-        "write": true    // Only in the node role template
-    }
+```osv
+layer orders_summary as map {
+  path "derived/orders_summary";
+  namespace shared;
+  allow node to read, write, sync;
+  allow owner to read, sync;
 }
 ```
 
@@ -282,7 +281,7 @@ Derived layers must be configured in `permit_template.json`:
 
 - **Source pattern uses `*` wildcard**: `page_id .. "/orders/*"` matches all order layers
 - **Transform receives `(source_layer_name, entry)`** -- extract the DID from the layer name if needed (e.g., `layer_name:match("/orders/(.+)$")`)
-- **Derived layers must have `write: true` only for the node role** in permit_template.json
+- **Derived layers should grant write only to the node role** in `app.osv`
 - **`filter` is optional** -- omit it to include all entries
 - **`key_fn` must return a unique string** -- this becomes the key in the derived map layer
 - **Derivation runs on the node only** -- clients never execute derivation logic

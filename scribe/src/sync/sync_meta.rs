@@ -16,6 +16,7 @@ use tracing::{debug, info, instrument, warn};
 
 use crate::layer_unit::LayerUnit;
 use crate::loro_observer;
+use crate::policy_compat;
 use crate::state::ScribeState;
 
 /// Prefix for sync metadata protocol layers
@@ -214,10 +215,11 @@ pub fn mark_entry_synced(state: &mut ScribeState, peer_did: &str, layer_name: &s
 pub fn populate_static_layers(
     state: &mut ScribeState,
     peer_did: &str,
-    peer_permit: &gurkha::Permit,
+    peer_permit: &gurkha::PolicyPermit,
     is_owner: bool,
 ) {
-    let static_layers = peer_permit.static_layers(&state.page_id, peer_did);
+    let _ = peer_did;
+    let static_layers = policy_compat::static_layers(peer_permit, &state.page_id);
 
     for layer_name in &static_layers {
         if is_protocol_layer(layer_name) {
@@ -251,7 +253,7 @@ pub fn detect_new_dynamic_layers(state: &ScribeState, creator_did: &str) -> Vec<
         Some(p) => p,
         None => return Vec::new(),
     };
-    if our_permit.dynamic_layer_schemas().is_empty() {
+    if !policy_compat::has_dynamic_layer_schemas(our_permit) {
         return Vec::new();
     }
 
@@ -314,7 +316,7 @@ pub fn populate_dynamic_layers_for_late_joiner(state: &mut ScribeState, peer_did
         Some(p) => p,
         None => return,
     };
-    if our_permit.dynamic_layer_schemas().is_empty() {
+    if !policy_compat::has_dynamic_layer_schemas(our_permit) {
         return;
     }
 
@@ -371,8 +373,8 @@ pub fn populate_dynamic_layers_for_late_joiner(state: &mut ScribeState, peer_did
             let is_authorized = if let Some(ref issuer) = state.permit_issuer {
                 match issuer.get_authority_for_layer(&full_name) {
                     Ok(Some((_creator, _ver, token))) => {
-                        if let Ok(auth) = gurkha::Permit::from_token(&token) {
-                            auth.is_peer_authorized(peer_did)
+                        if let Ok(auth) = gurkha::PolicyPermit::from_token(&token) {
+                            policy_compat::is_peer_authorized(&auth, peer_did)
                         } else {
                             false
                         }
@@ -453,8 +455,8 @@ pub fn handle_store_layer_authority(
     }
 
     // 3. Parse authorized_peers from authority and fan out
-    if let Ok(authority_permit) = gurkha::Permit::from_token(authority_token) {
-        let authorized_peers = authority_permit.authorized_peers();
+    if let Ok(authority_permit) = gurkha::PolicyPermit::from_token(authority_token) {
+        let authorized_peers = policy_compat::authorized_peers(&authority_permit);
 
         handle_fan_out_layer_to_users(state, &bare, authorized_peers.as_deref());
     }

@@ -1,7 +1,7 @@
 ---
 description: Integration test specialist -- Scenario builder, MockConnection, Tracer assertions, 8 test categories, Rust in-memory tests
 mode: subagent
-model: anthropic/claude-sonnet-4-5
+model: anthropic/claude-sonnet-4-6
 temperature: 0.2
 ---
 

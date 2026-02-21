@@ -160,7 +160,7 @@ impl<'a> AppsApi<'a> {
     /// **Structure**:
     /// ```text
     /// page_dir/                     ← directory name = page name
-    ///   ├── permit_template.json    ← page-level permit (data layers)
+    ///   ├── app.osv                 ← page policy declaration (data layers + access)
     ///   ├── shop-owner/             ← app 1
     ///   └── shop-customer/          ← app 2
     /// ```

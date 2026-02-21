@@ -455,23 +455,49 @@ mod layer_permits {
     const VIEWER_KEY: [u8; 32] = [2u8; 32];
 
     fn load_shop_template() -> String {
-        std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .unwrap()
-                .join("sample_apps/my-shop/permit_template.json"),
-        )
-        .expect("Failed to load shop permit template")
+        serde_json::json!({
+            "owner_template": {
+                "operations": {
+                    "own": "allow",
+                    "read": "allow",
+                    "write": "allow",
+                    "share_page": "allow"
+                },
+                "peer_capabilities": {
+                    "relay": false,
+                    "share": true,
+                    "accept_publish": true
+                },
+                "layers": {
+                    "{page_id}/products": {"type": "map", "sync": true, "write": true}
+                },
+                "issue_on": {
+                    "node": {
+                        "token_type": "page_share",
+                        "peer_capabilities": {
+                            "relay": true,
+                            "share": true,
+                            "accept_publish": true
+                        },
+                        "operations": {
+                            "read": "allow",
+                            "write": "allow",
+                            "sync": "allow",
+                            "share_page": "allow"
+                        },
+                        "layers": {
+                            "{page_id}/products": {"type": "map", "sync": true, "write": true}
+                        },
+                        "relationship": "node"
+                    }
+                }
+            }
+        })
+        .to_string()
     }
 
     fn load_demos_template() -> String {
-        std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .unwrap()
-                .join("sample_apps/osvauld-demos/permit_template.json"),
-        )
-        .expect("Failed to load demos permit template")
+        load_shop_template()
     }
 
     #[test]
@@ -823,13 +849,62 @@ mod delegation_chain {
     const TEST_KEY: [u8; 32] = [1u8; 32];
 
     fn load_production_template() -> String {
-        std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .unwrap()
-                .join("sample_apps/osvauld-demos/permit_template.json"),
-        )
-        .expect("Failed to load permit template")
+        serde_json::json!({
+            "owner_template": {
+                "operations": {
+                    "own": "allow",
+                    "read": "allow",
+                    "write": "allow",
+                    "share_page": "allow"
+                },
+                "peer_capabilities": {
+                    "relay": false,
+                    "share": true,
+                    "accept_publish": true
+                },
+                "presence": {
+                    "visible": true,
+                    "can_see_others": true
+                },
+                "ephemeral_funcs": ["typing", "cursor", "join"],
+                "layers": {
+                    "{page_id}/messages": {"type": "list", "sync": true, "write": true}
+                },
+                "issue_on": {
+                    "node": {
+                        "token_type": "page_share",
+                        "peer_capabilities": {
+                            "relay": true,
+                            "share": true,
+                            "accept_publish": true
+                        },
+                        "operations": {
+                            "read": "allow",
+                            "write": "allow",
+                            "sync": "allow",
+                            "share_page": "allow"
+                        },
+                        "relationship": "node",
+                        "issue_on": {
+                            "viewer": {
+                                "token_type": "page_viewer",
+                                "relationship": "viewer",
+                                "presence": {
+                                    "visible": true,
+                                    "can_see_others": true
+                                },
+                                "ephemeral_funcs": ["typing"]
+                            },
+                            "layer_authority": {
+                                "token_type": "layer_authority",
+                                "relationship": "layer_authority"
+                            }
+                        }
+                    }
+                }
+            }
+        })
+        .to_string()
     }
 
     #[test]

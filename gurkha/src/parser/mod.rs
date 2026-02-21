@@ -217,6 +217,9 @@ pub struct DelegationTemplate {
     /// [did...] => explicit distribution
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authorized_peers: Option<Vec<String>>,
+    /// Compiled policy facts for PolicyPermit parsing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub osv_policy: Option<serde_json::Value>,
 }
 
 /// Configuration for a fixed (non-pattern) layer
@@ -538,6 +541,10 @@ impl DelegationTemplate {
             }
         }
 
+        if let Some(policy) = &self.osv_policy {
+            facts.insert("osv_policy".to_string(), policy.clone());
+        }
+
         facts
     }
 }
@@ -805,6 +812,8 @@ impl Permit {
             .ok()
             .flatten();
 
+        let osv_policy = template_obj.get("osv_policy").cloned();
+
         Some(DelegationTemplate {
             token_type,
             peer_capabilities,
@@ -818,6 +827,7 @@ impl Permit {
             ephemeral_funcs,
             dynamic_layer_schemas,
             authorized_peers,
+            osv_policy,
         })
     }
 

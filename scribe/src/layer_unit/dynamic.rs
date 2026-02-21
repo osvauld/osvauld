@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use tracing::{info, warn};
 
 use crate::loro_observer;
+use crate::policy_compat;
 use crate::state::ScribeState;
 
 use super::LayerUnit;
@@ -28,7 +29,7 @@ pub fn handle_create_dynamic_layer(
         .ok_or_else(|| "No permit available".to_string())?;
 
     // Validate schema exists in our permit's dynamic_layer_schemas
-    let schemas = permit.dynamic_layer_schemas();
+    let schemas = policy_compat::dynamic_layer_schemas(permit);
     let schema = schemas
         .get(schema_key)
         .cloned()
@@ -150,11 +151,19 @@ fn generate_dynamic_path(
 /// **Context**: Node receives a new layer from peer. Check if it matches a dynamic schema.
 /// **Returns**: (schema_key, schema, creator_did?) if matched, None otherwise
 pub fn find_matching_dynamic_schema<'a>(
-    permit: &'a gurkha::Permit,
+    permit: &gurkha::PolicyPermit,
     layer_name: &str,
     page_id: &str,
-) -> Option<(&'a str, &'a gurkha::DynamicLayerSchema, Option<String>)> {
-    let schemas = permit.dynamic_layer_schemas();
+) -> Option<(String, gurkha::DynamicLayerSchema, Option<String>)> {
+    let schemas = policy_compat::dynamic_layer_schemas(permit);
+    find_matching_dynamic_schema_in_schemas(&schemas, layer_name, page_id)
+}
+
+fn find_matching_dynamic_schema_in_schemas(
+    schemas: &HashMap<String, gurkha::DynamicLayerSchema>,
+    layer_name: &str,
+    page_id: &str,
+) -> Option<(String, gurkha::DynamicLayerSchema, Option<String>)> {
     if schemas.is_empty() {
         return None;
     }
@@ -166,7 +175,7 @@ pub fn find_matching_dynamic_schema<'a>(
     if let Some(dynamic_ref) = gurkha::parse_dynamic_layer(schemas, bare_path) {
         for (schema_key, schema) in schemas {
             if *schema_key == dynamic_ref.schema_key {
-                return Some((schema_key.as_str(), schema, dynamic_ref.creator_did));
+                return Some((schema_key.clone(), schema.clone(), dynamic_ref.creator_did));
             }
         }
     }
@@ -189,7 +198,7 @@ pub fn handle_add_layer_access(
         warn!(page_id = %state.page_id, layer = %layer_name, dids = ?dids, "AddLayerAccess rejected: missing our_permit");
         "No permit".to_string()
     })?;
-    if !permit.can_manage_layer_access() {
+    if !policy_compat::can_manage_layer_access(permit) {
         warn!(
             page_id = %state.page_id,
             layer = %layer_name,
@@ -230,8 +239,8 @@ pub fn handle_add_layer_access(
     let (mut existing_peers, existing_version) =
         match issuer.get_layer_authority_permit(&state.our_did, &full_name) {
             Ok(Some((version, token))) => {
-                if let Ok(p) = gurkha::Permit::from_token(&token) {
-                    let peers = p.authorized_peers().unwrap_or_default();
+                if let Ok(p) = gurkha::PolicyPermit::from_token(&token) {
+                    let peers = policy_compat::authorized_peers(&p).unwrap_or_default();
                     (peers, version)
                 } else {
                     (Vec::new(), version)
@@ -347,38 +356,58 @@ mod tests {
 
     #[test]
     fn test_find_matching_dynamic_schema() {
-        // Shop owner has dynamic_layer_schemas: { "orders/{id}": ... }
-        let permit = gurkha::test_fixtures::shop_owner("page1", "did:key:owner");
+        let mut schemas = HashMap::new();
+        schemas.insert(
+            "orders/{id}".to_string(),
+            gurkha::DynamicLayerSchema {
+                layer_type: "map".to_string(),
+                grant: gurkha::GrantType::Open,
+                permissions: gurkha::LayerConfig {
+                    sync: true,
+                    write: true,
+                    layer_type: None,
+                },
+                namespace: gurkha::LayerNamespace::Creator,
+                storage_strategy: gurkha::StorageStrategy::SingleDoc,
+                resolution: None,
+            },
+        );
 
         // Match: orders/did:key:alice/uuid-123 — matches "orders/{id}" with DID inserted
-        let result =
-            find_matching_dynamic_schema(&permit, "orders/did:key:alice/uuid-123", "page1");
+        let result = find_matching_dynamic_schema_in_schemas(
+            &schemas,
+            "orders/did:key:alice/uuid-123",
+            "page1",
+        );
         assert!(result.is_some(), "Should match orders/{{id}} schema");
         let (schema_key, _schema, creator_did) = result.unwrap();
         assert_eq!(schema_key, "orders/{id}");
         assert_eq!(creator_did.as_deref(), Some("did:key:alice"));
 
         // Match with page_id prefix
-        let result =
-            find_matching_dynamic_schema(&permit, "page1/orders/did:key:bob/order1", "page1");
+        let result = find_matching_dynamic_schema_in_schemas(
+            &schemas,
+            "page1/orders/did:key:bob/order1",
+            "page1",
+        );
         assert!(result.is_some());
         let (_, _, creator_did) = result.unwrap();
         assert_eq!(creator_did.as_deref(), Some("did:key:bob"));
 
         // No match: wrong prefix
-        let result = find_matching_dynamic_schema(
-            &permit,
+        let result = find_matching_dynamic_schema_in_schemas(
+            &schemas,
             "channels/did:key:alice/general/messages",
             "page1",
         );
         assert!(result.is_none(), "Should not match — no channels schema");
 
         // No match: no DID in path
-        let result = find_matching_dynamic_schema(&permit, "orders/general", "page1");
+        let result = find_matching_dynamic_schema_in_schemas(&schemas, "orders/general", "page1");
         assert!(result.is_none(), "Should not match — no DID segment");
 
         // No match: too short
-        let result = find_matching_dynamic_schema(&permit, "orders", "page1");
+        let result = find_matching_dynamic_schema_in_schemas(&schemas, "orders", "page1");
         assert!(result.is_none(), "Should not match — too short");
     }
 }

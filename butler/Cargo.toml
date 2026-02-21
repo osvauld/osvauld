@@ -45,6 +45,8 @@ domains = { path = "../domains" }
 scribe = { path = "../scribe" }
 herald = { path = "../herald" }
 gurkha = { path = "../gurkha" }
+osv_decl = { path = "../osv_decl" }
+policy_model = { path = "../policy_model" }
 # CEL is being replaced by Rune runtime
 futures = "0.3.31"
 
