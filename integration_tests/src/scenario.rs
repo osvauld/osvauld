@@ -241,32 +241,23 @@ impl Scenario {
         Ok(())
     }
 
-    /// Import app from sample_apps directory, creating space + page
-    ///
-    /// Reads `permit_template.json` and `space_permit_template.json` from the app dir.
+    /// Import app from sample_apps directory, creating space + page.
     pub async fn import_app(&self, space_name: &str, app_name: &str) -> Result<SpaceInfo> {
         let owner = self.owner();
         let user_info = owner.butler.user_info().await?;
 
-        // Read space template from the app's directory, falling back to our fixture
+        // Resolve app directory for page import
         let app_path = fixtures::app_dir(app_name);
-        let space_template_path = app_path.join("space_permit_template.json");
-        let space_template = if space_template_path.exists() {
-            std::fs::read_to_string(&space_template_path)?
-        } else {
-            fixtures::space_template()
-        };
 
         // Create space
         let space = owner
             .butler
             .spaces()
-            .create(space_name.to_string(), user_info.did.clone(), &space_template)
+            .create(space_name.to_string(), user_info.did.clone())
             .await?;
         info!("Space created: {}", space.id);
 
-        // Import page from app directory (reads permit_template.json automatically)
-        // The app_path IS the page dir (contains permit_template.json + app subdirs with manifest.json)
+        // Import page from app directory (app.osv + app subdirs with manifest.json)
         let page = owner.butler.apps().import_page(&space.id, &app_path).await?;
         info!("Page imported: {} from {:?}", page.id, app_path);
 
@@ -545,4 +536,3 @@ impl Scenario {
         }
     }
 }
-

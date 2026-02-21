@@ -84,7 +84,7 @@ export component Shell inherits Window {
 
     // Space callbacks
     callback request-spaces(int);       // UI requests to load spaces with sort option
-    callback create-space(string, string);  // name, template_path (app folder with space_permit_template.json)
+    callback create-space(string, string);  // name, template_path (app folder with app.osv)
     callback select-space(string);      // space_id
     callback delete-space(string);      // space_id
     callback pick-space-template-folder();  // Opens folder picker, sets space-template-path

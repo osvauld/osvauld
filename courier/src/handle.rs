@@ -293,6 +293,35 @@ impl CourierHandle {
 
         rx.await.map_err(|_| "Channel closed".to_string())
     }
+
+    /// Go offline - simulate network loss for E2E tests
+    ///
+    /// **Context**: Test wants to simulate losing network connectivity
+    /// **Effect**: Stops all PeerActors, closes connections, rejects new connections
+    /// **Note**: Does NOT emit PeerDisconnected events (test isolation)
+    pub async fn go_offline(&self) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.coordinator
+            .cast(IrohCoordinatorMessage::GoOffline { response: tx })
+            .map_err(|e| format!("Failed to send GoOffline: {:?}", e))?;
+
+        rx.await
+            .map_err(|_| "GoOffline channel closed".to_string())?
+    }
+
+    /// Go online - restore network connectivity for E2E tests
+    ///
+    /// **Context**: Test wants to restore network after simulated loss
+    /// **Effect**: Clears offline flag, reconnects to all known nodes with stored permits
+    pub async fn go_online(&self) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.coordinator
+            .cast(IrohCoordinatorMessage::GoOnline { response: tx })
+            .map_err(|e| format!("Failed to send GoOnline: {:?}", e))?;
+
+        rx.await
+            .map_err(|_| "GoOnline channel closed".to_string())?
+    }
 }
 
 /// Handshake services - wraps Butler for handshake operations

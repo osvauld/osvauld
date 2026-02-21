@@ -1,0 +1,11 @@
+[package]
+name = "osv_decl"
+version = "0.1.0"
+edition = "2021"
+description = "app.osv parser, semantic checker, and lowering"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+policy_model = { path = "../policy_model" }

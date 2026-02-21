@@ -54,6 +54,7 @@ pub fn create_slint_app(
     scribe_ref: ActorRef<ScribeMessage>,
     butler: Arc<Butler>,
     app_status: Option<Arc<RwLock<AppStatus>>>,
+    clock: Arc<dyn domains::ClockSource>,
 ) -> Option<RunningSlintApp> {
     tracing::info!(
         page_id = %prepared.page_id,
@@ -97,6 +98,7 @@ pub fn create_slint_app(
         ui_tx: Some(channels.ui_tx.clone()),
         query_tx: Some(channels.query_tx.clone()),
         navigate_tx: Some(channels.tab_switch_tx.clone()),
+        clock,
     };
 
     let (lua_thread, lua_tx) = match LuaRuntime::spawn(config) {
@@ -176,8 +178,9 @@ pub fn launch_slint_app(
     butler: Arc<Butler>,
     tokio_handle: tokio::runtime::Handle,
     app_status: Option<Arc<RwLock<AppStatus>>>,
+    clock: Arc<dyn domains::ClockSource>,
 ) -> Option<LaunchedApp> {
-    let running = create_slint_app(prepared, scribe_ref, butler.clone(), app_status.clone())?;
+    let running = create_slint_app(prepared, scribe_ref, butler.clone(), app_status.clone(), clock.clone())?;
     let lua_tx_out = running.lua_tx.clone();
 
     let running: Rc<RefCell<Option<RunningSlintApp>>> = Rc::new(RefCell::new(Some(running)));
@@ -206,6 +209,7 @@ pub fn launch_slint_app(
                             new_scribe,
                             butler.clone(),
                             app_status.clone(),
+                            clock.clone(),
                         ) {
                             *running.borrow_mut() = Some(new_app);
                         }
@@ -225,6 +229,7 @@ pub fn launch_slint_app(
                             delta,
                             full_data,
                             created,
+                            dynamic_ref,
                             ..
                         } => {
                             let expected_app_layer = format!("app:{}", running_app.app_name);
@@ -252,6 +257,7 @@ pub fn launch_slint_app(
                                 created,
                                 delta,
                                 full_data,
+                                dynamic_ref,
                             });
                         }
                         PageUpdate::Ephemeral {

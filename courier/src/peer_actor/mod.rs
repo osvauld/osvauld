@@ -319,7 +319,7 @@ pub struct PeerActorState<C: Connection> {
     session_key: Option<[u8; 32]>,
     /// Cached parsed permit from handshake (Hello/Welcome/PermitGrant)
     /// Avoids re-parsing the permit on every message flow
-    cached_peer_permit: Option<gurkha::Permit>,
+    cached_peer_permit: Option<gurkha::PolicyPermit>,
     /// Active page subscriptions: page_id -> subscription info
     /// Used for explicit cleanup on disconnect (abort task + send Unsubscribe)
     page_subscriptions: std::collections::HashMap<String, PageSubscription>,
@@ -531,8 +531,8 @@ impl<C: Connection> PeerActor<C> {
         token: &str,
         error_msg: Message,
         state: &PeerActorState<C>,
-    ) -> Option<gurkha::Permit> {
-        match gurkha::Permit::from_token(token) {
+    ) -> Option<gurkha::PolicyPermit> {
+        match gurkha::PolicyPermit::from_token(token) {
             Ok(p) => Some(p),
             Err(e) => {
                 error!("Invalid permit: {:?}", e);

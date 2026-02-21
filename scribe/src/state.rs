@@ -11,9 +11,10 @@ use tokio::sync::{broadcast, mpsc};
 use domains::{Layer, QueryDelta, QueryResult, QuerySpec};
 
 use crate::layer_unit::LayerUnit;
+use crate::policy_compat;
 use crate::{
-    BroadcastPayload, EphemeralOutbound, LayerStorageRef, PageUpdate, PeerResolverRef,
-    PeerVectorStorageRef, PermitIssuerRef, SyncEvent,
+    BroadcastPayload, DynamicLayerMeta, EphemeralOutbound, LayerStorageRef, PageUpdate,
+    PeerResolverRef, PeerVectorStorageRef, PermitIssuerRef, SyncEvent,
 };
 
 // Layer Name Normalization
@@ -94,12 +95,12 @@ pub struct SyncConfig {
 /// Page-level connection state for a peer
 ///
 /// **Design**: Stores the parsed permit directly instead of extracted fields.
-/// All access checks delegate to gurkha::Permit methods, ensuring consistency.
+/// All access checks delegate to policy decision helpers.
 /// **Note**: Version vectors are NOT stored here — they live on LayerSubscriber per-layer.
 pub struct PeerConnection {
     /// Parsed page permit for all access checks (static layers)
     /// Stores the full permit so we can use its methods directly
-    pub permit: gurkha::Permit,
+    pub permit: gurkha::PolicyPermit,
     /// Subscriber's DID (for pattern expansion with {aud})
     /// Extracted from permit audience and normalized to DID format
     pub subscriber_did: String,
@@ -126,16 +127,11 @@ impl PeerConnection {
             return false;
         }
         // Check if layer is in no_incoming_updates (sync facts)
-        if self
-            .permit
-            .sync_facts()
-            .no_incoming_updates
-            .contains(&layer_name.to_string())
-        {
+        if policy_compat::no_incoming_updates(&self.permit).contains(&layer_name.to_string()) {
             return false;
         }
-        self.permit
-            .can_read_layer(layer_name, page_id, &self.subscriber_did)
+        let _ = page_id;
+        policy_compat::can_read_layer(&self.permit, layer_name, &self.subscriber_did)
     }
 
     /// Check if subscriber can write to layer
@@ -144,8 +140,8 @@ impl PeerConnection {
     /// **Note**: Write auth stays subscriber-centric for now. For dynamic layer writes,
     /// the node trusts sync_target (path 2 in Permissions::can_write).
     pub fn can_write_layer(&self, layer_name: &str, page_id: &str) -> bool {
-        self.permit
-            .can_write_layer(layer_name, page_id, &self.subscriber_did)
+        let _ = page_id;
+        policy_compat::can_write_layer(&self.permit, layer_name, &self.subscriber_did)
     }
 }
 
@@ -215,8 +211,7 @@ pub struct ScribeState {
     pub validation_handle: Option<crate::validation_handle::ValidationHandle>,
 
     /// Parsed permit - provides should_sync_layer, can_write_layer etc.
-    /// Uses gurkha::Permit directly with page_id/did passed to methods
-    pub our_permit: Option<gurkha::Permit>,
+    pub our_permit: Option<gurkha::PolicyPermit>,
     /// Our DID (for pattern expansion with {aud})
     pub our_did: String,
 
@@ -271,6 +266,18 @@ pub struct ScribeArgs {
 }
 
 impl ScribeState {
+    /// Parse dynamic-layer metadata for a bare layer name using our permit schemas.
+    pub fn dynamic_ref_for_layer(&self, layer_name: &str) -> Option<DynamicLayerMeta> {
+        let permit = self.our_permit.as_ref()?;
+        let parsed = policy_compat::parse_dynamic_layer(permit, layer_name)?;
+
+        Some(DynamicLayerMeta {
+            schema_key: parsed.schema_key,
+            creator_did: parsed.creator_did,
+            placeholders: parsed.placeholders,
+        })
+    }
+
     /// Get the next capture sequence number (monotonically increasing)
     fn next_capture_seq(&self) -> u64 {
         self.capture_seq.fetch_add(1, Ordering::Relaxed)
@@ -318,7 +325,7 @@ impl ScribeState {
     pub fn should_sync_layer(&self, layer_name: &str) -> bool {
         self.our_permit
             .as_ref()
-            .map(|permit| permit.should_sync_layer(layer_name, &self.page_id, &self.our_did))
+            .map(|permit| policy_compat::should_sync_layer(permit, layer_name, &self.our_did))
             .unwrap_or(true) // No permit means sync everything
     }
 
@@ -326,7 +333,7 @@ impl ScribeState {
     pub fn can_write_layer(&self, layer_name: &str) -> bool {
         self.our_permit
             .as_ref()
-            .map(|permit| permit.can_write_layer(layer_name, &self.page_id, &self.our_did))
+            .map(|permit| policy_compat::can_write_layer(permit, layer_name, &self.our_did))
             .unwrap_or(true) // No permit means full access
     }
 

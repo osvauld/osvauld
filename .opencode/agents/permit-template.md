@@ -1,7 +1,7 @@
 ---
 description: Permit template authoring specialist -- permit_template.json design, layer patterns, dynamic schemas, delegation chains, role hierarchy
 mode: subagent
-model: anthropic/claude-sonnet-4-5
+model: anthropic/claude-sonnet-4-6
 temperature: 0.2
 ---
 

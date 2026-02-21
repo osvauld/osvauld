@@ -26,6 +26,7 @@ use crate::ephemeral::{
 };
 use crate::layer_unit::LayerUnit;
 use crate::message;
+use crate::policy_compat;
 use crate::state::{normalize_layer_name, ScribeArgs, ScribeState, SyncMode};
 use crate::{loro_observer, operations, query, sync, Result, ScribeError, ScribeMessage};
 
@@ -435,14 +436,14 @@ impl Actor for Scribe {
 
             ScribeMessage::CreateDynamicLayer {
                 schema_key,
-                layer_id,
+                placeholders,
                 authorized_peers,
                 reply,
             } => {
                 let result = crate::layer_unit::handle_create_dynamic_layer(
                     state,
                     &schema_key,
-                    &layer_id,
+                    &placeholders,
                     authorized_peers.as_deref(),
                 );
                 let _ = reply.send(result);
@@ -645,16 +646,16 @@ impl Actor for Scribe {
 // pre_start Helpers
 
 /// Parse our permit from args, returning the parsed permit and static layer names
-fn parse_permit(args: &ScribeArgs) -> (Option<gurkha::Permit>, Vec<String>) {
+fn parse_permit(args: &ScribeArgs) -> (Option<gurkha::PolicyPermit>, Vec<String>) {
     if let Some(ref permit_token) = args.our_permit {
-        match gurkha::Permit::from_token(permit_token) {
+        match gurkha::PolicyPermit::from_token(permit_token) {
             Ok(permit) => {
-                let static_layers = permit.static_layers(&args.page_id, &args.our_did);
+                let static_layers = policy_compat::static_layers(&permit, &args.page_id);
                 info!(
                     page_id = %args.page_id,
                     token_type = %permit.token_type().unwrap_or("peer"),
                     static_layer_count = static_layers.len(),
-                    "Parsed our permit via gurkha::Permit"
+                    "Parsed our permit via gurkha::PolicyPermit"
                 );
                 (Some(permit), static_layers)
             }
@@ -707,7 +708,7 @@ fn build_layer_units(layers: HashMap<String, Layer>) -> HashMap<String, LayerUni
 /// Build initial ScribeState from args and permit
 fn build_initial_state(
     args: ScribeArgs,
-    our_permit: Option<gurkha::Permit>,
+    our_permit: Option<gurkha::PolicyPermit>,
     static_layers: Vec<String>,
 ) -> ScribeState {
     let mode_info = args

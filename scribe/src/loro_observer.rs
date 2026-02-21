@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, instrument, warn};
 
 use crate::message::{BroadcastPayload, ListOp, LoroDelta, PageUpdate};
+use crate::policy_compat;
 use crate::state::ScribeState;
 use domains::JsonOp;
 
@@ -268,6 +269,10 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
     let layer_name_for_task = layer_name.to_string();
     let page_id_for_task = state.page_id.clone();
     let page_update_subscribers_for_task = state.page_update_subscribers.clone();
+    let dynamic_schemas_for_task = state
+        .our_permit
+        .as_ref()
+        .map(policy_compat::dynamic_layer_schemas);
     // Capture LayerUnit's subscriber map for broadcast filtering and sending
     let layer_subscribers_for_task = state.units.get(layer_name).unwrap().subscribers().clone();
     // Clone capture_tx for the observer task
@@ -376,6 +381,14 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
                     state_vector: state_vector.clone(),
                     full_data,
                     created: false,
+                    dynamic_ref: dynamic_schemas_for_task
+                        .as_ref()
+                        .and_then(|schemas| gurkha::parse_dynamic_layer(schemas, &layer_name_for_task))
+                        .map(|parsed| crate::message::DynamicLayerMeta {
+                            schema_key: parsed.schema_key,
+                            creator_did: parsed.creator_did,
+                            placeholders: parsed.placeholders,
+                        }),
                 };
                 // Emit to capture channel (pre-serialized JSON line)
                 if let Some(ref capture_tx) = capture_tx_for_task {

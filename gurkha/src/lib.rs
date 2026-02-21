@@ -24,6 +24,7 @@ pub mod crypto;
 pub mod decision;
 pub mod errors;
 pub mod parser;
+pub mod policy;
 pub mod service;
 pub mod types;
 
@@ -40,13 +41,17 @@ pub use decision::{
     matches_dynamic_schema, should_send_updates, DelegationDecision, SyncContext, TokenDecision,
 };
 pub use parser::{
-    expand_pattern, matches_schema_pattern, matches_wildcard, resolve_page_id_in_facts,
+    expand_pattern, matches_schema_pattern, matches_wildcard, parse_dynamic_layer,
+    resolve_page_id_in_facts,
 }; // Pattern/resolution utilities
 pub use parser::{
     DelegationTemplate, LayerConfig, LayerPatternConfig, PeerCapabilities, Permit, PermitError,
     PermitResult,
 };
-pub use parser::{DynamicLayerSchema, GrantType}; // Dynamic layer types
+pub use parser::{
+    DynamicLayerRef, DynamicLayerSchema, GrantType, LayerNamespace, Resolution, StorageStrategy,
+}; // Dynamic layer types
+pub use policy::*;
 pub use types::*;
 
 // Re-export stateless permit functions
@@ -62,12 +67,12 @@ pub use service::{
     issue_layer_permit,
     // Connection tokens
     issue_one_time,
-    issue_page_owner_token,
+    issue_page_owner_token_from_policy,
     issue_page_viewer_auth,
     issue_peer_connection,
     issue_space_node_to_owner,
     // Space tokens
-    issue_space_owner_token,
+    issue_space_owner_token_from_defaults,
     issue_space_viewer_auth,
     issue_sync_layer_consent,
     issue_sync_page_consent,

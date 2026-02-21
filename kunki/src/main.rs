@@ -74,6 +74,10 @@ enum Commands {
         /// Enable debug server on specified Unix socket path
         #[arg(long)]
         debug_socket: Option<String>,
+
+        /// Enable test mode (use ManualClock for deterministic time control)
+        #[arg(long)]
+        test_mode: bool,
     },
 
     /// Generate a folder share token for public viewing
@@ -144,12 +148,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let pass = get_passphrase(passphrase, "Enter passphrase:")?;
             handle_init(&username, &pass, redb_store.clone()).await?;
         }
-        Commands::Start { passphrase, debug_socket } => {
+        Commands::Start { passphrase, debug_socket, test_mode } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
             #[cfg(not(feature = "profiling"))]
-            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir, Some(capture_handle)).await?;
+            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir, Some(capture_handle), test_mode).await?;
             #[cfg(feature = "profiling")]
-            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir, None).await?;
+            handle_start(&pass, redb_store.clone(), debug_socket, &data_dir, None, test_mode).await?;
         }
         Commands::FolderToken {
             passphrase,
@@ -197,6 +201,7 @@ async fn handle_start(
     debug_socket: Option<String>,
     data_dir: &std::path::Path,
     capture_handle: Option<logging_utils::CaptureHandle>,
+    test_mode: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists in Butler
     if !butler::is_signed_up(&redb_store)? {
@@ -212,6 +217,18 @@ async fn handle_start(
 
     info!("✔ Logged in as: {}", identity_data.username);
     info!("✔ DID: {}", identity.did());
+
+    // Create clock (ManualClock if test mode, RealClock otherwise)
+    let clock: Arc<dyn domains::ClockSource> = if test_mode {
+        let unix_now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("System time before UNIX epoch")
+            .as_secs() as i64;
+        info!(unix_now, "Test mode enabled: using ManualClock");
+        Arc::new(domains::ManualClock::new(unix_now))
+    } else {
+        Arc::new(domains::RealClock)
+    };
 
     // Create Butler with LayerCache, AssetStore and set identity
     let layer_cache = Arc::new(RwLock::new(LayerCache::new(redb_store.clone(), 100)));
@@ -230,7 +247,7 @@ async fn handle_start(
     butler.set_page_opened_tx(page_opened_tx).await;
 
     // Create node runtime manager for derivation
-    let node_runtime = Arc::new(NodeRuntimeManager::new(butler.clone()));
+    let node_runtime = Arc::new(NodeRuntimeManager::new(butler.clone(), clock.clone()));
 
     // Spawn task to auto-start node runtime when pages are opened
     //
@@ -305,6 +322,9 @@ async fn handle_start(
         if let Some(ref ch) = capture_handle {
             debug_server.set_capture_handle(ch.clone()).await;
         }
+
+        // Set node runtime manager for test-time controls
+        debug_server.set_node_runtime(node_runtime.clone()).await;
 
         // Spawn debug server
         let server = debug_server.clone();

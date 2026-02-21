@@ -1,7 +1,7 @@
 ---
 description: Lua runtime specialist -- mlua VM, bindings, scheduler, app lifecycle
 mode: subagent
-model: anthropic/claude-sonnet-4-5
+model: anthropic/claude-sonnet-4-6
 temperature: 0.2
 ---
 

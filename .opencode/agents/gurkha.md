@@ -1,7 +1,7 @@
 ---
 description: Gurkha authorization engine specialist -- permit parsing, decision logic, TokenDecision, SyncContext, pattern matching, service API
 mode: subagent
-model: anthropic/claude-sonnet-4-5
+model: anthropic/claude-sonnet-4-6
 temperature: 0.2
 ---
 

@@ -35,6 +35,7 @@ pub mod layer_unit;
 pub mod loro_observer;
 pub mod operations;
 pub mod permit;
+mod policy_compat;
 pub mod query;
 pub mod state;
 pub mod sync;
@@ -47,8 +48,8 @@ pub mod test_strategies;
 
 // Re-export common types
 pub use message::{
-    BroadcastPayload, EphemeralBroadcast, EphemeralOutbound, ListOp, LoroDelta, PageUpdate,
-    PageUpdateTx, ScribeMessage, SyncEvent,
+    BroadcastPayload, DynamicLayerMeta, EphemeralBroadcast, EphemeralOutbound, ListOp, LoroDelta,
+    PageUpdate, PageUpdateTx, ScribeMessage, SyncEvent,
 };
 
 // JsonOp comes from domains (Layer::extract_ops_from_bytes)

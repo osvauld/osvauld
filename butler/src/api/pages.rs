@@ -20,7 +20,7 @@ impl<'a> PagesApi<'a> {
         space_id: &str,
         name: &str,
         layer_names: Vec<String>,
-        permit_template: &str,
+        policy: &policy_model::PolicyFacts,
     ) -> Result<Page> {
         let identity = self.butler.get_identity().await?;
         let owner_did = identity.did().to_string();
@@ -34,7 +34,7 @@ impl<'a> PagesApi<'a> {
             &owner_public_key,
             &signing_key,
             layer_names,
-            permit_template,
+            policy,
         )
         .await
     }
@@ -125,24 +125,5 @@ impl<'a> PagesApi<'a> {
         let identity = self.butler.get_identity().await?;
         let secret_key = identity.secret_encryption_key();
         page_service::update_page_layers(self.butler.store(), page_id, &secret_key, layer_updates)
-    }
-
-    /// Extract layer names from a permit template JSON
-    ///
-    /// Looks for `owner_template.layers` field (matching gurkha's expected structure).
-    pub fn extract_layer_names_from_template(permit_template_json: &str) -> Vec<String> {
-        let Ok(template) = serde_json::from_str::<serde_json::Value>(permit_template_json) else {
-            return Vec::new();
-        };
-
-        let Some(layers) = template
-            .get("owner_template")
-            .and_then(|ot| ot.get("layers"))
-            .and_then(|l| l.as_object())
-        else {
-            return Vec::new();
-        };
-
-        layers.keys().cloned().collect()
     }
 }

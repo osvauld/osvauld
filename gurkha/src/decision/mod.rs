@@ -30,7 +30,8 @@ pub use delegation::{decide_delegation, extract_facts_from_token, extract_issue_
 
 // Re-export resource token decisions
 pub use resource::{
-    decide_page_owner_token, decide_space_node_to_owner_token, decide_space_owner_token,
+    decide_page_owner_token, decide_page_owner_token_from_policy, decide_space_node_to_owner_token,
+    decide_space_owner_token_from_defaults,
 };
 
 // Re-export sync decisions

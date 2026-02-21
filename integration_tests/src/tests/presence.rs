@@ -6,6 +6,7 @@
 //! 3. Heartbeat interval updates last_seen
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -15,6 +16,7 @@ use tokio::sync::mpsc;
 use tokio::time::sleep;
 
 use butler::ScribeMessage;
+use domains::{ClockSource, ManualClock, RealClock};
 use lua_runtime::{LuaCommand, LuaRuntime, LuaRuntimeConfig, ActorScribeHandle};
 
 use crate::fixtures::init_tracing;
@@ -39,6 +41,7 @@ fn spawn_presence_app(
     user_did: &str,
     user_name: &str,
     scribe_ref: ActorRef<ScribeMessage>,
+    clock: Arc<dyn ClockSource>,
 ) -> Result<PresenceApp> {
     let lua_code = format!(
         r#"
@@ -53,7 +56,7 @@ local function write_presence()
         did = my_did,
         status = "online",
         name = my_name,
-        last_seen = os.time(),
+        last_seen = clock:count(),
     }})
 end
 
@@ -81,6 +84,7 @@ end
         ui_tx: None,
         query_tx: None,
         navigate_tx: None,
+        clock,
     })
     .map_err(|e| anyhow::anyhow!("Failed to spawn Lua runtime: {}", e))?;
 
@@ -113,12 +117,45 @@ async fn query_presence(
     Ok(map)
 }
 
+async fn wait_for_presence_entry(
+    scribe_ref: &ActorRef<ScribeMessage>,
+    layer_name: &str,
+    did: &str,
+    timeout: Duration,
+) -> Result<HashMap<String, serde_json::Value>> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        match query_presence(scribe_ref, layer_name).await {
+            Ok(presence) if presence.contains_key(did) => return Ok(presence),
+            // Layer doesn't exist yet or DID not present — treat as transient, retry
+            Ok(_) | Err(_) => {}
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(anyhow::anyhow!(
+                "Timeout waiting for presence entry for DID {} in {}",
+                did,
+                layer_name
+            ));
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// Count online users (those with last_seen within threshold seconds)
 fn count_online(presence: &HashMap<String, serde_json::Value>, threshold_secs: i64) -> usize {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64;
+
+    count_online_with_now(presence, threshold_secs, now)
+}
+
+fn count_online_with_now(
+    presence: &HashMap<String, serde_json::Value>,
+    threshold_secs: i64,
+    now: i64,
+) -> usize {
 
     presence
         .values()
@@ -155,8 +192,20 @@ async fn test_presence_local_stale_detection() -> Result<()> {
     let scribe_ref = s.owner().butler.open_page(&page_id).await?;
 
     // Spawn two presence apps writing to the same Scribe (simulating multi-user)
-    let app1 = spawn_presence_app(&page_id, &owner_info.did, "user1", scribe_ref.clone())?;
-    let app2 = spawn_presence_app(&page_id, "did:key:z6MkTestUser2", "user2", scribe_ref.clone())?;
+    let app1 = spawn_presence_app(
+        &page_id,
+        &owner_info.did,
+        "user1",
+        scribe_ref.clone(),
+        Arc::new(RealClock),
+    )?;
+    let app2 = spawn_presence_app(
+        &page_id,
+        "did:key:z6MkTestUser2",
+        "user2",
+        scribe_ref.clone(),
+        Arc::new(RealClock),
+    )?;
 
     // Wait for initial writes
     sleep(Duration::from_secs(2)).await;
@@ -199,7 +248,13 @@ async fn test_presence_heartbeat_fast() -> Result<()> {
     let user_did = owner_info.did.clone();
 
     let scribe_ref = s.owner().butler.open_page(&page_id).await?;
-    let app = spawn_presence_app(&page_id, &user_did, "test_user", scribe_ref.clone())?;
+    let app = spawn_presence_app(
+        &page_id,
+        &user_did,
+        "test_user",
+        scribe_ref.clone(),
+        Arc::new(RealClock),
+    )?;
 
     // Wait for initial write
     sleep(Duration::from_secs(1)).await;
@@ -234,5 +289,76 @@ async fn test_presence_heartbeat_fast() -> Result<()> {
     app.shutdown().await;
     s.shutdown().await;
 
+    Ok(())
+}
+
+/// Manual clock test — advance time without sleeping real seconds.
+#[tokio::test]
+async fn test_presence_heartbeat_manual_clock_advance() -> Result<()> {
+    init_tracing();
+
+    let mut s = Scenario::builder()
+        .app("osvauld-demos")
+        .published()
+        .build()
+        .await?;
+
+    let page_id = s.space().page_id.clone();
+    let owner_info = s.owner().butler.user_info().await?;
+    let user_did = owner_info.did.clone();
+
+    let scribe_ref = s.owner().butler.open_page(&page_id).await?;
+    let manual_clock = Arc::new(ManualClock::new(1_740_009_600)); // 2025-02-20T00:00:00Z
+
+    let app = spawn_presence_app(
+        &page_id,
+        &user_did,
+        "sim_user",
+        scribe_ref.clone(),
+        manual_clock.clone(),
+    )?;
+
+    let presence_layer = format!("{}/presence", page_id);
+    let initial = wait_for_presence_entry(
+        &scribe_ref,
+        &presence_layer,
+        &user_did,
+        Duration::from_secs(2),
+    )
+    .await?;
+    let initial_last_seen = initial
+        .get(&user_did)
+        .and_then(|v| v.get("last_seen"))
+        .and_then(|v| v.as_i64())
+        .expect("Should have initial last_seen");
+
+    assert_eq!(initial_last_seen, manual_clock.now_unix());
+
+    // Jump forward in simulated time; heartbeat interval is 2s.
+    manual_clock.advance(Duration::from_secs(5));
+    sleep(Duration::from_millis(150)).await;
+
+    let updated = query_presence(&scribe_ref, &presence_layer).await?;
+    let updated_last_seen = updated
+        .get(&user_did)
+        .and_then(|v| v.get("last_seen"))
+        .and_then(|v| v.as_i64())
+        .expect("Should have updated last_seen");
+
+    assert!(
+        updated_last_seen >= initial_last_seen + 2,
+        "Heartbeat should fire after simulated time advance: {} -> {}",
+        initial_last_seen,
+        updated_last_seen
+    );
+
+    assert_eq!(
+        count_online_with_now(&updated, 10, manual_clock.now_unix()),
+        1,
+        "User should remain online after simulated heartbeat"
+    );
+
+    app.shutdown().await;
+    s.shutdown().await;
     Ok(())
 }

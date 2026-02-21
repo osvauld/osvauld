@@ -10,159 +10,34 @@ An osvauld app is a Lua program that runs inside a P2P-synced environment. Apps 
 - **Loro CRDTs** for automatic multi-peer data sync
 - **UCAN permits** for capability-based authorization
 
-## Two Approaches
+## App Package Structure (Current)
 
-### Traditional: manifest.json + app files
-
-Each role gets its own directory with manifest, UI, and logic:
+`app.osv` is now the declaration source of truth for app policy and role/layer definitions.
 
 ```
 my-app/
-├── shared/                  # Shared library (validation, derivation)
+├── app.osv                  # Roles, layers, grants, UI app declarations
+├── shared/
 │   ├── manifest.json
 │   ├── validation.lua       # Business rules (runs on node)
 │   └── init.lua             # Derivation registration (runs on node)
-├── shop-owner/              # Owner role app
+├── shop-owner/
 │   ├── manifest.json
 │   ├── app.slint
 │   └── app.lua
-├── shop-customer/           # Customer role app
-│   ├── manifest.json
-│   ├── app.slint
-│   └── app.lua
-└── permit_template.json     # Page-level permits
-```
-
-### page.lua DSL
-
-A single `page.lua` defines roles, layers, and apps declaratively:
-
-```
-my-app/
-├── page.lua                 # THE source of truth
-├── owner-app/
-│   ├── app.slint
-│   └── app.lua
-└── viewer-app/
+└── shop-customer/
+    ├── manifest.json
     ├── app.slint
     └── app.lua
 ```
 
-## page.lua Reference
+See `docs/app-dev/APP_OSV_GRAMMAR.md` for the full grammar and semantic rules.
 
-### `page(name, version)`
+## Removed and Deprecated
 
-Defines page metadata. Must be called first.
-
-```lua
-page("My Shop", "1.0.0")
-```
-
-### `role(name, options)`
-
-Defines a role with capabilities.
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `parent` | string | nil | Parent role for inheritance |
-| `can_share` | bool | false | Can share page with others |
-| `can_delegate` | bool | false | Can delegate permits |
-| `can_relay` | bool | false | Can relay data (nodes only) |
-
-```lua
-role("owner", { can_share = true, can_delegate = true })
-role("customer", { parent = "owner" })
-role("node", { parent = "owner", can_relay = true })
-```
-
-### `layer(pattern, type, options)`
-
-Defines a data layer with access control.
-
-- `pattern`: Layer name or pattern (e.g., `"products"`, `"orders/{aud}"`)
-- `type`: `"list"` (LoroList) or `"map"` (LoroMap)
-- `options`: Table with role permissions
-
-Permissions: `read`, `write`, `sync`, `create`
-
-```lua
--- Simple static layer
-layer("products", "list", {
-    owner = {"read", "write", "sync"},
-    customer = {"read", "sync"}
-})
-
--- Dynamic per-user layer
-layer("orders/{aud}", "list", {
-    owner = {"read", "sync"},
-    ["{aud}"] = {"read", "write", "sync"}
-})
-
--- Local-only layer (no sync)
-layer("drafts", "map", {
-    owner = {"read", "write"},
-    customer = {"read", "write", "create"}
-})
-
--- Layer with inline validation
-layer("orders/{aud}", "list", {
-    owner = {"read", "sync"},
-    ["{aud}"] = {"read", "write", "sync"},
-    validate = function(ops, ctx)
-        for _, op in ipairs(ops) do
-            if op.op == "insert" and op.value.status ~= "pending" then
-                return false, "Orders must start as pending"
-            end
-        end
-        return true, nil
-    end
-})
-
--- Derived layer
-layer("derived/summary", "map", {
-    owner = {"read", "sync"},
-    node = {"write"},
-    derive_from = "orders/*",
-    transform = function(source, item)
-        return { id = item.id, total = item.total }
-    end
-})
-```
-
-### `app(name, options)`
-
-Defines an application for a role.
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `client` | table | Client (UI) definition |
-| `node` | table | Node (headless) definition |
-| `for_role` | string/array | Role(s) that can use this app |
-
-**Client options**: `ui` (path to .slint), `logic` (path to .lua), `models` (array)
-
-**Node options**: `logic` (path to .lua)
-
-```lua
--- Client-only app
-app("Customer View", {
-    client = { ui = "customer/app.slint", logic = "customer/app.lua" },
-    for_role = "customer"
-})
-
--- App with node logic (for derivation)
-app("Shop Owner", {
-    client = { ui = "owner/app.slint", logic = "owner/app.lua" },
-    node = { logic = "owner/node.lua" },
-    for_role = "owner"
-})
-
--- App for multiple roles
-app("Shared Dashboard", {
-    client = { ui = "dashboard/app.slint", logic = "dashboard/app.lua" },
-    for_role = {"owner", "admin"}
-})
-```
+- The old `page.lua` declaration DSL has been removed from the active app-authoring path.
+- Policy artifact structs that mirrored template JSON have been removed from compiler output in favor of typed policy facts.
+- `permit_template.json` and `space_permit_template.json` are legacy compatibility inputs in some runtime/import paths and are being phased out.
 
 ### In-Page Navigation
 
@@ -176,7 +51,7 @@ function on_click(target)
 end
 ```
 
-The name must match the target app's `"name"` in its `manifest.json` (or the name passed to `app()` in page.lua). Navigation only works between apps in the same page. See [LUA_API.md](LUA_API.md#page-navigation) for details.
+The name must match the target app's `"name"` in its `manifest.json` (or the `ui_app` declaration in `app.osv`). Navigation only works between apps in the same page. See [LUA_API.md](LUA_API.md#page-navigation) for details.
 
 ## App Lifecycle
 
@@ -244,7 +119,8 @@ python scripts/run_demo.py guide
 - [MANIFEST.md](MANIFEST.md) -- manifest.json field reference
 - [LUA_API.md](LUA_API.md) -- Complete Lua API reference
 - [RENDERERS.md](RENDERERS.md) -- Slint and Raylib renderer details
-- [PERMITS.md](PERMITS.md) -- permit_template.json and role hierarchy
+- [APP_OSV_GRAMMAR.md](APP_OSV_GRAMMAR.md) -- app.osv grammar and compiler output
+- [PERMITS.md](PERMITS.md) -- UCAN permits and typed policy facts
 - [VALIDATION.md](VALIDATION.md) -- validation.lua patterns
 - [DERIVATION.md](DERIVATION.md) -- Derived layers and node logic
 - [TESTING.md](TESTING.md) -- Control server API and test scripts

@@ -17,12 +17,14 @@ use tracing::{debug, error, info, instrument, warn};
 use domains::Layer;
 
 use super::broadcast::{broadcast_update, notify_layer_discovered};
+use super::sync_meta;
 use crate::layer_unit::LayerUnit;
 use crate::loro_observer::{
     clear_pending_update_source, set_pending_update_source, setup_layer_observer,
 };
 use crate::message::SyncEvent;
 use crate::permit::Permissions;
+use crate::policy_compat;
 use crate::state::normalize_layer_name;
 use crate::state::ScribeState;
 use crate::JsonOp;
@@ -172,7 +174,6 @@ pub async fn handle_apply_update(
             // Instead of doing fanout directly, emit SyncEvent::SubscribeLayers
             // so the node sends LayerSubscribe to the creator to get authority.
             if ctx.is_remote {
-                use super::sync_meta;
                 if sync_meta::is_sync_meta_layer(&layer_name) {
                     if let Some(creator_did) = sync_meta::extract_peer_did(&layer_name) {
                         let creator_did = creator_did.to_string();
@@ -366,23 +367,34 @@ fn create_layer_from_peer(state: &mut ScribeState, layer_name: &str) {
     let layer_name = layer_name.as_str();
     let mut unit = LayerUnit::new_empty();
     unit.set_local_only(!state.should_sync_layer(layer_name));
+    let is_dynamic = state
+        .our_permit
+        .as_ref()
+        .and_then(|permit| {
+            crate::layer_unit::find_matching_dynamic_schema(permit, layer_name, &state.page_id)
+        })
+        .is_some();
+    unit.is_dynamic = is_dynamic;
     unit.mark_dirty();
     state.units.insert(layer_name.to_string(), unit);
     info!(layer = %layer_name, "Created new layer from peer sync");
 
-    // Add existing subscribers to this new layer
-    if let Ok(subs) = state.subscribers.read() {
-        for ((did, device_id), info) in subs.iter() {
-            if info.can_receive_layer(layer_name, &state.page_id) {
-                if let Some(unit) = state.units.get(layer_name) {
-                    let can_write = info.can_write_layer(layer_name, &state.page_id);
-                    unit.add_subscriber(
-                        did.clone(),
-                        device_id.clone(),
-                        can_write,
-                        info.broadcast_tx.clone(),
-                    );
-                    state.emit_layer_auth_capture(layer_name, did, "subscriber_added_from_peer");
+    // Add existing subscribers only for static layers.
+    // Dynamic layers are access-controlled via __sync_meta + LayerSubscribe permit issuance.
+    if !is_dynamic {
+        if let Ok(subs) = state.subscribers.read() {
+            for ((did, device_id), info) in subs.iter() {
+                if info.can_receive_layer(layer_name, &state.page_id) {
+                    if let Some(unit) = state.units.get(layer_name) {
+                        let can_write = info.can_write_layer(layer_name, &state.page_id);
+                        unit.add_subscriber(
+                            did.clone(),
+                            device_id.clone(),
+                            can_write,
+                            info.broadcast_tx.clone(),
+                        );
+                        state.emit_layer_auth_capture(layer_name, did, "subscriber_added_from_peer");
+                    }
                 }
             }
         }
@@ -540,13 +552,14 @@ fn get_peer_role_uncached(state: &ScribeState, peer_did: &str) -> String {
         }
     }
 
-    // Node mode: look up peer's stored permit and extract role via gurkha::Permit
+    // Node mode: look up peer's stored permit and extract role via gurkha::PolicyPermit
     if let Some(ref resolver) = state.peer_resolver {
         if let Some(permit_token) = resolver.load_user_permit(peer_did) {
-            let role = gurkha::Permit::from_token(&permit_token)
-                .map(|permit| permit.relationship().unwrap_or("peer").to_string())
-                .unwrap_or_else(|_| "peer".to_string());
-            debug!(peer_did = %peer_did, role = %role, "Got peer role from stored permit via gurkha::Permit");
+            let role = gurkha::PolicyPermit::from_token(&permit_token)
+                .ok()
+                .and_then(|permit| policy_compat::relationship(&permit))
+                .unwrap_or_else(|| "peer".to_string());
+            debug!(peer_did = %peer_did, role = %role, "Got peer role from stored permit via gurkha::PolicyPermit");
             return role;
         }
     }

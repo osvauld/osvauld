@@ -23,13 +23,16 @@ pub struct NodeRuntimeManager {
     butler: Arc<Butler>,
     /// Running node instances by page_id
     instances: RwLock<HashMap<String, NodeInstance>>,
+    /// Clock source for runtime time control
+    clock: Arc<dyn domains::ClockSource>,
 }
 
 impl NodeRuntimeManager {
-    pub fn new(butler: Arc<Butler>) -> Self {
+    pub fn new(butler: Arc<Butler>, clock: Arc<dyn domains::ClockSource>) -> Self {
         Self {
             butler,
             instances: RwLock::new(HashMap::new()),
+            clock,
         }
     }
 
@@ -122,6 +125,7 @@ impl NodeRuntimeManager {
                 ui_tx: None,
                 query_tx: None,
                 navigate_tx: None,
+                clock: self.clock.clone(),
             })?;
 
             // Trigger derivation rebuild if init.lua was loaded
@@ -143,12 +147,20 @@ impl NodeRuntimeManager {
             tokio::spawn(async move {
                 while let Some(update) = page_update_rx.recv().await {
                     match update {
-                        PageUpdate::LayerChanged { layer, full_data, delta, created, .. } => {
+                        PageUpdate::LayerChanged {
+                            layer,
+                            full_data,
+                            delta,
+                            created,
+                            dynamic_ref,
+                            ..
+                        } => {
                             let _ = bridge_cmd_tx.send(LuaCommand::LayerChanged {
                                 layer_name: layer,
                                 created,
                                 delta,
                                 full_data,
+                                dynamic_ref,
                             }).await;
                         }
                         PageUpdate::Ephemeral { user_did, payload, .. } => {
@@ -215,6 +227,12 @@ impl NodeRuntimeManager {
         }
 
         Ok(())
+    }
+
+    /// Get command channel for a running node script (for test-time controls)
+    pub async fn get_cmd_tx(&self, page_id: &str) -> Option<mpsc::Sender<LuaCommand>> {
+        let instances = self.instances.read().await;
+        instances.get(page_id).map(|inst| inst.cmd_tx.clone())
     }
 
     /// Stop all running node scripts

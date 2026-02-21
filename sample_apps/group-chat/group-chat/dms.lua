@@ -145,6 +145,12 @@ function M.open_dm(other_did, other_name)
     local dm_id = make_dm_id(my_did, other_did)
     local existing = dm_entries[dm_id]
     if existing then
+        existing.participants = existing.participants or { my_did, other_did }
+        existing.participant_names = existing.participant_names or {}
+        existing.participant_names[my_did] = existing.participant_names[my_did] or my_name
+        if other_name and other_name ~= "" then
+            existing.participant_names[other_did] = other_name
+        end
         M.switch_dm(dm_id)
         return true
     end

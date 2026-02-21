@@ -9,6 +9,7 @@ local M = {}
 local page_id = nil
 local my_did = nil
 local active_channel = "general"
+local active_period = nil
 
 -- Current channel's messages layer (LoroMap)
 local messages_layer = nil
@@ -41,31 +42,99 @@ local function is_default_channel(channel_id)
     return false
 end
 
--- Get the layer path for a channel.
--- Default channels: simple static path (e.g., "channels/general/messages")
--- Custom channels: DID-namespaced path from known_channels
+local function current_period()
+    if clock and clock.day then
+        return clock:day()
+    end
+    return os.date("!%Y-%m-%d")
+end
+
+local function channel_shard_layer_path(channel_id, period)
+    return "channels/" .. channel_id .. "/messages/" .. period
+end
+
+local function channel_wildcard_layer_path(channel_id)
+    return "channels/" .. channel_id .. "/messages/*"
+end
+
+local function ensure_channel_shard(channel_id, period)
+    local expected_path = channel_shard_layer_path(channel_id, period)
+    local existing = scribe:list_layers(expected_path)
+    if existing and #existing > 0 then
+        return existing[1]
+    end
+
+    local ok, result = pcall(function()
+        return scribe:create_layer("channels/{channel}/messages/{period}", {
+            channel = channel_id,
+            period = period,
+        })
+    end)
+
+    if ok and result and result.layer_name then
+        local prefix = page_id .. "/"
+        if result.layer_name:sub(1, #prefix) == prefix then
+            return result.layer_name:sub(#prefix + 1)
+        end
+        return result.layer_name
+    end
+
+    return expected_path
+end
+
+-- Get the binding layer pattern for a channel.
 local function get_channel_layer_path(channel_id)
-    if is_default_channel(channel_id) then
-        return "channels/" .. channel_id .. "/messages"
-    end
-    local ch = known_channels[channel_id]
-    if ch and ch.layer_path then
-        return ch.layer_path
-    end
-    -- Fallback for unknown channels
-    return "channels/" .. channel_id .. "/messages"
+    return channel_wildcard_layer_path(channel_id)
 end
 
 -- Extract channel id from a dynamic layer path.
--- Pattern: "channels/{creator_did}/{channel_id}/messages" → channel_id
+-- Pattern: "channels/{channel_id}/messages/{period}" → channel_id
 -- Returns channel_id or nil if not a channel layer
 local function parse_channel_layer_path(layer_path)
-    -- Match: channels/<did>/<id>/messages
-    local did, channel_id = layer_path:match("^channels/([^/]+)/([^/]+)/messages$")
-    if did and channel_id then
+    local channel_id, period = layer_path:match("^channels/([^/]+)/messages/([^/]+)$")
+    if channel_id and period then
         return channel_id, layer_path
     end
+
+    -- Backward compatibility: channels/<did>/<id>/messages
+    local did_compat, channel_id_compat = layer_path:match("^channels/([^/]+)/([^/]+)/messages$")
+    if did_compat and channel_id_compat then
+        return channel_id_compat, layer_path
+    end
+
+    -- Backward compatibility: channels/<id>/messages
+    local legacy_id = layer_path:match("^channels/([^/]+)/messages$")
+    if legacy_id then
+        return legacy_id, layer_path
+    end
+
     return nil, nil
+end
+
+local function current_channel_layer(channel_id)
+    local period = current_period()
+    local layer_path = ensure_channel_shard(channel_id, period)
+    return layer_path, period
+end
+
+local function refresh_active_layer()
+    local layer_path, period = current_channel_layer(active_channel)
+    active_period = period
+    messages_layer = scribe:map(page_id .. "/" .. layer_path)
+    return layer_path
+end
+
+local function ensure_known_channel(channel_id)
+    if known_channels[channel_id] then
+        return
+    end
+
+    known_channels[channel_id] = {
+        id = channel_id,
+        name = channel_id,
+        topic = "",
+        layer_path = channel_wildcard_layer_path(channel_id),
+    }
 end
 
 function M.init(pid, did, name, callback, tracker)
@@ -80,7 +149,7 @@ function M.init(pid, did, name, callback, tracker)
             id = ch.id,
             name = ch.name,
             topic = ch.topic,
-            layer_path = "channels/" .. ch.id .. "/messages",
+            layer_path = channel_wildcard_layer_path(ch.id),
         }
     end
 
@@ -95,7 +164,8 @@ function M.refresh_channel_list()
         local unread = 0
         local has_mention = false
         if read_tracker then
-            local ch_layer_path = get_channel_layer_path(ch_id)
+            local period = current_period()
+            local ch_layer_path = channel_shard_layer_path(ch_id, period)
             local ch_msgs_layer = scribe:map(page_id .. "/" .. ch_layer_path)
             unread, has_mention = read_tracker.count_unread(ch_id, ch_msgs_layer)
         end
@@ -123,11 +193,9 @@ end
 function M.switch_channel(channel_id)
     active_channel = channel_id
 
-    local layer_path = get_channel_layer_path(channel_id)
-    active_layer_path = layer_path
-
-    -- Get messages layer using the full path
-    messages_layer = scribe:map(page_id .. "/" .. layer_path)
+    ensure_known_channel(channel_id)
+    refresh_active_layer()
+    active_layer_path = channel_wildcard_layer_path(channel_id)
 
     -- Mark as read immediately on switch
     if read_tracker then
@@ -142,9 +210,9 @@ function M.switch_channel(channel_id)
     -- Refresh channel list (to update active state)
     M.refresh_channel_list()
 
-    -- Notify parent with layer_path (for binding/rebinding)
+    -- Notify parent with wildcard pattern (for binding/rebinding)
     if on_channel_switch then
-        on_channel_switch(channel_id, layer_path)
+        on_channel_switch(channel_id, active_layer_path)
     end
 end
 
@@ -161,19 +229,19 @@ function M.create_channel(name)
         return
     end
 
-    -- Custom channels use create_layer() for DID-namespaced dynamic path
-    print("[channels] create_channel: calling scribe:create_layer for id=" .. id)
+    local period = current_period()
     local ok, result = pcall(function()
-        return scribe:create_layer("channels/{id}/messages", id)
+        return scribe:create_layer("channels/{channel}/messages/{period}", {
+            channel = id,
+            period = period,
+        })
     end)
     if not ok then
         print("[channels] create_layer FAILED: " .. tostring(result))
-        return
     end
-    print("[channels] create_layer result: " .. tostring(result and result.layer_name))
-    local layer_path = nil
-    if result and result.layer_name then
-        -- Strip page_id/ prefix to get bare path
+
+    local layer_path = channel_shard_layer_path(id, period)
+    if ok and result and result.layer_name then
         local prefix = page_id .. "/"
         if result.layer_name:sub(1, #prefix) == prefix then
             layer_path = result.layer_name:sub(#prefix + 1)
@@ -187,7 +255,7 @@ function M.create_channel(name)
         id = id,
         name = id,
         topic = "",
-        layer_path = layer_path,
+        layer_path = channel_wildcard_layer_path(id),
     }
 
     M.refresh_channel_list()
@@ -204,7 +272,7 @@ function M.on_layer_discovered(layer_name)
         bare_path = layer_name:sub(#prefix + 1)
     end
 
-    local channel_id, layer_path = parse_channel_layer_path(bare_path)
+    local channel_id, _layer_path = parse_channel_layer_path(bare_path)
     if not channel_id then return false end
 
     -- Skip if already known (default channels or own creation)
@@ -214,7 +282,7 @@ function M.on_layer_discovered(layer_name)
         id = channel_id,
         name = channel_id,
         topic = "",
-        layer_path = layer_path,
+        layer_path = channel_wildcard_layer_path(channel_id),
     }
 
     M.refresh_channel_list()
@@ -230,7 +298,27 @@ function M.get_active_layer_path()
 end
 
 function M.get_messages_layer()
+    local period = current_period()
+    if not messages_layer or period ~= active_period then
+        refresh_active_layer()
+    end
     return messages_layer
+end
+
+function M.get_total_message_count(channel_id)
+    local target = channel_id or active_channel
+    local pattern = channel_wildcard_layer_path(target)
+    local layers = scribe:list_layers(pattern)
+    if not layers then
+        return 0
+    end
+
+    local total = 0
+    for _, layer_path in ipairs(layers) do
+        local layer = scribe:map(page_id .. "/" .. layer_path)
+        total = total + (layer:length() or 0)
+    end
+    return total
 end
 
 return M

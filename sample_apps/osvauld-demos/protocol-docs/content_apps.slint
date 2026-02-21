@@ -67,8 +67,8 @@ export component ContentApps inherits VerticalLayout {
         }
 
         CodeBlock {
-            label: "page.lua (parent page definition)";
-            code: "-- Define roles\nrole(\"owner\", { can_share = true })\nrole(\"collaborator\", { parent = \"owner\" })\n\n-- Define layers\nlayer(\"messages\", \"map\", {\n  owner = {\"read\", \"write\", \"sync\"},\n  collaborator = {\"read\", \"write\", \"sync\"}\n})\n\n-- Register app\napp(\"My App\", {\n  client = {\n    ui = \"my-app/app.slint\",\n    logic = \"my-app/app.lua\"\n  },\n  for_role = {\"owner\", \"collaborator\"}\n})";
+            label: "app.osv (page declaration)";
+            code: "app \"My App\" version \"0.1.0\" {\n  role owner can share, delegate;\n  role collaborator can manage_access;\n\n  layer messages as map {\n    path \"messages\";\n    namespace shared;\n    allow owner, collaborator to read, write, sync;\n  }\n\n  ui_app \"My App\" {\n    entry \"my-app/app.lua\";\n    allow owner, collaborator;\n  }\n}";
         }
 
         Rectangle { height: 32px; }
@@ -250,8 +250,8 @@ export component ContentApps inherits VerticalLayout {
         }
 
         CodeBlock {
-            label: "page.lua";
-            code: "role(\"owner\", {\n  can_share = true,\n  can_delegate = true\n})\n\nrole(\"collaborator\", {\n  parent = \"owner\"  -- inherits from owner\n})\n\nrole(\"node\", {\n  parent = \"owner\",\n  can_relay = true\n})";
+            label: "app.osv";
+            code: "role owner can share, delegate, manage_access;\nrole collaborator can manage_access;\nrole node can relay, share, accept_publish, manage_access;";
         }
 
         Text {
@@ -263,7 +263,7 @@ export component ContentApps inherits VerticalLayout {
 
         CodeBlock {
             label: "Per-role layer access";
-            code: "layer(\"messages\", \"map\", {\n  owner =        {\"read\", \"write\", \"sync\"},\n  collaborator = {\"read\", \"write\", \"sync\"},\n  node =         {\"read\", \"write\", \"sync\"}\n})\n\n-- Dynamic layers with create permission\nlayer(\"channels/{channel_id}/messages\", \"map\", {\n  owner =        {\"read\", \"write\", \"sync\"},\n  collaborator = {\"read\", \"write\", \"sync\"},\n  node =         {\"read\", \"write\", \"sync\", \"create\"}\n})";
+            code: "layer messages as map {\n  path \"messages\";\n  namespace shared;\n  allow owner, collaborator, node to read, write, sync;\n}\n\nlayer channel_messages as map {\n  path \"channels/{channel_id}/messages\";\n  namespace shared;\n  allow owner, collaborator, node to read, write, sync;\n}";
         }
 
         Text {
@@ -353,8 +353,8 @@ export component ContentApps inherits VerticalLayout {
         }
 
         CodeBlock {
-            label: "Validation in page.lua";
-            code: "layer(\"channels/{id}/messages\", \"map\", {\n  owner = {\"read\", \"write\", \"sync\"},\n  collaborator = {\"read\", \"write\", \"sync\"},\n  node = {\"read\", \"write\", \"sync\", \"create\"},\n\n  validate = function(ops, ctx)\n    for _, op in ipairs(ops) do\n      -- Only sender can edit their own messages\n      if op.op == \"update\" and op.old_value then\n        if op.value.text ~= op.old_value.text\n           and ctx.from_did ~= op.old_value.sender_did\n        then\n          return false, \"Only sender can edit\"\n        end\n      end\n    end\n    return true, nil\n  end\n})";
+            label: "Validation in shared/validation.lua";
+            code: "function validate_ops(layer_name, ops, from_did, role, page_id)\n  if layer_name ~= \"channels/general/messages\" then\n    return true, nil\n  end\n\n  for _, op in ipairs(ops) do\n    if op.op == \"update\" and op.old_value then\n      if op.value.text ~= op.old_value.text\n         and from_did ~= op.old_value.sender_did\n      then\n        return false, \"Only sender can edit\"\n      end\n    end\n  end\n\n  return true, nil\nend";
         }
 
         InfoCard {

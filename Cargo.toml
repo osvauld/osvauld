@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
+  "policy_model",
+  "osv_decl",
   "domains",
   "scribe",
   "gurkha",

@@ -57,7 +57,11 @@ function on_init()
         if not messages_bound then
             scribe:bind("messages", layer_path, {
                 key = "id",
-                transform = function(msg)
+                transform = function(layer_name_or_msg, maybe_msg)
+                    local msg = maybe_msg or layer_name_or_msg
+                    if type(msg) ~= "table" then
+                        return nil
+                    end
                     if not msg then
                         return nil
                     end
@@ -544,9 +548,7 @@ api.export("create_channel", function(name) channels.create_channel(name) end)
 api.export("switch_channel", function(id) channels.switch_channel(id) end)
 api.export("get_active_channel", function() return channels.get_active_channel() end)
 api.export("get_message_count", function()
-    local layer = channels.get_messages_layer()
-    if not layer then return 0 end
-    return layer:length()
+    return channels.get_total_message_count()
 end)
 
 -- DM API exports

@@ -42,6 +42,10 @@ struct Args {
     /// Unix socket path for debug/control server (enables programmatic control)
     #[arg(long)]
     debug_socket: Option<String>,
+
+    /// Enable test mode (use ManualClock for deterministic time control)
+    #[arg(long)]
+    test_mode: bool,
 }
 
 fn main() {
@@ -81,6 +85,18 @@ fn main() {
     .expect("Failed to initialize logging");
 
     tracing::info!("Sthalam starting...");
+
+    // Create clock (ManualClock if test mode, RealClock otherwise)
+    let clock: Arc<dyn domains::ClockSource> = if args.test_mode {
+        let unix_now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("System time before UNIX epoch")
+            .as_secs() as i64;
+        tracing::info!(unix_now, "Test mode enabled: using ManualClock");
+        Arc::new(domains::ManualClock::new(unix_now))
+    } else {
+        Arc::new(domains::RealClock)
+    };
 
     // Create tokio runtime for async operations
     let tokio_rt = tokio::runtime::Builder::new_multi_thread()
@@ -218,8 +234,8 @@ fn main() {
                             // Auto-reconnect to stored sovereign nodes
                             spawn_auto_reconnect(butler.clone(), handle.clone());
 
-                            // Spawn event listener
-                            events::spawn_event_listener(event_rx, shell_weak, butler);
+                            // Spawn event listener (with handle for auto-reconnect on disconnect)
+                            events::spawn_event_listener(event_rx, shell_weak, butler, handle.clone());
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "Failed to initialize P2P");
@@ -355,6 +371,7 @@ fn main() {
         let tokio_handle = tokio_handle.clone();
         let app_status = app_status.clone();
         let debug_server = debug_server.clone();
+        let clock = clock.clone();
 
         let timer = slint::Timer::default();
         timer.start(
@@ -376,6 +393,7 @@ fn main() {
                             butler.clone(),
                             tokio_handle.clone(),
                             app_status.clone(),
+                            clock.clone(),
                         )
                     }));
 

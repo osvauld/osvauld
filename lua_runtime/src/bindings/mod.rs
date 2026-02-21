@@ -16,6 +16,7 @@
 
 // Core bindings
 pub(crate) mod binding;
+pub(crate) mod clock;
 pub(crate) mod convert;
 pub(crate) mod derivation;
 pub(crate) mod emoji;

@@ -1,0 +1,9 @@
+[package]
+name = "policy_model"
+version = "0.1.0"
+edition = "2021"
+description = "Shared typed policy model for app.osv compilation and authorization"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

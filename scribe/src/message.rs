@@ -87,6 +87,14 @@ pub enum ListOp {
     Delete { count: usize },
 }
 
+/// Parsed dynamic-layer metadata propagated to Lua/UI callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DynamicLayerMeta {
+    pub schema_key: String,
+    pub creator_did: Option<String>,
+    pub placeholders: HashMap<String, String>,
+}
+
 // Unified Page Update Channel (Replaces PageEvent + EphemeralEvent + QueryDelta)
 
 /// Unified update enum for all page events
@@ -110,6 +118,8 @@ pub enum PageUpdate {
         full_data: Option<serde_json::Value>,
         /// True if this is a newly created layer (first time seeing it)
         created: bool,
+        /// Parsed metadata when layer matches a dynamic schema.
+        dynamic_ref: Option<DynamicLayerMeta>,
     },
 
     /// Ephemeral data from remote peer (cursor, typing, etc.)
@@ -490,8 +500,13 @@ pub enum ScribeMessage {
     CreateDynamicLayer {
         /// Schema key from dynamic_layer_schemas, e.g. "channels/{id}/messages"
         schema_key: String,
-        /// User-chosen ID that fills the {id} in the schema, e.g. "general"
-        layer_id: String,
+        /// Placeholder values for schema variables.
+        ///
+        /// Example:
+        /// - schema `channels/{id}/messages` -> `{ "id": "general" }`
+        /// - schema `channels/{channel}/messages/{period}` ->
+        ///   `{ "channel": "general", "period": "2025-02" }`
+        placeholders: std::collections::HashMap<String, String>,
         /// Optional list of authorized peers (for explicit-grant layers like DMs)
         /// None = open/role-based, Some = only listed DIDs get access
         authorized_peers: Option<Vec<String>>,

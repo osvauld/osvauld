@@ -11,6 +11,10 @@ Osvauld is a layered P2P platform built on QUIC (via iroh) with capability-based
 │  Application Layer                                               │
 │  Lua apps, Slint/Raylib renderers, business logic               │
 ├─────────────────────────────────────────────────────────────────┤
+│  Policy Declaration + Typed Model                                │
+│  - osv_decl compiles app.osv                                     │
+│  - policy_model defines shared typed policy contracts            │
+├─────────────────────────────────────────────────────────────────┤
 │  Domains (Shared Types)                                          │
 │  - Shared domain types across crates                             │
 ├─────────────────────────────────────────────────────────────────┤
@@ -68,7 +72,7 @@ Osvauld is a layered P2P platform built on QUIC (via iroh) with capability-based
 
 ### Gurkha (Authorization)
 
-**Purpose**: Parse and validate UCAN permits, extract capabilities.
+**Purpose**: Parse and validate UCAN permits, extract capabilities, and evaluate typed policy facts.
 
 **Public Types**:
 - `Permit`: Parsed UCAN token with extracted capabilities
@@ -84,6 +88,34 @@ Osvauld is a layered P2P platform built on QUIC (via iroh) with capability-based
 **Dependencies**: Herald (for signature verification)
 
 **Boundary Rule**: Gurkha only parses and validates. It doesn't store permits or make protocol decisions.
+
+---
+
+### policy_model (Shared Typed Policy Contract)
+
+**Purpose**: Canonical typed policy schema shared between compilation and authorization.
+
+**Public Types**:
+- `PolicyFacts`, `PolicyRule`, `DelegationRule`
+- `DynamicLayerSchema`, `ResourceSelector`, `Subject`, `Action`
+
+**Dependencies**: serde only
+
+**Boundary Rule**: Pure data model crate. No runtime, storage, or transport logic.
+
+---
+
+### osv_decl (app.osv Compiler)
+
+**Purpose**: Parse/lower `app.osv` declarations into runtime artifacts and typed policy facts.
+
+**Operations**:
+- `compile_source(...)` / lowering pipeline
+- Emit `permit.osv_policy` as typed `PolicyFacts`
+
+**Dependencies**: policy_model, serde
+
+**Boundary Rule**: Compile-time declaration processing only; no permit issuance/network I/O.
 
 ---
 

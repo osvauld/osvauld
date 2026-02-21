@@ -98,4 +98,4 @@ Legacy per-crate manifest structs have been removed (renderer_raylib::GameManife
 - **`models` is Slint-only** -- pre-declares VecModels for incremental updates. VecModels can also be created lazily via `ui:set()`, so this field is optional
 - **Raylib requires `--features raylib`** compile flag when building sthalam
 - **`entry_node`** is for the node runtime (kunki) -- used for derivation, validation, and server-side game loops
-- **New apps need an `"app:App Name"` layer** in permit_template.json for all roles (see [PERMITS.md](PERMITS.md))
+- **New apps need an `"app:App Name"` layer** in app policy declarations (`app.osv`, or legacy templates during migration) for all roles (see [PERMITS.md](PERMITS.md))

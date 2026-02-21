@@ -109,6 +109,7 @@ pub fn notify_layer_discovered(state: &ScribeState, layer_name: &str) {
         state_vector: state_vector.clone(),
         full_data: Some(full_data.clone()),
         created: true,
+        dynamic_ref: state.dynamic_ref_for_layer(layer_name),
     };
     state.emit_page_update_capture(&update);
     if let Ok(subs) = state.page_update_subscribers.read() {

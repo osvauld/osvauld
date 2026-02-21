@@ -6,7 +6,7 @@ import { NodeInfo } from "../types.slint";
 // Modal Dialog for creating a space
 export component CreateSpaceModal {
     in-out property<string> space-name: "";
-    in-out property<string> template-path: "";  // App folder path with space_permit_template.json
+    in-out property<string> template-path: "";  // App folder path with app.osv
     in property<bool> show;
 
     callback create(string, string);  // name, template_path

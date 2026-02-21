@@ -7,6 +7,7 @@
 use tracing::{debug, info, instrument, warn};
 
 use crate::message::{EphemeralOutbound, PageUpdate};
+use crate::policy_compat;
 use crate::state::ScribeState;
 
 // Remote Ephemeral Routing
@@ -202,7 +203,7 @@ pub fn handle_send_structured_ephemeral(
     let ephemeral_funcs = state
         .our_permit
         .as_ref()
-        .map(|p| p.ephemeral_funcs().to_vec())
+        .map(policy_compat::ephemeral_funcs)
         .unwrap_or_default();
     debug!(
         page_id = %state.page_id,
@@ -218,7 +219,7 @@ pub fn handle_send_structured_ephemeral(
     let can_send = state
         .our_permit
         .as_ref()
-        .map(|p| p.can_send_ephemeral(func))
+        .map(|p| policy_compat::can_send_ephemeral(p, func))
         .unwrap_or(true); // No permit = allow (local mode)
 
     if !can_send {
@@ -270,7 +271,7 @@ pub fn handle_remote_structured_ephemeral(
         let subs = state.subscribers.read().ok();
         subs.and_then(|s| {
             s.get(&(from_did.to_string(), device_id.to_string()))
-                .map(|info| info.permit.can_send_ephemeral(func))
+                .map(|info| policy_compat::can_send_ephemeral(&info.permit, func))
         })
         .unwrap_or(false) // Unknown sender = reject
     };

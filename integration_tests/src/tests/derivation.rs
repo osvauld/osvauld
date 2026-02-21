@@ -75,6 +75,7 @@ async fn start_node_runtime(
             ui_tx: None,
             query_tx: None,
             navigate_tx: None,
+            clock: std::sync::Arc::new(domains::RealClock),
         }).map_err(|e| anyhow::anyhow!("Failed to spawn LuaRuntime: {}", e))?;
 
         // Trigger initial derivation rebuild (same as kunki)
@@ -93,12 +94,20 @@ async fn start_node_runtime(
         tokio::spawn(async move {
             while let Some(update) = page_update_rx.recv().await {
                 match update {
-                    PageUpdate::LayerChanged { layer, full_data, delta, created, .. } => {
+                    PageUpdate::LayerChanged {
+                        layer,
+                        full_data,
+                        delta,
+                        created,
+                        dynamic_ref,
+                        ..
+                    } => {
                         let _ = bridge_cmd_tx.send(LuaCommand::LayerChanged {
                             layer_name: layer,
                             created,
                             delta,
                             full_data,
+                            dynamic_ref,
                         }).await;
                     }
                     _ => {}

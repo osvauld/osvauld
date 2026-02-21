@@ -25,6 +25,13 @@ function M.init(did, name)
     my_name = name
 end
 
+local function now_unix()
+    if clock and clock.count then
+        return clock:count()
+    end
+    return os.time()
+end
+
 -- Transform raw LoroMap message data to UI format
 -- Filters to top-level only, sorts by timestamp
 function M.transform_messages(messages_layer)
@@ -107,7 +114,7 @@ function M.send(messages_layer, text, reply_to_id, reply_preview)
         sender_did = my_did,
         sender_name = my_name,
         text = text,
-        timestamp = os.time(),
+        timestamp = now_unix(),
         deleted = false,
         edited = false,
         thread_parent_id = "",
@@ -133,7 +140,7 @@ function M.send_with_attachment(messages_layer, text, hash, filename)
         sender_did = my_did,
         sender_name = my_name,
         text = text or "",
-        timestamp = os.time(),
+        timestamp = now_unix(),
         deleted = false,
         edited = false,
         thread_parent_id = "",

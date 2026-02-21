@@ -125,34 +125,43 @@ pub async fn issue_space_viewer_auth(
     Ok((token, cid))
 }
 
-/// Issue page owner token
+/// Issue page owner token from typed policy
 ///
-/// Creates a self-signed permit for the page owner with full permissions.
-/// Facts-only approach - all permissions stored in token facts.
+/// Creates a self-signed permit for the page owner with full permissions,
+/// constructed directly from compiled `PolicyFacts` without an intermediate
+/// JSON template round-trip.
+///
+/// **Context**: Called by Butler after compiling `app.osv` to avoid re-serializing
+/// the policy to JSON just to have Gurkha parse it back.
+///
+/// **Produces**: Identical token facts to `issue_page_owner_token` with the
+/// equivalent JSON template, including `layers`, `dynamic_layer_schemas`,
+/// `osv_policy`, and `issue_on` templates (node / viewer / layer_authority).
 ///
 /// # Arguments
 /// * `signing_key_bytes` - 32-byte Ed25519 secret key
 /// * `page_id` - Page identifier
-/// * `permit_template_json` - JSON template for the permit (PAGE_TEMPLATE)
-#[instrument(skip(signing_key_bytes, permit_template_json), fields(page_id = %page_id, token_type = "page_owner"))]
-pub async fn issue_page_owner_token(
+/// * `policy` - Compiled typed policy from `app.osv`
+/// * `layer_names` - All layer names (data + app) to include in the permit
+#[instrument(skip(signing_key_bytes, policy, layer_names), fields(page_id = %page_id, token_type = "page_owner"))]
+pub async fn issue_page_owner_token_from_policy(
     signing_key_bytes: &[u8; 32],
     page_id: &str,
-    permit_template_json: &str,
+    policy: &policy_model::PolicyFacts,
+    layer_names: &[String],
 ) -> ServiceResult<(String, String)> {
-    trace!("Issuing page owner token");
+    trace!("Issuing page owner token from typed policy");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
 
-    trace!("Parsing page template");
     let decision =
-        decision::decide_page_owner_token(&verifying_key, page_id, permit_template_json)?;
-    trace!("Token decision created");
+        decision::decide_page_owner_token_from_policy(&verifying_key, page_id, policy, layer_names)?;
+    trace!("Token decision created from typed policy");
 
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
 
-    info!("Page owner token generated: cid={}", cid);
+    info!("Page owner token generated from typed policy: cid={}", cid);
     Ok((token, cid))
 }
 
@@ -226,21 +235,17 @@ pub async fn delegate_page(
 /// # Arguments
 /// * `signing_key_bytes` - 32-byte Ed25519 secret key
 /// * `space_id` - Space identifier
-/// * `permit_template_json` - JSON template for the permit
-#[instrument(skip(signing_key_bytes, permit_template_json), fields(space_id = %space_id, token_type = "space_owner"))]
-pub async fn issue_space_owner_token(
+#[instrument(skip(signing_key_bytes), fields(space_id = %space_id, token_type = "space_owner"))]
+pub async fn issue_space_owner_token_from_defaults(
     signing_key_bytes: &[u8; 32],
     space_id: &str,
-    permit_template_json: &str,
 ) -> ServiceResult<(String, String)> {
     trace!("Issuing space owner token");
 
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
 
-    trace!("Parsing space template");
-    let decision =
-        decision::decide_space_owner_token(&verifying_key, space_id, permit_template_json)?;
+    let decision = decision::decide_space_owner_token_from_defaults(&verifying_key, space_id)?;
     trace!("Token decision created");
 
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;

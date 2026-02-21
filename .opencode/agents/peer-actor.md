@@ -1,7 +1,7 @@
 ---
 description: Courier PeerActor specialist -- handshake flows, 3-step sync protocol, publish/subscribe, viewer onboarding, consent, asset transfer
 mode: subagent
-model: anthropic/claude-sonnet-4-5
+model: anthropic/claude-sonnet-4-6
 temperature: 0.2
 ---
 

@@ -217,19 +217,43 @@ impl UserData for ScribeBindings {
                     ))
                 }
             };
-            let layer_id: String = match args_iter.next() {
-                Some(mlua::Value::String(s)) => s
-                    .to_str()
-                    .map_err(|e| LuaError::RuntimeError(e.to_string()))?
-                    .to_string(),
-                _ => {
-                    return Err(LuaError::RuntimeError(
-                        "Expected layer_id string as second argument".to_string(),
-                    ))
-                }
-            };
+            let second_arg = args_iter.next();
+            let (placeholders, used_legacy_id): (std::collections::HashMap<String, String>, bool) =
+                match second_arg {
+                    Some(mlua::Value::String(s)) => {
+                        let layer_id = s
+                            .to_str()
+                            .map_err(|e| LuaError::RuntimeError(e.to_string()))?
+                            .to_string();
+                        let mut map = std::collections::HashMap::new();
+                        map.insert("id".to_string(), layer_id);
+                        (map, true)
+                    }
+                    Some(mlua::Value::Table(t)) => {
+                        let mut map = std::collections::HashMap::new();
+                        for pair in t.pairs::<String, String>() {
+                            let (k, v) = pair.map_err(|e| LuaError::RuntimeError(e.to_string()))?;
+                            map.insert(k, v);
+                        }
+                        if map.is_empty() {
+                            return Err(LuaError::RuntimeError(
+                                "Expected non-empty placeholders table as second argument"
+                                    .to_string(),
+                            ));
+                        }
+                        (map, false)
+                    }
+                    _ => {
+                        return Err(LuaError::RuntimeError(
+                            "Expected layer_id string or placeholders table as second argument"
+                                .to_string(),
+                        ))
+                    }
+                };
+
             // Optional third argument: authorized_peers table
-            let authorized_peers: Option<Vec<String>> = match args_iter.next() {
+            let authorized_arg = args_iter.next();
+            let authorized_peers: Option<Vec<String>> = match authorized_arg {
                 Some(mlua::Value::Table(t)) => {
                     let mut v = Vec::new();
                     for pair in t.sequence_values::<String>() {
@@ -245,12 +269,22 @@ impl UserData for ScribeBindings {
                 }
             };
 
-            let layer_name = this
-                .scribe
-                .create_layer(&schema_key, &layer_id, authorized_peers)
-                .map_err(|e| {
-                    LuaError::RuntimeError(format!("Failed to create dynamic layer: {}", e))
+            let layer_name = if used_legacy_id {
+                let layer_id = placeholders.get("id").cloned().ok_or_else(|| {
+                    LuaError::RuntimeError("Missing 'id' placeholder".to_string())
                 })?;
+                this.scribe
+                    .create_layer_with_id(&schema_key, &layer_id, authorized_peers)
+                    .map_err(|e| {
+                        LuaError::RuntimeError(format!("Failed to create dynamic layer: {}", e))
+                    })?
+            } else {
+                this.scribe
+                    .create_layer(&schema_key, placeholders, authorized_peers)
+                    .map_err(|e| {
+                        LuaError::RuntimeError(format!("Failed to create dynamic layer: {}", e))
+                    })?
+            };
 
             let result = lua.create_table()?;
             result.set("layer_name", layer_name)?;
@@ -494,10 +528,30 @@ fn aggregate_wildcard_layers(
 
     let mut aggregated_data = Vec::new();
     for name in &layer_names {
-        if let Ok(serde_json::Value::Array(items)) = fetch_layer_data(scribe, name) {
-            aggregated_data.extend(items);
+        if let Ok(data) = fetch_layer_data(scribe, name) {
+            match data {
+                serde_json::Value::Array(items) => aggregated_data.extend(items),
+                serde_json::Value::Object(map) => {
+                    for value in map.into_values() {
+                        aggregated_data.push(value);
+                    }
+                }
+                _ => {}
+            }
         }
     }
+
+    aggregated_data.sort_by(|a, b| {
+        let ta = a
+            .get("timestamp")
+            .and_then(|value| value.as_i64())
+            .unwrap_or(0);
+        let tb = b
+            .get("timestamp")
+            .and_then(|value| value.as_i64())
+            .unwrap_or(0);
+        ta.cmp(&tb)
+    });
 
     Ok(serde_json::Value::Array(aggregated_data))
 }

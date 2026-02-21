@@ -221,7 +221,7 @@ export component ContentAI inherits VerticalLayout {
 
         InfoCard {
             title: "Permit Denied";
-            content: "Check layer_patterns in permit_template.json. Layer names must match exactly. Dynamic layers (channels/{id}/messages) need wildcard patterns.";
+            content: "Check layer declarations and allow rules in app.osv. Layer names must match exactly. Dynamic layers (channels/{id}/messages) need matching schema and role permissions.";
             accent-color: Theme.accent-red;
         }
 

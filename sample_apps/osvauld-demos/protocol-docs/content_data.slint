@@ -116,7 +116,7 @@ export component ContentData inherits VerticalLayout {
 
         InfoCard {
             title: "Page";
-            content: "An app instance — bundles UI (Slint/Raylib), logic (Lua), and data layers. Each page has its own Scribe actor managing CRDT state. Defined by page.lua + manifest.json.";
+            content: "An app instance — bundles UI (Slint/Raylib), logic (Lua), and data layers. Each page has its own Scribe actor managing CRDT state. Defined by app.osv + manifest.json.";
             accent-color: Theme.accent-purple;
         }
 
@@ -315,8 +315,8 @@ export component ContentData inherits VerticalLayout {
         }
 
         CodeBlock {
-            label: "Derivation Definition (page.lua)";
-            code: "-- Aggregate all per-user orders into summary\nderivation(\"orders_summary\", {\n    source = \"orders/{did}\",\n    target = \"derived/orders_summary\",\n    key_fn = function(order)\n        return order.id\n    end,\n    transform = function(source, order)\n        return {\n            id = order.id,\n            status = order.status,\n            total = order.total\n        }\n    end\n})";
+            label: "Derivation Definition (shared/init.lua)";
+            code: "-- Register derivation from Lua node logic\nderivation:register({\n    source = \"orders/*\",\n    target = \"derived/orders_summary\",\n    key_fn = function(order)\n        return order.id\n    end,\n    transform = function(source, order)\n        return {\n            id = order.id,\n            status = order.status,\n            total = order.total\n        }\n    end\n})";
         }
 
         SectionCard {

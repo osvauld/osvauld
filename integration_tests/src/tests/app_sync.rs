@@ -26,7 +26,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 }
 
 fn make_modified_group_chat_copy(marker: &str) -> Result<(tempfile::TempDir, PathBuf)> {
-    let source = app_dir("osvauld-demos").join("group-chat");
+    let source = app_dir("group-chat").join("group-chat");
     let temp = tempfile::tempdir()?;
     let dest = temp.path().join("group-chat");
 
@@ -72,11 +72,11 @@ async fn wait_for_app_lua_contains(
 async fn test_owner_app_layer_has_files() -> Result<()> {
     init_tracing();
 
-    let app_path = app_dir("osvauld-demos");
-    assert!(app_path.exists(), "sample_apps/osvauld-demos must exist: {:?}", app_path);
+    let app_path = app_dir("group-chat");
+    assert!(app_path.exists(), "sample_apps/group-chat must exist: {:?}", app_path);
 
     let mut s = Scenario::builder()
-        .app("osvauld-demos")
+        .app("group-chat")
         .published()
         .build()
         .await?;
@@ -107,7 +107,7 @@ async fn test_app_layer_syncs_to_node() -> Result<()> {
     init_tracing();
 
     let mut s = Scenario::builder()
-        .app("osvauld-demos")
+        .app("group-chat")
         .published()
         .build()
         .await?;
@@ -152,7 +152,7 @@ async fn test_app_layer_syncs_to_viewer() -> Result<()> {
     init_tracing();
 
     let mut s = Scenario::builder()
-        .app("osvauld-demos")
+        .app("group-chat")
         .published()
         .viewers(1)
         .build()
@@ -205,7 +205,7 @@ async fn test_refresh_app_propagates_to_node() -> Result<()> {
     init_tracing();
 
     let mut s = Scenario::builder()
-        .app("osvauld-demos")
+        .app("group-chat")
         .published()
         .build()
         .await?;
@@ -234,7 +234,7 @@ async fn test_refresh_app_catches_up_after_node_reconnect() -> Result<()> {
     init_tracing();
 
     let mut s = Scenario::builder()
-        .app("osvauld-demos")
+        .app("group-chat")
         .published()
         .build()
         .await?;

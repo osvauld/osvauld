@@ -145,6 +145,23 @@ pub enum CoordinatorMessage<C: Connection> {
 
     /// Shutdown all actors
     Shutdown,
+
+    /// Go offline (for E2E test control)
+    ///
+    /// **Context**: Test wants to simulate network loss
+    /// **We do**: Stop all PeerActors, close connections, set offline flag
+    /// **Note**: Does NOT emit PeerDisconnected events (test isolation)
+    GoOffline {
+        response: oneshot::Sender<Result<(), String>>,
+    },
+
+    /// Go online (for E2E test control)
+    ///
+    /// **Context**: Test wants to restore network connectivity
+    /// **We do**: Clear offline flag, reconnect to known nodes with stored permits
+    GoOnline {
+        response: oneshot::Sender<Result<(), String>>,
+    },
 }
 
 /// Courier mode (User or Node)
@@ -420,6 +437,16 @@ impl<C: Connection> Actor for Coordinator<C> {
                 }
                 myself.stop(Some("shutdown".to_string()));
             }
+
+            CoordinatorMessage::GoOffline { response } => {
+                self.on_go_offline(state).await;
+                let _ = response.send(Ok(()));
+            }
+
+            CoordinatorMessage::GoOnline { response } => {
+                self.on_go_online(state).await;
+                let _ = response.send(Ok(()));
+            }
         }
 
         Ok(())
@@ -476,6 +503,13 @@ impl<C: Connection> Coordinator<C> {
         conn: C,
         state: &mut CoordinatorState<C>,
     ) {
+        // Reject connections while offline (E2E test control)
+        if state.is_offline {
+            debug!("Rejecting connection from {} (offline mode)", node_id);
+            conn.close();
+            return;
+        }
+
         info!("New connection from: {}", node_id);
 
         // Check if this was an outbound connection WE initiated - get permit if so
@@ -546,6 +580,19 @@ impl<C: Connection> Coordinator<C> {
     /// **Events**: PeerAuthenticated on success, ConnectionFailed on failure
     #[instrument(skip_all, fields(node_id = %node_id))]
     async fn on_connect(&self, node_id: NodeId, permit: String, state: &mut CoordinatorState<C>) {
+        // Reject connection attempts while offline (E2E test control)
+        if state.is_offline {
+            debug!("Rejecting connect request to {} (offline mode)", node_id);
+            Self::emit_event(
+                state,
+                CourierEvent::ConnectionFailed {
+                    node_id: node_id.to_string(),
+                    error: "Offline mode".to_string(),
+                },
+            );
+            return;
+        }
+
         info!("Connect: node={}", node_id);
 
         // Check if already authenticated - emit event immediately
@@ -788,5 +835,127 @@ impl<C: Connection> Coordinator<C> {
                 warn!(node_id = %node_id, error = %e, "Failed to send RefreshSubscriptions");
             }
         }
+    }
+
+    /// Handle GoOffline - simulate network loss for E2E tests
+    ///
+    /// **Context**: Test wants to simulate losing network connectivity
+    /// **We do**: Stop all PeerActors, close connections, clear state, set offline flag
+    /// **Note**: Does NOT emit PeerDisconnected events (test isolation)
+    #[instrument(skip_all)]
+    async fn on_go_offline(&self, state: &mut CoordinatorState<C>) {
+        info!("Going offline (E2E test control)");
+
+        // Stop all PeerActors and close connections
+        for (node_id, entry) in state.peers.drain() {
+            debug!("Stopping PeerActor {} for offline mode", node_id);
+            entry.actor.stop(Some("offline mode".to_string()));
+            entry.conn.close();
+        }
+
+        // Clear pending state
+        state.pending_connections.clear();
+        state.pending_permits.clear();
+
+        // Set offline flag to reject new connections
+        state.is_offline = true;
+
+        info!("Offline mode activated");
+    }
+
+    /// Handle GoOnline - restore network connectivity for E2E tests
+    ///
+    /// **Context**: Test wants to restore network after simulated loss
+    /// **We do**: Clear offline flag, reconnect to all known nodes with stored permits
+    #[instrument(skip_all)]
+    async fn on_go_online(&self, state: &mut CoordinatorState<C>) {
+        info!("Going online (E2E test control)");
+
+        // Clear offline flag to allow connections
+        state.is_offline = false;
+
+        let mut reconnect_count = 0usize;
+
+        // Owner-side reconnect: sovereign nodes
+        match state.butler.nodes().list() {
+            Ok(nodes) => {
+                for node in nodes {
+                    let Some(permit) = node.permit else {
+                        debug!("No stored permit for sovereign node {}, skipping", node.node_id);
+                        continue;
+                    };
+
+                    let node_id = match node.node_id.parse::<NodeId>() {
+                        Ok(id) => id,
+                        Err(e) => {
+                            warn!("Failed to parse sovereign node_id {}: {:?}", node.node_id, e);
+                            continue;
+                        }
+                    };
+
+                    if state.is_connected(&node_id) || state.pending_connections.contains(&node_id) {
+                        continue;
+                    }
+
+                    state.pending_connections.insert(node_id);
+                    state.pending_permits.insert(node_id, permit.clone());
+
+                    if let Some(ref tx) = state.connect_tx {
+                        if tx.try_send(ConnectRequest { node_id, permit }).is_ok() {
+                            reconnect_count += 1;
+                        }
+                    }
+                }
+            }
+            Err(e) => warn!("Failed to list sovereign nodes for reconnection: {}", e),
+        }
+
+        // Viewer-side reconnect: node contacts
+        match state.butler.contacts().list_nodes() {
+            Ok(contacts) => {
+                for contact in contacts {
+                    let (Some(node_id_str), Some(permit)) =
+                        (contact.node_id.as_ref(), contact.permit.as_ref())
+                    else {
+                        continue;
+                    };
+
+                    let node_id = match node_id_str.parse::<NodeId>() {
+                        Ok(id) => id,
+                        Err(e) => {
+                            warn!("Failed to parse contact node_id {}: {:?}", node_id_str, e);
+                            continue;
+                        }
+                    };
+
+                    if state.is_connected(&node_id) || state.pending_connections.contains(&node_id) {
+                        continue;
+                    }
+
+                    state.pending_connections.insert(node_id);
+                    state
+                        .pending_permits
+                        .insert(node_id, permit.to_string());
+
+                    if let Some(ref tx) = state.connect_tx {
+                        if tx
+                            .try_send(ConnectRequest {
+                                node_id,
+                                permit: permit.to_string(),
+                            })
+                            .is_ok()
+                        {
+                            reconnect_count += 1;
+                        }
+                    }
+                }
+            }
+            Err(e) => warn!("Failed to list node contacts for reconnection: {}", e),
+        }
+
+        info!(
+            reconnect_count = reconnect_count,
+            "Online mode activated; reconnect requests queued"
+        );
     }
 }

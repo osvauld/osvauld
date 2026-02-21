@@ -68,6 +68,16 @@ pub struct LayerSubscriber {
     pub broadcast_tx: mpsc::Sender<BroadcastPayload>,
 }
 
+/// Sync temperature tier for per-layer sync policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SyncTier {
+    /// Actively synchronized and expected in-memory.
+    #[default]
+    Hot,
+    /// Historical layer with lower sync priority.
+    Cold,
+}
+
 /// Per-layer compute unit — owns all state for a single layer
 ///
 /// **Design**: Self-contained authorization and broadcast. Scribe routes
@@ -86,6 +96,8 @@ pub struct LayerUnit {
     config: LayerConfig,
     /// Created via dynamic_layer_schema (not static template)
     pub is_dynamic: bool,
+    /// Sync temperature tier for time-sharded strategies.
+    sync_tier: SyncTier,
 
     // === Subscriber state ===
     /// Per-subscriber state ((user_did, device_id) → subscriber)
@@ -102,6 +114,7 @@ impl LayerUnit {
             loro_sub: None,
             config: LayerConfig::default(),
             is_dynamic: false,
+            sync_tier: SyncTier::Hot,
             subscribers: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -128,6 +141,16 @@ impl LayerUnit {
     /// Get the layer configuration
     pub fn config(&self) -> &LayerConfig {
         &self.config
+    }
+
+    /// Get current sync tier.
+    pub fn sync_tier(&self) -> SyncTier {
+        self.sync_tier
+    }
+
+    /// Update sync tier.
+    pub fn set_sync_tier(&mut self, tier: SyncTier) {
+        self.sync_tier = tier;
     }
 
     // === Dirty tracking ===
