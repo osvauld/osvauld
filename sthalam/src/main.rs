@@ -60,6 +60,8 @@ fn main() {
 
     let args = Args::parse();
 
+    tracing::info!("Sthalam starting with raylib feature: {}", cfg!(feature = "raylib"));
+
     // Suppress Qt/Wayland text input warnings
     std::env::set_var("QT_LOGGING_RULES", "qt.qpa.wayland.textinput=false");
 
@@ -327,27 +329,33 @@ fn main() {
 
                 // Check manifest to determine renderer
                 match renderer_slint::get_app_manifest(&scribe_ref, &app_name).await {
-                    Ok(manifest) if manifest.renderer == "raylib" => {
-                        #[cfg(feature = "raylib")]
-                        {
-                            launch_raylib_app(
-                                &page_id,
-                                &app_name,
-                                butler,
-                                scribe_ref,
-                                manifest,
-                            )
-                            .await;
+                    Ok(manifest) => {
+                        tracing::info!(
+                            app_name = %app_name,
+                            renderer = %manifest.renderer,
+                            "Manifest loaded, checking renderer type"
+                        );
+                        if manifest.renderer == "raylib" {
+                            #[cfg(feature = "raylib")]
+                            {
+                                launch_raylib_app(
+                                    &page_id,
+                                    &app_name,
+                                    butler,
+                                    scribe_ref,
+                                    manifest,
+                                )
+                                .await;
+                            }
+                            #[cfg(not(feature = "raylib"))]
+                            {
+                                tracing::warn!("Raylib renderer not enabled (compile with --features raylib)");
+                            }
+                            return;
                         }
-                        #[cfg(not(feature = "raylib"))]
-                        {
-                            tracing::warn!("Raylib renderer not enabled (compile with --features raylib)");
-                        }
-                        return;
                     }
-                    Ok(_) => {} // Slint renderer - continue below
                     Err(e) => {
-                        tracing::warn!(error = %e, "Failed to get manifest, assuming Slint renderer");
+                        tracing::error!(error = %e, "Failed to get manifest, falling back to Slint renderer");
                     }
                 }
 

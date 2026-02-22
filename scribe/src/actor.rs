@@ -850,6 +850,22 @@ fn ensure_layer_for_lua(state: &mut ScribeState, layer_name: &str, kind: &str) {
     loro_observer::setup_layer_observer(state, layer_name);
     operations::auto_subscribe_sync_target(state, layer_name);
     sync::notify_layer_discovered(state, layer_name);
+
+    // If layer matches a dynamic schema, write to __sync_meta for discovery
+    // This ensures the __sync_meta flow triggers LayerSubscribe on the node
+    if let Some(permit) = &state.our_permit {
+        if crate::layer_unit::find_matching_dynamic_schema(permit, layer_name, &state.page_id)
+            .is_some()
+        {
+            use crate::sync::sync_meta;
+            let our_did = state.our_did.clone();
+            let meta_layer = sync_meta::sync_meta_layer_name(&our_did);
+            if state.units.contains_key(&meta_layer) {
+                sync_meta::write_sync_meta_entry(state, &our_did, layer_name, false);
+                info!(layer = %layer_name, "Wrote __sync_meta entry for ensure_layer (matches dynamic schema)");
+            }
+        }
+    }
 }
 
 /// Handle RemoteEphemeral message

@@ -98,10 +98,13 @@ fn ensure_layer_exists(state: &mut ScribeState, layer_name: &str) -> bool {
         unit.set_local_only(!state.should_sync_layer(layer_name));
 
         // Mark as dynamic if it matches a dynamic schema (node-side detection)
-        if let Some(ref permit) = state.our_permit {
-            if find_matching_dynamic_schema(permit, layer_name, &state.page_id).is_some() {
-                unit.is_dynamic = true;
-            }
+        let is_dynamic = if let Some(ref permit) = state.our_permit {
+            find_matching_dynamic_schema(permit, layer_name, &state.page_id).is_some()
+        } else {
+            false
+        };
+        if is_dynamic {
+            unit.is_dynamic = true;
         }
 
         state.units.insert(layer_name.to_string(), unit);
@@ -110,6 +113,18 @@ fn ensure_layer_exists(state: &mut ScribeState, layer_name: &str) -> bool {
         auto_subscribe_sync_target(state, layer_name);
 
         debug!(layer = %layer_name, "Created new layer");
+
+        // If layer matches a dynamic schema, write to __sync_meta for discovery
+        // This ensures the __sync_meta flow triggers LayerSubscribe on the node
+        if is_dynamic {
+            use crate::sync::sync_meta;
+            let our_did = state.our_did.clone();
+            let meta_layer = sync_meta::sync_meta_layer_name(&our_did);
+            if state.units.contains_key(&meta_layer) {
+                sync_meta::write_sync_meta_entry(state, &our_did, layer_name, false);
+                info!(layer = %layer_name, "Wrote __sync_meta entry for ensure_layer_exists (matches dynamic schema)");
+            }
+        }
     }
 
     is_new

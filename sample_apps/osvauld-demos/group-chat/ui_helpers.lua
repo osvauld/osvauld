@@ -1,31 +1,14 @@
 -- UI Helpers — shared utility functions
 
 local M = {}
-local id_counter = 0
 
 function M.format_time(ts)
     if not ts then return "" end
     return os.date("%H:%M", ts)
 end
 
-function M.generate_id(prefix)
-    id_counter = id_counter + 1
-    local ts = os.time()
-    local micros = math.floor((os.clock() % 1) * 1000000)
-    local rand = math.random(0, 0x7fffffff)
-    local pfx = "msg"
-
-    if prefix and prefix ~= "" then
-        local clean = tostring(prefix):gsub("[^%w]", "")
-        if #clean > 8 then
-            clean = clean:sub(-8)
-        end
-        if clean ~= "" then
-            pfx = clean
-        end
-    end
-
-    return string.format("%s-%x-%06x-%06x-%08x", pfx, ts, micros, id_counter, rand)
+function M.generate_id()
+    return string.format("%x-%04x", os.time(), math.random(0, 65535))
 end
 
 function M.truncate_text(text, max_len)

@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from osvauld.scenario import AppTestScenario
 
-APP_PATH = Path(__file__).parent.parent / "sample_apps" / "group-chat"
+APP_PATH = Path(__file__).parent.parent / "sample_apps" / "osvauld-demos"
 
 args = AppTestScenario.parse_args("DM Channel E2E")
 
