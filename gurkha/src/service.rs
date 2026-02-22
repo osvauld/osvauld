@@ -165,6 +165,19 @@ pub async fn issue_page_owner_token_from_policy(
 
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
 
+    if let Ok(parsed) = Permit::from_token(&token) {
+        let issue_on_keys = parsed
+            .get_fact("issue_on")
+            .and_then(|v| v.as_object())
+            .map(|m| m.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        info!(
+            issue_on_keys = ?issue_on_keys,
+            has_node_template = %parsed.get_issue_template("node").is_some(),
+            "Issued page owner token templates"
+        );
+    }
+
     info!("Page owner token generated from typed policy: cid={}", cid);
     Ok((token, cid))
 }
@@ -231,6 +244,7 @@ pub async fn delegate_page(
 
     Ok((token, cid))
 }
+
 
 /// Issue space owner token
 ///

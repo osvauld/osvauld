@@ -212,6 +212,12 @@ pub struct ScribeState {
 
     /// Parsed permit - provides should_sync_layer, can_write_layer etc.
     pub our_permit: Option<gurkha::PolicyPermit>,
+    /// Compiled schema artifact extracted from permit policy facts.
+    /// Used for runtime required/immutable enforcement before CRDT apply.
+    pub schema_artifact: Option<gurkha::SchemaArtifact>,
+    /// Compiled validation artifact extracted from permit policy facts.
+    /// Used for runtime broadcast and ordering policies.
+    pub validation_artifact: Option<gurkha::ValidationArtifact>,
     /// Our DID (for pattern expansion with {aud})
     pub our_did: String,
 

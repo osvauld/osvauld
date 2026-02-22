@@ -8,6 +8,7 @@ local M = {}
 -- Module state (set by init)
 local page_id = nil
 local my_did = nil
+local my_role = nil
 local active_channel = "general"
 local active_period = nil
 
@@ -62,6 +63,12 @@ local function ensure_channel_shard(channel_id, period)
     local existing = scribe:list_layers(expected_path)
     if existing and #existing > 0 then
         return existing[1]
+    end
+
+    -- Only the page owner creates dynamic layer shards.
+    -- Viewers discover them via __sync_meta fan-out from the node.
+    if my_role ~= "owner" then
+        return expected_path
     end
 
     local ok, result = pcall(function()
@@ -137,9 +144,10 @@ local function ensure_known_channel(channel_id)
     }
 end
 
-function M.init(pid, did, name, callback, tracker)
+function M.init(pid, did, name, role, callback, tracker)
     page_id = pid
     my_did = did
+    my_role = role or "viewer"
     on_channel_switch = callback
     read_tracker = tracker
 

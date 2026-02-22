@@ -721,6 +721,13 @@ fn build_initial_state(
     let mut units = build_layer_units(args.layers);
     precreate_static_layers(&mut units, &static_layers);
 
+    let schema_artifact = our_permit
+        .as_ref()
+        .and_then(|permit| permit.facts().schema.clone());
+    let validation_artifact = our_permit
+        .as_ref()
+        .and_then(|permit| permit.facts().validation.clone());
+
     let state = ScribeState {
         page_id: args.page_id.clone(),
         units: HashMap::new(),
@@ -738,6 +745,8 @@ fn build_initial_state(
         pending_update_source: Arc::new(Mutex::new(None)),
         validation_handle: args.validation_handle,
         our_permit,
+        schema_artifact,
+        validation_artifact,
         our_did: args.our_did.clone(),
         node_script_shutdown: None,
         peer_role_cache: HashMap::new(),

@@ -51,8 +51,9 @@ function on_init()
     ui:set("my_online", true)
 
     -- Init channels — callback fires on every channel switch (including initial "general")
+    local my_role = permit:role()
     local messages_bound = false
-    channels.init(page_id, my_did, my_name, function(channel_id, layer_path)
+    channels.init(page_id, my_did, my_name, my_role, function(channel_id, layer_path)
         -- First call: create binding. Subsequent calls: rebind to new layer.
         if not messages_bound then
             scribe:bind("messages", layer_path, {
@@ -87,7 +88,7 @@ function on_init()
     end, read_tracker)
 
     -- Init DMs — callback rebinds "messages" to the DM layer
-    dms.init(page_id, my_did, my_name, function(dm_id, layer_path)
+    dms.init(page_id, my_did, my_name, my_role, function(dm_id, layer_path)
         view_mode = "dms"
         ui:set("view_mode", "dms")
 

@@ -50,7 +50,7 @@ Two terms are used throughout the system. They are never suffixed or combined wi
 6. **Validation Before Interpretation.** Invalid `Parivarta` = hard reject. No partial application, no "best effort" merging of malformed changes.
 7. **Generated DX, Not Manual Drift.** Lua type stubs, Slint property contracts, and validation harnesses are compiler outputs. Developers never hand-maintain parallel definitions.
 8. **Explicitness Over Magic.** `from clock` means the field comes from the clock. `default "pending"` means the default is "pending". No implicit behaviors.
-9. **Versioned Meaning.** `app "X" version "2.0.0"` carries migration semantics. The runtime knows when a schema changed and can apply transforms.
+9. **Versioned Meaning.** `app my_app version "2.0.0"` carries migration semantics. The runtime knows when a schema changed and can apply transforms.
 10. **Small Vocabulary, Deep Semantics.** The grammar uses ~20 keywords with the English sentence pattern `subject verb object [preposition modifier]`. No symbolic operators (`==`, `!=`). Constraints read like prose.
 
 ## 4. Grammar Overview
@@ -63,14 +63,24 @@ The `.osv` grammar reads as English sentences:
 subject verb object [preposition modifier]
 ```
 
-Keywords: `as`, `to`, `on`, `where`, `is`, `from`, `using`, `allow`, `for`, `by`, `can`, `default`, `required`, `immutable`, `transitions`, `broadcast`, `issue`, `debounce`, `retain`, `shard`, `create`, `discover`, `validate`, `derive`, `relay`, `order`.
+Keywords: `as`, `to`, `on`, `where`, `is`, `from`, `using`, `allow`, `for`, `by`, `can`, `default`, `required`, `immutable`, `transitions`, `broadcast`, `issue`, `debounce`, `retain`, `shard`, `create`, `discover`, `validate`, `derive`, `relay`, `order`, `path`, `namespace`, `mode`.
 
 No type annotations (Lua is dynamic — we declare constraints, not types). No symbolic operators.
+
+### 4.1 Locked v2 language decisions
+
+- No backward compatibility mode. v2 syntax is strict and legacy forms are rejected.
+- English keywords, sentence-style grammar inspired by Sanskrit clause flow.
+- Identity principals in predicates are only `self` and `peer` (DID is implicit at runtime).
+- `space_id` and `page_id` are namespace context, not author-written path segments.
+- Canonical path syntax is structural and unquoted: `path channels / {channel_id} / messages;`.
+- Node/user behavior is explicit in policy predicates via `mode`.
+- App permits are control-plane + app-scoped authority; layer permits are concrete data-plane actions.
 
 ### 4.2 Top-level structure
 
 ```osv
-app "my-shop" version "2.0.0" {
+app my_shop version "2.0.0" {
   // Roles
   role owner can share, delegate, accept_publish, manage_access;
   role customer;
@@ -79,14 +89,14 @@ app "my-shop" version "2.0.0" {
   sthithi Order {
     field status default "pending";
     field total required;
-    field customer_did from peer_did immutable;
+    field customer from peer immutable;
     field created_at from clock immutable;
     field updated_at from clock;
 
     transitions status {
       "pending" to "confirmed" by owner;
       "confirmed" to "shipped" by owner;
-      "pending" to "cancelled" by customer where customer_did is peer_did;
+      "pending" to "cancelled" by customer where customer is self;
     }
 
     on update set updated_at from clock;
@@ -95,17 +105,17 @@ app "my-shop" version "2.0.0" {
 
   // Layer declarations
   layer orders as list for Order {
-    path "orders/{id}";
-    namespace creator;
+    path orders / {customer} / entries;
+    namespace page;
     grant explicit;
-    dynamic by customer_did;
+    dynamic by customer;
     create allow customer;
     discover on sync;
     shard by day;
     retain 90;
 
     allow owner to read, write, sync, grant, revoke;
-    allow customer to read, write, sync where customer_did is peer_did;
+    allow customer to read, write, sync where customer is self;
 
     broadcast to owner;
     broadcast to customer;
@@ -127,7 +137,7 @@ app "my-shop" version "2.0.0" {
 
   // Permit functions
   permit customer_permit for customer {
-    allow read, write on orders where customer_did is peer_did;
+    allow read, write on orders where customer is self;
     allow sync on orders;
     issue for customer;
   }
@@ -155,7 +165,7 @@ app "my-shop" version "2.0.0" {
 
 ```ebnf
 (* ── Top Level ── *)
-file              = "app" , string , "version" , string , "{" , { decl } , "}" ;
+file              = "app" , ident , "version" , string , "{" , { decl } , "}" ;
 
 decl              = role_decl
                   | sthithi_decl
@@ -183,7 +193,7 @@ field_modifier    = "required"
                   | "immutable"
                   | "default" , literal
                   | "from" , source_ref ;
-source_ref        = "clock" | "peer_did" | "peer_role" ;
+source_ref        = "clock" | "self" | "peer" | "mode" ;
 
 transition_block  = "transitions" , ident , "{" ,
                       { transition_rule } ,
@@ -210,11 +220,13 @@ layer_stmt        = path_stmt | namespace_stmt | grant_stmt
 
 layer_kind        = "map" | "list" | "text" | "counter" | "blob" ;
 
-path_stmt         = "path" , string , ";" ;
-namespace_stmt    = "namespace" , ( "shared" | "creator" ) , ";" ;
+path_stmt         = "path" , path_expr , ";" ;
+path_expr         = path_segment , { "/" , path_segment } ;
+path_segment      = ident | "{" , ident , "}" ;
+namespace_stmt    = "namespace" , ( "shared" | "page" ) , ";" ;
 grant_stmt        = "grant" , ( "open" | "explicit" | "role_scoped" ) , ";" ;
 
-dynamic_stmt      = "dynamic" , "by" , ident , ";" ;
+dynamic_stmt      = "dynamic" , "by" , ident_list , ";" ;
 create_stmt       = "create" , "allow" , role_ref_list , ";" ;
 discover_stmt     = "discover" , "on" , discover_mode , ";" ;
 discover_mode     = "sync" | "grant" ;
@@ -274,6 +286,7 @@ app_decl          = "ui_app" , string , "{" ,
 
 (* ── Shared Productions ── *)
 role_ref_list     = ident , { "," , ident } ;
+ident_list        = ident , { "," , ident } ;
 action_list       = action , { "," , action } ;
 action            = "create" | "read" | "write" | "sync"
                   | "grant" | "revoke" ;
@@ -285,7 +298,7 @@ predicate         = ident , "is" , value_ref
                   | ident , "in" , "(" , value_list , ")"
                   | ident , "above" , value_ref
                   | ident , "below" , value_ref ;
-value_ref         = "peer_did" | "peer_role" | string | int | "true" | "false" ;
+value_ref         = "self" | "peer" | "user" | "node" | string | int | "true" | "false" ;
 value_list        = value_ref , { "," , value_ref } ;
 
 literal           = string | int | float | "true" | "false" | "null" ;
@@ -305,7 +318,7 @@ A `sthithi` block declares the shape of data stored in a layer. It is NOT a type
 sthithi Order {
   field status default "pending";
   field total required;
-  field customer_did from peer_did immutable;
+  field customer from peer immutable;
   field created_at from clock immutable;
   field updated_at from clock;
   field notes;
@@ -318,8 +331,8 @@ sthithi Order {
 | `immutable` | Field cannot be changed after first write |
 | `default <literal>` | Value auto-populated if absent on insert |
 | `from clock` | Value auto-populated from `ClockSource::now_unix()` |
-| `from peer_did` | Value auto-populated from the acting peer's DID |
-| `from peer_role` | Value auto-populated from the acting peer's role |
+| `from peer` | Value auto-populated from the acting peer identity (DID under the hood) |
+| `from mode` | Value auto-populated from runtime mode (`user` or `node`) |
 
 A field with no modifiers is optional and freely mutable.
 
@@ -330,7 +343,7 @@ transitions status {
   "pending" to "confirmed" by owner;
   "confirmed" to "shipped" by owner;
   "shipped" to "delivered" by owner, customer;
-  "pending" to "cancelled" by customer where customer_did is peer_did;
+  "pending" to "cancelled" by customer where customer is self;
 }
 ```
 
@@ -368,9 +381,9 @@ v2 replaces this with declarative syntax:
 
 ```osv
 layer orders as list for Order {
-  path "orders/{id}";
-  namespace creator;
-  dynamic by customer_did;
+  path orders / {customer} / entries;
+  namespace page;
+  dynamic by customer;
   create allow customer;
   discover on sync;
 }
@@ -383,7 +396,7 @@ layer orders as list for Order {
 | `discover on sync` | New instances are discovered during sync (peer announces layers). |
 | `discover on grant` | New instances are discovered only via explicit grant. |
 
-The runtime resolves `{id}` from the dynamic parameter. No Lua path parsing needed.
+The runtime resolves path placeholders from dynamic parameters. Namespace prefixes (`space_id`/`page_id`) are implicit in `namespace page`.
 
 ### 7.3 Broadcast policy
 
@@ -428,7 +441,7 @@ A role is a compiler convenience. At compile time, roles are expanded into per-r
 
 ```osv
 permit customer_permit for customer {
-  allow read, write on orders where customer_did is peer_did;
+  allow read, write on orders where customer is self;
   allow sync on orders;
   issue for customer;
 }
@@ -439,6 +452,8 @@ permit owner_permit for owner {
   issue for customer, owner;
 }
 ```
+
+App permits govern installation, consent, delegation, and app-scoped authority. Layer permits govern concrete CRDT actions (`create`, `read`, `write`, `sync`, `grant`, `revoke`) on specific layers.
 
 ### 8.3 Delegation via `issue for`
 
@@ -777,7 +792,7 @@ The `PermitArtifact` is extended with populated `delegation_rules` from `issue f
 ## 15. Example: Group Chat (v2)
 
 ```osv
-app "group-chat" version "2.0.0" {
+app group_chat version "2.0.0" {
   role owner can share, delegate, accept_publish, manage_access;
   role node can relay, share, accept_publish, manage_access;
   role collaborator can manage_access;
@@ -785,7 +800,7 @@ app "group-chat" version "2.0.0" {
 
   sthithi Message {
     field text required;
-    field sender_did from peer_did immutable;
+    field sender from peer immutable;
     field sent_at from clock immutable;
     field edited_at from clock;
     field thread_id;
@@ -796,35 +811,36 @@ app "group-chat" version "2.0.0" {
 
   sthithi Channel {
     field name required;
-    field created_by from peer_did immutable;
+    field created_by from peer immutable;
     field created_at from clock immutable;
     field description;
   }
 
   layer app_data as map {
-    path "app:Group Chat";
+    path app_data;
     namespace shared;
     allow owner to read, write, sync;
     allow node, collaborator, layer_authority to read, sync;
   }
 
   layer presence as map {
-    path "presence";
+    path presence;
     namespace shared;
     allow owner, node, collaborator, layer_authority to read, write, sync;
     broadcast all debounce 1000;
   }
 
   layer channels as map for Channel {
-    path "channels";
+    path channels;
     namespace shared;
-    allow owner, node to read, write, sync;
+    allow owner to read, write, sync;
+    allow node to read, write, sync where mode is node;
     allow collaborator, layer_authority to read, sync;
     broadcast all;
   }
 
   layer channel_messages as list for Message {
-    path "channels/{id}/messages";
+    path channels / {id} / messages;
     namespace shared;
     dynamic by id;
     create allow owner, node, collaborator;
@@ -833,14 +849,15 @@ app "group-chat" version "2.0.0" {
     retain 365;
 
     allow owner, node, collaborator, layer_authority to read, write, sync;
+    allow node to sync where mode is node;
 
     broadcast all;
     order by sent_at descending;
   }
 
   layer dm_messages as list for Message {
-    path "dms/{id}/messages";
-    namespace creator;
+    path dms / {id} / messages;
+    namespace page;
     grant explicit;
     dynamic by id;
     create allow owner, collaborator;
@@ -885,6 +902,22 @@ app "group-chat" version "2.0.0" {
 ```
 
 ## 16. Implementation Plan
+
+### 16.0 Spec completeness checklist (must be locked before parser/lowering work)
+
+The v2 language direction is now stable, but the following implementation-grade details must be locked to avoid parser and lowering churn:
+
+- **Grammar closure**: finalize strict EBNF for app-permit scopes/actions, node policy clauses, and all remaining top-level declarations.
+- **Mode semantics**: define exactly where `mode is user|node` is evaluated (validation, authorization, discovery, relay, sync).
+- **Namespace resolution**: specify canonical key derivation for `namespace page|shared` and document injected context prefixes.
+- **Path binding rules**: formal checks for placeholder uniqueness, `dynamic by` coverage, ordering, and deterministic lowering.
+- **Predicate typing**: define allowed operands for `self|peer|user|node`, field compatibility rules, and invalid-combination diagnostics.
+- **Compiler artifacts**: lock concrete structs/fields for `SchemaArtifact`, `ValidationArtifact`, and app-permit/layer-permit outputs.
+- **Runtime enforcement order**: lock ordered pipeline (`validate -> authorize -> apply -> derive/relay -> broadcast`) for offline convergence guarantees.
+- **Diagnostics contract**: required error format (line/column + actionable hint), including strict rejections for legacy syntax.
+- **Conformance tests**: define golden parser tests and integration scenarios for dynamic layers, delegation, node mode, and offline recovery.
+
+Exit criterion for this checklist: each item has at least one canonical example and one failing-case diagnostic in tests.
 
 ### Phase 1: Runtime types (`Sthithi` and `Parivarta`)
 
@@ -934,7 +967,7 @@ app "group-chat" version "2.0.0" {
 **Goal**: The Scribe actor uses compiled schemas at runtime.
 
 1. Schema validation in `scribe/src/sync/apply.rs`: check `Parivarta` against `EntitySchema` before applying.
-2. Auto-populate `from clock`, `from peer_did`, `from peer_role` fields.
+2. Auto-populate `from clock`, `from peer`, and `from mode` fields.
 3. Enforce `immutable` on updates.
 4. Enforce `required` on inserts.
 5. Match state transitions against `TransitionSchema`.

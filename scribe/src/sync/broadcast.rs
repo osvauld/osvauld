@@ -6,6 +6,7 @@ use tracing::{debug, info, instrument, warn};
 use domains::Sthithi;
 
 use crate::message::{BroadcastPayload, PageUpdate};
+use crate::policy_compat;
 use crate::state::ScribeState;
 
 /// Broadcast layer update to all layer subscribers (excludes sender)
@@ -33,6 +34,11 @@ pub async fn broadcast_update(
             // Skip sender
             if sender_did == Some(user_did.as_str()) {
                 state.emit_broadcast_decision_capture(layer_name, user_did, "skip_sender");
+                continue;
+            }
+
+            if !is_broadcast_allowed_for_subscriber(state, layer_name, user_did, device_id) {
+                state.emit_broadcast_decision_capture(layer_name, user_did, "policy_filtered");
                 continue;
             }
 
@@ -75,6 +81,67 @@ pub async fn broadcast_update(
     }
 
     super::reconcile::emit_sync_events_for_missing_targets(state);
+}
+
+fn is_broadcast_allowed_for_subscriber(
+    state: &ScribeState,
+    layer_name: &str,
+    user_did: &str,
+    device_id: &str,
+) -> bool {
+    let Some(validation) = state.validation_artifact.as_ref() else {
+        return true;
+    };
+    let Some(policies) = validation.broadcasts.get(layer_name) else {
+        return true;
+    };
+    if policies.is_empty() {
+        return true;
+    }
+
+    let role = state
+        .subscribers
+        .read()
+        .ok()
+        .and_then(|subs| {
+            subs.get(&(user_did.to_string(), device_id.to_string()))
+                .and_then(|peer| policy_compat::role(&peer.permit))
+        });
+
+    policies
+        .iter()
+        .any(|policy| matches_broadcast_target(&policy.target, role.as_deref()))
+}
+
+fn matches_broadcast_target(target: &gurkha::BroadcastTarget, role: Option<&str>) -> bool {
+    match target {
+        gurkha::BroadcastTarget::All => true,
+        gurkha::BroadcastTarget::Granted => true,
+        gurkha::BroadcastTarget::ToRoles(roles) => {
+            role.map(|r| roles.iter().any(|x| x == r)).unwrap_or(false)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matches_roles_target_only_for_listed_roles() {
+        let target = gurkha::BroadcastTarget::ToRoles(vec!["owner".to_string()]);
+        assert!(matches_broadcast_target(&target, Some("owner")));
+        assert!(!matches_broadcast_target(&target, Some("viewer")));
+    }
+
+    #[test]
+    fn matches_all_and_granted_targets() {
+        assert!(matches_broadcast_target(&gurkha::BroadcastTarget::All, None));
+        assert!(matches_broadcast_target(
+            &gurkha::BroadcastTarget::Granted,
+            Some("customer")
+        ));
+    }
 }
 
 // Page Update Emission

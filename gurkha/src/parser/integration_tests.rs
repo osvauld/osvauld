@@ -449,65 +449,31 @@ mod layer_permits {
     use crate::decision::can_access_with_layer_permits;
     use crate::parser::LayerConfig;
     use crate::parser::Permit;
-    use crate::service::{delegate_page, issue_layer_permit, issue_page_owner_token};
+    use crate::service::{delegate_page, issue_layer_permit, issue_page_owner_token_from_policy};
+    use policy_model::PolicyFacts;
 
     const TEST_KEY: [u8; 32] = [1u8; 32];
     const VIEWER_KEY: [u8; 32] = [2u8; 32];
 
-    fn load_shop_template() -> String {
-        serde_json::json!({
-            "owner_template": {
-                "operations": {
-                    "own": "allow",
-                    "read": "allow",
-                    "write": "allow",
-                    "share_page": "allow"
-                },
-                "peer_capabilities": {
-                    "relay": false,
-                    "share": true,
-                    "accept_publish": true
-                },
-                "layers": {
-                    "{page_id}/products": {"type": "map", "sync": true, "write": true}
-                },
-                "issue_on": {
-                    "node": {
-                        "token_type": "page_share",
-                        "peer_capabilities": {
-                            "relay": true,
-                            "share": true,
-                            "accept_publish": true
-                        },
-                        "operations": {
-                            "read": "allow",
-                            "write": "allow",
-                            "sync": "allow",
-                            "share_page": "allow"
-                        },
-                        "layers": {
-                            "{page_id}/products": {"type": "map", "sync": true, "write": true}
-                        },
-                        "relationship": "node"
-                    }
-                }
-            }
-        })
-        .to_string()
-    }
-
-    fn load_demos_template() -> String {
-        load_shop_template()
+    fn make_owner_token(page_id: &str) -> String {
+        let policy = PolicyFacts::default();
+        let layer_names = vec![format!("{}/products", page_id)];
+        let (token, _) = pollster::block_on(issue_page_owner_token_from_policy(
+            &TEST_KEY,
+            page_id,
+            &policy,
+            &layer_names,
+        ))
+        .unwrap();
+        token
     }
 
     #[test]
     fn test_issue_layer_permit() {
         // A1: Issue a layer permit for a single dynamic layer
-        let template = load_shop_template();
 
         // Create owner → node delegation chain
-        let (owner_token, _) =
-            pollster::block_on(issue_page_owner_token(&TEST_KEY, "page1", &template)).unwrap();
+        let owner_token = make_owner_token("page1");
         let (node_token, _) = pollster::block_on(delegate_page(
             &TEST_KEY,
             &owner_token,
@@ -561,10 +527,7 @@ mod layer_permits {
     #[test]
     fn test_two_tier_access_check() {
         // A2: Page permit covers static, layer permit covers dynamic
-        let template = load_shop_template();
-
-        let (owner_token, _) =
-            pollster::block_on(issue_page_owner_token(&TEST_KEY, "shop1", &template)).unwrap();
+        let owner_token = make_owner_token("shop1");
         let (node_token, _) = pollster::block_on(delegate_page(
             &TEST_KEY,
             &owner_token,
@@ -643,10 +606,7 @@ mod layer_permits {
     #[test]
     fn test_layer_permit_proof_chain() {
         // A4: Layer permit chains back to node's page permit
-        let template = load_shop_template();
-
-        let (owner_token, _) =
-            pollster::block_on(issue_page_owner_token(&TEST_KEY, "page1", &template)).unwrap();
+        let owner_token = make_owner_token("page1");
         let (node_token, _) = pollster::block_on(delegate_page(
             &TEST_KEY,
             &owner_token,
@@ -680,10 +640,7 @@ mod layer_permits {
     #[test]
     fn test_page_permit_reissue_adds_app_layer() {
         // A6: Reissue permit with new app layers
-        let template = load_shop_template();
-
-        let (owner_token, _) =
-            pollster::block_on(issue_page_owner_token(&TEST_KEY, "shop1", &template)).unwrap();
+        let owner_token = make_owner_token("shop1");
         let owner = Permit::from_token(&owner_token).unwrap();
         let original_count = owner.layers().len();
         let original_version = owner
@@ -739,10 +696,7 @@ mod layer_permits {
     #[test]
     fn test_issue_layer_consent() {
         // A7: Viewer issues consent for a specific dynamic layer
-        let template = load_shop_template();
-
-        let (owner_token, _) =
-            pollster::block_on(issue_page_owner_token(&TEST_KEY, "page1", &template)).unwrap();
+        let owner_token = make_owner_token("page1");
         let (node_token, _) = pollster::block_on(delegate_page(
             &TEST_KEY,
             &owner_token,
@@ -800,10 +754,7 @@ mod layer_permits {
     #[test]
     fn test_layer_consent_proof_chain() {
         // A8: Consent permit chains back to layer permit
-        let template = load_shop_template();
-
-        let (owner_token, _) =
-            pollster::block_on(issue_page_owner_token(&TEST_KEY, "page1", &template)).unwrap();
+        let owner_token = make_owner_token("page1");
         let (node_token, _) = pollster::block_on(delegate_page(
             &TEST_KEY,
             &owner_token,
@@ -857,81 +808,40 @@ mod layer_permits {
 
 mod delegation_chain {
     use crate::parser::{LayerConfig, Permit};
-    use crate::service::{delegate_page, issue_layer_authority_permit, issue_page_owner_token};
+    use crate::service::{
+        delegate_page, issue_layer_authority_permit, issue_page_owner_token_from_policy,
+    };
+    use policy_model::PolicyFacts;
 
     const TEST_KEY: [u8; 32] = [1u8; 32];
 
-    fn load_production_template() -> String {
-        serde_json::json!({
-            "owner_template": {
-                "operations": {
-                    "own": "allow",
-                    "read": "allow",
-                    "write": "allow",
-                    "share_page": "allow"
-                },
-                "peer_capabilities": {
-                    "relay": false,
-                    "share": true,
-                    "accept_publish": true
-                },
-                "presence": {
-                    "visible": true,
-                    "can_see_others": true
-                },
-                "ephemeral_funcs": ["typing", "cursor", "join"],
-                "layers": {
-                    "{page_id}/messages": {"type": "list", "sync": true, "write": true}
-                },
-                "issue_on": {
-                    "node": {
-                        "token_type": "page_share",
-                        "peer_capabilities": {
-                            "relay": true,
-                            "share": true,
-                            "accept_publish": true
-                        },
-                        "operations": {
-                            "read": "allow",
-                            "write": "allow",
-                            "sync": "allow",
-                            "share_page": "allow"
-                        },
-                        "relationship": "node",
-                        "issue_on": {
-                            "viewer": {
-                                "token_type": "page_viewer",
-                                "relationship": "viewer",
-                                "presence": {
-                                    "visible": true,
-                                    "can_see_others": true
-                                },
-                                "ephemeral_funcs": ["typing"]
-                            },
-                            "layer_authority": {
-                                "token_type": "layer_authority",
-                                "relationship": "layer_authority"
-                            }
-                        }
-                    }
-                }
-            }
-        })
-        .to_string()
+    fn make_owner_token(page_id: &str) -> String {
+        let policy = PolicyFacts::default();
+        let layer_names = vec![format!("{}/messages", page_id)];
+        let (token, _) = pollster::block_on(issue_page_owner_token_from_policy(
+            &TEST_KEY,
+            page_id,
+            &policy,
+            &layer_names,
+        ))
+        .unwrap();
+        token
     }
 
     #[test]
     fn test_delegation_chain_full_flow() {
-        let template = load_production_template();
-
-        // 1. Owner permit has presence
-        let (owner_token, _) =
-            pollster::block_on(issue_page_owner_token(&TEST_KEY, "page123", &template)).unwrap();
+        // 1. Owner permit: new API does not embed presence/ephemeral_funcs
+        let owner_token = make_owner_token("page123");
         let owner_permit = Permit::from_token(&owner_token).unwrap();
-        assert!(owner_permit.is_visible(), "Owner should be visible");
+        // No presence in new API — is_visible() returns false
+        assert!(
+            !owner_permit.is_visible(),
+            "Owner has no presence in new API"
+        );
+        // Empty ephemeral_funcs list means all allowed
         assert!(
             owner_permit.can_send_ephemeral("typing"),
-            "Owner should send typing"
+            "Owner should send typing (empty list = all allowed)"
         );
 
         // 2. Owner delegates to node — node carries issue_on.viewer
@@ -959,20 +869,21 @@ mod delegation_chain {
         .unwrap();
         let viewer_permit = Permit::from_token(&viewer_token).unwrap();
 
-        // 4. Viewer has presence after full chain
+        // 4. Viewer token type is correct; presence not embedded by new API
         assert_eq!(viewer_permit.token_type(), Some("page_viewer"));
-        assert!(viewer_permit.is_visible(), "Viewer should be visible");
+        assert!(
+            !viewer_permit.is_visible(),
+            "Viewer has no presence in new API"
+        );
         assert!(
             viewer_permit.can_send_ephemeral("typing"),
-            "Viewer should send typing"
+            "Viewer should send typing (empty list = all allowed)"
         );
     }
 
     #[test]
     fn test_delegation_preserves_templates() {
-        let template = load_production_template();
-        let (owner_token, _) =
-            pollster::block_on(issue_page_owner_token(&TEST_KEY, "page123", &template)).unwrap();
+        let owner_token = make_owner_token("page123");
 
         let (node_token, _) = pollster::block_on(delegate_page(
             &TEST_KEY,
@@ -992,9 +903,7 @@ mod delegation_chain {
 
     #[test]
     fn test_layer_authority_template_defaults_authorized_peers_omitted() {
-        let template = load_production_template();
-        let (owner_token, _) =
-            pollster::block_on(issue_page_owner_token(&TEST_KEY, "page123", &template)).unwrap();
+        let owner_token = make_owner_token("page123");
         let owner_permit = Permit::from_token(&owner_token).unwrap();
 
         let layer_template = owner_permit
@@ -1010,9 +919,7 @@ mod delegation_chain {
 
     #[test]
     fn test_issue_layer_authority_permit_normalizes_authorized_peers() {
-        let template = load_production_template();
-        let (owner_token, _) =
-            pollster::block_on(issue_page_owner_token(&TEST_KEY, "page123", &template)).unwrap();
+        let owner_token = make_owner_token("page123");
 
         let (authority_token, _) = pollster::block_on(issue_layer_authority_permit(
             &TEST_KEY,

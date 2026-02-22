@@ -103,7 +103,8 @@ function on_init()
     end, read_tracker)
 
     -- Init DMs — callback rebinds "messages" to the DM layer
-    dms.init(page_id, my_did, my_name, function(dm_id, layer_path)
+    local my_role = permit:role()
+    dms.init(page_id, my_did, my_name, my_role, function(dm_id, layer_path)
         view_mode = "dms"
         ui:set("view_mode", "dms")
 

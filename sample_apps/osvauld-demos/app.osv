@@ -1,4 +1,4 @@
-app "osvauld-demos" version "1.0.0" {
+app "osvauld-demos" version "2.0.0" {
   role owner can share, delegate, accept_publish, manage_access;
   role node can relay, share, accept_publish, manage_access;
   role collaborator can manage_access;
@@ -6,7 +6,7 @@ app "osvauld-demos" version "1.0.0" {
 
   // Static app layer — owner can write, others read-only
   layer app_data as map {
-    path "app:osvauld-demos";
+    path app_data;
     namespace shared;
     allow owner to read, write, sync;
     allow node, collaborator, layer_authority to read, sync;
@@ -14,22 +14,28 @@ app "osvauld-demos" version "1.0.0" {
 
   // Presence layer — all roles can read/write/sync
   layer presence as map {
-    path "presence";
+    path presence;
     namespace shared;
     allow owner, node, collaborator, layer_authority to read, write, sync;
   }
 
   // Dynamic per-channel messages (shared — no DID prefix)
   layer channel_messages as map {
-    path "channels/{id}/messages";
+    path channels / {id} / messages;
     namespace shared;
+    dynamic by id;
+    create allow owner, collaborator, node;
+    discover on sync;
     allow owner, node, collaborator, layer_authority to read, write, sync;
   }
 
-  // Dynamic DM messages — explicit grant, creator-scoped
+  // Dynamic DM messages — explicit grant, page-scoped
   layer dm_messages as map {
-    path "dms/{id}/messages";
-    namespace creator;
+    path dms / {id} / messages;
+    namespace page;
+    dynamic by id;
+    create allow owner, collaborator;
+    discover on grant;
     grant explicit;
     allow owner, node, collaborator, layer_authority to read, write, sync;
     allow owner, layer_authority to grant, revoke;
@@ -37,59 +43,52 @@ app "osvauld-demos" version "1.0.0" {
 
   // Time-sharded channel messages (shared namespace)
   layer channel_messages_sharded as map {
-    path "channels/{channel}/messages/{period}";
+    path channels / {channel} / messages / {period};
     namespace shared;
+    dynamic by channel;
+    create allow owner, collaborator, node;
+    discover on sync;
     shard by day;
     allow owner, node, collaborator, layer_authority to read, write, sync;
   }
 
   ui_app "Group Chat" {
-    entry "group-chat/app.lua";
-    allow owner,collaborator,node;
+    allow owner, collaborator, node;
   }
 
   ui_app "Sthalam Guide" {
-    entry "guide/app.lua";
-    allow owner,collaborator,node;
+    allow owner, collaborator, node;
   }
 
   ui_app "Math Simulation" {
-    entry "math-sim/app.lua";
-    allow owner,collaborator,node;
+    allow owner, collaborator, node;
   }
 
   ui_app "shared" {
-    entry "shared/app.lua";
-    allow owner,collaborator,node;
+    allow owner, collaborator, node;
   }
 
   ui_app "Snake Game" {
-    entry "snake-game/app.lua";
-    allow owner,collaborator,node;
+    allow owner, collaborator, node;
   }
 
   ui_app "Tank Game" {
-    entry "tank-game/app.lua";
-    allow owner,collaborator,node;
+    allow owner, collaborator, node;
   }
 
   ui_app "Protocol Docs" {
-    entry "protocol-docs/app.lua";
-    allow owner,collaborator,node;
+    allow owner, collaborator, node;
   }
 
   ui_app "Snake Raylib" {
-    entry "snake-raylib/app.lua";
-    allow owner,collaborator,node;
+    allow owner, collaborator, node;
   }
 
   ui_app "Sthalam" {
-    entry "sthalam-landing/app.lua";
-    allow owner,collaborator,node;
+    allow owner, collaborator, node;
   }
 
   ui_app "Tank Raylib" {
-    entry "tank-raylib/app.lua";
-    allow owner,collaborator,node;
+    allow owner, collaborator, node;
   }
 }

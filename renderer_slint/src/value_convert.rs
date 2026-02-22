@@ -21,6 +21,16 @@ fn sthithi_to_slint_inner(
     val: &Sthithi,
     field_name: Option<&str>,
 ) -> Result<SlintValue, Box<dyn std::error::Error>> {
+    if field_name.map_or(false, is_image_field) {
+        return Ok(match val {
+            Sthithi::Null => SlintValue::Image(slint::Image::default()),
+            // JSON/Sthithi cannot carry Slint image values. For image-typed fields,
+            // coerce any non-null payload to an empty image instead of emitting
+            // a non-image type that can panic in Slint image operations.
+            _ => SlintValue::Image(slint::Image::default()),
+        });
+    }
+
     match val {
         Sthithi::Null => {
             // Image-typed fields must never be Void — Slint panics on .width/.height access.
@@ -48,14 +58,26 @@ fn sthithi_to_slint_inner(
             ))
         }
         Sthithi::Map(entries) => {
-            let fields: Result<Vec<_>, _> = entries
+            let mut fields: Vec<(String, SlintValue)> = entries
                 .iter()
                 .map(|(k, v)| {
                     sthithi_to_slint_inner(v, Some(k.as_str())).map(|val| (k.clone(), val))
                 })
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // Common app pattern: rows with attachment_hash but omitted attachment_image.
+            // Ensure image-typed fallback field exists so Slint never sees Void there.
+            let has_attachment_hash = entries.iter().any(|(k, _)| k == "attachment_hash");
+            let has_attachment_image = entries.iter().any(|(k, _)| k == "attachment_image");
+            if has_attachment_hash && !has_attachment_image {
+                fields.push((
+                    "attachment_image".to_string(),
+                    SlintValue::Image(slint::Image::default()),
+                ));
+            }
+
             Ok(SlintValue::Struct(
-                slint_interpreter::Struct::from_iter(fields?).into(),
+                slint_interpreter::Struct::from_iter(fields).into(),
             ))
         }
     }
@@ -93,7 +115,7 @@ pub(crate) fn slint_value_to_json(value: &SlintValue) -> serde_json::Value {
 /// JSON has no image type, so `null` → `Void` for these fields triggers the panic.
 /// We detect image fields by naming convention and substitute a default (0×0) `Image`.
 fn is_image_field(field_name: &str) -> bool {
-    field_name.ends_with("_image") || field_name == "image" || field_name == "source"
+    field_name.ends_with("_image") || field_name == "image"
 }
 
 /// Convert JSON to Slint value (type-unaware, top-level).
@@ -112,6 +134,15 @@ fn json_to_slint_value_inner(
     value: &serde_json::Value,
     field_name: Option<&str>,
 ) -> Result<SlintValue, Box<dyn std::error::Error>> {
+    if field_name.map_or(false, is_image_field) {
+        return Ok(match value {
+            serde_json::Value::Null => SlintValue::Image(slint::Image::default()),
+            // JSON cannot encode Slint images. Coerce non-null payloads for image
+            // fields to empty image to avoid runtime panics in image built-ins.
+            _ => SlintValue::Image(slint::Image::default()),
+        });
+    }
+
     match value {
         serde_json::Value::Null => {
             // Image-typed fields must never be Void — Slint panics on .width/.height access.
@@ -140,14 +171,26 @@ fn json_to_slint_value_inner(
             Ok(SlintValue::Model(Rc::new(VecModel::from(items?)).into()))
         }
         serde_json::Value::Object(obj) => {
-            let fields: Result<Vec<_>, _> = obj
+            let mut fields: Vec<(String, SlintValue)> = obj
                 .iter()
                 .map(|(k, v)| {
                     json_to_slint_value_inner(v, Some(k.as_str())).map(|val| (k.clone(), val))
                 })
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // Common app pattern: rows with attachment_hash but omitted attachment_image.
+            // Ensure image-typed fallback field exists so Slint never sees Void there.
+            let has_attachment_hash = obj.contains_key("attachment_hash");
+            let has_attachment_image = obj.contains_key("attachment_image");
+            if has_attachment_hash && !has_attachment_image {
+                fields.push((
+                    "attachment_image".to_string(),
+                    SlintValue::Image(slint::Image::default()),
+                ));
+            }
+
             Ok(SlintValue::Struct(
-                slint_interpreter::Struct::from_iter(fields?).into(),
+                slint_interpreter::Struct::from_iter(fields).into(),
             ))
         }
     }

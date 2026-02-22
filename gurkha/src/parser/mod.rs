@@ -246,6 +246,7 @@ pub enum LayerNamespace {
     /// DID-namespaced dynamic layers.
     /// Pattern `channels/{id}/messages` maps to `channels/{creator_did}/{id}/messages`.
     #[default]
+    #[serde(alias = "page")]
     Creator,
     /// Shared dynamic layers (no DID segment injected).
     Shared,
@@ -615,9 +616,15 @@ impl Permit {
         let facts_value: serde_json::Value = serde_json::to_value(facts_ref)
             .map_err(|e| PermitError::ParsingFailed(format!("Facts conversion error: {}", e)))?;
 
-        // Deserialize structured facts via serde (replaces ~60 lines of manual parsing)
-        let parsed_facts: PermitFacts =
-            serde_json::from_value(facts_value.clone()).unwrap_or_default();
+        // Deserialize structured facts via serde (replaces ~60 lines of manual parsing).
+        // Be permissive: unknown/forward fields should not wipe out critical delegation facts.
+        let parsed_facts: PermitFacts = match serde_json::from_value(facts_value.clone()) {
+            Ok(value) => value,
+            Err(err) => {
+                tracing::warn!(error = %err, "Permit facts partial decode failed; using defaults");
+                PermitFacts::default()
+            }
+        };
 
         // Keep raw facts map for get_fact() lookups
         let facts: serde_json::Map<String, serde_json::Value> = facts_ref
@@ -627,14 +634,20 @@ impl Permit {
 
         trace!(facts = ?facts.keys().collect::<Vec<_>>(), "Facts extracted");
 
-        // Parse issue_on templates
-        let issue_on: HashMap<String, DelegationTemplate> = parsed_facts
-            .issue_on
-            .iter()
-            .filter_map(|(key, val)| {
-                Self::parse_delegation_template(key, val).map(|t| (key.clone(), t))
+        // Parse issue_on templates directly from raw facts so delegation survives
+        // even if another typed fact fails deserialization.
+        let issue_on: HashMap<String, DelegationTemplate> = facts
+            .get("issue_on")
+            .and_then(|value| value.as_object())
+            .map(|issue_on_obj| {
+                issue_on_obj
+                    .iter()
+                    .filter_map(|(key, val)| {
+                        Self::parse_delegation_template(key, val).map(|t| (key.clone(), t))
+                    })
+                    .collect()
             })
-            .collect();
+            .unwrap_or_default();
 
         // Extract proof chain
         let proof_chain = parsed.proofs().clone().unwrap_or_default();

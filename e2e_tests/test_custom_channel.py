@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from osvauld.scenario import AppTestScenario
 
-APP_PATH = Path(__file__).parent.parent / "sample_apps" / "group-chat"
+APP_PATH = Path(__file__).parent.parent / "sample_apps" / "osvauld-demos"
 
 args = AppTestScenario.parse_args("Dynamic Channel E2E")
 
@@ -98,15 +98,22 @@ with AppTestScenario(
     print(f"\n--- Key events ---")
 
     # 1. Layer creation on alice
-    creates = [e for e in events if e.get("type") == "layer_created"
-               and "project-x" in e.get("layer", "")]
+    creates = [
+        e
+        for e in events
+        if e.get("type") == "layer_created" and "project-x" in e.get("layer", "")
+    ]
     print(f"  layer_created (project-x): {len(creates)}")
     for e in creates:
         print(f"    [{e.get('instance')}] {e.get('layer')}")
 
     # 2. NewDynamicLayer on node
-    new_dyn = [e for e in events if e.get("type") == "NewDynamicLayer"
-               and "project-x" in str(e.get("layer", e.get("data", "")))]
+    new_dyn = [
+        e
+        for e in events
+        if e.get("type") == "NewDynamicLayer"
+        and "project-x" in str(e.get("layer", e.get("data", "")))
+    ]
     print(f"  NewDynamicLayer (project-x): {len(new_dyn)}")
     for e in new_dyn:
         print(f"    [{e.get('instance')}] {e.get('layer', e.get('data', ''))}")
@@ -151,23 +158,29 @@ with AppTestScenario(
     sub_results = [e for e in events if e.get("type") == "layer_subscribe_result"]
     print(f"  layer_subscribe_result: {len(sub_results)}")
     for e in sub_results:
-        print(f"    [{e.get('instance')}] layer={e.get('layer_short')} peer={e.get('short_did')} "
-              f"result={e.get('result')} subscriber_added={e.get('subscriber_added')} "
-              f"error={e.get('error')}")
+        print(
+            f"    [{e.get('instance')}] layer={e.get('layer_short')} peer={e.get('short_did')} "
+            f"result={e.get('result')} subscriber_added={e.get('subscriber_added')} "
+            f"error={e.get('error')}"
+        )
 
     # 8. Permit issue decisions (which path was tried and result)
     permit_decisions = [e for e in events if e.get("type") == "permit_issue_decision"]
     print(f"  permit_issue_decision: {len(permit_decisions)}")
     for e in permit_decisions:
-        print(f"    [{e.get('instance')}] layer={e.get('layer_short')} peer={e.get('short_did')} "
-              f"path={e.get('path')} result={e.get('result')} reason={e.get('reason')}")
+        print(
+            f"    [{e.get('instance')}] layer={e.get('layer_short')} peer={e.get('short_did')} "
+            f"path={e.get('path')} result={e.get('result')} reason={e.get('reason')}"
+        )
 
     # 9. Layer subscribe protocol (courier-level accept/reject)
     sub_protocol = [e for e in events if e.get("type") == "layer_subscribe_protocol"]
     print(f"  layer_subscribe_protocol: {len(sub_protocol)}")
     for e in sub_protocol:
-        print(f"    [{e.get('instance')}] direction={e.get('direction')} layer={e.get('layer')} "
-              f"peer={e.get('peer_did', '')[:12]} result={e.get('result')} error={e.get('error')}")
+        print(
+            f"    [{e.get('instance')}] direction={e.get('direction')} layer={e.get('layer')} "
+            f"peer={e.get('peer_did', '')[:12]} result={e.get('result')} error={e.get('error')}"
+        )
 
     # Result
     print(f"\n{'=' * 60}")
@@ -238,30 +251,50 @@ with AppTestScenario(
         broadcasts2 = [e for e in events2 if e.get("type") == "broadcast_decision"]
         print(f"  Total: {len(broadcasts2)}")
         for e in broadcasts2:
-            print(f"    [{e.get('instance')}] layer={e.get('layer')} → {e.get('decision')} {e.get('reason', '')}")
+            print(
+                f"    [{e.get('instance')}] layer={e.get('layer')} → {e.get('decision')} {e.get('reason', '')}"
+            )
 
         # SyncOffer / SyncAck events
         print(f"\n--- Sync protocol ---")
-        sync_evts = [e for e in events2 if e.get("type") in
-                     ("sync_offer_sent", "sync_offer_received", "sync_accept_sent",
-                      "sync_accept_received", "sync_ack_sent", "sync_ack_received",
-                      "SyncOffer", "SyncAccept", "SyncAck")]
+        sync_evts = [
+            e
+            for e in events2
+            if e.get("type")
+            in (
+                "sync_offer_sent",
+                "sync_offer_received",
+                "sync_accept_sent",
+                "sync_accept_received",
+                "sync_ack_sent",
+                "sync_ack_received",
+                "SyncOffer",
+                "SyncAccept",
+                "SyncAck",
+            )
+        ]
         print(f"  Sync events: {len(sync_evts)}")
         for e in sync_evts:
-            print(f"    [{e.get('instance')}] {e.get('type')}: {e.get('layer', e.get('data', ''))}")
+            print(
+                f"    [{e.get('instance')}] {e.get('type')}: {e.get('layer', e.get('data', ''))}"
+            )
 
         # All events from bob (to see what bob's scribe does)
         print(f"\n--- All bob events ---")
         bob_evts = by_instance2.get("bob", [])
         for e in bob_evts:
-            print(f"    {e.get('type')}: layer={e.get('layer', '')} {e.get('data', '')}")
+            print(
+                f"    {e.get('type')}: layer={e.get('layer', '')} {e.get('data', '')}"
+            )
 
         # All events from node related to project-x
         print(f"\n--- Node events with project-x ---")
         node_evts = by_instance2.get("node", [])
         px_evts = [e for e in node_evts if "project-x" in str(e)]
         for e in px_evts:
-            print(f"    {e.get('type')}: layer={e.get('layer', '')} {e.get('data', '')}")
+            print(
+                f"    {e.get('type')}: layer={e.get('layer', '')} {e.get('data', '')}"
+            )
 
         # __sync_meta events
         print(f"\n--- __sync_meta events ---")
@@ -273,30 +306,42 @@ with AppTestScenario(
         print(f"\n--- Layer subscribe results ---")
         sub_results2 = [e for e in events2 if e.get("type") == "layer_subscribe_result"]
         for e in sub_results2:
-            print(f"    [{e.get('instance')}] layer={e.get('layer_short')} peer={e.get('short_did')} "
-                  f"result={e.get('result')} error={e.get('error')}")
+            print(
+                f"    [{e.get('instance')}] layer={e.get('layer_short')} peer={e.get('short_did')} "
+                f"result={e.get('result')} error={e.get('error')}"
+            )
 
         # Permit issue decisions
         print(f"\n--- Permit issue decisions ---")
         permit_dec2 = [e for e in events2 if e.get("type") == "permit_issue_decision"]
         for e in permit_dec2:
-            print(f"    [{e.get('instance')}] layer={e.get('layer_short')} peer={e.get('short_did')} "
-                  f"path={e.get('path')} result={e.get('result')} reason={e.get('reason')}")
+            print(
+                f"    [{e.get('instance')}] layer={e.get('layer_short')} peer={e.get('short_did')} "
+                f"path={e.get('path')} result={e.get('result')} reason={e.get('reason')}"
+            )
 
         # Layer subscribe protocol
         print(f"\n--- Layer subscribe protocol ---")
         sub_proto2 = [e for e in events2 if e.get("type") == "layer_subscribe_protocol"]
         for e in sub_proto2:
-            print(f"    [{e.get('instance')}] direction={e.get('direction')} layer={e.get('layer')} "
-                  f"result={e.get('result')} error={e.get('error')}")
+            print(
+                f"    [{e.get('instance')}] direction={e.get('direction')} layer={e.get('layer')} "
+                f"result={e.get('result')} error={e.get('error')}"
+            )
 
     # Final result
     print(f"\n{'=' * 60}")
     expected = bob_msg_count_before + 1 if bob_msg_count_before else 2
-    if alice_count_2 >= expected and bob_count_2 >= expected and carol_count_2 >= expected:
+    if (
+        alice_count_2 >= expected
+        and bob_count_2 >= expected
+        and carol_count_2 >= expected
+    ):
         print("  PASS: Viewer write synced to all peers")
     else:
-        print(f"  FAIL: alice={alice_count_2} bob={bob_count_2} carol={carol_count_2} (expected >= {expected})")
+        print(
+            f"  FAIL: alice={alice_count_2} bob={bob_count_2} carol={carol_count_2} (expected >= {expected})"
+        )
         if merged2:
             print(f"  Captures: {merged2}")
     print(f"{'=' * 60}")
