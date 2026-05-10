@@ -5,12 +5,13 @@ edition = "2021"
 description = "Slint renderer for user apps (chat, survey, ecomm)"
 
 [dependencies]
-slint = { version = "1.14", features = ["backend-winit", "renderer-femtovg"] }
-slint-interpreter = "1.14"
+slint = { version = "1.16", features = ["backend-winit", "renderer-femtovg"] }
+slint-interpreter = "1.16"
 lua_runtime = { path = "../lua_runtime" }
 butler = { path = "../butler" }
 scribe = { path = "../scribe" }
 domains = { path = "../domains" }
+widgets = { path = "../widgets" }
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -36,7 +36,7 @@ from .client import ControlClient
 # Alias for cleaner imports
 Client = ControlClient
 
-from .session import Session
+from .session import Session, VyakaranaSession
 from .scenario import Scenario, NodeSession, AppTestScenario, PeerHandle
 from .tmux import TmuxManager
 from .wait import (
@@ -54,6 +54,7 @@ __all__ = [
     "ControlClient",
     # Sessions
     "Session",
+    "VyakaranaSession",
     "NodeSession",
     "Scenario",
     "AppTestScenario",

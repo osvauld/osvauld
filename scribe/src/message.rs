@@ -68,6 +68,16 @@ pub enum LoroDelta {
     Map {
         updated: HashMap<String, Option<Sthithi>>,
     },
+
+    /// Tree delta: per-node create/move/delete operations
+    Tree { ops: Vec<TreeOp> },
+
+    /// Text delta: Retain/Insert/Delete sequence (Loro TextDelta projection).
+    ///
+    /// **Context**: Lua apps applying surgical text updates (preserve cursor).
+    /// **Note**: Marks/attributes are intentionally dropped here for the MVP —
+    /// formatting will be layered in once the rich-text story lands.
+    Text { ops: Vec<TextOp> },
 }
 
 /// List delta operations (applied sequentially)
@@ -85,6 +95,72 @@ pub enum ListOp {
 
     /// Delete N items at current position
     Delete { count: usize },
+}
+
+/// Text delta operations (applied sequentially, mirrors Loro's TextDelta).
+///
+/// **Context**: Represents changes to a `LoroText` container.
+/// **Positions**: unicode-codepoint indices (Loro's default for `insert`/`delete`).
+/// **Attributes** (bold/italic/etc.) are dropped at this layer for the MVP.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op")]
+pub enum TextOp {
+    /// Keep N codepoints unchanged (advance cursor).
+    Retain { count: usize },
+    /// Insert a string at the current position.
+    Insert { content: String },
+    /// Delete N codepoints at the current position.
+    Delete { count: usize },
+}
+
+/// Tree delta operations
+///
+/// **Context**: Surgical changes to a Loro tree container
+/// **Node IDs** are stringified `TreeID` values; `parent: None` = root.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op")]
+pub enum TreeOp {
+    /// Node was created under `parent` at `index`.
+    Create {
+        id: String,
+        parent: Option<String>,
+        index: usize,
+    },
+    /// Node was moved to a new parent/index.
+    Move {
+        id: String,
+        parent: Option<String>,
+        index: usize,
+    },
+    /// Node was deleted.
+    Delete { id: String },
+}
+
+/// View of a single tree node (for `TreeGetNode` reads).
+///
+/// **Context**: Lua app calls `tree:get(id)` and receives this projection.
+/// **id**: stringified `TreeID`. **parent**: `None` = root.
+/// **children**: ordered list of immediate child node ids.
+/// **props**: node's `get_meta` map content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TreeNodeView {
+    pub id: String,
+    pub parent: Option<String>,
+    pub children: Vec<String>,
+    pub props: Sthithi,
+}
+
+/// Flattened depth-first tree node (for `TreeWalk`).
+///
+/// **Context**: Lua app calls `tree:walk()` and receives a depth-first sequence.
+/// Apps reconstruct hierarchy via `parent` + `depth`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlatTreeNode {
+    pub id: String,
+    pub parent: Option<String>,
+    pub depth: usize,
+    pub index: usize,
+    pub props: Sthithi,
 }
 
 /// Parsed dynamic-layer metadata propagated to Lua/UI callbacks.
@@ -490,6 +566,164 @@ pub enum ScribeMessage {
         layer_name: String,
         path: String,
         amount: i64,
+    },
+
+    // Tree operations (LoroTree-backed layers)
+    /// Ensure a tree layer exists (creates if needed)
+    ///
+    /// **Context**: Lua calls `scribe:tree("doc")` — ensures layer exists
+    EnsureLoroTree {
+        layer_name: String,
+        reply: tokio::sync::oneshot::Sender<Result<()>>,
+    },
+
+    /// Create a new tree node under `parent` (None = root).
+    ///
+    /// **Context**: Lua calls `tree:create(parent, index, props, text_keys)`.
+    /// **We do**: ensure layer, create the node, set plain props on the node's
+    /// meta map, then for each name in `text_keys` materialise a nested
+    /// `LoroText` container at that meta key — all in one commit. This is the
+    /// principled way to avoid the "two peers concurrently calling
+    /// `meta.insert_container("text", ...)` on the same fresh node and racing
+    /// on a single map key" failure mode: the *creator* always owns container
+    /// materialisation; other peers receive the wired-up container via sync
+    /// and never compete.
+    /// **Reply**: stringified `TreeID` of the new node.
+    TreeCreate {
+        layer_name: String,
+        parent: Option<String>,
+        index: Option<usize>,
+        props: Sthithi,
+        text_keys: Vec<String>,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<String, String>>,
+    },
+
+    /// Move a tree node to a new parent/index.
+    ///
+    /// **Context**: Lua calls `tree:move(node_id, parent, index)`
+    TreeMove {
+        layer_name: String,
+        node_id: String,
+        parent: Option<String>,
+        index: Option<usize>,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
+    },
+
+    /// Delete a tree node (and its descendants per Loro semantics).
+    TreeDelete {
+        layer_name: String,
+        node_id: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
+    },
+
+    /// Set a single property on a tree node's meta map.
+    TreeSetProp {
+        layer_name: String,
+        node_id: String,
+        key: String,
+        value: Sthithi,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
+    },
+
+    /// Read a single tree node (props + immediate children).
+    TreeGetNode {
+        layer_name: String,
+        node_id: String,
+        reply:
+            tokio::sync::oneshot::Sender<std::result::Result<Option<TreeNodeView>, String>>,
+    },
+
+    // Text operations (LoroText-backed layers)
+    /// Ensure a text layer exists (creates if needed).
+    ///
+    /// **Context**: Lua calls `scribe:text("body")` — ensures layer exists.
+    EnsureLoroText {
+        layer_name: String,
+        reply: tokio::sync::oneshot::Sender<Result<()>>,
+    },
+
+    /// Insert a string at the given unicode codepoint position.
+    ///
+    /// **Context**: Lua calls `text:insert(pos, content)`
+    TextInsert {
+        layer_name: String,
+        pos: usize,
+        content: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
+    },
+
+    /// Delete `len` codepoints starting at `pos`.
+    TextDelete {
+        layer_name: String,
+        pos: usize,
+        len: usize,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
+    },
+
+    /// Snapshot the current text content as a `String`.
+    TextSnapshot {
+        layer_name: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<String, String>>,
+    },
+
+    /// Length of the text in unicode codepoints.
+    TextLength {
+        layer_name: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<usize, String>>,
+    },
+
+    /// Walk the tree depth-first; returns flattened node list.
+    ///
+    /// **Used by**: bindings — apps reconstruct hierarchy via parent + depth.
+    TreeWalk {
+        layer_name: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<Vec<FlatTreeNode>, String>>,
+    },
+
+    // Per-node nested-LoroText operations.
+    //
+    // Each tree node's meta is a `LoroMap`. We can stash a nested `LoroText`
+    // container under a meta key (e.g. `"text"`) so per-block text gets
+    // char-level CRDT merge instead of LWW-overwriting on every keystroke.
+    // These ops route through the meta key and lazily insert the nested
+    // container on first write.
+    /// Insert a string at `pos` (codepoints) in the nested LoroText at
+    /// `meta[key]` of the given tree node.
+    TreeTextInsert {
+        layer_name: String,
+        node_id: String,
+        key: String,
+        pos: usize,
+        content: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
+    },
+
+    /// Delete `len` codepoints starting at `pos` in the nested LoroText.
+    TreeTextDelete {
+        layer_name: String,
+        node_id: String,
+        key: String,
+        pos: usize,
+        len: usize,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<(), String>>,
+    },
+
+    /// Snapshot the nested LoroText. Returns "" if the node has no nested
+    /// text container at that key yet.
+    TreeTextSnapshot {
+        layer_name: String,
+        node_id: String,
+        key: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<String, String>>,
+    },
+
+    /// Length of the nested LoroText in unicode codepoints. Returns 0 when
+    /// the container hasn't been created yet.
+    TreeTextLength {
+        layer_name: String,
+        node_id: String,
+        key: String,
+        reply: tokio::sync::oneshot::Sender<std::result::Result<usize, String>>,
     },
 
     /// Create a dynamic layer (from Lua app)

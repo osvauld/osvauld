@@ -267,8 +267,17 @@ impl LuaRuntime {
         let normalized_layer = self.normalize_layer_name_for_lookup(layer_name);
         let manager = self.binding_manager.lock();
         let bindings = manager.get_bindings_for_layer(&normalized_layer);
+        let has_text_bindings = !manager.text_bindings_for_layer(&normalized_layer).is_empty();
+        let has_tree_bindings = !manager.tree_bindings_for_layer(&normalized_layer).is_empty();
+        let has_loro_text_bindings = !manager
+            .loro_text_bindings_for_layer(&normalized_layer)
+            .is_empty();
 
-        if bindings.is_empty() {
+        if bindings.is_empty()
+            && !has_text_bindings
+            && !has_tree_bindings
+            && !has_loro_text_bindings
+        {
             let all_bindings: Vec<_> = manager
                 .all_bindings()
                 .map(|b| format!("{}→{}", b.expanded_pattern, b.ui_property))
@@ -419,6 +428,200 @@ impl LuaRuntime {
                     } else {
                         debug!(page_id = %self.page_id, layer = %layer_name, ui_property = %ui_property,
                             "Binding auto-synced to UI (Replace fallback)");
+                    }
+                }
+            }
+        }
+
+        // Text bindings: extract per-key string values and push as PropertyUpdate.
+        // **Context**: remote-applied updates arrive with delta but no full_data
+        // (perf optimization for surgical map/list bindings). Text bindings need
+        // a snapshot, so we fetch one if missing.
+        let text_bindings = manager.text_bindings_for_layer(&normalized_layer);
+        if !text_bindings.is_empty() {
+            let fetched_data = if full_data.is_none() {
+                match self.scribe.get_layer_sthithi(layer_name) {
+                    Ok(Some(sth)) => Some(JsonValue::from(&sth)),
+                    Ok(None) => None,
+                    Err(e) => {
+                        warn!(page_id = %self.page_id, layer = %layer_name, error = %e,
+                            "Text binding fetch_layer_data failed");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            let data_ref = full_data.or(fetched_data.as_ref());
+            if let Some(data) = data_ref {
+                let mut properties = Vec::new();
+                for tb in text_bindings {
+                    let value = data
+                        .get(&tb.key)
+                        .cloned()
+                        .unwrap_or(JsonValue::String(String::new()));
+                    // Coerce non-string values to empty string — text bindings
+                    // assume the key holds a string.
+                    let value = match value {
+                        JsonValue::String(_) => value,
+                        JsonValue::Null => JsonValue::String(String::new()),
+                        other => {
+                            warn!(
+                                page_id = %self.page_id,
+                                layer = %layer_name,
+                                key = %tb.key,
+                                ui_property = %tb.ui_property,
+                                value_kind = ?other,
+                                "Text binding value is not a string, coercing to empty"
+                            );
+                            JsonValue::String(String::new())
+                        }
+                    };
+                    properties.push(crate::ui_types::PropertyUpdate {
+                        key: tb.ui_property.clone(),
+                        value,
+                    });
+                }
+
+                if !properties.is_empty() {
+                    if let Some(ref ui_tx) = self.ui_tx {
+                        let mutation = crate::ui_types::UiMutation {
+                            app_id: self.page_id.clone(),
+                            properties,
+                            model_ops: vec![],
+                        };
+                        if let Err(e) = ui_tx.try_send(mutation) {
+                            warn!(page_id = %self.page_id, layer = %layer_name, error = %e,
+                                "Failed to send text binding UI mutation");
+                        } else {
+                            debug!(page_id = %self.page_id, layer = %layer_name,
+                                "Text bindings auto-synced to UI");
+                        }
+                    }
+                }
+            }
+        }
+
+        // LoroText bindings: snapshot the whole text container and push the
+        // result into the bound string property. We suppress no-op pushes via
+        // `diff_loro_text` so a remote echo of our own write doesn't fight the
+        // user's typing on a focused TextInput. (UI-side echo guards still
+        // apply — see app.slint's `external-text` pattern.)
+        let loro_text_bindings = manager.loro_text_bindings_for_layer(&normalized_layer);
+        if !loro_text_bindings.is_empty() {
+            let mut properties = Vec::new();
+            for ltb in loro_text_bindings {
+                let snapshot = match self.scribe.text_snapshot(layer_name) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!(
+                            page_id = %self.page_id,
+                            layer = %layer_name,
+                            ui_property = %ltb.ui_property,
+                            error = %e,
+                            "LoroText binding text_snapshot failed"
+                        );
+                        continue;
+                    }
+                };
+                if let Some(update) =
+                    crate::bindings::binding::BindingManager::diff_loro_text(ltb, snapshot)
+                {
+                    properties.push(update);
+                }
+            }
+            if !properties.is_empty() {
+                if let Some(ref ui_tx) = self.ui_tx {
+                    let mutation = crate::ui_types::UiMutation {
+                        app_id: self.page_id.clone(),
+                        properties,
+                        model_ops: vec![],
+                    };
+                    if let Err(e) = ui_tx.try_send(mutation) {
+                        warn!(
+                            page_id = %self.page_id,
+                            layer = %layer_name,
+                            error = %e,
+                            "Failed to send LoroText binding UI mutation"
+                        );
+                    } else {
+                        debug!(
+                            page_id = %self.page_id,
+                            layer = %layer_name,
+                            "LoroText binding auto-synced to UI"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Tree bindings: walk the LoroTree and emit a surgical diff against
+        // the previous walk. `Set` preserves Slint child identity (cursor &
+        // focus survive); `Replace` is the structural-shift fallback. See
+        // `BindingManager::diff_tree_rows`.
+        let tree_bindings = manager.tree_bindings_for_layer(&normalized_layer);
+        if !tree_bindings.is_empty() {
+            for tb in tree_bindings {
+                let nodes = match self.scribe.tree_walk(layer_name) {
+                    Ok(nodes) => nodes,
+                    Err(e) => {
+                        warn!(
+                            page_id = %self.page_id,
+                            layer = %layer_name,
+                            ui_property = %tb.ui_property,
+                            error = %e,
+                            "Tree binding tree_walk failed"
+                        );
+                        continue;
+                    }
+                };
+
+                let new_rows: Vec<(String, JsonValue)> = nodes
+                    .into_iter()
+                    .map(|node| {
+                        let id = node.id.clone();
+                        let mut obj = serde_json::Map::new();
+                        obj.insert("id".into(), JsonValue::String(node.id));
+                        obj.insert(
+                            "parent".into(),
+                            node.parent.map(JsonValue::String).unwrap_or(JsonValue::Null),
+                        );
+                        obj.insert("depth".into(), JsonValue::from(node.depth));
+                        obj.insert("index".into(), JsonValue::from(node.index));
+                        obj.insert("props".into(), JsonValue::from(&node.props));
+                        (id, JsonValue::Object(obj))
+                    })
+                    .collect();
+
+                let model_ops = crate::bindings::binding::BindingManager::diff_tree_rows(
+                    tb, new_rows,
+                );
+
+                if model_ops.is_empty() {
+                    continue;
+                }
+
+                if let Some(ref ui_tx) = self.ui_tx {
+                    let mutation = crate::ui_types::UiMutation {
+                        app_id: self.page_id.clone(),
+                        properties: vec![],
+                        model_ops,
+                    };
+                    if let Err(e) = ui_tx.try_send(mutation) {
+                        warn!(
+                            page_id = %self.page_id,
+                            layer = %layer_name,
+                            ui_property = %tb.ui_property,
+                            error = %e,
+                            "Failed to send tree binding UI mutation"
+                        );
+                    } else {
+                        debug!(
+                            page_id = %self.page_id,
+                            layer = %layer_name,
+                            ui_property = %tb.ui_property,
+                            "Tree binding diff applied"
+                        );
                     }
                 }
             }

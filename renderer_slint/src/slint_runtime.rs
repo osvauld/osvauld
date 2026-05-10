@@ -99,7 +99,8 @@ impl SlintRuntime {
         );
 
         // Compile Slint component
-        let compiler = Compiler::default();
+        let mut compiler = Compiler::default();
+        widgets::register_library(&mut compiler);
 
         // Note: This is running on the main thread (not Tokio)
         // We need to block on the async compilation

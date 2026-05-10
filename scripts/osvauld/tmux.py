@@ -154,6 +154,10 @@ class TmuxManager:
         self._instance_order: List[str] = []
         self._started = False
         self._next_console_port = 6669  # Starting port for tokio-console
+        # Set when add_vyakarana() is called; injected into shell env vars
+        self._vyakarana_bin: Optional[str] = None
+        self._vyakarana_corpus: Optional[str] = None
+        self._vyakarana_socket: Optional[str] = None
 
     def add_shell(self, name: str, console_port: Optional[int] = None) -> "TmuxManager":
         """Add a slint_shell instance.
@@ -185,6 +189,67 @@ class TmuxManager:
             console_port=console_port,
         )
         self._instance_order.append(name)
+        return self
+
+    def add_vyakarana(
+        self,
+        name: str = "vyakarana",
+        binary: Optional[Path] = None,
+        corpus_root: Optional[Path] = None,
+        socket_path: Optional[str] = None,
+    ) -> "TmuxManager":
+        """Add a vyakarana engine instance in its own tmux window.
+
+        The engine is started with ``--socket <path> --quiet-startup <corpus_dirs...>``.
+        Its window shows live logs (stdout+stderr via tee).
+
+        After calling this, the env vars ``VYAKARANA_BIN`` and ``VYAKARANA_CORPUS``
+        are recorded on the manager so ``_start_instance_in_window`` injects them
+        into every subsequent shell instance's environment.
+
+        Args:
+            name: Tmux window name (default: "vyakarana")
+            binary: Path to vyakarana.exe (default: agent_x build location)
+            corpus_root: Root dir containing brahman/ and sessions/
+                         (default: sibling agent_x directory)
+            socket_path: Unix socket path (default: /tmp/vy_tmux.sock)
+
+        Returns:
+            self (for chaining)
+        """
+        if name in self._instances:
+            raise ValueError(f"Instance '{name}' already exists")
+
+        # Resolve defaults
+        agent_x = PROJECT_ROOT.parent / "agent_x"
+        resolved_binary = (
+            Path(binary)
+            if binary
+            else (
+                agent_x / "vyakarana" / "_build" / "default" / "bin" / "vyakarana.exe"
+            )
+        )
+        resolved_corpus = Path(corpus_root) if corpus_root else agent_x
+        resolved_socket = socket_path or "/tmp/vy_tmux.sock"
+
+        data_dir = self.base_dir / name
+        # We reuse the Instance struct with a synthetic socket_path just for
+        # readiness polling (we poll the Unix socket directly).
+        inst = Instance(
+            name=name,
+            data_dir=data_dir,
+            socket_path=Path(resolved_socket),
+            instance_type="vyakarana",
+            binary=resolved_binary,
+        )
+        self._instances[name] = inst
+        self._instance_order.append(name)
+
+        # Record for env injection into shell windows and for _start_instance_in_window
+        self._vyakarana_bin = str(resolved_binary)
+        self._vyakarana_corpus = str(resolved_corpus)
+        self._vyakarana_socket = resolved_socket
+
         return self
 
     def add_node(self, name: str, console_port: Optional[int] = None) -> "TmuxManager":
@@ -223,6 +288,7 @@ class TmuxManager:
         """Check that required binaries exist."""
         has_shell = any(i.instance_type == "shell" for i in self._instances.values())
         has_node = any(i.instance_type == "node" for i in self._instances.values())
+        has_vy = any(i.instance_type == "vyakarana" for i in self._instances.values())
 
         if has_shell and not self.shell_binary.exists():
             raise FileNotFoundError(
@@ -233,6 +299,11 @@ class TmuxManager:
             raise FileNotFoundError(
                 f"kunki binary not found: {self.kunki_binary}\n"
                 "Run: cargo build -p kunki"
+            )
+        if has_vy and self._vyakarana_bin and not Path(self._vyakarana_bin).exists():
+            raise FileNotFoundError(
+                f"vyakarana binary not found: {self._vyakarana_bin}\n"
+                "Run: cd agent_x/vyakarana && dune build"
             )
         return True
 
@@ -538,6 +609,13 @@ class TmuxManager:
             heaptrack_output = inst.data_dir / f"{inst.name}.heaptrack"
             heaptrack_prefix = f"heaptrack -o {heaptrack_output} "
 
+        # Inject vyakarana bridge env vars into shell instances so the renderer
+        # bridge can locate the engine binary and corpus at startup
+        if inst.instance_type == "shell" and self._vyakarana_bin:
+            env_vars.append(f"VYAKARANA_BIN={self._vyakarana_bin}")
+            env_vars.append(f"VYAKARANA_CORPUS={self._vyakarana_corpus}")
+            env_prefix = " ".join(env_vars) + " " if env_vars else ""
+
         log_file = inst.data_dir / f"{inst.name}.log"
         test_mode_flag = " --test-mode" if self.test_mode else ""
         if inst.instance_type == "shell":
@@ -547,6 +625,29 @@ class TmuxManager:
                 f"STHALAM_DATA_DIR={inst.data_dir} "
                 f"{heaptrack_prefix}"
                 f"{inst.binary} -d {inst.name}{test_mode_flag} --debug-socket {inst.socket_path} "
+                f"2>&1 | tee {log_file}"
+            )
+        elif inst.instance_type == "vyakarana":
+            # Build corpus dirs: kosha + sangati + sessions subdirs
+            vy_corpus: str = self._vyakarana_corpus or ""
+            corpus = Path(vy_corpus)
+            corpus_dirs = []
+            for sub in ("brahman/kosha", "brahman/sangati"):
+                p = corpus / sub
+                if p.exists():
+                    corpus_dirs.append(str(p))
+            sessions = corpus / "sessions"
+            if sessions.exists():
+                for entry in sorted(sessions.iterdir()):
+                    if entry.is_dir():
+                        corpus_dirs.append(str(entry))
+            corpus_args = " ".join(corpus_dirs)
+            cmd = (
+                f"cd {PROJECT_ROOT} && "
+                f"{self._vyakarana_bin} "
+                f"--socket {self._vyakarana_socket} "
+                f"--quiet-startup "
+                f"{corpus_args} "
                 f"2>&1 | tee {log_file}"
             )
         else:  # node
@@ -570,6 +671,20 @@ class TmuxManager:
             ]
         )
 
+    def _is_vyakarana_ready(self, inst: Instance) -> bool:
+        """Check if a vyakarana engine socket is accepting connections."""
+        import socket as _socket
+
+        if not inst.socket_path.exists():
+            return False
+        try:
+            with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as s:
+                s.settimeout(1.0)
+                s.connect(str(inst.socket_path))
+            return True
+        except (ConnectionRefusedError, OSError):
+            return False
+
     def _wait_for_ready(self, timeout: float) -> None:
         """Wait for all instances to be ready."""
         start_time = time.time()
@@ -577,8 +692,15 @@ class TmuxManager:
 
         while time.time() - start_time < timeout:
             for name, inst in self._instances.items():
-                if name not in ready and inst.is_ready():
-                    ready.add(name)
+                if name not in ready:
+                    if inst.instance_type == "vyakarana":
+                        if self._is_vyakarana_ready(inst):
+                            ready.add(name)
+                            print(
+                                f"    vyakarana engine ready ({time.time() - start_time:.1f}s)"
+                            )
+                    elif inst.is_ready():
+                        ready.add(name)
 
             if len(ready) == len(self._instances):
                 return

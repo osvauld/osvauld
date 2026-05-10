@@ -1052,6 +1052,10 @@ impl Parser {
             self.bump();
             return Ok(LayerKind::Blob);
         }
+        if self.is_kw("tree") {
+            self.bump();
+            return Ok(LayerKind::Tree);
+        }
         Err(Diagnostic::new(
             "E1113",
             "unknown layer kind",

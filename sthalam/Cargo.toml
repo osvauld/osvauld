@@ -39,7 +39,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 tracing = "0.1"
 
 # UI framework
-slint = { version = "1.14", features = ["backend-winit", "renderer-femtovg"] }
+slint = { version = "1.16", features = ["backend-winit", "renderer-femtovg"] }
 
 # Utilities
 dirs = "5.0"
@@ -48,7 +48,7 @@ serde_json = "1"
 ractor = "0.14"
 
 # Testing backend
-i-slint-backend-testing = "1.14"
+i-slint-backend-testing = "1.16"
 
 # Profiling (optional)
 console-subscriber = { workspace = true, optional = true }

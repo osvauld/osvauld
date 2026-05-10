@@ -1,0 +1,459 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/abe/osvauld/kunki/Cargo.toml
+workspace: /home/abe/osvauld/Cargo.toml
+   0.388962313s  INFO prepare_target{force=false package_id=courier v0.1.0 (/home/abe/osvauld/courier) target="courier"}: cargo::core::compiler::fingerprint: fingerprint error for courier v0.1.0 (/home/abe/osvauld/courier)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("courier", ["lib"], "/home/abe/osvauld/courier/src/lib.rs", Edition2021) }
+   0.388977980s  INFO prepare_target{force=false package_id=courier v0.1.0 (/home/abe/osvauld/courier) target="courier"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/abe/osvauld/target/debug/.fingerprint/courier-23f7123eb3c0261e/test-lib-courier`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: <unknown>
+  25: __libc_start_main
+  26: <unknown>
+   0.397562469s  INFO prepare_target{force=false package_id=integration_tests v0.1.0 (/home/abe/osvauld/integration_tests) target="integration_tests"}: cargo::core::compiler::fingerprint: fingerprint error for integration_tests v0.1.0 (/home/abe/osvauld/integration_tests)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("integration_tests", ["lib"], "/home/abe/osvauld/integration_tests/src/lib.rs", Edition2021) }
+   0.397575318s  INFO prepare_target{force=false package_id=integration_tests v0.1.0 (/home/abe/osvauld/integration_tests) target="integration_tests"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/abe/osvauld/target/debug/.fingerprint/integration_tests-8dc3d1e40928b1be/test-lib-integration_tests`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: <unknown>
+  25: __libc_start_main
+  26: <unknown>
+   0.399125104s  INFO prepare_target{force=false package_id=kunki v0.1.0 (/home/abe/osvauld/kunki) target="kunki"}: cargo::core::compiler::fingerprint: fingerprint error for kunki v0.1.0 (/home/abe/osvauld/kunki)/Check { test: false }/TargetInner { ..: lib_target("kunki", ["lib"], "/home/abe/osvauld/kunki/src/lib.rs", Edition2021) }
+   0.399135971s  INFO prepare_target{force=false package_id=kunki v0.1.0 (/home/abe/osvauld/kunki) target="kunki"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/abe/osvauld/target/debug/.fingerprint/kunki-c4c1922941a9d289/lib-kunki`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: <unknown>
+  25: __libc_start_main
+  26: <unknown>
+   0.400689794s  INFO prepare_target{force=false package_id=kunki v0.1.0 (/home/abe/osvauld/kunki) target="kunki"}: cargo::core::compiler::fingerprint: fingerprint error for kunki v0.1.0 (/home/abe/osvauld/kunki)/Check { test: true }/TargetInner { ..: lib_target("kunki", ["lib"], "/home/abe/osvauld/kunki/src/lib.rs", Edition2021) }
+   0.400698876s  INFO prepare_target{force=false package_id=kunki v0.1.0 (/home/abe/osvauld/kunki) target="kunki"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/abe/osvauld/target/debug/.fingerprint/kunki-48de2617011763c1/test-lib-kunki`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: <unknown>
+  25: __libc_start_main
+  26: <unknown>
+   0.401991436s  INFO prepare_target{force=false package_id=kunki v0.1.0 (/home/abe/osvauld/kunki) target="kunki"}: cargo::core::compiler::fingerprint: fingerprint error for kunki v0.1.0 (/home/abe/osvauld/kunki)/Check { test: false }/TargetInner { name: "kunki", doc: true, ..: with_path("/home/abe/osvauld/kunki/src/main.rs", Edition2021) }
+   0.401999231s  INFO prepare_target{force=false package_id=kunki v0.1.0 (/home/abe/osvauld/kunki) target="kunki"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/abe/osvauld/target/debug/.fingerprint/kunki-7173094b69792eaa/bin-kunki`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: <unknown>
+  25: __libc_start_main
+  26: <unknown>
+   0.403214788s  INFO prepare_target{force=false package_id=kunki v0.1.0 (/home/abe/osvauld/kunki) target="kunki"}: cargo::core::compiler::fingerprint: fingerprint error for kunki v0.1.0 (/home/abe/osvauld/kunki)/Check { test: true }/TargetInner { name: "kunki", doc: true, ..: with_path("/home/abe/osvauld/kunki/src/main.rs", Edition2021) }
+   0.403222037s  INFO prepare_target{force=false package_id=kunki v0.1.0 (/home/abe/osvauld/kunki) target="kunki"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/abe/osvauld/target/debug/.fingerprint/kunki-d0bae682c1fea906/test-bin-kunki`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: <unknown>
+  25: __libc_start_main
+  26: <unknown>
+   0.412352534s  INFO prepare_target{force=false package_id=renderer_slint v0.1.0 (/home/abe/osvauld/renderer_slint) target="renderer_slint"}: cargo::core::compiler::fingerprint: fingerprint error for renderer_slint v0.1.0 (/home/abe/osvauld/renderer_slint)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("renderer_slint", ["lib"], "/home/abe/osvauld/renderer_slint/src/lib.rs", Edition2021) }
+   0.412367226s  INFO prepare_target{force=false package_id=renderer_slint v0.1.0 (/home/abe/osvauld/renderer_slint) target="renderer_slint"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/abe/osvauld/target/debug/.fingerprint/renderer_slint-53a9c654f65913e4/lib-renderer_slint`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: <unknown>
+  25: __libc_start_main
+  26: <unknown>
+   0.429011987s  INFO prepare_target{force=false package_id=renderer_slint v0.1.0 (/home/abe/osvauld/renderer_slint) target="renderer_slint"}: cargo::core::compiler::fingerprint: fingerprint error for renderer_slint v0.1.0 (/home/abe/osvauld/renderer_slint)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("renderer_slint", ["lib"], "/home/abe/osvauld/renderer_slint/src/lib.rs", Edition2021) }
+   0.429032461s  INFO prepare_target{force=false package_id=renderer_slint v0.1.0 (/home/abe/osvauld/renderer_slint) target="renderer_slint"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/abe/osvauld/target/debug/.fingerprint/renderer_slint-99d597f967a4ef46/test-lib-renderer_slint`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: <unknown>
+  25: __libc_start_main
+  26: <unknown>
+   0.432009622s  INFO prepare_target{force=false package_id=sthalam v0.1.0 (/home/abe/osvauld/sthalam) target="sthalam"}: cargo::core::compiler::fingerprint: dependency on `build_script_build` is newer than we are 1772521897.667265653s > 1771749750.340318706s "/home/abe/osvauld/sthalam_shell"
+   0.432055382s  INFO prepare_target{force=false package_id=sthalam v0.1.0 (/home/abe/osvauld/sthalam) target="sthalam"}: cargo::core::compiler::fingerprint: fingerprint error for sthalam v0.1.0 (/home/abe/osvauld/sthalam)/Check { test: false }/TargetInner { name: "sthalam", doc: true, ..: with_path("/home/abe/osvauld/sthalam/src/main.rs", Edition2021) }
+   0.432061586s  INFO prepare_target{force=false package_id=sthalam v0.1.0 (/home/abe/osvauld/sthalam) target="sthalam"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/abe/osvauld/target/debug/.fingerprint/sthalam-719666ae33cd103e/bin-sthalam`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: <unknown>
+  25: __libc_start_main
+  26: <unknown>
+   0.434464676s  INFO prepare_target{force=false package_id=sthalam_shell v0.1.0 (/home/abe/osvauld/sthalam_shell) target="sthalam_shell"}: cargo::core::compiler::fingerprint: fingerprint dirty for sthalam_shell v0.1.0 (/home/abe/osvauld/sthalam_shell)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("sthalam_shell", ["lib"], "/home/abe/osvauld/sthalam_shell/src/lib.rs", Edition2021) }
+   0.434474196s  INFO prepare_target{force=false package_id=sthalam_shell v0.1.0 (/home/abe/osvauld/sthalam_shell) target="sthalam_shell"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDependency { name: "build_script_build", dep_mtime: FileTime { seconds: 1772521897, nanos: 667265653 }, max_mtime: FileTime { seconds: 1771749750, nanos: 340318706 } })
+   0.436321896s  INFO prepare_target{force=false package_id=sthalam v0.1.0 (/home/abe/osvauld/sthalam) target="sthalam"}: cargo::core::compiler::fingerprint: fingerprint error for sthalam v0.1.0 (/home/abe/osvauld/sthalam)/Check { test: true }/TargetInner { name: "sthalam", doc: true, ..: with_path("/home/abe/osvauld/sthalam/src/main.rs", Edition2021) }
+   0.436330052s  INFO prepare_target{force=false package_id=sthalam v0.1.0 (/home/abe/osvauld/sthalam) target="sthalam"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/abe/osvauld/target/debug/.fingerprint/sthalam-c2a2d3871cece700/test-bin-sthalam`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: <unknown>
+  25: __libc_start_main
+  26: <unknown>
+warning: sthalam_shell@0.1.0: warning: padding-left only has effect on layout elements
+warning: sthalam_shell@0.1.0:    --> /home/abe/osvauld/sthalam_shell/src/components/cards.slint:245:39
+warning: sthalam_shell@0.1.0:     |
+warning: sthalam_shell@0.1.0: 245 |                         padding-left: 8px;
+warning: sthalam_shell@0.1.0:     |                                       ^^^^
+warning: sthalam_shell@0.1.0:     |
+warning: sthalam_shell@0.1.0: warning: padding-right only has effect on layout elements
+warning: sthalam_shell@0.1.0:    --> /home/abe/osvauld/sthalam_shell/src/components/cards.slint:246:40
+warning: sthalam_shell@0.1.0:     |
+warning: sthalam_shell@0.1.0: 246 |                         padding-right: 8px;
+warning: sthalam_shell@0.1.0:     |                                        ^^^^
+    Checking kunki v0.1.0 (/home/abe/osvauld/kunki)
+    Checking renderer_slint v0.1.0 (/home/abe/osvauld/renderer_slint)
+    Checking sthalam_shell v0.1.0 (/home/abe/osvauld/sthalam_shell)
+    Checking integration_tests v0.1.0 (/home/abe/osvauld/integration_tests)
+    Checking courier v0.1.0 (/home/abe/osvauld/courier)
+error: could not compile `kunki` (lib test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `kunki` (lib) due to 1 previous error
+error: could not compile `renderer_slint` (lib test) due to 1 previous error; 1 warning emitted
+error: could not compile `renderer_slint` (lib) due to 1 previous error; 1 warning emitted
+error: could not compile `integration_tests` (lib test) due to 2 previous errors
+error: could not compile `courier` (lib test) due to 23 previous errors

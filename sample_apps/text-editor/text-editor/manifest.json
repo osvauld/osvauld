@@ -1,0 +1,9 @@
+{
+    "name": "Text Editor",
+    "version": "0.1.0",
+    "description": "Block-based editor (LoroTree of paragraph blocks)",
+    "entry_ui": "app.slint",
+    "entry_logic": "app.lua",
+    "renderer": "slint",
+    "models": ["blocks"]
+}

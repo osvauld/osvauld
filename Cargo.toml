@@ -17,6 +17,7 @@ members = [
   # New crates for multi-renderer architecture
   "renderer_slint",
   "renderer_raylib",
+  "widgets",
   "sthalam_shell",
   "sthalam",
   "integration_tests",

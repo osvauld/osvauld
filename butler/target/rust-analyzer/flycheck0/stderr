@@ -1,0 +1,70 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/abe/osvauld/kunki/Cargo.toml
+workspace: /home/abe/osvauld/Cargo.toml
+   0.406193614s  INFO prepare_target{force=false package_id=courier v0.1.0 (/home/abe/osvauld/courier) target="courier"}: cargo::core::compiler::fingerprint: fingerprint error for courier v0.1.0 (/home/abe/osvauld/courier)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("courier", ["lib"], "/home/abe/osvauld/courier/src/lib.rs", Edition2021) }
+   0.406210627s  INFO prepare_target{force=false package_id=courier v0.1.0 (/home/abe/osvauld/courier) target="courier"}: cargo::core::compiler::fingerprint:     err: failed to read `/home/abe/osvauld/target/debug/.fingerprint/courier-23f7123eb3c0261e/test-lib-courier`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: cargo_util::paths::read_bytes
+   1: cargo_util::paths::read
+   2: cargo::core::compiler::fingerprint::_compare_old_fingerprint
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::main
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  13: std::rt::lang_start::<()>::{closure#0}
+  14: core::ops::function::impls::<impl core::ops::function::FnOnce<A> for &F>::call_once
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/core/src/ops/function.rs:287:21
+  15: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  16: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  17: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  18: std::rt::lang_start_internal::{{closure}}
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:175:24
+  19: std::panicking::catch_unwind::do_call
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:590:40
+  20: std::panicking::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panicking.rs:553:19
+  21: std::panic::catch_unwind
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/panic.rs:359:14
+  22: std::rt::lang_start_internal
+             at /rustc/ded5c06cf21d2b93bffd5d884aa6e96934ee4234/library/std/src/rt.rs:171:5
+  23: main
+  24: <unknown>
+  25: __libc_start_main
+  26: <unknown>
+   0.417371924s  INFO prepare_target{force=false package_id=renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib) target="renderer_raylib"}: cargo::core::compiler::fingerprint: stale: changed "/home/abe/osvauld/renderer_raylib/src/canvas_bindings.rs"
+   0.417380254s  INFO prepare_target{force=false package_id=renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib) target="renderer_raylib"}: cargo::core::compiler::fingerprint:           (vs) "/home/abe/osvauld/target/debug/.fingerprint/renderer_raylib-09d70d6eefcd32e7/dep-lib-renderer_raylib"
+   0.417383124s  INFO prepare_target{force=false package_id=renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib) target="renderer_raylib"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1771749744, nanos: 555673804 } < FileTime { seconds: 1772481775, nanos: 814466022 }
+   0.417459288s  INFO prepare_target{force=false package_id=renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib) target="renderer_raylib"}: cargo::core::compiler::fingerprint: fingerprint dirty for renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("renderer_raylib", ["lib"], "/home/abe/osvauld/renderer_raylib/src/lib.rs", Edition2021) }
+   0.417470451s  INFO prepare_target{force=false package_id=renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib) target="renderer_raylib"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/home/abe/osvauld/target/debug/.fingerprint/renderer_raylib-09d70d6eefcd32e7/dep-lib-renderer_raylib", reference_mtime: FileTime { seconds: 1771749744, nanos: 555673804 }, stale: "/home/abe/osvauld/renderer_raylib/src/canvas_bindings.rs", stale_mtime: FileTime { seconds: 1772481775, nanos: 814466022 } }))
+   0.419008257s  INFO prepare_target{force=false package_id=renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib) target="renderer_raylib"}: cargo::core::compiler::fingerprint: stale: changed "/home/abe/osvauld/renderer_raylib/src/canvas_bindings.rs"
+   0.419013980s  INFO prepare_target{force=false package_id=renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib) target="renderer_raylib"}: cargo::core::compiler::fingerprint:           (vs) "/home/abe/osvauld/target/debug/.fingerprint/renderer_raylib-2dbf8345361d947b/dep-test-lib-renderer_raylib"
+   0.419016125s  INFO prepare_target{force=false package_id=renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib) target="renderer_raylib"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1771749744, nanos: 549673662 } < FileTime { seconds: 1772481775, nanos: 814466022 }
+   0.419060506s  INFO prepare_target{force=false package_id=renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib) target="renderer_raylib"}: cargo::core::compiler::fingerprint: fingerprint dirty for renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("renderer_raylib", ["lib"], "/home/abe/osvauld/renderer_raylib/src/lib.rs", Edition2021) }
+   0.419070147s  INFO prepare_target{force=false package_id=renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib) target="renderer_raylib"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/home/abe/osvauld/target/debug/.fingerprint/renderer_raylib-2dbf8345361d947b/dep-test-lib-renderer_raylib", reference_mtime: FileTime { seconds: 1771749744, nanos: 549673662 }, stale: "/home/abe/osvauld/renderer_raylib/src/canvas_bindings.rs", stale_mtime: FileTime { seconds: 1772481775, nanos: 814466022 } }))
+warning: sthalam_shell@0.1.0: warning: padding-left only has effect on layout elements
+warning: sthalam_shell@0.1.0:    --> /home/abe/osvauld/sthalam_shell/src/components/cards.slint:245:39
+warning: sthalam_shell@0.1.0:     |
+warning: sthalam_shell@0.1.0: 245 |                         padding-left: 8px;
+warning: sthalam_shell@0.1.0:     |                                       ^^^^
+warning: sthalam_shell@0.1.0:     |
+warning: sthalam_shell@0.1.0: warning: padding-right only has effect on layout elements
+warning: sthalam_shell@0.1.0:    --> /home/abe/osvauld/sthalam_shell/src/components/cards.slint:246:40
+warning: sthalam_shell@0.1.0:     |
+warning: sthalam_shell@0.1.0: 246 |                         padding-right: 8px;
+warning: sthalam_shell@0.1.0:     |                                        ^^^^
+    Checking courier v0.1.0 (/home/abe/osvauld/courier)
+    Checking renderer_raylib v0.1.0 (/home/abe/osvauld/renderer_raylib)
+error: could not compile `courier` (lib test) due to 23 previous errors

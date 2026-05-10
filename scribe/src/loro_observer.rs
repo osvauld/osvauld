@@ -7,11 +7,12 @@
 //! peer broadcasts are handled through the observer pattern (no manual callbacks needed).
 
 use loro::event::{Diff, DiffEvent, ListDiffItem};
-use loro::ValueOrContainer;
+use loro::{TreeDiffItem, TreeExternalDiff, TreeParentId, ValueOrContainer};
 use tokio::sync::mpsc;
 use tracing::{debug, info, instrument, warn};
 
-use crate::message::{BroadcastPayload, ListOp, LoroDelta, PageUpdate};
+use crate::message::{BroadcastPayload, ListOp, LoroDelta, PageUpdate, TextOp, TreeOp};
+use loro::TextDelta;
 use crate::policy_compat;
 use crate::state::ScribeState;
 use domains::{OpKind, Parivarta, Sthithi};
@@ -174,10 +175,70 @@ pub fn convert_loro_diff_to_delta(diff: &Diff) -> Option<LoroDelta> {
             Some(LoroDelta::Map { updated })
         }
 
+        Diff::Tree(tree_diff) => {
+            let ops = tree_diff
+                .diff
+                .iter()
+                .map(|item| tree_diff_item_to_op(item))
+                .collect();
+            Some(LoroDelta::Tree { ops })
+        }
+
+        Diff::Text(text_delta) => {
+            // Strip mark attributes for the MVP — bindings use Retain/Insert/Delete only.
+            let ops = text_delta.iter().map(text_delta_to_op).collect();
+            Some(LoroDelta::Text { ops })
+        }
+
         _ => {
             debug!("Unsupported diff type: {:?}", diff);
             None
         }
+    }
+}
+
+/// Convert a Loro `TreeDiffItem` to our wire-format `TreeOp`.
+///
+/// **Context**: Loro tree changes carry `TreeID` + structured `TreeExternalDiff`.
+/// **We do**: Stringify ids, project parent into `Option<String>` (`None` = root).
+fn tree_diff_item_to_op(item: &TreeDiffItem) -> TreeOp {
+    let id = item.target.to_string();
+    match &item.action {
+        TreeExternalDiff::Create { parent, index, .. } => TreeOp::Create {
+            id,
+            parent: tree_parent_to_string(parent),
+            index: *index,
+        },
+        TreeExternalDiff::Move { parent, index, .. } => TreeOp::Move {
+            id,
+            parent: tree_parent_to_string(parent),
+            index: *index,
+        },
+        TreeExternalDiff::Delete { .. } => TreeOp::Delete { id },
+    }
+}
+
+/// Project a Loro `TextDelta` segment into our `TextOp` wire form.
+///
+/// **Context**: Loro carries `attributes` (marks for bold/italic/links) on
+/// retain/insert. We discard them at this layer — formatting will land later.
+fn text_delta_to_op(delta: &TextDelta) -> TextOp {
+    match delta {
+        TextDelta::Retain { retain, .. } => TextOp::Retain { count: *retain },
+        TextDelta::Insert { insert, .. } => TextOp::Insert {
+            content: insert.clone(),
+        },
+        TextDelta::Delete { delete } => TextOp::Delete { count: *delete },
+    }
+}
+
+fn tree_parent_to_string(parent: &TreeParentId) -> Option<String> {
+    match parent {
+        TreeParentId::Node(id) => Some(id.to_string()),
+        TreeParentId::Root => None,
+        // Deleted/Unexist surface as `None` for binding consumers — they only
+        // need to know "no live parent". Delete ops carry their own signal.
+        TreeParentId::Deleted | TreeParentId::Unexist => None,
     }
 }
 

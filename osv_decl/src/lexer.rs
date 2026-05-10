@@ -222,7 +222,7 @@ fn is_keyword(value: &str) -> bool {
         "app" | "version" | "role" | "inherits" | "can" | "layer" | "as" | "path" | "namespace"
         | "grant" | "shard" | "by" | "cache" | "allow" | "to" | "on" | "derive" | "from"
         | "using" | "ui_app" | "shared" | "open" | "explicit"
-        | "role_scoped" | "map" | "list" | "text" | "counter" | "blob" | "create" | "read"
+        | "role_scoped" | "map" | "list" | "text" | "counter" | "blob" | "tree" | "create" | "read"
         | "write" | "sync" | "revoke" | "minute" | "hour" | "day" | "week" | "month"
         | "manage_access" | "accept_publish" | "delegate" | "share" | "relay" | "ui_window"
         | "memory_lru" | "sync_mode" | "full_snapshot" | "incremental" | "retention_days"

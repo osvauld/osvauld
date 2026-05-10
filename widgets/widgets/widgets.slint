@@ -1,0 +1,79 @@
+// RichTextEdit widget surface exposed to Lua apps as
+//   import { RichTextEdit } from "@osvauld/widgets";
+//
+// Skeleton milestone 1: thin wrapper around Slint's TextInput so the
+// import + ComponentFactory + LoroText round-trip can be proven end-to-end.
+// Milestone 2 swaps the body for a parley-driven custom rendering surface.
+//
+// Editor primitives exposed on top of TextInput (used by block-based apps):
+//   - `cursor-position` / `anchor-position` (byte offsets into `text`)
+//   - `has-focus` mirror
+//   - `key-pressed(event) -> EventResult` intercept — return EventResult.accept
+//     to preventDefault on a key (e.g. Enter/Backspace at block boundaries).
+//   - `focus()` / `set-selection-offsets(start, end)` for programmatic cursor
+//     placement when the app creates/splits/merges blocks.
+
+export component RichTextEdit inherits Rectangle {
+    in-out property <string> text;
+    in property <string> widget-id;
+    in property <length> font-size: 14px;
+    in property <color> text-color: black;
+    in property <bool> read-only: false;
+
+    // Sensible defaults so an empty editor still has a clickable surface.
+    // Consumers (block editors etc) override these via layouts as needed.
+    min-height: root.font-size * 1.6;
+    preferred-height: max(input.preferred-height, root.font-size * 1.6);
+    horizontal-stretch: 1;
+
+    // Forwarded introspection — the editor app reads these to decide
+    // whether the cursor is at start/end of a block, whether a selection
+    // exists, and which block currently owns focus.
+    out property <int> cursor-position: input.cursor-position-byte-offset;
+    out property <int> anchor-position: input.anchor-position-byte-offset;
+    out property <bool> has-focus: input.has-focus;
+
+    callback edited(string);
+    // Key intercept — runs *before* TextInput processes the key.
+    // Default (unconnected) returns EventResult.reject → TextInput handles normally.
+    // Consumer returns EventResult.accept → TextInput skips the key (preventDefault).
+    callback key-pressed(event: KeyEvent) -> EventResult;
+    callback key-released(event: KeyEvent) -> EventResult;
+
+    // Programmatic selection control. `focus()` is built-in on every Slint
+    // component — we route it via `forward-focus: input` below so callers
+    // that do `widget.focus()` land the cursor on the inner TextInput.
+    public function set-selection-offsets(start: int, end: int) {
+        input.set-selection-offsets(start, end);
+    }
+    public function select-all() {
+        input.select-all();
+    }
+    public function clear-selection() {
+        input.clear-selection();
+    }
+
+    background: transparent;
+    forward-focus: input;
+
+    input := TextInput {
+        x: 0; y: 0;
+        width: root.width;
+        height: root.height;
+        text <=> root.text;
+        font-size: root.font-size;
+        color: root.text-color;
+        read-only: root.read-only;
+        single-line: false;
+        wrap: word-wrap;
+        edited => {
+            root.edited(self.text);
+        }
+        key-pressed(event) => {
+            return root.key-pressed(event);
+        }
+        key-released(event) => {
+            return root.key-released(event);
+        }
+    }
+}

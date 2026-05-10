@@ -48,8 +48,9 @@ pub mod test_strategies;
 
 // Re-export common types
 pub use message::{
-    BroadcastPayload, DynamicLayerMeta, EphemeralBroadcast, EphemeralOutbound, ListOp, LoroDelta,
-    PageUpdate, PageUpdateTx, ScribeMessage, SyncEvent,
+    BroadcastPayload, DynamicLayerMeta, EphemeralBroadcast, EphemeralOutbound, FlatTreeNode,
+    ListOp, LoroDelta, PageUpdate, PageUpdateTx, ScribeMessage, SyncEvent, TextOp, TreeNodeView,
+    TreeOp,
 };
 
 // Op types from domains

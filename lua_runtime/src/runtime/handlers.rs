@@ -34,6 +34,7 @@ impl LuaRuntime {
             let has_bindings = {
                 let manager = self.binding_manager.lock();
                 !manager.get_bindings_for_layer(&normalized_layer).is_empty()
+                    || !manager.text_bindings_for_layer(&normalized_layer).is_empty()
             };
 
             if has_bindings {

@@ -178,6 +178,7 @@ pub enum LayerKind {
     Text,
     Counter,
     Blob,
+    Tree,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

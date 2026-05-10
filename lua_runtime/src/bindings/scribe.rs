@@ -38,7 +38,7 @@ use super::binding::{
     expand_pattern, is_wildcard_pattern, process_binding_data, BindingManager, BindingOptions,
 };
 use super::convert::lua_to_json;
-use super::loro::{LuaLoroList, LuaLoroMap};
+use super::loro::{LuaLoroList, LuaLoroMap, LuaLoroText, LuaLoroTree};
 use crate::ui_types::UiMutation;
 
 /// Unified Scribe bindings for Lua apps
@@ -312,6 +312,30 @@ impl UserData for ScribeBindings {
             Ok(LuaLoroMap::new(this.scribe.clone(), name))
         });
 
+        // Get or create a tree layer
+        //
+        // Returns a handle to the specified tree layer, creating it if it doesn't exist.
+        // Tree layers are LoroTree-backed — useful for block-based docs where each
+        // node carries a property map (see `tree:set_prop`) and nesting is intrinsic.
+        methods.add_method("tree", |_, this, name: String| {
+            this.scribe
+                .ensure_tree(&name)
+                .map_err(|e| LuaError::RuntimeError(e))?;
+            Ok(LuaLoroTree::new(this.scribe.clone(), name))
+        });
+
+        // Get or create a text layer
+        //
+        // Returns a handle to the specified text layer, creating it if missing.
+        // Text layers are LoroText-backed — char-level CRDT, suitable for
+        // collaborative rich text. Indices are unicode codepoints.
+        methods.add_method("text", |_, this, name: String| {
+            this.scribe
+                .ensure_text(&name)
+                .map_err(|e| LuaError::RuntimeError(e))?;
+            Ok(LuaLoroText::new(this.scribe.clone(), name))
+        });
+
         // List layers matching a pattern
         //
         // Returns a table of layer names matching the glob pattern.
@@ -498,6 +522,271 @@ impl UserData for ScribeBindings {
                 } else {
                     if let Ok(data) = fetch_layer_data(&this.scribe, &expanded_pattern) {
                         sync_binding_to_ui(lua, this, &ui_property, &data, None)?;
+                    }
+                }
+
+                Ok(())
+            },
+        );
+
+        // bind_text(ui_property, layer_pattern, key)
+        //
+        // Bind a single string-valued map key to a Slint scalar property.
+        // Used to back text widgets like RichTextEdit without per-app boilerplate.
+        //
+        // ```lua
+        // -- doc layer is a map; "body" key holds the editor's text
+        // scribe:bind_text("doc_text", "doc", "body")
+        // ```
+        //
+        // **Sync direction**: layer → UI only. App writes back via `doc:set(key, value)`
+        // from its `on_field_changed` (or equivalent) handler.
+        methods.add_method(
+            "bind_text",
+            |_lua, this, (ui_property, layer_pattern, key): (String, String, String)| {
+                if !this.ui_enabled {
+                    debug!(
+                        ui_property = %ui_property,
+                        layer_pattern = %layer_pattern,
+                        key = %key,
+                        "scribe:bind_text() called but UI not enabled, skipping"
+                    );
+                    return Ok(());
+                }
+
+                let expanded_pattern = expand_pattern(&layer_pattern, &this.page_id, &this.our_did);
+
+                info!(
+                    ui_property = %ui_property,
+                    raw_pattern = %layer_pattern,
+                    expanded_pattern = %expanded_pattern,
+                    key = %key,
+                    "scribe:bind_text() - registering text binding"
+                );
+
+                // Register
+                {
+                    let mut manager = this.binding_manager.lock();
+                    manager.register_text(
+                        expanded_pattern.clone(),
+                        key.clone(),
+                        ui_property.clone(),
+                    );
+                }
+
+                // Initial sync — fetch current value (empty string if absent).
+                let initial_value = match fetch_layer_data(&this.scribe, &expanded_pattern) {
+                    Ok(data) => match data.get(&key) {
+                        Some(serde_json::Value::String(s)) => s.clone(),
+                        _ => String::new(),
+                    },
+                    Err(_) => String::new(),
+                };
+
+                if let Some(ref ui_tx) = this.ui_tx {
+                    let mutation = crate::ui_types::UiMutation {
+                        app_id: this.page_id.clone(),
+                        properties: vec![crate::ui_types::PropertyUpdate {
+                            key: ui_property.clone(),
+                            value: serde_json::Value::String(initial_value),
+                        }],
+                        model_ops: vec![],
+                    };
+                    if let Err(e) = ui_tx.try_send(mutation) {
+                        warn!(
+                            ui_property = %ui_property,
+                            error = %e,
+                            "Failed initial text binding sync"
+                        );
+                    }
+                }
+
+                Ok(())
+            },
+        );
+
+        // scribe:bind_loro_text(ui_property, layer_pattern)
+        //
+        // Declarative binding for `LoroText`-backed layers. Unlike `bind_text`
+        // (which projects one key of a map layer), this mirrors the *whole*
+        // text container into a Slint string property. On every change to the
+        // layer the runtime calls `text:to_string()` and pushes the snapshot
+        // via `PropertyUpdate`.
+        //
+        // The cached `last_snapshot` suppresses no-op echoes — a local write
+        // produces a CRDT update which observer-loops back as a LayerChanged;
+        // because the snapshot equals what we just pushed, no UI update fires.
+        // Apps still need a focus-aware echo guard on the Slint side for
+        // *intermediate* echoes when remote edits mid-type (cursor concerns).
+        methods.add_method(
+            "bind_loro_text",
+            |_lua, this, (ui_property, layer_pattern): (String, String)| {
+                if !this.ui_enabled {
+                    debug!(
+                        ui_property = %ui_property,
+                        "scribe:bind_loro_text() called but UI not enabled, skipping"
+                    );
+                    return Ok(());
+                }
+
+                let expanded_pattern =
+                    expand_pattern(&layer_pattern, &this.page_id, &this.our_did);
+
+                info!(
+                    ui_property = %ui_property,
+                    raw_pattern = %layer_pattern,
+                    expanded_pattern = %expanded_pattern,
+                    "scribe:bind_loro_text() - registering LoroText binding"
+                );
+
+                if let Err(e) = this.scribe.ensure_text(&expanded_pattern) {
+                    warn!(layer = %expanded_pattern, error = %e,
+                        "ensure_text in bind_loro_text failed");
+                }
+
+                {
+                    let mut manager = this.binding_manager.lock();
+                    manager.register_loro_text(expanded_pattern.clone(), ui_property.clone());
+                }
+
+                // Initial sync — push current snapshot so the UI doesn't
+                // render empty until the first change event lands. Routes
+                // through `diff_loro_text` so the cached snapshot is seeded.
+                let snapshot = this
+                    .scribe
+                    .text_snapshot(&expanded_pattern)
+                    .unwrap_or_default();
+
+                let property_update = {
+                    let manager = this.binding_manager.lock();
+                    manager
+                        .loro_text_bindings_for_layer(&expanded_pattern)
+                        .iter()
+                        .find(|b| b.ui_property == ui_property)
+                        .and_then(|ltb| {
+                            crate::bindings::binding::BindingManager::diff_loro_text(
+                                ltb, snapshot,
+                            )
+                        })
+                };
+
+                if let Some(update) = property_update {
+                    if let Some(ref ui_tx) = this.ui_tx {
+                        let mutation = crate::ui_types::UiMutation {
+                            app_id: this.page_id.clone(),
+                            properties: vec![update],
+                            model_ops: vec![],
+                        };
+                        if let Err(e) = ui_tx.try_send(mutation) {
+                            warn!(
+                                ui_property = %ui_property,
+                                error = %e,
+                                "Failed initial LoroText binding sync"
+                            );
+                        }
+                    }
+                }
+
+                Ok(())
+            },
+        );
+
+        // scribe:bind_tree(ui_property, layer_pattern)
+        //
+        // Declarative binding for `LoroTree`-backed layers. On every change to
+        // the layer, the runtime calls `tree:walk()` and Replaces the named
+        // VecModel with a flattened depth-first list of `{id, parent, depth,
+        // index, props}` entries. Apps reconstruct hierarchy from `parent` and
+        // `depth` and key Slint rows by `id`.
+        //
+        // Mirrors `bind_text` — wraps boilerplate so the editor app doesn't
+        // have to reimplement walk-and-push on every change.
+        methods.add_method(
+            "bind_tree",
+            |_lua, this, (ui_property, layer_pattern): (String, String)| {
+                if !this.ui_enabled {
+                    debug!(
+                        ui_property = %ui_property,
+                        "scribe:bind_tree() called but UI not enabled, skipping"
+                    );
+                    return Ok(());
+                }
+
+                let expanded_pattern = expand_pattern(&layer_pattern, &this.page_id, &this.our_did);
+
+                info!(
+                    ui_property = %ui_property,
+                    raw_pattern = %layer_pattern,
+                    expanded_pattern = %expanded_pattern,
+                    "scribe:bind_tree() - registering tree binding"
+                );
+
+                // Make sure the layer exists so the observer is set up before
+                // any writes — otherwise the first writes would silently miss
+                // the binding subscriber.
+                if let Err(e) = this.scribe.ensure_tree(&expanded_pattern) {
+                    warn!(layer = %expanded_pattern, error = %e, "ensure_tree in bind_tree failed");
+                }
+
+                {
+                    let mut manager = this.binding_manager.lock();
+                    manager.register_tree(expanded_pattern.clone(), ui_property.clone());
+                }
+
+                // Initial sync — push current walk() so the UI doesn't render
+                // empty until the first change event arrives. We route
+                // through `diff_tree_rows` so `prev_rows` is seeded; the next
+                // observer event then gets to use surgical Sets rather than
+                // re-Replacing.
+                let initial_nodes = this
+                    .scribe
+                    .tree_walk(&expanded_pattern)
+                    .unwrap_or_default();
+                let new_rows: Vec<(String, serde_json::Value)> = initial_nodes
+                    .into_iter()
+                    .map(|node| {
+                        let id = node.id.clone();
+                        let mut obj = serde_json::Map::new();
+                        obj.insert("id".into(), serde_json::Value::String(node.id));
+                        obj.insert(
+                            "parent".into(),
+                            node.parent.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null),
+                        );
+                        obj.insert("depth".into(), serde_json::Value::from(node.depth));
+                        obj.insert("index".into(), serde_json::Value::from(node.index));
+                        obj.insert("props".into(), serde_json::Value::from(&node.props));
+                        (id, serde_json::Value::Object(obj))
+                    })
+                    .collect();
+
+                let model_ops = {
+                    let manager = this.binding_manager.lock();
+                    let tb = manager
+                        .tree_bindings_for_layer(&expanded_pattern)
+                        .iter()
+                        .find(|b| b.ui_property == ui_property);
+                    match tb {
+                        Some(tb) => crate::bindings::binding::BindingManager::diff_tree_rows(
+                            tb, new_rows,
+                        ),
+                        None => Vec::new(),
+                    }
+                };
+
+                if !model_ops.is_empty() {
+                    if let Some(ref ui_tx) = this.ui_tx {
+                        let mutation = crate::ui_types::UiMutation {
+                            app_id: this.page_id.clone(),
+                            properties: vec![],
+                            model_ops,
+                        };
+                        if let Err(e) = ui_tx.try_send(mutation) {
+                            warn!(
+                                ui_property = %ui_property,
+                                error = %e,
+                                "Failed initial tree binding sync"
+                            );
+                        }
                     }
                 }
 
