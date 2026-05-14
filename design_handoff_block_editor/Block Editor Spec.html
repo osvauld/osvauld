@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Block Editor — Interaction Spec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="sthalam-theme.css" />
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #f0eee9; font-family: Inter, system-ui, sans-serif; }
+  #root { height: 100%; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="block-editor.jsx"></script>
+
+  <script type="text/babel" src="scenes.jsx"></script>
+  <script type="text/babel" src="specs.jsx"></script>
+
+  <script type="text/babel">
+    const { Stage, Block, GhostPreview, BlockHandleMenu, PlusMenu, SlashMenu,
+            BulkBar, Marquee, Annotation, Kbd, ED, ED_FONT, GEO } = window;
+
+    // Sample doc content used as the background for most scenes.
+    // Plain text only (per brief — no inline rich text yet).
+    const SAMPLE = [
+      { kind: 'h1', text: 'Architecture notes' },
+      { kind: 'p',  text: 'A two-peer CRDT editor backed by a tree of blocks. Char-level merges happen inside each block; tree-level merges (create / move / delete) compose at the document level.' },
+      { kind: 'h2', text: 'Open questions' },
+      { kind: 'li', text: 'How wide is the gutter when both affordances are visible?' },
+      { kind: 'li', text: 'Do drop-into zones apply to non-list blocks at all?' },
+      { kind: 'li', text: 'Should the block menu copy Notion verbatim or trim it?' },
+      { kind: 'p',  text: 'For now we are choosing to ship narrow, opinionated, and Notion-shaped where it already works.' },
+    ];
+
+    function SampleBlocks({ overrides = {}, hideAfter = null, defaultGutter = 'hidden' }) {
+      const list = hideAfter == null ? SAMPLE : SAMPLE.slice(0, hideAfter);
+      return list.map((b, i) => {
+        const o = overrides[i] || {};
+        return <Block key={i} kind={b.kind} text={b.text} gutter={defaultGutter} {...o} />;
+      });
+    }
+
+    // Tiny mark: numbered pin (used in foundation diagrams)
+    function Pin({ n, x, y, tone = 'accent' }) {
+      const bg = tone === 'accent' ? '#7C5CFF' : '#1B1C22';
+      return (
+        <div style={{
+          position: 'absolute', left: x, top: y,
+          width: 18, height: 18, borderRadius: 9,
+          background: bg, color: '#fff',
+          fontFamily: ED_FONT.mono, fontSize: 10.5, fontWeight: 600,
+          display: 'grid', placeItems: 'center',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+          zIndex: 6,
+        }}>{n}</div>
+      );
+    }
+
+    // ─── Foundation: gutter anatomy ─────────────────────────────
+    function GutterAnatomy() {
+      return (
+        <Stage id="F1 · GUTTER" title="Anatomy of a row"
+          summary="The gutter is 32px wide and lives outside the text column. Affordances appear on row hover only; the column itself stays still — no layout shift."
+          breadcrumb={<><span>foundations</span><span style={{flex:1}}/><span>geometry · 1 of 3</span></>}>
+          <div style={{ height: 32 }} />
+          <div style={{ position: 'relative', minHeight: 360 }}>
+
+            {/* The annotated row */}
+            <div style={{ marginBottom: 80 }}>
+              <Block kind="p" gutter="shown" bg="hover"
+                text="Hover any block to reveal the gutter. Click + to insert a new block below; click ⋮⋮ for the block menu; drag ⋮⋮ to reorder." />
+            </div>
+
+            {/* Geometry rulers */}
+            {/* doc left padding marker */}
+            <Annotation
+              from={{ x: 240, y: 6 }}
+              to={{ x: 56, y: 6 }}
+              label={'docLeftPad = 56\npage → text column'}
+              side="right" />
+            <Annotation
+              from={{ x: 250, y: 32 }}
+              to={{ x: 70, y: 32 }}
+              label={'gutter width = 32\n+ icon · 4px gap · ⋮⋮ icon'}
+              side="right" />
+            <Annotation
+              from={{ x: 320, y: 60 }}
+              to={{ x: 100, y: 56 }}
+              label={'+ button: click → insert\n¶ below.  drag → type picker.'}
+              side="right" />
+            <Annotation
+              from={{ x: 360, y: 84 }}
+              to={{ x: 84, y: 56 }}
+              label={'⋮⋮ grip: click → menu.\ndrag → pick up to reorder.'}
+              side="right" />
+
+            {/* Specs table — the canonical numbers */}
+            <div style={{
+              marginTop: 100,
+              padding: '14px 18px',
+              background: '#FAFAFB',
+              border: '1px solid ' + ED.hairline,
+              borderRadius: 8,
+              fontFamily: ED_FONT.mono, fontSize: 11.5, color: ED.fg,
+              maxWidth: 720, marginLeft: 'auto', marginRight: 'auto',
+            }}>
+              <div style={{
+                fontSize: 10, color: ED.fgMuted, letterSpacing: '0.1em', marginBottom: 8,
+                fontWeight: 600,
+              }}>GUTTER SPEC</div>
+              {[
+                ['gutter.width',     '32 px',           'narrow per brief — fits + + ⋮⋮ side-by-side'],
+                ['gutter.gap',       '4 px',            'between gutter and text column'],
+                ['icon.visual',      '14 × 14 px',      'the dots / glyph itself'],
+                ['icon.hitTarget',   '20 × 20 px',      'invisible padded target around the icon'],
+                ['gutter.visibility','hover or focus',  'block-row pointer hover, OR block contains caret'],
+                ['gutter.fade',      '80 ms ease',      'fade only — never reflow text'],
+              ].map(([k, v, note], i) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '160px 100px 1fr', gap: 12, padding: '4px 0' }}>
+                  <span style={{ color: ED.accent }}>{k}</span>
+                  <span>{v}</span>
+                  <span style={{ color: ED.fgSecondary, fontFamily: ED_FONT.ui, fontSize: 12 }}>{note}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Stage>
+      );
+    }
+
+    // ─── Foundation: drop-zone geometry ─────────────────────────
+    function DropZoneGeometry() {
+      return (
+        <Stage id="F2 · DROP ZONES" title="Where a dragged block lands"
+          summary="Each potential target row is split into three horizontal bands. The middle band only exists when the target accepts children — paragraphs and headings collapse it to “below”. Cursor x must also push past the target's content-start by ≥16 px to commit a child drop."
+          breadcrumb={<><span>foundations</span><span style={{flex:1}}/><span>geometry · 2 of 3</span></>}>
+          <div style={{ height: 24 }} />
+
+          {/* Two side-by-side rows: a list_item (3-band) and a paragraph (2-band) */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, paddingRight: 56 }}>
+            {/* list_item target */}
+            <div>
+              <Caption>list_item · accepts children</Caption>
+              <ZonedRow nestable />
+              <SmallNote>top ⅓ → above sibling</SmallNote>
+              <SmallNote>middle ⅓ → INTO as child <strong>(if cursor.x ≥ content.x + 16)</strong></SmallNote>
+              <SmallNote>bottom ⅓ → below sibling</SmallNote>
+            </div>
+            {/* paragraph target */}
+            <div>
+              <Caption>paragraph · no children</Caption>
+              <ZonedRow nestable={false} />
+              <SmallNote>top ½ → above sibling</SmallNote>
+              <SmallNote style={{ opacity: 0.5 }}><s>middle → INTO</s> — collapsed; not a container</SmallNote>
+              <SmallNote>bottom ½ → below sibling</SmallNote>
+            </div>
+          </div>
+
+          {/* Decision rule */}
+          <div style={{
+            marginTop: 28,
+            padding: '14px 18px',
+            background: '#FAFAFB',
+            border: '1px solid ' + ED.hairline,
+            borderRadius: 8,
+            fontFamily: ED_FONT.mono, fontSize: 11.5, color: ED.fg,
+          }}>
+            <div style={{ fontSize: 10, color: ED.fgMuted, letterSpacing: '0.1em', marginBottom: 8, fontWeight: 600 }}>DECISION RULE (pseudocode)</div>
+            <pre style={{ margin: 0, fontFamily: 'inherit', fontSize: 11.5, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+{`fn drop_intent(target, cursor) -> Intent {
+    let f = (cursor.y - target.top) / target.height;       // 0..1
+    let pushed_in = cursor.x >= target.content_x + 16;     // INTO threshold
+
+    match (target.accepts_children, pushed_in, f) {
+        (true,  true,  0.33..=0.67) => Into(target),       // becomes child
+        (_,     _,     ..0.50)      => Above(target),      // sibling above
+        (_,     _,     _)           => Below(target),      // sibling below
+    }
+}`}
+            </pre>
+          </div>
+
+          <div style={{ height: 24 }} />
+        </Stage>
+      );
+
+      function ZonedRow({ nestable }) {
+        const rowH = 76;
+        return (
+          <div style={{ position: 'relative', marginBottom: 12 }}>
+            <Block kind={nestable ? 'li' : 'p'} text={nestable ? 'Nestable container' : 'Plain paragraph'}
+              gutter="hidden" />
+            {/* zone overlays */}
+            <div style={{
+              position: 'absolute', left: GEO.gutterW + GEO.gutterGap, right: 0, top: 0, bottom: 0,
+              display: 'flex', flexDirection: 'column',
+              pointerEvents: 'none',
+              borderRadius: 4, overflow: 'hidden',
+              border: '1px dashed rgba(124,92,255,0.4)',
+            }}>
+              <div style={{ flex: nestable ? 1 : 1, background: 'rgba(124,92,255,0.06)',
+                borderBottom: '1px dashed rgba(124,92,255,0.3)',
+                fontFamily: ED_FONT.mono, fontSize: 10, color: '#7C5CFF',
+                padding: '4px 8px',
+              }}>↑ above</div>
+              {nestable && (
+                <div style={{ flex: 1, background: 'rgba(124,92,255,0.13)',
+                  borderBottom: '1px dashed rgba(124,92,255,0.3)',
+                  fontFamily: ED_FONT.mono, fontSize: 10, color: '#7C5CFF',
+                  padding: '4px 8px',
+                }}>↳ INTO (if x pushed in)</div>
+              )}
+              <div style={{ flex: 1, background: 'rgba(124,92,255,0.06)',
+                fontFamily: ED_FONT.mono, fontSize: 10, color: '#7C5CFF',
+                padding: '4px 8px',
+              }}>↓ below</div>
+            </div>
+          </div>
+        );
+      }
+      function Caption({ children }) {
+        return <div style={{ fontFamily: ED_FONT.mono, fontSize: 10.5, color: ED.fgMuted, letterSpacing: '0.06em', marginBottom: 8, fontWeight: 600 }}>{children}</div>;
+      }
+      function SmallNote({ children, style }) {
+        return <div style={{ fontSize: 11.5, color: ED.fgSecondary, lineHeight: 1.5, marginBottom: 2, ...style }}>{children}</div>;
+      }
+    }
+
+    // ─── Foundation: nesting / indent ───────────────────────────
+    function IndentSystem() {
+      return (
+        <Stage id="F3 · NESTING" title="Indent guides + bullet variation"
+          summary="Each nesting level adds 24 px of left padding and a 1.5 px hairline guide. Bullets cycle disc → ring → square so two adjacent levels never look identical."
+          breadcrumb={<><span>foundations</span><span style={{flex:1}}/><span>geometry · 3 of 3</span></>}>
+          <div style={{ height: 24 }} />
+          <Block kind="li" text="Top-level item — disc bullet, no guide" indent={0} listDepth={0} />
+          <Block kind="li" text="One level deep — adds 24 px + 1 hairline" indent={1} listDepth={1} />
+          <Block kind="li" text="Two levels deep — ring → square" indent={2} listDepth={2} />
+          <Block kind="li" text="Sibling at level 2 — guide stays for the whole branch" indent={2} listDepth={2} />
+          <Block kind="li" text="Back to level 1" indent={1} listDepth={1} />
+          <Block kind="li" text="Back to top level" indent={0} listDepth={0} />
+
+          <div style={{ height: 32 }} />
+          <div style={{
+            padding: '14px 18px',
+            background: '#FAFAFB',
+            border: '1px solid ' + ED.hairline,
+            borderRadius: 8,
+            fontFamily: ED_FONT.mono, fontSize: 11.5, color: ED.fg,
+          }}>
+            <div style={{ fontSize: 10, color: ED.fgMuted, letterSpacing: '0.1em', marginBottom: 8, fontWeight: 600 }}>INDENT TOKENS</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', rowGap: 4 }}>
+              <span style={{ color: ED.accent }}>indent.step</span><span>24 px per level</span>
+              <span style={{ color: ED.accent }}>guide.width</span><span>1.5 px hairline</span>
+              <span style={{ color: ED.accent }}>guide.color</span><span>rgba(20,21,28,0.07) light · rgba(255,255,255,0.10) dark</span>
+              <span style={{ color: ED.accent }}>guide.activeColor</span><span>accent.soft when caret is in this branch</span>
+              <span style={{ color: ED.accent }}>bullet.cycle</span><span>● → ○ → ■ then repeat</span>
+              <span style={{ color: ED.accent }}>indent.shortcut</span><span>Tab / Shift-Tab inside list_item only</span>
+            </div>
+          </div>
+        </Stage>
+      );
+    }
+
+    // ─── States — wired up below ────────────────────────────────
+    const Scenes = window.Scenes;
+    const Specs = window.Specs;
+
+    function App() {
+      return (
+        <DesignCanvas>
+          <DCSection id="foundations" title="Foundations" subtitle="The geometry every state below inherits">
+            <DCArtboard id="gutter"   label="F1 · Gutter anatomy"  width={840} height={620}><GutterAnatomy /></DCArtboard>
+            <DCArtboard id="dropzone" label="F2 · Drop-zone geometry" width={840} height={620}><DropZoneGeometry /></DCArtboard>
+            <DCArtboard id="indent"   label="F3 · Nesting + indent" width={720} height={620}><IndentSystem /></DCArtboard>
+          </DCSection>
+
+          <DCSection id="states" title="Interaction states" subtitle="Annotated mockups of every transient state in the editor">
+            <DCArtboard id="s1-idle"     label="01 · Idle / focus"           width={680} height={500}><Scenes.IdleFocus /></DCArtboard>
+            <DCArtboard id="s2-hover"    label="02 · Hover affordances"      width={680} height={500}><Scenes.Hover /></DCArtboard>
+            <DCArtboard id="s3-empty"    label="03 · Empty (focused)"        width={680} height={500}><Scenes.Empty /></DCArtboard>
+            <DCArtboard id="s4-plus"     label="04 · + button — type picker" width={680} height={500}><Scenes.PlusOpen /></DCArtboard>
+            <DCArtboard id="s5-slash"    label="05 · Slash command"          width={680} height={500}><Scenes.SlashOpen /></DCArtboard>
+            <DCArtboard id="s6-pickup"   label="06 · Drag — pickup"          width={680} height={500}><Scenes.DragPickup /></DCArtboard>
+            <DCArtboard id="s7-drop-sib" label="07 · Drop — sibling line"    width={680} height={500}><Scenes.DropSibling /></DCArtboard>
+            <DCArtboard id="s8-drop-in"  label="08 · Drop — into child"      width={680} height={500}><Scenes.DropInto /></DCArtboard>
+            <DCArtboard id="s9-menu"     label="09 · Block handle menu"      width={680} height={580}><Scenes.HandleMenu /></DCArtboard>
+            <DCArtboard id="s10-multi"   label="10 · Multi-select + bulk"    width={680} height={580}><Scenes.MultiSelect /></DCArtboard>
+            <DCArtboard id="s11-nested"  label="11 · Post-reorder · nested"  width={680} height={500}><Scenes.PostReorder /></DCArtboard>
+          </DCSection>
+
+          <DCSection id="specs" title="Specs" subtitle="Tables to copy into Slint code reviews">
+            <DCArtboard id="kbd"     label="Keyboard shortcuts" width={760} height={920}><Specs.Keyboard /></DCArtboard>
+            <DCArtboard id="tokens"  label="Color &amp; spacing tokens" width={760} height={920}><Specs.Tokens /></DCArtboard>
+            <DCArtboard id="nogoals" label="Non-goals (intentional omissions)" width={760} height={760}><Specs.NonGoals /></DCArtboard>
+          </DCSection>
+
+          <DCSection id="dark" title="Dark mode" subtitle="Obvious inversions of the same surface — no recoloring of structure">
+            <DCArtboard id="dark-idle"  label="Dark · idle"   width={680} height={500}><Scenes.IdleFocus dark /></DCArtboard>
+            <DCArtboard id="dark-hover" label="Dark · hover + drop" width={680} height={500}><Scenes.DropSibling dark /></DCArtboard>
+          </DCSection>
+        </DesignCanvas>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

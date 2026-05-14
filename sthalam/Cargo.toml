@@ -11,6 +11,7 @@ path = "src/main.rs"
 [features]
 default = []
 raylib = ["dep:renderer_raylib"]
+egui = ["dep:renderer_egui"]
 testing = []
 profiling = ["console-subscriber", "tracing-flame"]
 
@@ -23,6 +24,9 @@ renderer_slint = { path = "../renderer_slint" }
 
 # Raylib renderer for games (optional)
 renderer_raylib = { path = "../renderer_raylib", optional = true }
+
+# egui renderer for interactive Lua apps (optional)
+renderer_egui = { path = "../renderer_egui", optional = true }
 
 # Core platform
 butler = { path = "../butler" }

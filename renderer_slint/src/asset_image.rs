@@ -1,22 +1,12 @@
-//! Asset Image Loading — decrypt, decode, and cache asset images for Slint rendering
+//! Asset image loading: decrypt, decode, and cache asset images for Slint rendering.
 //!
-//! **Flow**:
-//!   1. Lua sets `attachment_hash` on a message in a VecModel
-//!   2. SlintRuntime detects hashes needing images via `scan_model_for_asset_hashes`
-//!   3. Sends `ImageLoadRequest` to tokio task via channel
-//!   4. Tokio task: butler.assets().get_bytes() → image crate decode → slint::Image
-//!   5. Response sent back via `ImageLoadResponse` channel
-//!   6. Timer loop applies the decoded image to the VecModel row
-//!
-//! **Caching**: Decoded images are cached by hash to avoid repeated decryption/decode
+//! Decoded images are cached by hash to avoid repeated decryption/decode.
 
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 
-/// Request to load an asset image (sent to tokio background task)
-///
-/// **Context**: SlintRuntime detected a message with an attachment_hash that isn't cached
+/// Request to load an asset image (sent to tokio background task).
 #[derive(Debug, Clone)]
 pub struct ImageLoadRequest {
     /// Blake3 hash of the asset
@@ -29,14 +19,10 @@ pub struct ImageLoadRequest {
     pub row_index: usize,
 }
 
-/// Response with decoded image data (sent back to Slint main thread)
+/// Response with decoded image data (sent back to Slint main thread).
 ///
-/// **Context**: Background task successfully decoded the image.
-///
-/// **Why raw bytes instead of `slint::Image`**: `slint::Image` is `!Send` (it contains
-/// `VRc<OpaqueImageVTable>` which wraps a raw pointer).  We carry the decoded RGBA8 pixels
-/// across the thread boundary as a plain `Vec<u8>` and reconstruct the `slint::Image` on
-/// the Slint main thread inside `apply_loaded_images`.
+/// Carries raw RGBA8 bytes (not `slint::Image`) because `slint::Image` is `!Send`;
+/// reconstruction happens on the main thread in `apply_loaded_images`.
 pub struct ImageLoadResponse {
     /// Blake3 hash of the asset
     pub hash: String,
@@ -52,11 +38,9 @@ pub struct ImageLoadResponse {
     pub row_index: usize,
 }
 
-/// In-memory cache of decoded asset images
+/// In-memory cache of decoded asset images, keyed by Blake3 hash.
 ///
-/// **Lifecycle**: Lives as long as the SlintRuntime (per-app window)
-/// **Key**: Blake3 hash of the asset
-/// **Threading**: Only accessed on the Slint main thread — `slint::Image` is `!Send`.
+/// Lives as long as the SlintRuntime; main-thread only since `slint::Image` is `!Send`.
 pub struct ImageCache {
     /// Cached decoded images
     images: HashMap<String, Image>,
@@ -104,25 +88,14 @@ impl ImageCache {
     }
 }
 
-/// Reconstruct a `slint::Image` from raw RGBA8 pixel bytes on the main thread.
-///
-/// **Context**: Called in `apply_loaded_images` after receiving `ImageLoadResponse` from the
-/// background task.  The background task cannot produce `slint::Image` directly because
-/// `slint::Image` is `!Send`.
-///
-/// # Arguments
-/// * `rgba_bytes` - Raw RGBA8 pixel data (row-major, 4 bytes per pixel)
-/// * `width`      - Image width in pixels
-/// * `height`     - Image height in pixels
+/// Reconstruct a `slint::Image` from raw RGBA8 pixel bytes on the main thread
+/// (the background task can't, since `slint::Image` is `!Send`).
 pub fn image_from_rgba_bytes(rgba_bytes: &[u8], width: u32, height: u32) -> Image {
     let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(rgba_bytes, width, height);
     Image::from_rgba8(buffer)
 }
 
-/// Decode raw image bytes (PNG, JPEG, GIF, WebP, BMP) into a Slint Image
-///
-/// **Context**: Called on tokio background thread after decryption
-/// **Returns**: Slint Image ready for rendering, or error
+/// Decode raw image bytes (PNG, JPEG, GIF, WebP, BMP) into a Slint Image.
 pub fn decode_image_bytes(bytes: &[u8]) -> Result<Image, String> {
     let reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
@@ -142,10 +115,7 @@ pub fn decode_image_bytes(bytes: &[u8]) -> Result<Image, String> {
     Ok(Image::from_rgba8(buffer))
 }
 
-/// Decode raw image bytes with a max dimension constraint for thumbnails
-///
-/// **Context**: For inline chat previews, we don't need full-resolution images
-/// **Constraint**: Resizes to fit within max_dimension while preserving aspect ratio
+/// Decode image bytes, resizing to fit within `max_dimension` while preserving aspect ratio.
 pub fn decode_image_thumbnail(bytes: &[u8], max_dimension: u32) -> Result<Image, String> {
     let reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
@@ -155,7 +125,6 @@ pub fn decode_image_thumbnail(bytes: &[u8], max_dimension: u32) -> Result<Image,
         .decode()
         .map_err(|e| format!("Failed to decode image: {}", e))?;
 
-    // Resize if larger than max_dimension
     let resized = if dynamic_image.width() > max_dimension || dynamic_image.height() > max_dimension
     {
         dynamic_image.thumbnail(max_dimension, max_dimension)
@@ -172,16 +141,11 @@ pub fn decode_image_thumbnail(bytes: &[u8], max_dimension: u32) -> Result<Image,
     Ok(Image::from_rgba8(buffer))
 }
 
-/// Decode raw image bytes into RGBA8 pixel data suitable for cross-thread transfer.
+/// Decode image bytes into RGBA8 pixels for cross-thread transfer.
 ///
-/// **Context**: Called on a background thread (tokio task).  Returns raw bytes + dimensions
-/// rather than `slint::Image` because `slint::Image` is `!Send`.  The caller reconstructs
-/// the `slint::Image` on the Slint main thread via `image_from_rgba_bytes`.
-///
-/// **Constraint**: Resizes to fit within `max_dimension` while preserving aspect ratio.
-///
-/// # Returns
-/// `(rgba_bytes, width, height)` on success, or an error string.
+/// Returns raw bytes (not `slint::Image`, which is `!Send`); caller reconstructs
+/// via `image_from_rgba_bytes` on the Slint main thread. Resizes to fit
+/// `max_dimension` preserving aspect ratio.
 pub fn decode_image_thumbnail_bytes(
     bytes: &[u8],
     max_dimension: u32,

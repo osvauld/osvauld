@@ -28,8 +28,7 @@ pub async fn validate_slint_files(page_dir: &Path) -> Result<(), String> {
 
         for slint_path in slint_files {
             tracing::info!("Validating Slint file: {}", slint_path.display());
-            let mut compiler = Compiler::default();
-            widgets::register_library(&mut compiler);
+            let compiler = Compiler::default();
             let result = rt.block_on(compiler.build_from_path(&slint_path));
 
             let compile_errors: Vec<_> = result

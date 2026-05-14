@@ -1,9 +1,0 @@
-{
-    "name": "RichText Hello",
-    "version": "0.1.0",
-    "description": "Smoke test for @osvauld/widgets RichTextEdit",
-    "entry_ui": "app.slint",
-    "entry_logic": "app.lua",
-    "renderer": "slint",
-    "models": []
-}

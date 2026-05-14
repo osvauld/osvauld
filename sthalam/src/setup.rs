@@ -9,18 +9,15 @@ use courier::{
 };
 use std::sync::Arc;
 
-/// Initialize P2P after login (matches Tauri pattern)
+/// Initialize P2P after login.
 ///
-/// **Context**: Called after Butler identity is set
-/// **sync_rx**: Receiver for sync events (EnsureSync) - created in main.rs, sender passed to Butler
-/// **capture_tx**: Optional broadcast channel for event capture (from CaptureHandle)
-/// **Returns**: (CourierHandle, event receiver) for P2P operations
+/// **sync_rx**: receiver for Scribe->Butler sync events, forwarded to Coordinator.
+/// **capture_tx**: optional broadcast channel for event capture.
 pub async fn init_p2p(
     butler: Arc<Butler>,
     mut sync_rx: tokio::sync::mpsc::Receiver<SyncEvent>,
     capture_tx: Option<tokio::sync::broadcast::Sender<String>>,
 ) -> Result<(CourierHandle, tokio::sync::mpsc::Receiver<CourierEvent>), String> {
-    // Get device key from Butler (requires identity)
     let device_key = butler
         .device_key()
         .await
@@ -28,7 +25,6 @@ pub async fn init_p2p(
 
     tracing::info!("Initializing transport with device key...");
 
-    // Initialize Transport
     let config = TransportConfig::new(device_key);
     let (transport, transport_rx) = Transport::init(config)
         .await
@@ -38,10 +34,8 @@ pub async fn init_p2p(
     let node_id = transport.node_id();
     tracing::info!(node_id = %node_id, "Transport initialized");
 
-    // Create HandshakeServices with Butler
     let handshake_services = Arc::new(HandshakeServices::new(butler.clone()));
 
-    // Initialize Courier with services and optional capture
     let (handle, event_rx, courier) = Courier::init_with_services_and_capture(
         CourierMode::User,
         transport,
@@ -49,13 +43,12 @@ pub async fn init_p2p(
         capture_tx,
     );
 
-    // Spawn courier event loop
     tokio::spawn(async move {
         courier.run(transport_rx).await;
     });
 
-    // Forward sync events to Coordinator (Scribe -> Butler -> Coordinator)
-    // This enables EnsureSync to trigger connections/subscriptions
+    // Forward Scribe -> Butler sync events to Coordinator so EnsureSync triggers
+    // connections/subscriptions.
     let handle_for_sync = handle.clone();
     tokio::spawn(async move {
         while let Some(event) = sync_rx.recv().await {

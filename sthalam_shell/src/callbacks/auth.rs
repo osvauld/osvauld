@@ -39,13 +39,11 @@ fn register_login(shell: &Shell, butler: Arc<Butler>, on_login_success: OnLoginS
             Ok(identity) => {
                 tracing::info!(did = %identity.did(), "Login successful");
 
-                // Update UI immediately
                 if let Some(shell) = shell_weak.upgrade() {
                     shell.set_authenticated(true);
                     shell.set_current_screen("spaces".into());
                 }
 
-                // Notify main binary of successful login with the identity
                 on_login_success(identity);
             }
             Err(e) => {

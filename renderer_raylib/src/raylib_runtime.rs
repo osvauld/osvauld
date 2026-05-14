@@ -65,7 +65,7 @@ impl RaylibRuntime {
             "Starting Raylib game"
         );
 
-        // Initialize Raylib window with MSAA for smooth spheres/cylinders
+        // MSAA for smooth spheres/cylinders
         tracing::info!(page_id = %self.page_id, "Calling raylib::init().build()");
         let w = self.width as i32;
         let h = self.height as i32;
@@ -90,12 +90,10 @@ impl RaylibRuntime {
         };
         rl.set_target_fps(fps);
 
-        // Shared synth — runtime fills it each frame, Lua loads music_ir into it
-        // Audio device init is skipped: this machine has no audio hardware.
-        // The synth still exists so audio Lua bindings don't crash; it just produces no sound.
+        // No audio hardware on this machine: synth still exists so audio Lua bindings
+        // don't crash; it just produces no sound.
         let synth: SharedSynth = Arc::new(Mutex::new(Synth::new()));
 
-        // Create game loop with synth handle for Lua bindings
         tracing::info!(page_id = %self.page_id, "Calling GameLoop::new()");
         let lua_code = self.lua_code.clone();
         let page_id2 = self.page_id.clone();
@@ -154,13 +152,11 @@ impl RaylibRuntime {
 
         tracing::info!(page_id = %self.page_id, "Entering game loop, window_should_close={}", rl.window_should_close());
 
-        // Main game loop
         let mut frame = 0u64;
         while !rl.window_should_close() {
             frame += 1;
             let dt = rl.get_frame_time();
 
-            // Game logic
             game_loop.process_sync_updates();
             game_loop.handle_input(&mut rl);
             if let Err(e) = game_loop.update(dt) {
@@ -168,7 +164,6 @@ impl RaylibRuntime {
                 break;
             }
 
-            // Render
             let mut d = rl.begin_drawing(&thread);
             if let Err(e) = game_loop.draw(&mut d) {
                 tracing::error!(page_id = %self.page_id, frame, error = %e, "draw failed");

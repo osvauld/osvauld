@@ -17,6 +17,7 @@ Usage:
 """
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
@@ -688,6 +689,83 @@ class PeerHandle:
         """Restore network connectivity for this peer."""
         return self.client.go_online()
 
+    # UI automation — synthetic pointer events on the live winit window.
+
+    def ui_window_size(self) -> tuple:
+        return self.client.ui_window_size()
+
+    def ui_mouse_move(self, x: float, y: float) -> None:
+        self.client.ui_mouse_move(x, y)
+
+    def ui_mouse_press(self, x: float, y: float, button: str = "left") -> None:
+        self.client.ui_mouse_press(x, y, button)
+
+    def ui_mouse_release(self, x: float, y: float, button: str = "left") -> None:
+        self.client.ui_mouse_release(x, y, button)
+
+    def ui_mouse_drag(
+        self,
+        from_x: float,
+        from_y: float,
+        to_x: float,
+        to_y: float,
+        steps: int = 30,
+        button: str = "left",
+    ) -> Dict[str, Any]:
+        """Drag from (from_x, from_y) to (to_x, to_y) over `steps` timer ticks
+        (~100ms each). Reply fires after the press; motion happens
+        asynchronously. Use `wait_for` to assert on post-drop state."""
+        return self.client.ui_mouse_drag(from_x, from_y, to_x, to_y, steps, button)
+
+    def ui_screenshot(self, path: str) -> str:
+        return self.client.ui_screenshot(path)
+
+    def ui_record_start(
+        self,
+        gif_path: str,
+        states_path: str,
+        captures: Optional[list] = None,
+    ) -> Dict[str, Any]:
+        return self.client.ui_record_start(gif_path, states_path, captures)
+
+    def ui_record_stop(self) -> Dict[str, Any]:
+        return self.client.ui_record_stop()
+
+    @contextlib.contextmanager
+    def ui_record(
+        self,
+        gif: str,
+        states: str,
+        captures: Optional[list] = None,
+    ):
+        """Context manager: start a recording on enter, flush on exit.
+
+        Usage:
+            with peer.ui_record(gif="/tmp/x.gif", states="/tmp/x.jsonl"):
+                peer.ui_mouse_drag(...)
+                peer.wait_for(...)
+        """
+        self.ui_record_start(gif, states, captures)
+        try:
+            yield
+        finally:
+            try:
+                self.ui_record_stop()
+            except Exception as e:
+                # Don't mask the original exception in the with-body.
+                print(f"[{self.name}] ui_record_stop failed: {e}")
+
+    @staticmethod
+    def read_record_states(path: str) -> List[Dict[str, Any]]:
+        """Read a JSONL state log produced by ui_record."""
+        out: List[Dict[str, Any]] = []
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    out.append(json.loads(line))
+        return out
+
 
 class AppTestScenario:
     """One-call E2E test setup.
@@ -1036,39 +1114,46 @@ class AppTestScenario:
             raise RuntimeError(f"Node did not receive published space within 10s")
         print("  Published and synced to node")
 
-        # 5. PARALLEL: Connect all viewers and wait for space sync
-        print(f"\n  Connecting viewers (parallel)...")
-        viewer_link = owner_client.get_viewer_link(self._space_id)
+        # 5. PARALLEL: Connect all viewers and wait for space sync.
+        # If there are no viewers (single-peer test), skip this block.
+        viewer_page_ids: Dict[str, str] = {}
+        if not viewer_peers:
+            print("\n  No viewers configured — skipping viewer connect step.")
+        else:
+            print(f"\n  Connecting viewers (parallel)...")
+            viewer_link = owner_client.get_viewer_link(self._space_id)
 
-        viewer_page_ids = {}
+            with ThreadPoolExecutor(max_workers=len(viewer_peers)) as executor:
 
-        with ThreadPoolExecutor(max_workers=len(viewer_peers)) as executor:
+                def connect_viewer(pname):
+                    viewer_client = self._tm.get_client(pname)
+                    viewer_client.signup_or_login(pname)
+                    # Connect once and rely on _wait_for_space_sync as readiness gate.
+                    # No redundant auth polling - sync wait is the proper gate.
+                    viewer_client.add_website(viewer_link)
+                    page_id = self._wait_for_space_sync(
+                        viewer_client, pname, timeout=10.0
+                    )
+                    if page_id is None:
+                        raise RuntimeError(
+                            f"{pname} failed to sync space within 10s"
+                        )
+                    return pname, page_id
 
-            def connect_viewer(pname):
-                viewer_client = self._tm.get_client(pname)
-                viewer_client.signup_or_login(pname)
-                # Connect once and rely on _wait_for_space_sync as readiness gate.
-                # No redundant auth polling - sync wait is the proper gate.
-                viewer_client.add_website(viewer_link)
-                page_id = self._wait_for_space_sync(viewer_client, pname, timeout=10.0)
-                if page_id is None:
-                    raise RuntimeError(f"{pname} failed to sync space within 10s")
-                return pname, page_id
+                future_to_peer = {
+                    executor.submit(connect_viewer, pname): pname
+                    for pname, _ in viewer_peers
+                }
 
-            future_to_peer = {
-                executor.submit(connect_viewer, pname): pname
-                for pname, _ in viewer_peers
-            }
+                for future in as_completed(future_to_peer.keys()):
+                    pname = future_to_peer[future]
+                    try:
+                        peer_name, page_id = future.result()
+                        viewer_page_ids[peer_name] = page_id
+                    except Exception as e:
+                        raise RuntimeError(f"{pname} connection failed: {e}")
 
-            for future in as_completed(future_to_peer.keys()):
-                pname = future_to_peer[future]
-                try:
-                    peer_name, page_id = future.result()
-                    viewer_page_ids[peer_name] = page_id
-                except Exception as e:
-                    raise RuntimeError(f"{pname} connection failed: {e}")
-
-        print("  All viewers connected and synced")
+            print("  All viewers connected and synced")
 
         # 6. PARALLEL: Open apps on all peers
         # Profiling wrappers (heaptrack/flame) slow startup; allow more time for Lua eval readiness.

@@ -49,7 +49,6 @@ pub fn pitch_to_hz(pitch: &str) -> f32 {
         return 440.0;
     }
     let note_char = bytes[0] as char;
-    // Optional accidental
     let (accidental, octave_str) = if bytes.len() > 1 && (bytes[1] == b'#' || bytes[1] == b'b') {
         (bytes[1] as char, &pitch[2..])
     } else {
@@ -74,9 +73,8 @@ pub fn pitch_to_hz(pitch: &str) -> f32 {
         _ => 0,
     };
     let semitone = semitone_from_c + accidental_offset;
-    // MIDI note: C4 = 60, A4 = 69
+    // MIDI: C4 = 60, A4 = 69; Hz = 440 * 2^((midi - 69) / 12)
     let midi = (octave + 1) * 12 + semitone;
-    // Hz = 440 * 2^((midi - 69) / 12)
     440.0 * 2f32.powf((midi as f32 - 69.0) / 12.0)
 }
 
@@ -258,7 +256,6 @@ impl MusicIr {
         let secs_per_tick = 60.0 / bpm / tpb;
         let samples_per_tick = secs_per_tick * SAMPLE_RATE as f32;
 
-        // Build voice lookup
         let voice_map: std::collections::HashMap<&str, &IrVoice> = self
             .voices
             .iter()
@@ -353,12 +350,11 @@ impl Synth {
     /// Returns a slice of f32 samples in [-1.0, 1.0].
     pub fn fill(&mut self) -> &[f32] {
         let buf = &mut self.mix_buf[..STREAM_BUFFER_FRAMES];
-        // Zero the mix buffer
         for s in buf.iter_mut() {
             *s = 0.0;
         }
 
-        // Activate pending notes whose start_sample has arrived
+        // Activate pending notes whose start_sample has arrived.
         while let Some(note) = self.pending.front() {
             if note.start_sample <= self.sample_pos {
                 let note = self.pending.pop_front().unwrap();
@@ -368,10 +364,9 @@ impl Synth {
             }
         }
 
-        // Render active voices into mix buffer
         self.active.retain_mut(|voice| voice.render_into(buf));
 
-        // Soft clip to [-1, 1]
+        // Soft clip to [-1, 1] — divide by sqrt(active_count) to prevent saturation.
         let n_active = self.active.len() as f32;
         let norm = if n_active > 1.0 {
             1.0 / n_active.sqrt()

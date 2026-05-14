@@ -1,8 +1,7 @@
 //! Control Server for UI Testing Automation
 //!
-//! Simplified version using sthalam_shell. Removed unused commands:
-//! ui_click, ui_type, ui_get_text, ui_get_screen, ui_list_elements,
-//! upload_asset, update_node_address, state.
+//! JSON-RPC over a Unix socket. External clients (Python test scripts) depend
+//! on the method names and response shapes here.
 
 use butler::Butler;
 use control_server::{
@@ -11,14 +10,12 @@ use control_server::{
 };
 use courier::CourierHandle;
 use logging_utils::CaptureHandle;
-use renderer_slint::{AppStatus, DebugEvalRequest};
+use renderer_slint::{AppStatus, AppUiCommand, DebugEvalRequest, GlobalCapture, UiMouseButton};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
-// UI Command (simplified — no element-level interaction)
-
-/// UI automation command (processed on Slint main thread)
+/// UI automation command (processed on Slint main thread).
 #[derive(Debug)]
 pub enum UiCommand {
     DirectLogin {
@@ -59,15 +56,17 @@ pub enum UiCommand {
     },
 }
 
-// Shell Handler
-
-/// Shell-specific command handler
+/// Shell-specific command handler.
 pub struct ShellHandler {
     butler: Arc<RwLock<Option<Arc<Butler>>>>,
     courier_handle: Arc<RwLock<Option<CourierHandle>>>,
     ui_tx: Arc<RwLock<Option<mpsc::Sender<UiCommand>>>>,
     eval_tx: Arc<RwLock<Option<mpsc::Sender<DebugEvalRequest>>>>,
     lua_worker_tx: Arc<RwLock<Option<mpsc::Sender<lua_runtime::LuaCommand>>>>,
+    /// Forwards UI automation commands (synthetic pointer events,
+    /// screenshots) to the latest launched app. Single-window MVP —
+    /// rebound each time a new app is launched.
+    app_ui_tx: Arc<RwLock<Option<mpsc::Sender<AppUiCommand>>>>,
     app_status: Arc<RwLock<AppStatus>>,
     capture_handle: Arc<RwLock<Option<CaptureHandle>>>,
 }
@@ -80,6 +79,7 @@ impl ShellHandler {
             ui_tx: Arc::new(RwLock::new(None)),
             eval_tx: Arc::new(RwLock::new(None)),
             lua_worker_tx: Arc::new(RwLock::new(None)),
+            app_ui_tx: Arc::new(RwLock::new(None)),
             app_status: Arc::new(RwLock::new(AppStatus::new())),
             capture_handle: Arc::new(RwLock::new(None)),
         }
@@ -105,8 +105,17 @@ impl ShellHandler {
         *self.eval_tx.blocking_write() = Some(tx);
     }
 
+    /// Async variant — usable from inside a tokio runtime.
+    pub async fn set_eval_channel_async(&self, tx: mpsc::Sender<DebugEvalRequest>) {
+        *self.eval_tx.write().await = Some(tx);
+    }
+
     pub fn set_lua_worker_channel_blocking(&self, tx: mpsc::Sender<lua_runtime::LuaCommand>) {
         *self.lua_worker_tx.blocking_write() = Some(tx);
+    }
+
+    pub fn set_app_ui_channel_blocking(&self, tx: mpsc::Sender<AppUiCommand>) {
+        *self.app_ui_tx.blocking_write() = Some(tx);
     }
 }
 
@@ -118,6 +127,7 @@ impl Clone for ShellHandler {
             ui_tx: self.ui_tx.clone(),
             eval_tx: self.eval_tx.clone(),
             lua_worker_tx: self.lua_worker_tx.clone(),
+            app_ui_tx: self.app_ui_tx.clone(),
             app_status: self.app_status.clone(),
             capture_handle: self.capture_handle.clone(),
         }
@@ -127,6 +137,82 @@ impl Clone for ShellHandler {
 /// Helper to get string param
 fn get_param(params: &Option<serde_json::Value>, key: &str) -> Option<String> {
     params.as_ref()?.get(key)?.as_str().map(|s| s.to_string())
+}
+
+fn get_f64(params: &Option<serde_json::Value>, key: &str) -> Option<f64> {
+    params.as_ref()?.get(key)?.as_f64()
+}
+
+/// Parse the `captures` list in ui_record_start params. If absent or
+/// empty, returns the default DragController capture set.
+fn parse_captures(params: &Option<serde_json::Value>) -> Vec<GlobalCapture> {
+    let arr = params
+        .as_ref()
+        .and_then(|p| p.get("captures"))
+        .and_then(|v| v.as_array());
+
+    if let Some(items) = arr {
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
+            let Some(name) = item.get("name").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let Some(global) = item.get("global").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let Some(prop) = item.get("prop").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            out.push(GlobalCapture {
+                name: name.to_string(),
+                global: global.to_string(),
+                prop: prop.to_string(),
+            });
+        }
+        if !out.is_empty() {
+            return out;
+        }
+    }
+
+    default_drag_controller_captures()
+}
+
+/// Default capture set: every observable on `DragController`.
+fn default_drag_controller_captures() -> Vec<GlobalCapture> {
+    let g = "DragController";
+    [
+        ("dragging", "dragging"),
+        ("cursor_x", "cursor-x"),
+        ("cursor_y", "cursor-y"),
+        ("payload", "payload"),
+        ("kind", "kind"),
+        ("ghost_label", "ghost-label"),
+        ("hover_target", "hover-target"),
+        ("hover_intent", "hover-intent"),
+        ("press_count", "press-count"),
+        ("move_count", "move-count"),
+        ("guideline_y", "guideline-y"),
+        ("guideline_target", "guideline-target"),
+    ]
+    .iter()
+    .map(|(name, prop)| GlobalCapture {
+        name: name.to_string(),
+        global: g.to_string(),
+        prop: prop.to_string(),
+    })
+    .collect()
+}
+
+fn parse_button(params: &Option<serde_json::Value>) -> UiMouseButton {
+    match params
+        .as_ref()
+        .and_then(|p| p.get("button"))
+        .and_then(|v| v.as_str())
+    {
+        Some("right") => UiMouseButton::Right,
+        Some("middle") => UiMouseButton::Middle,
+        _ => UiMouseButton::Left,
+    }
 }
 
 #[async_trait]
@@ -1047,6 +1133,328 @@ impl CommandHandler for ShellHandler {
                 }
             }
 
+            // UI Automation Commands
+
+            "ui_window_size" => {
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open — UI automation not available",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::WindowSize { response_tx })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_window_size",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok((w, h))) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"width": w, "height": h}),
+                    )),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_window_size dropped",
+                    )),
+                }
+            }
+
+            "ui_mouse_move" => {
+                let x = get_f64(&params, "x")? as f32;
+                let y = get_f64(&params, "y")? as f32;
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::MouseMove { x, y, response_tx })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_mouse_move",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok(())) => Some(Response::ok(id, serde_json::json!({"ok": true}))),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_mouse_move dropped",
+                    )),
+                }
+            }
+
+            "ui_mouse_press" => {
+                let x = get_f64(&params, "x")? as f32;
+                let y = get_f64(&params, "y")? as f32;
+                let button = parse_button(&params);
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::MousePress {
+                        x,
+                        y,
+                        button,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_mouse_press",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok(())) => Some(Response::ok(id, serde_json::json!({"ok": true}))),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_mouse_press dropped",
+                    )),
+                }
+            }
+
+            "ui_mouse_release" => {
+                let x = get_f64(&params, "x")? as f32;
+                let y = get_f64(&params, "y")? as f32;
+                let button = parse_button(&params);
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::MouseRelease {
+                        x,
+                        y,
+                        button,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_mouse_release",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok(())) => Some(Response::ok(id, serde_json::json!({"ok": true}))),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_mouse_release dropped",
+                    )),
+                }
+            }
+
+            "ui_mouse_drag" => {
+                let from_x = get_f64(&params, "from_x")? as f32;
+                let from_y = get_f64(&params, "from_y")? as f32;
+                let to_x = get_f64(&params, "to_x")? as f32;
+                let to_y = get_f64(&params, "to_y")? as f32;
+                let steps = params
+                    .as_ref()
+                    .and_then(|p| p.get("steps"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(30) as u32;
+                let button = parse_button(&params);
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::Drag {
+                        from: (from_x, from_y),
+                        to: (to_x, to_y),
+                        steps,
+                        button,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_mouse_drag",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok(())) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"ok": true, "steps": steps}),
+                    )),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_mouse_drag dropped",
+                    )),
+                }
+            }
+
+            "ui_record_start" => {
+                let gif_path = get_param(&params, "gif_path")?;
+                let states_path = get_param(&params, "states_path")?;
+                let captures = parse_captures(&params);
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::RecordStart {
+                        gif_path: PathBuf::from(&gif_path),
+                        states_path: PathBuf::from(&states_path),
+                        captures,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_record_start",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok(())) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"recording": true, "gif_path": gif_path, "states_path": states_path}),
+                    )),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_record_start dropped",
+                    )),
+                }
+            }
+
+            "ui_record_stop" => {
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::RecordStop { response_tx })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_record_stop",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok((gif, states))) => Some(Response::ok(
+                        id,
+                        serde_json::json!({
+                            "gif_path": gif.to_string_lossy(),
+                            "states_path": states.to_string_lossy(),
+                        }),
+                    )),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_record_stop dropped",
+                    )),
+                }
+            }
+
+            "ui_screenshot" => {
+                let path = get_param(&params, "path")?;
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::Screenshot {
+                        path: PathBuf::from(&path),
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_screenshot",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok(p)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"path": p.to_string_lossy()}),
+                    )),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_screenshot dropped",
+                    )),
+                }
+            }
+
             _ => None,
         }
     }
@@ -1058,9 +1466,7 @@ impl CommandHandler for ShellHandler {
     }
 }
 
-// Public API
-
-/// Shell control server wrapper
+/// Shell control server wrapper.
 pub struct ControlServer {
     inner: BaseControlServer<ShellHandler>,
     handler: Arc<ShellHandler>,
@@ -1094,12 +1500,22 @@ impl ControlServer {
         self.handler.set_eval_channel_blocking(tx);
     }
 
+    /// Async variant of `set_eval_channel` — the sync version's `blocking_write`
+    /// panics inside a tokio runtime, so the egui (async) launch path uses this.
+    pub async fn set_eval_channel_async(&self, tx: mpsc::Sender<DebugEvalRequest>) {
+        self.handler.set_eval_channel_async(tx).await;
+    }
+
     pub fn set_capture_handle(&self, handle: CaptureHandle) {
         self.handler.set_capture_handle_blocking(handle);
     }
 
     pub fn set_lua_worker_channel(&self, tx: mpsc::Sender<lua_runtime::LuaCommand>) {
         self.handler.set_lua_worker_channel_blocking(tx);
+    }
+
+    pub fn set_app_ui_channel(&self, tx: mpsc::Sender<AppUiCommand>) {
+        self.handler.set_app_ui_channel_blocking(tx);
     }
 
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

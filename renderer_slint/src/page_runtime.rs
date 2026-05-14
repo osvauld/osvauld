@@ -1,8 +1,8 @@
-//! Page Runtime - Generate browser shell that wraps app components
+//! Generate the browser shell that wraps app components.
 //!
-//! Apps are pure components (no Window inheritance) with an `export global AppAPI`
-//! that defines their public interface. The shell wraps the app in a Window with
-//! tab bar. Runtime accesses app via global API (set_global_callback, set_global_property).
+//! Apps are pure components with an `export global AppAPI`; the shell wraps
+//! the app in a Window with tab bar and re-exports globals so the interpreter
+//! can reach them via `set_global_property` / `set_global_callback`.
 
 use std::path::Path;
 
@@ -31,7 +31,6 @@ pub fn parse_exported_types(slint_source: &str) -> ExportedTypes {
     for line in slint_source.lines() {
         let trimmed = line.trim();
 
-        // Parse: export struct Name {
         if trimmed.starts_with("export struct ") {
             if let Some(rest) = trimmed.strip_prefix("export struct ") {
                 let name = rest
@@ -46,7 +45,6 @@ pub fn parse_exported_types(slint_source: &str) -> ExportedTypes {
             }
         }
 
-        // Parse: export global Name {
         if trimmed.starts_with("export global ") {
             if let Some(rest) = trimmed.strip_prefix("export global ") {
                 let name = rest
@@ -60,20 +58,31 @@ pub fn parse_exported_types(slint_source: &str) -> ExportedTypes {
                 }
             }
         }
+
+        // `export { Foo, Bar };` — re-exports of imported globals, treated as
+        // globals so the shell forwards them and tests can read them.
+        if trimmed.starts_with("export {") || trimmed.starts_with("export { ") {
+            if let Some(rest) = trimmed.strip_prefix("export") {
+                let inside = rest
+                    .trim_start()
+                    .trim_start_matches('{')
+                    .trim_end_matches(';')
+                    .trim_end_matches('}')
+                    .trim();
+                for name in inside.split(',') {
+                    let n = name.trim().to_string();
+                    if !n.is_empty() && !result.globals.contains(&n) {
+                        result.globals.push(n);
+                    }
+                }
+            }
+        }
     }
 
     result
 }
 
-/// Generate browser shell that imports and wraps the app
-///
-/// **Architecture:**
-/// - App = pure component with `export global AppAPI` for public interface
-/// - Shell = Window + TabBar + imports App
-/// - Runtime accesses app via globals (no forwarding needed)
-/// - Shell re-exports globals so interpreter can access them
-///
-/// **Returns:** Slint source for the shell
+/// Generate Slint source for the browser shell that imports and wraps the app.
 pub fn generate_page_shell(
     app_slint_path: &Path,
     tabs: &[AppTab],
@@ -81,27 +90,24 @@ pub fn generate_page_shell(
     page_name: &str,
     version: Option<&str>,
 ) -> String {
-    // Read app source to parse exported types
     let app_source = std::fs::read_to_string(app_slint_path).unwrap_or_default();
     let exported_types = parse_exported_types(&app_source);
 
     let app_path = app_slint_path.to_string_lossy();
     let tab_bar = generate_tab_bar(tabs, current_app);
 
-    // Build import statement with App, structs, and globals
     let mut imports = vec!["App as UserApp".to_string()];
     imports.extend(exported_types.structs.iter().cloned());
     imports.extend(exported_types.globals.iter().cloned());
     let import_list = imports.join(", ");
 
-    // Re-export globals so interpreter can access them via set_global_callback
+    // Re-export globals so the interpreter can reach them via set_global_callback.
     let global_exports = if exported_types.globals.is_empty() {
         String::new()
     } else {
         format!("\nexport {{ {} }}", exported_types.globals.join(", "))
     };
 
-    // Generate version footer if version is provided
     let version_footer = if let Some(v) = version {
         format!(
             r#"
@@ -130,6 +136,47 @@ pub fn generate_page_shell(
 import {{ {import_list} }} from "{app_path}";
 {global_exports}
 
+// VirtualPointer — render-only cursor sprite at an arbitrary position.
+// Used by UI-automation tests (synthetic pointer overlay) and future
+// peer-cursor relay. The renderer writes here via
+// `set_global_property("VirtualPointer", ...)`. Writing is out-of-band:
+// it does NOT dispatch input events. The overlay is mounted at the
+// Window root, *above* the tab bar, so coordinates match
+// `dispatch_event`'s window-global logical pixels.
+export global VirtualPointer {{
+    in-out property <length> x: -1px;
+    in-out property <length> y: -1px;
+    in-out property <bool> visible: false;
+    in-out property <string> label: "";
+    in-out property <color> color: #ff2d92;
+}}
+
+component VirtualPointerOverlay inherits Rectangle {{
+    width: 100%;
+    height: 100%;
+    background: transparent;
+
+    if VirtualPointer.visible : Rectangle {{
+        x: VirtualPointer.x - self.width / 2;
+        y: VirtualPointer.y - self.height / 2;
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        background: VirtualPointer.color;
+        border-width: 2px;
+        border-color: white;
+
+        if VirtualPointer.label != "" : Text {{
+            x: parent.width + 6px;
+            y: -4px;
+            text: VirtualPointer.label;
+            color: VirtualPointer.color;
+            font-size: 11px;
+            font-weight: 600;
+        }}
+    }}
+}}
+
 export component App inherits Window {{
     title: "{page_name}";
     background: #1a1a2e;
@@ -152,6 +199,11 @@ export component App inherits Window {{
         }}
 {version_footer}
     }}
+
+    // Synthetic-cursor overlay — paint-only, never absorbs input.
+    // Mounted last so it draws above the user app's content and any
+    // app-level DragLayer.
+    VirtualPointerOverlay {{ }}
 }}"#,
         import_list = import_list,
         app_path = app_path,
@@ -162,7 +214,6 @@ export component App inherits Window {{
     )
 }
 
-/// Generate Slint code for the tab bar
 fn generate_tab_bar(tabs: &[AppTab], current_app: &str) -> String {
     let tab_items: Vec<String> = tabs
         .iter()
@@ -242,7 +293,6 @@ fn generate_tab_bar(tabs: &[AppTab], current_app: &str) -> String {
     )
 }
 
-/// Write generated shell to temp directory
 pub fn write_shell_slint(temp_dir: &Path, source: &str) -> std::io::Result<std::path::PathBuf> {
     let path = temp_dir.join("_shell.slint");
     std::fs::write(&path, source)?;

@@ -11,7 +11,6 @@ lua_runtime = { path = "../lua_runtime" }
 butler = { path = "../butler" }
 scribe = { path = "../scribe" }
 domains = { path = "../domains" }
-widgets = { path = "../widgets" }
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

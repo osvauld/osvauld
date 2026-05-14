@@ -7,10 +7,7 @@ use std::rc::Rc;
 // Sthithi <-> Slint conversions (canonical path — no serde_json hop)
 // ---------------------------------------------------------------------------
 
-/// Convert Sthithi value to Slint value (direct, no JSON hop).
-///
-/// **Context**: Replaces `json_to_slint_value` as the canonical conversion path.
-/// Preserves Int vs Float (both become Slint Number). Handles Bytes and image fields.
+/// Convert Sthithi value to Slint value (canonical path, no JSON hop).
 pub(crate) fn sthithi_to_slint_value(
     val: &Sthithi,
 ) -> Result<SlintValue, Box<dyn std::error::Error>> {

@@ -102,12 +102,10 @@ impl GameLoop {
     fn register_canvas_bindings(&self) -> Result<(), Box<dyn std::error::Error>> {
         let globals = self.lua.globals();
 
-        // Create canvas table
         let canvas = self.lua.create_table()?;
 
-        // Note: All canvas methods use colon syntax (canvas:method), so self is passed as first arg
+        // All canvas methods use colon syntax (canvas:method), so self is passed as first arg.
 
-        // canvas:clear(color)
         let cmds = self.draw_commands.clone();
         let clear_fn =
             self.lua
@@ -118,7 +116,6 @@ impl GameLoop {
                 })?;
         canvas.set("clear", clear_fn)?;
 
-        // canvas:rect(x, y, w, h, color)
         let cmds = self.draw_commands.clone();
         let rect_fn = self.lua.create_function(
             move |_, (_self, x, y, w, h, color): (mlua::Value, f32, f32, f32, f32, String)| {
@@ -131,7 +128,6 @@ impl GameLoop {
         )?;
         canvas.set("rect", rect_fn)?;
 
-        // canvas:circle(x, y, r, color)
         let cmds = self.draw_commands.clone();
         let circle_fn = self.lua.create_function(
             move |_, (_self, x, y, r, color): (mlua::Value, f32, f32, f32, String)| {
@@ -144,7 +140,6 @@ impl GameLoop {
         )?;
         canvas.set("circle", circle_fn)?;
 
-        // canvas:text(x, y, text, size, color)
         let cmds = self.draw_commands.clone();
         let text_fn = self.lua.create_function(
             move |_,
@@ -169,7 +164,6 @@ impl GameLoop {
         )?;
         canvas.set("text", text_fn)?;
 
-        // canvas:line(x1, y1, x2, y2, color)
         let cmds = self.draw_commands.clone();
         let line_fn = self.lua.create_function(
             move |_, (_self, x1, y1, x2, y2, color): (mlua::Value, f32, f32, f32, f32, String)| {
@@ -186,7 +180,6 @@ impl GameLoop {
         )?;
         canvas.set("line", line_fn)?;
 
-        // canvas:begin_3d(cam_x, cam_y, cam_z, target_x, target_y, target_z, fovy)
         let cmds = self.draw_commands.clone();
         let begin_3d_fn = self.lua.create_function(
             move |_,
@@ -214,7 +207,6 @@ impl GameLoop {
         )?;
         canvas.set("begin_3d", begin_3d_fn)?;
 
-        // canvas:end_3d()
         let cmds = self.draw_commands.clone();
         let end_3d_fn = self.lua.create_function(move |_, _self: mlua::Value| {
             cmds.lock().unwrap().push(DrawCommand::EndMode3D);
@@ -222,7 +214,6 @@ impl GameLoop {
         })?;
         canvas.set("end_3d", end_3d_fn)?;
 
-        // canvas:sphere(x, y, z, r, color)
         let cmds = self.draw_commands.clone();
         let sphere_fn = self.lua.create_function(
             move |_, (_self, x, y, z, r, color): (mlua::Value, f32, f32, f32, f32, String)| {
@@ -235,7 +226,6 @@ impl GameLoop {
         )?;
         canvas.set("sphere", sphere_fn)?;
 
-        // canvas:line3d(x1, y1, z1, x2, y2, z2, color)
         let cmds = self.draw_commands.clone();
         let line3d_fn = self.lua.create_function(
             move |_,
@@ -264,7 +254,6 @@ impl GameLoop {
         )?;
         canvas.set("line3d", line3d_fn)?;
 
-        // canvas:cylinder3d(x1, y1, z1, x2, y2, z2, radius, color)
         let cmds = self.draw_commands.clone();
         let cyl_fn = self.lua.create_function(
             move |_,
@@ -297,11 +286,9 @@ impl GameLoop {
 
         globals.set("canvas", canvas)?;
 
-        // Create input table
         let input = self.lua.create_table()?;
 
-        // input:key_down(key) - will be populated in handle_input
-        // Note: Using colon syntax (input:key_down) passes self as first arg
+        // Stub: real key_down is installed per-frame in handle_input.
         let key_down_fn = self
             .lua
             .create_function(|_, (_self, _key): (mlua::Value, String)| Ok(false))?;
@@ -309,11 +296,9 @@ impl GameLoop {
 
         globals.set("input", input)?;
 
-        // Create audio table — Lua calls audio:play_music_ir(json, energy) / audio:stop()
+        // audio: Lua calls play_music_ir / stop / is_playing.
         let audio_tbl = self.lua.create_table()?;
 
-        // audio:play_music_ir(json_string, resonance_energy)
-        // Loads music_ir JSON into the synth; playback starts immediately.
         let synth_play = self.synth.clone();
         let play_fn = self.lua.create_function(
             move |_, (_self, json, energy): (mlua::Value, String, f32)| {
@@ -323,7 +308,6 @@ impl GameLoop {
         )?;
         audio_tbl.set("play_music_ir", play_fn)?;
 
-        // audio:stop()
         let synth_stop = self.synth.clone();
         let stop_fn = self.lua.create_function(move |_, _self: mlua::Value| {
             synth_stop.lock().unwrap().stop();
@@ -331,7 +315,6 @@ impl GameLoop {
         })?;
         audio_tbl.set("stop", stop_fn)?;
 
-        // audio:is_playing() -> bool
         let synth_check = self.synth.clone();
         let playing_fn = self.lua.create_function(move |_, _self: mlua::Value| {
             Ok(synth_check.lock().unwrap().is_playing())
@@ -345,7 +328,6 @@ impl GameLoop {
 
     /// Handle input (called before update)
     pub fn handle_input(&mut self, rl: &mut RaylibHandle) {
-        // Poll key states into a HashMap (owned data)
         let mut key_states: HashMap<String, bool> = HashMap::new();
         key_states.insert("w".to_string(), rl.is_key_down(KeyboardKey::KEY_W));
         key_states.insert("up".to_string(), rl.is_key_down(KeyboardKey::KEY_UP));
@@ -369,18 +351,16 @@ impl GameLoop {
             rl.is_key_down(KeyboardKey::KEY_ESCAPE),
         );
         key_states.insert("r".to_string(), rl.is_key_down(KeyboardKey::KEY_R));
-        // Preset camera view keys (graph-camera-interaction.om: key-1/2/3-ahara)
+        // Preset camera-view keys (graph-camera-interaction.om: key-1/2/3-ahara)
         key_states.insert("1".to_string(), rl.is_key_pressed(KeyboardKey::KEY_ONE));
         key_states.insert("2".to_string(), rl.is_key_pressed(KeyboardKey::KEY_TWO));
         key_states.insert("3".to_string(), rl.is_key_pressed(KeyboardKey::KEY_THREE));
 
-        // Collect all chars typed this frame
         let mut chars_this_frame = String::new();
         while let Some(c) = rl.get_char_pressed() {
             chars_this_frame.push(c);
         }
 
-        // Mouse state
         let mouse_pos = rl.get_mouse_position();
         let mouse_clicked = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT);
         let mouse_down = rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT);
@@ -388,10 +368,8 @@ impl GameLoop {
         let mouse_delta = rl.get_mouse_delta();
         let mouse_wheel = rl.get_mouse_wheel_move();
 
-        // Update input bindings based on current key state
         let globals = self.lua.globals();
         if let Ok(input) = globals.get::<Table>("input") {
-            // key_down(key) — held down
             let ks = key_states.clone();
             let key_down_fn =
                 self.lua
@@ -418,7 +396,7 @@ impl GameLoop {
                 let _ = input.set("key_down", key_fn);
             }
 
-            // key_pressed(key) — single press this frame (enter, backspace)
+            // key_pressed: single press this frame (enter/backspace use is_key_pressed above).
             let ks2 = key_states.clone();
             let key_pressed_fn =
                 self.lua
@@ -430,7 +408,6 @@ impl GameLoop {
                 let _ = input.set("key_pressed", kp_fn);
             }
 
-            // chars() -> string of all chars typed this frame
             let chars = chars_this_frame.clone();
             let chars_fn = self
                 .lua
@@ -439,7 +416,6 @@ impl GameLoop {
                 let _ = input.set("chars", cf);
             }
 
-            // mouse_pos() -> x, y
             let mx = mouse_pos.x;
             let my = mouse_pos.y;
             let mouse_pos_fn = self
@@ -449,7 +425,6 @@ impl GameLoop {
                 let _ = input.set("mouse_pos", mpf);
             }
 
-            // mouse_clicked() -> bool
             let clicked = mouse_clicked;
             if let Ok(mcf) = self
                 .lua
@@ -458,7 +433,6 @@ impl GameLoop {
                 let _ = input.set("mouse_clicked", mcf);
             }
 
-            // mouse_down() -> bool (held, left button)
             let down = mouse_down;
             if let Ok(mdf) = self
                 .lua
@@ -467,7 +441,7 @@ impl GameLoop {
                 let _ = input.set("mouse_down", mdf);
             }
 
-            // mouse_right_down() -> bool (held, right button — orbit-kriya)
+            // right button — used by orbit-kriya in 3D scenes
             let rdown = mouse_right_down;
             if let Ok(mrdf) = self
                 .lua
@@ -476,7 +450,6 @@ impl GameLoop {
                 let _ = input.set("mouse_right_down", mrdf);
             }
 
-            // mouse_delta() -> dx, dy
             let dx = mouse_delta.x;
             let dy = mouse_delta.y;
             if let Ok(mdf2) = self
@@ -486,7 +459,6 @@ impl GameLoop {
                 let _ = input.set("mouse_delta", mdf2);
             }
 
-            // mouse_wheel() -> f32
             let wheel = mouse_wheel;
             if let Ok(mwf) = self
                 .lua
@@ -510,10 +482,9 @@ impl GameLoop {
 
     /// Draw frame (call draw())
     pub fn draw(&mut self, d: &mut RaylibDrawHandle) -> Result<(), Box<dyn std::error::Error>> {
-        // Clear with default color (may be overridden by Lua)
+        // Default clear; Lua may override via canvas:clear().
         d.clear_background(Color::BLACK);
 
-        // Call Lua draw function to populate draw_commands
         if let Ok(draw_fn) = self.lua.globals().get::<Function>("draw") {
             if let Err(e) = draw_fn.call::<()>(()) {
                 tracing::error!(page_id = %self.page_id, error = %e, "Lua draw() error");
@@ -521,15 +492,12 @@ impl GameLoop {
             }
         }
 
-        // Execute draw commands collected from Lua
         let commands: Vec<DrawCommand> = {
             let mut cmds = self.draw_commands.lock().unwrap();
             std::mem::take(&mut *cmds)
         };
 
-        // Separate 2D and 3D command groups so we can enter/exit mode3D correctly.
-        // We process commands in order, entering mode3D when we see BeginMode3D
-        // and exiting when we see EndMode3D.
+        // Walk commands in order, entering mode3D on BeginMode3D and exiting on EndMode3D.
         let mut i = 0;
         while i < commands.len() {
             match &commands[i] {
@@ -580,7 +548,6 @@ impl GameLoop {
                         Vector3::new(0.0, 1.0, 0.0),
                         *fovy,
                     );
-                    // Collect all 3D commands until EndMode3D
                     let mut mode3d = d.begin_mode3D(camera);
                     i += 1;
                     while i < commands.len() {
@@ -619,8 +586,7 @@ impl GameLoop {
                                 radius,
                                 color,
                             } => {
-                                // Draw cylinder as two capped halves using Raylib's
-                                // draw_cylinder_ex: start_pos, end_pos, start_r, end_r, slices
+                                // draw_cylinder_ex: start_pos, end_pos, start_r, end_r, slices.
                                 mode3d.draw_cylinder_ex(
                                     Vector3::new(*x1, *y1, *z1),
                                     Vector3::new(*x2, *y2, *z2),

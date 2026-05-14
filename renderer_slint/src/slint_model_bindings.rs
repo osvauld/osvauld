@@ -1,11 +1,6 @@
-//! Slint VecModel FFI Bindings for Lua
+//! Slint VecModel FFI bindings for Lua.
 //!
-//! Provides direct access to Slint VecModel for fine-grained UI updates.
-//! Lua receives model handles (Rc pointers), not data copies.
-//!
-//! **Pattern**: Mirrors loro_bindings.rs - Lua gets lightweight handles
-//! **Memory**: Just an Rc pointer (shared with Slint, no copy)
-//! **Operations**: Directly mutate the model, triggering ModelNotify
+//! Lua gets an Rc handle (shared with Slint, no copy) and mutations trigger ModelNotify.
 
 use lua_runtime::{json_to_lua, lua_to_json_err};
 use mlua::{Error as LuaError, UserData, UserDataMethods, Value as LuaValue};
@@ -15,13 +10,10 @@ use std::rc::Rc;
 
 use crate::value_convert::{json_to_slint_value, slint_value_to_json};
 
-/// Lua wrapper for Slint VecModel
-///
-/// **Memory**: Just an Rc pointer (shared with Slint, no copy)
-/// **Operations**: Directly mutate the model, triggering ModelNotify
+/// Lua wrapper for Slint VecModel (shared Rc; mutations trigger ModelNotify).
 pub struct LuaSlintModel {
     model: Rc<VecModel<SlintValue>>,
-    property_name: String, // For debugging/logging
+    property_name: String,
 }
 
 impl LuaSlintModel {
@@ -35,11 +27,8 @@ impl LuaSlintModel {
 
 impl UserData for LuaSlintModel {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        // model:len() - Get row count
         methods.add_method("len", |_, this, ()| Ok(this.model.row_count()));
 
-        // model:push(item) - Append item to end
-        // Automatically triggers ModelNotify::row_added()
         methods.add_method("push", |_lua, this, item: LuaValue| {
             let slint_val = lua_to_slint_value_via_json(&item)?;
             this.model.push(slint_val);
@@ -50,8 +39,6 @@ impl UserData for LuaSlintModel {
             Ok(())
         });
 
-        // model:insert(index, item) - Insert at position
-        // Automatically triggers ModelNotify::row_added(index)
         methods.add_method("insert", |_lua, this, (index, item): (usize, LuaValue)| {
             let slint_val = lua_to_slint_value_via_json(&item)?;
             this.model.insert(index, slint_val);
@@ -63,8 +50,6 @@ impl UserData for LuaSlintModel {
             Ok(())
         });
 
-        // model:remove(index) - Remove item at index
-        // Automatically triggers ModelNotify::row_removed(index)
         methods.add_method("remove", |_, this, index: usize| {
             if index < this.model.row_count() {
                 this.model.remove(index);
@@ -83,7 +68,6 @@ impl UserData for LuaSlintModel {
             }
         });
 
-        // model:get(index) - Get item at index (read-only access)
         methods.add_method("get", |lua, this, index: usize| {
             match this.model.row_data(index) {
                 Some(val) => slint_to_lua_value(lua, &val),
@@ -91,8 +75,6 @@ impl UserData for LuaSlintModel {
             }
         });
 
-        // model:set(index, item) - Update item at index
-        // Triggers ModelNotify::row_changed(index)
         methods.add_method("set", |_lua, this, (index, item): (usize, LuaValue)| {
             if index < this.model.row_count() {
                 let slint_val = lua_to_slint_value_via_json(&item)?;
@@ -112,7 +94,6 @@ impl UserData for LuaSlintModel {
             }
         });
 
-        // model:clear() - Remove all items
         methods.add_method("clear", |_, this, ()| {
             this.model.set_vec(vec![]);
             tracing::debug!(

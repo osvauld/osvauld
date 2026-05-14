@@ -62,14 +62,12 @@ fn register_add_node(
         let courier = courier_handle.clone();
         let shell_weak = shell_weak.clone();
 
-        // Mark as connecting
         if let Some(shell) = shell_weak.upgrade() {
             shell.set_connecting(true);
             shell.set_error_message("".into());
         }
 
         tokio_handle.spawn(async move {
-            // 1. Parse and store node via Butler
             let node = match butler.nodes().add(&conn_str) {
                 Ok(n) => {
                     println!("Node stored: {} ({})", n.name, n.node_id);
@@ -88,7 +86,6 @@ fn register_add_node(
                 }
             };
 
-            // 2. Extract permit from node
             let permit = match &node.permit {
                 Some(p) => p.clone(),
                 None => {
@@ -104,7 +101,6 @@ fn register_add_node(
                 }
             };
 
-            // 3. Connect via Courier (fire-and-forget, result via events)
             let courier_guard = courier.read().await;
             let courier_handle = match courier_guard.as_ref() {
                 Some(h) => h.clone(),
@@ -187,7 +183,6 @@ fn register_connect_node(
                 }
             };
 
-            // Get stored permit for reconnection
             let permit = match &node.permit {
                 Some(p) => p.clone(),
                 None => {

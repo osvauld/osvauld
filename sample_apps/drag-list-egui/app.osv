@@ -1,0 +1,8 @@
+app "drag-list-egui" version "0.1.0" {
+  role owner can share, delegate, accept_publish, manage_access;
+  role node can relay, share, accept_publish, manage_access;
+
+  ui_app "Drag List (egui)" {
+    allow owner;
+  }
+}

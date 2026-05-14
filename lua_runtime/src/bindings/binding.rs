@@ -92,7 +92,7 @@ pub struct LayerBinding {
 ///
 /// **Context**: text bindings sync one specific string-valued key of a map
 /// layer to a Slint scalar property. Used by `scribe:bind_text(prop, layer, key)`
-/// to back widgets like `RichTextEdit` without per-app boilerplate.
+/// to back text-valued UI properties without per-app boilerplate.
 pub struct TextBinding {
     /// Expanded layer name (e.g., "abc123/doc")
     pub expanded_layer: String,
@@ -107,7 +107,7 @@ pub struct TextBinding {
 /// **Context**: distinct from `TextBinding` (which projects one key of a map
 /// layer). This binding mirrors a *whole* `LoroText` layer's content into a
 /// Slint scalar string. Used by `scribe:bind_loro_text(prop, layer)` so apps
-/// can wire char-level CRDT text to a `RichTextEdit` without per-app
+/// can wire char-level CRDT text to a Slint text property without per-app
 /// boilerplate.
 ///
 /// **Why a separate kind**: the existing `TextBinding` reads via map-get; this
@@ -126,7 +126,7 @@ pub struct LoroTextBinding {
 ///
 /// **Context**: tree bindings sync a `LoroTree`-backed layer to a Slint VecModel
 /// as a flattened depth-first array. Used by `scribe:bind_tree(prop, layer)` so
-/// block-based editor apps can render a list of `RichTextEdit` rows keyed by
+/// block-based editor apps can render a list of editor rows keyed by
 /// node id, with hierarchy reconstructed via `parent` + `depth` fields.
 ///
 /// **Diffing**: we cache the last-pushed rows and emit surgical

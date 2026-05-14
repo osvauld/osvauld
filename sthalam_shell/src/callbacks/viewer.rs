@@ -42,7 +42,6 @@ fn register_add_website(
         }
 
         tokio_handle.spawn(async move {
-            // 1. Parse connection string
             let conn = match butler.nodes().parse_connection_string(&conn_str) {
                 Ok(c) => c,
                 Err(e) => {
@@ -66,7 +65,6 @@ fn register_add_website(
 
             println!("Parsed connection: node_id={}, name={}", node_id, conn.name);
 
-            // 2. Extract space_id from permit
             let space_id = match conn.space_id() {
                 Ok(id) => id,
                 Err(e) => {
@@ -87,7 +85,6 @@ fn register_add_website(
 
             println!("Space ID from permit: {}", space_id);
 
-            // 3. Get courier handle
             let courier_guard = courier.read().await;
             let courier_handle = match courier_guard.as_ref() {
                 Some(h) => h.clone(),
@@ -107,7 +104,7 @@ fn register_add_website(
             };
             drop(courier_guard);
 
-            // 4. Store node as Contact (before connect - we have all the info)
+            // Store node as Contact before connect while we still have all the info.
             if let Ok(node_did) = conn.node_did() {
                 if let Err(e) = butler.contacts().add_node(
                     &node_did,
@@ -122,7 +119,7 @@ fn register_add_website(
                 println!("Warning: Could not derive node DID, skipping contact storage");
             }
 
-            // 5. Initiate connection (fire-and-forget)
+            // Fire-and-forget: result arrives via CourierEvent.
             if let Err(e) = courier_handle.connect(&node_id, &permit) {
                 println!("Failed to initiate connection: {}", e);
                 let err_msg = format!("Connection failed: {}", e);
@@ -138,9 +135,8 @@ fn register_add_website(
                 return;
             }
 
-            // 6. Retry request_space_as_viewer until accepted or timeout
-            // PeerActor queues SpaceRequest until handshake completes, so we don't need
-            // to wait for authentication - just retry until the request is accepted.
+            // Retry until accepted or timeout: PeerActor queues SpaceRequest until handshake
+            // completes, so we retry instead of waiting for an auth signal.
             let request_timeout = std::time::Duration::from_secs(15);
             let retry_interval = std::time::Duration::from_millis(200);
             let start = std::time::Instant::now();
@@ -156,7 +152,6 @@ fn register_add_website(
                         break;
                     }
                     Err(e) if start.elapsed() < request_timeout => {
-                        // Retry - PeerActor might not be spawned yet or handshake in progress
                         println!("Space request failed ({}), retrying...", e);
                         tokio::time::sleep(retry_interval).await;
                     }

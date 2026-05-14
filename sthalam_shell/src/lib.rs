@@ -16,16 +16,10 @@
 
 slint::include_modules!();
 
-// Shell and TabInfo are automatically exported by include_modules!()
-// Use sthalam_shell::Shell and sthalam_shell::TabInfo to access them
-
 pub mod callbacks;
 pub mod utils;
 
-// Re-export callbacks
 pub use callbacks::*;
-
-// Re-export utils
 pub use utils::*;
 
 /// Callback type for when user selects an app to open

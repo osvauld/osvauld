@@ -1,0 +1,7 @@
+{
+    "name": "Text Editor Egui",
+    "version": "0.1.0",
+    "description": "Notion-style block editor on egui + LoroTree",
+    "entry_logic": "app.lua",
+    "renderer": "egui"
+}

@@ -532,7 +532,7 @@ impl UserData for ScribeBindings {
         // bind_text(ui_property, layer_pattern, key)
         //
         // Bind a single string-valued map key to a Slint scalar property.
-        // Used to back text widgets like RichTextEdit without per-app boilerplate.
+        // Used to back text-valued UI properties without per-app boilerplate.
         //
         // ```lua
         // -- doc layer is a map; "body" key holds the editor's text
