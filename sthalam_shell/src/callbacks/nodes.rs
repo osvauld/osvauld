@@ -20,7 +20,12 @@ pub fn register(
     tokio_handle: tokio::runtime::Handle,
 ) {
     register_request_nodes(shell, butler.clone());
-    register_add_node(shell, butler.clone(), courier_handle.clone(), tokio_handle.clone());
+    register_add_node(
+        shell,
+        butler.clone(),
+        courier_handle.clone(),
+        tokio_handle.clone(),
+    );
     register_delete_node(shell, butler.clone());
     register_connect_node(shell, butler.clone(), courier_handle, tokio_handle);
     register_navigate_to_nodes(shell);
@@ -35,10 +40,8 @@ fn register_request_nodes(shell: &Shell, butler: Arc<Butler>) {
         println!("Found {} sovereign nodes", nodes.len());
 
         if let Some(shell) = shell_weak.upgrade() {
-            let node_infos: Vec<crate::NodeInfo> = nodes
-                .iter()
-                .map(sovereign_node_to_node_info)
-                .collect();
+            let node_infos: Vec<crate::NodeInfo> =
+                nodes.iter().map(sovereign_node_to_node_info).collect();
             shell.set_nodes(slint::ModelRc::new(slint::VecModel::from(node_infos)));
         }
     });
@@ -59,14 +62,12 @@ fn register_add_node(
         let courier = courier_handle.clone();
         let shell_weak = shell_weak.clone();
 
-        // Mark as connecting
         if let Some(shell) = shell_weak.upgrade() {
             shell.set_connecting(true);
             shell.set_error_message("".into());
         }
 
         tokio_handle.spawn(async move {
-            // 1. Parse and store node via Butler
             let node = match butler.nodes().add(&conn_str) {
                 Ok(n) => {
                     println!("Node stored: {} ({})", n.name, n.node_id);
@@ -85,7 +86,6 @@ fn register_add_node(
                 }
             };
 
-            // 2. Extract permit from node
             let permit = match &node.permit {
                 Some(p) => p.clone(),
                 None => {
@@ -101,7 +101,6 @@ fn register_add_node(
                 }
             };
 
-            // 3. Connect via Courier (fire-and-forget, result via events)
             let courier_guard = courier.read().await;
             let courier_handle = match courier_guard.as_ref() {
                 Some(h) => h.clone(),
@@ -110,7 +109,9 @@ fn register_add_node(
                     slint::invoke_from_event_loop(move || {
                         if let Some(shell) = shell_weak.upgrade() {
                             shell.set_connecting(false);
-                            shell.set_error_message("P2P not initialized. Please login first.".into());
+                            shell.set_error_message(
+                                "P2P not initialized. Please login first.".into(),
+                            );
                         }
                     })
                     .ok();
@@ -146,10 +147,8 @@ fn register_delete_node(shell: &Shell, butler: Arc<Butler>) {
 
                 if let Some(shell) = shell_weak.upgrade() {
                     let nodes = butler.nodes().list().unwrap_or_default();
-                    let node_infos: Vec<crate::NodeInfo> = nodes
-                        .iter()
-                        .map(sovereign_node_to_node_info)
-                        .collect();
+                    let node_infos: Vec<crate::NodeInfo> =
+                        nodes.iter().map(sovereign_node_to_node_info).collect();
                     shell.set_nodes(slint::ModelRc::new(slint::VecModel::from(node_infos)));
                 }
             }
@@ -184,11 +183,13 @@ fn register_connect_node(
                 }
             };
 
-            // Get stored permit for reconnection
             let permit = match &node.permit {
                 Some(p) => p.clone(),
                 None => {
-                    println!("No permit stored for node {}, cannot reconnect", node_id_str);
+                    println!(
+                        "No permit stored for node {}, cannot reconnect",
+                        node_id_str
+                    );
                     return;
                 }
             };

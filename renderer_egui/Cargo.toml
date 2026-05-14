@@ -1,0 +1,26 @@
+[package]
+name = "renderer_egui"
+version = "0.1.0"
+edition = "2021"
+description = "egui renderer for interactive Lua apps with immediate-mode UI"
+
+[dependencies]
+# In-process windowing via GLFW (raylib's escape hatch) instead of eframe/winit.
+# Slint's shell owns the winit EventLoop; a second winit-based renderer in the
+# same process is rejected by winit. See docs/plans/renderer_egui.md.
+egui = "0.34"
+egui_glow = "0.34"
+glow = "0.17"
+glfw = "0.62"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+lua_runtime = { path = "../lua_runtime" }
+butler = { path = "../butler" }
+scribe = { path = "../scribe" }
+domains = { path = "../domains" }
+tokio = { version = "1", features = ["sync", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+mlua = { version = "0.10", features = ["lua54", "vendored", "async", "send"] }
+ractor = "0.14"
+

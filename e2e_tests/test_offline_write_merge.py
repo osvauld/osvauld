@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from osvauld.scenario import AppTestScenario, _merge_capture_files
 
-APP_PATH = Path(__file__).parent.parent / "sample_apps" / "group-chat"
+APP_PATH = Path(__file__).parent.parent / "sample_apps" / "osvauld-demos"
 
 # 2028-01-15 10:00:00 UTC — well away from real system time
 BASE_TIME = 1_831_467_600

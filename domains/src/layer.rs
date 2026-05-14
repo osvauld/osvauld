@@ -11,6 +11,8 @@
 use loro::{ExportMode, LoroDoc};
 use sha2::{Digest, Sha256};
 
+use super::sthithi::{OpKind, Parivarta, Sthithi};
+
 /// Protocol-level layer classification
 ///
 /// Determines sync behavior and memory management:
@@ -47,12 +49,13 @@ impl LayerType {
 
 /// Compute deterministic content hash for a layer
 ///
-/// Uses `get_deep_value()` -> JSON -> SHA-256 for cross-peer determinism.
+/// Uses `get_deep_value()` -> Sthithi -> serde -> SHA-256 for cross-peer determinism.
 /// Used for app layer change detection (skip sync if hash matches).
 pub fn compute_content_hash(layer: &Layer) -> [u8; 32] {
-    let json_bytes = serde_json::to_vec(&layer.to_json_value()).unwrap_or_default();
+    let sthithi = layer.to_sthithi();
+    let bytes = serde_json::to_vec(&sthithi).unwrap_or_default();
     let mut hasher = Sha256::new();
-    hasher.update(&json_bytes);
+    hasher.update(&bytes);
     hasher.finalize().into()
 }
 
@@ -186,7 +189,158 @@ impl Layer {
         }
     }
 
-    // CRDT-Specific Operations
+    // --- Sthithi output methods (canonical, replaces JSON path) ---
+
+    /// Export the layer state as a Sthithi value (direct from LoroValue, no JSON hop).
+    ///
+    /// **Context**: Canonical replacement for `to_json_value()`.
+    /// Preserves Int/Float distinction and native Bytes.
+    pub fn to_sthithi(&self) -> Sthithi {
+        Sthithi::from(self.inner.get_deep_value())
+    }
+
+    /// Get the content of a specific container as Sthithi (unwrapped).
+    ///
+    /// **Context**: Canonical replacement for `get_content()`.
+    /// Extracts the named container from the Loro document without JSON round-trip.
+    pub fn get_content_sthithi(&self, container_name: &str) -> Sthithi {
+        let full = Sthithi::from(self.inner.get_deep_value());
+        match full {
+            Sthithi::Map(entries) => entries
+                .into_iter()
+                .find(|(k, _)| k == container_name)
+                .map(|(_, v)| v)
+                .unwrap_or(Sthithi::Null),
+            _ => Sthithi::Null,
+        }
+    }
+
+    /// Get an item at a specific index from a list by layer name, as Sthithi.
+    ///
+    /// **Context**: Canonical replacement for `list_get()`.
+    pub fn list_get_sthithi(&self, layer_name: &str, index: usize) -> Result<Sthithi, LayerError> {
+        let list = self.inner.get_list(layer_name);
+        let value = list
+            .get(index)
+            .ok_or_else(|| LayerError::Import(format!("Index {} out of bounds", index)))?;
+        Ok(Sthithi::from(
+            value.into_value().unwrap_or(loro::LoroValue::Null),
+        ))
+    }
+
+    // --- Sthithi write methods (canonical, replaces JSON write path) ---
+
+    /// Push a Sthithi value to a list at the given path
+    pub fn list_push_sthithi(&self, path: &str, item: &Sthithi) -> Result<(), LayerError> {
+        let root = self.inner.get_map("root");
+        let list = match root.get(path) {
+            Some(loro::ValueOrContainer::Container(loro::Container::List(list))) => list,
+            Some(_) => return Err(LayerError::Import(format!("Path '{}' is not a list", path))),
+            None => root
+                .insert_container(path, loro::LoroList::new())
+                .map_err(|e| LayerError::Import(e.to_string()))?,
+        };
+        let loro_value = loro::LoroValue::from(item);
+        list.push(loro_value)
+            .map_err(|e| LayerError::Import(e.to_string()))?;
+        self.inner.commit();
+        Ok(())
+    }
+
+    /// Insert a Sthithi value at a specific index in a list
+    pub fn list_insert_sthithi(
+        &self,
+        path: &str,
+        index: usize,
+        item: &Sthithi,
+    ) -> Result<(), LayerError> {
+        let root = self.inner.get_map("root");
+        let list = match root.get(path) {
+            Some(loro::ValueOrContainer::Container(loro::Container::List(list))) => list,
+            Some(_) => return Err(LayerError::Import(format!("Path '{}' is not a list", path))),
+            None => root
+                .insert_container(path, loro::LoroList::new())
+                .map_err(|e| LayerError::Import(e.to_string()))?,
+        };
+        let loro_value = loro::LoroValue::from(item);
+        list.insert(index, loro_value)
+            .map_err(|e| LayerError::Import(e.to_string()))?;
+        self.inner.commit();
+        Ok(())
+    }
+
+    /// Insert a key-value pair into a map at the given path (Sthithi)
+    pub fn map_insert_sthithi(
+        &self,
+        path: &str,
+        key: &str,
+        value: &Sthithi,
+    ) -> Result<(), LayerError> {
+        let root = self.inner.get_map("root");
+        let map = match root.get(path) {
+            Some(loro::ValueOrContainer::Container(loro::Container::Map(map))) => map,
+            Some(_) => return Err(LayerError::Import(format!("Path '{}' is not a map", path))),
+            None => root
+                .insert_container(path, loro::LoroMap::new())
+                .map_err(|e| LayerError::Import(e.to_string()))?,
+        };
+        let loro_value = loro::LoroValue::from(value);
+        map.insert(key, loro_value)
+            .map_err(|e| LayerError::Import(e.to_string()))?;
+        self.inner.commit();
+        Ok(())
+    }
+
+    /// Set a value at a path from Sthithi
+    ///
+    /// **Context**: Canonical replacement for `set_from_json`.
+    pub fn set_from_sthithi(&self, path: &str, value: &Sthithi) -> Result<(), LayerError> {
+        let root = self.inner.get_map("root");
+        match value {
+            Sthithi::List(items) => {
+                root.delete(path).ok();
+                let list = root
+                    .insert_container(path, loro::LoroList::new())
+                    .map_err(|e| LayerError::Import(e.to_string()))?;
+                for item in items {
+                    list.push(loro::LoroValue::from(item))
+                        .map_err(|e| LayerError::Import(e.to_string()))?;
+                }
+            }
+            Sthithi::Map(_) => {
+                let loro_value = loro::LoroValue::from(value);
+                root.insert(path, loro_value)
+                    .map_err(|e| LayerError::Import(e.to_string()))?;
+            }
+            Sthithi::Str(s) => {
+                root.insert(path, s.clone())
+                    .map_err(|e| LayerError::Import(e.to_string()))?;
+            }
+            Sthithi::Int(n) => {
+                root.insert(path, *n)
+                    .map_err(|e| LayerError::Import(e.to_string()))?;
+            }
+            Sthithi::Float(f) => {
+                root.insert(path, *f)
+                    .map_err(|e| LayerError::Import(e.to_string()))?;
+            }
+            Sthithi::Bool(b) => {
+                root.insert(path, *b)
+                    .map_err(|e| LayerError::Import(e.to_string()))?;
+            }
+            Sthithi::Bytes(b) => {
+                root.insert(path, loro::LoroValue::Binary(b.clone().into()))
+                    .map_err(|e| LayerError::Import(e.to_string()))?;
+            }
+            Sthithi::Null => {
+                root.delete(path).ok();
+            }
+        }
+        self.inner.commit();
+        Ok(())
+    }
+
+    // CRDT-Specific Operations (legacy JSON — kept during migration)
 
     /// Push an item to a list at the given path
     ///
@@ -511,44 +665,31 @@ impl Layer {
 
     // Validation Ops Extraction (Optimized via pre-commit hook)
 
-    /// Extract operations from update bytes using subscribe_pre_commit hook
+    /// Extract operations from update bytes as Parivarta ops.
     ///
-    /// **Context**: Fast extraction for validation without fork+diff
+    /// **Context**: Fast extraction for validation without fork+diff.
+    /// Goes LoroValue → Sthithi directly (no JSON hop).
     /// **Method**: Create empty temp doc → subscribe → import → capture events
     /// **Performance**: 5-10x faster than fork+diff for large documents
     ///
-    /// **Why this is fast**:
-    /// - Empty temp doc (~1 KB) vs forking full layer (~5 MB for 1000 orders)
-    /// - Direct event capture vs JSON export + diff (~10 MB for large docs)
-    /// - Update only contains changes, not entire document
-    ///
-    /// **Returns**: Vec<JsonOp> representing the operations in the update
-    pub fn extract_ops_from_bytes(update: &[u8]) -> Result<Vec<JsonOp>, LayerError> {
+    /// **Returns**: Vec<Parivarta> representing the operations in the update
+    pub fn extract_ops(update: &[u8]) -> Result<Vec<Parivarta>, LayerError> {
         use std::sync::{Arc, Mutex};
 
-        // Create empty temp doc (minimal memory footprint)
         let temp_doc = LoroDoc::new();
-
-        // Shared vec to collect ops from subscription
         let ops = Arc::new(Mutex::new(Vec::new()));
         let ops_clone = ops.clone();
 
-        // Subscribe to pre-commit events to capture operations
-        // Subscription callback fires synchronously during import()
         let subscription =
             temp_doc.subscribe_root(Arc::new(move |event: loro::event::DiffEvent| {
-                let mut collected_ops = ops_clone.lock().unwrap();
+                let mut collected = ops_clone.lock().unwrap();
 
-                // Convert DiffEvent to JsonOp format
                 for container_diff in event.events {
-                    // Build path with "/" separator to avoid confusion with keys containing dots
-                    // Escape "/" in keys to ensure path is unambiguous
                     let path = container_diff
                         .path
                         .iter()
                         .map(|(_, key)| {
                             let key_str = key.to_string();
-                            // Escape slashes in keys: "/" -> "\/"
                             key_str.replace('\\', "\\\\").replace('/', "\\/")
                         })
                         .collect::<Vec<_>>()
@@ -559,137 +700,97 @@ impl Layer {
                         path
                     };
 
-                    // Process different container types
                     match &container_diff.diff {
                         loro::event::Diff::List(list_diff) => {
-                            // Track current position to calculate insert/delete indices
                             let mut current_index: usize = 0;
 
                             for delta in list_diff.iter() {
                                 match delta {
                                     loro::event::ListDiffItem::Retain { retain } => {
-                                        // Advance position by retain count
                                         current_index += *retain;
                                     }
                                     loro::event::ListDiffItem::Insert { insert, .. } => {
-                                        // Insert at current position
                                         let insert_index = current_index;
                                         let insert_count = insert.len();
 
-                                        collected_ops.push(JsonOp {
-                                            op: "insert".to_string(),
+                                        collected.push(Parivarta {
+                                            layer: String::new(),
+                                            op: OpKind::Insert,
                                             path: path.clone(),
                                             key: None,
                                             index: Some(insert_index),
-                                            value: Some(loro_values_to_json(insert)),
+                                            value: Some(loro_values_to_sthithi(insert)),
                                             old_value: None,
+                                            intent: None,
+                                            from_peer: None,
                                         });
 
-                                        // Advance position past inserted items
                                         current_index += insert_count;
                                     }
                                     loro::event::ListDiffItem::Delete { delete } => {
-                                        // Delete at current position
-                                        collected_ops.push(JsonOp {
-                                            op: "delete".to_string(),
+                                        collected.push(Parivarta {
+                                            layer: String::new(),
+                                            op: OpKind::Delete,
                                             path: path.clone(),
                                             key: None,
                                             index: Some(current_index),
                                             value: None,
                                             old_value: None,
+                                            intent: None,
+                                            from_peer: None,
                                         });
-
-                                        // Position doesn't advance on delete (items removed)
-                                        let _ = delete; // Silence unused warning
+                                        let _ = delete;
                                     }
                                 }
                             }
                         }
                         loro::event::Diff::Map(map_diff) => {
                             for (key, value_opt) in map_diff.updated.iter() {
-                                let new_value = value_opt.as_ref().map(|v| {
-                                    let deep = v.get_deep_value();
-                                    loro_value_to_json(deep)
-                                });
+                                let new_value = value_opt
+                                    .as_ref()
+                                    .map(|v| Sthithi::from(v.get_deep_value()));
 
-                                let op_type = if new_value.is_some() {
-                                    "update" // Map updates (insert or modify)
+                                let op_kind = if new_value.is_some() {
+                                    OpKind::Update
                                 } else {
-                                    "delete" // None means deleted
+                                    OpKind::Delete
                                 };
 
-                                collected_ops.push(JsonOp {
-                                    op: op_type.to_string(),
+                                collected.push(Parivarta {
+                                    layer: String::new(),
+                                    op: op_kind,
                                     path: path.clone(),
                                     key: Some(key.to_string()),
                                     index: None,
                                     value: new_value,
-                                    old_value: None, // Old value not available in map diff
+                                    old_value: None,
+                                    intent: None,
+                                    from_peer: None,
                                 });
                             }
                         }
-                        loro::event::Diff::Text(_text_diff) => {
-                            // Text diffs not used for validation yet
-                            // Could be added in future for rich text validation
-                        }
-                        loro::event::Diff::Tree(_tree_diff) => {
-                            // Tree diffs not used for validation
-                        }
-                        _ => {
-                            // Other container types not used for validation
-                        }
+                        loro::event::Diff::Text(_) | loro::event::Diff::Tree(_) => {}
+                        _ => {}
                     }
                 }
             }));
 
-        // Import the update into temp doc (triggers subscription callback synchronously)
         temp_doc
             .import(update)
             .map_err(|e| LayerError::Import(format!("Failed to import update: {}", e)))?;
 
-        // Explicitly drop subscription after import to ensure callback ran
         drop(subscription);
-
-        // Extract the collected ops
         let result = ops.lock().unwrap().clone();
-
         Ok(result)
     }
 }
 
-/// JSON operation extracted from Loro diff
-///
-/// **Context**: Represents a single operation from a Loro update
-/// **Used by**: Validation to check field-level access control
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct JsonOp {
-    /// Operation type: "insert", "delete", "update", "set"
-    pub op: String,
-    /// Path to the container (e.g., "orders", "orders.items")
-    pub path: String,
-    /// Key or index being modified (for maps/lists)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub key: Option<String>,
-    /// Index for list operations
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub index: Option<usize>,
-    /// New value being set
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub value: Option<serde_json::Value>,
-    /// Previous value (for updates)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub old_value: Option<serde_json::Value>,
-}
-
-/// Helper: Convert Vec<ValueOrContainer> to JSON array (for list inserts)
-fn loro_values_to_json(values: &[loro::ValueOrContainer]) -> serde_json::Value {
-    serde_json::Value::Array(
+/// Convert Vec<ValueOrContainer> to Sthithi::List (for list inserts)
+fn loro_values_to_sthithi(values: &[loro::ValueOrContainer]) -> Sthithi {
+    Sthithi::List(
         values
             .iter()
-            .map(|v| {
-                let deep = v.get_deep_value();
-                loro_value_to_json(deep)
-            })
+            .map(|v| Sthithi::from(v.get_deep_value()))
             .collect(),
     )
 }
@@ -811,7 +912,7 @@ mod tests {
     #[test]
     fn test_extract_ops_map_insert_string() {
         let update = create_map_update("username", serde_json::json!("alice"));
-        let ops = Layer::extract_ops_from_bytes(&update).unwrap();
+        let ops = Layer::extract_ops(&update).unwrap();
 
         assert!(!ops.is_empty(), "Should extract at least one op");
 
@@ -820,8 +921,8 @@ mod tests {
         assert!(username_op.is_some(), "Should have op for 'username' key");
 
         let op = username_op.unwrap();
-        assert_eq!(op.op, "update", "Map insert should be 'update' op");
-        assert_eq!(op.value, Some(serde_json::json!("alice")));
+        assert_eq!(op.op, OpKind::Update, "Map insert should be update op");
+        assert_eq!(op.value, Some(Sthithi::Str("alice".to_string())));
     }
 
     #[test]
@@ -833,7 +934,7 @@ mod tests {
                 "age": 30
             }),
         );
-        let ops = Layer::extract_ops_from_bytes(&update).unwrap();
+        let ops = Layer::extract_ops(&update).unwrap();
 
         assert!(!ops.is_empty());
 
@@ -841,18 +942,23 @@ mod tests {
         assert!(user_op.is_some());
 
         let op = user_op.unwrap();
-        assert_eq!(op.op, "update");
+        assert_eq!(op.op, OpKind::Update);
 
         // Value should be the object
         let value = op.value.as_ref().unwrap();
-        assert!(value.is_object());
-        assert_eq!(value["name"], "Alice");
-        assert_eq!(value["age"], 30);
+        let map = match value {
+            Sthithi::Map(entries) => entries,
+            other => panic!("expected map value, got: {:?}", other),
+        };
+        let pairs: std::collections::HashMap<&str, &Sthithi> =
+            map.iter().map(|(k, v)| (k.as_str(), v)).collect();
+        assert_eq!(pairs.get("name"), Some(&&Sthithi::Str("Alice".to_string())));
+        assert_eq!(pairs.get("age"), Some(&&Sthithi::Int(30)));
     }
 
     #[test]
     fn test_extract_ops_incremental_update_limitation() {
-        // Note: extract_ops_from_bytes works best with FULL updates (from empty version).
+        // Note: extract_ops works best with FULL updates (from empty version).
         // Incremental updates (from non-empty version) may not produce diff events
         // because the temp doc starts empty and doesn't have context of previous state.
         //
@@ -878,7 +984,7 @@ mod tests {
             .export(loro::ExportMode::updates(&version_after_insert))
             .expect("Failed to export updates");
 
-        let incremental_ops = Layer::extract_ops_from_bytes(&incremental_update).unwrap();
+        let incremental_ops = Layer::extract_ops(&incremental_update).unwrap();
 
         // Full update (from empty version) - captures all changes
         let full_update = layer
@@ -886,7 +992,7 @@ mod tests {
             .export(loro::ExportMode::updates(&loro::VersionVector::new()))
             .expect("Failed to export updates");
 
-        let full_ops = Layer::extract_ops_from_bytes(&full_update).unwrap();
+        let full_ops = Layer::extract_ops(&full_update).unwrap();
 
         // Full update should have the field
         let full_has_field = full_ops.iter().any(|op| op.key.as_deref() == Some("field"));
@@ -911,10 +1017,10 @@ mod tests {
             ],
         );
 
-        let ops = Layer::extract_ops_from_bytes(&update).unwrap();
+        let ops = Layer::extract_ops(&update).unwrap();
 
         // Should have insert operations
-        let insert_ops: Vec<_> = ops.iter().filter(|op| op.op == "insert").collect();
+        let insert_ops: Vec<_> = ops.iter().filter(|op| op.op == OpKind::Insert).collect();
 
         assert!(!insert_ops.is_empty(), "Should have insert operations");
 
@@ -941,9 +1047,9 @@ mod tests {
             .export(loro::ExportMode::updates(&loro::VersionVector::new()))
             .expect("Failed to export updates");
 
-        let ops = Layer::extract_ops_from_bytes(&update).unwrap();
+        let ops = Layer::extract_ops(&update).unwrap();
 
-        let insert_ops: Vec<_> = ops.iter().filter(|op| op.op == "insert").collect();
+        let insert_ops: Vec<_> = ops.iter().filter(|op| op.op == OpKind::Insert).collect();
 
         assert!(
             !insert_ops.is_empty(),
@@ -960,7 +1066,7 @@ mod tests {
         );
     }
 
-    /// Note: Delete operations are NOT captured by extract_ops_from_bytes
+    /// Note: Delete operations are NOT captured by extract_ops
     ///
     /// **Limitation**: When importing update bytes into an empty temp doc,
     /// delete operations don't produce diff events because the empty doc
@@ -989,16 +1095,16 @@ mod tests {
             .export(loro::ExportMode::updates(&version_after_insert))
             .expect("Failed to export updates");
 
-        let ops = Layer::extract_ops_from_bytes(&update).unwrap();
+        let ops = Layer::extract_ops(&update).unwrap();
 
         // LIMITATION: Delete ops are NOT captured because temp doc is empty
         // This is expected behavior - validation focuses on what's being added
-        let delete_ops: Vec<_> = ops.iter().filter(|op| op.op == "delete").collect();
+        let delete_ops: Vec<_> = ops.iter().filter(|op| op.op == OpKind::Delete).collect();
 
         // Document that delete ops are empty (this is the limitation)
         assert!(
             delete_ops.is_empty(),
-            "Delete ops are not captured by extract_ops_from_bytes (empty temp doc limitation)"
+            "Delete ops are not captured by extract_ops (empty temp doc limitation)"
         );
     }
 
@@ -1006,7 +1112,7 @@ mod tests {
     fn test_path_separator_is_slash() {
         // The path should use "/" as separator, not "."
         let update = create_map_update("nested.key", serde_json::json!("value"));
-        let ops = Layer::extract_ops_from_bytes(&update).unwrap();
+        let ops = Layer::extract_ops(&update).unwrap();
 
         // Path should NOT contain unescaped dots as separators
         // Since we're inserting at root level, path should be "root"
@@ -1032,7 +1138,7 @@ mod tests {
             .expect("Failed to export");
 
         // Empty update should return empty ops (or succeed with no ops)
-        let result = Layer::extract_ops_from_bytes(&update);
+        let result = Layer::extract_ops(&update);
         assert!(result.is_ok(), "Empty update should not error");
 
         let ops = result.unwrap();
@@ -1044,7 +1150,7 @@ mod tests {
     fn test_extract_ops_invalid_bytes() {
         // Invalid bytes should return an error
         let invalid = vec![0x00, 0x01, 0x02, 0x03];
-        let result = Layer::extract_ops_from_bytes(&invalid);
+        let result = Layer::extract_ops(&invalid);
 
         assert!(result.is_err(), "Invalid bytes should return error");
     }
@@ -1066,7 +1172,7 @@ mod tests {
             .export(loro::ExportMode::updates(&loro::VersionVector::new()))
             .expect("Failed to export");
 
-        let ops = Layer::extract_ops_from_bytes(&update).unwrap();
+        let ops = Layer::extract_ops(&update).unwrap();
 
         // Should have ops for all three keys
         let keys: Vec<_> = ops.iter().filter_map(|op| op.key.as_deref()).collect();

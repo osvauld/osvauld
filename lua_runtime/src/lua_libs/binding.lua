@@ -29,7 +29,7 @@ function BindingState.new(model_name, key_field)
 end
 
 --- Process ops from Loro change and apply surgical UI updates
--- @param ops table Array of JsonOp from layer change events
+-- @param ops table Array of Parivarta-shaped ops from layer change events
 -- @param transform function Transform function: (item) -> transformed_item or nil
 -- @return number Number of ops processed
 function BindingState:process_ops(ops, transform)

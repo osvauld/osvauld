@@ -1,24 +1,21 @@
 //! Control Server for UI Testing Automation
 //!
-//! Simplified version using sthalam_shell. Removed unused commands:
-//! ui_click, ui_type, ui_get_text, ui_get_screen, ui_list_elements,
-//! upload_asset, update_node_address, state.
+//! JSON-RPC over a Unix socket. External clients (Python test scripts) depend
+//! on the method names and response shapes here.
 
 use butler::Butler;
 use control_server::{
-    async_trait, CommandHandler, ControlServer as BaseControlServer, Response, error_codes,
-    commands::butler as butler_cmds,
+    async_trait, commands::butler as butler_cmds, error_codes, CommandHandler,
+    ControlServer as BaseControlServer, Response,
 };
 use courier::CourierHandle;
 use logging_utils::CaptureHandle;
-use renderer_slint::{AppStatus, DebugEvalRequest};
+use renderer_slint::{AppStatus, AppUiCommand, DebugEvalRequest, GlobalCapture, UiMouseButton};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
-// UI Command (simplified — no element-level interaction)
-
-/// UI automation command (processed on Slint main thread)
+/// UI automation command (processed on Slint main thread).
 #[derive(Debug)]
 pub enum UiCommand {
     DirectLogin {
@@ -59,15 +56,17 @@ pub enum UiCommand {
     },
 }
 
-// Shell Handler
-
-/// Shell-specific command handler
+/// Shell-specific command handler.
 pub struct ShellHandler {
     butler: Arc<RwLock<Option<Arc<Butler>>>>,
     courier_handle: Arc<RwLock<Option<CourierHandle>>>,
     ui_tx: Arc<RwLock<Option<mpsc::Sender<UiCommand>>>>,
     eval_tx: Arc<RwLock<Option<mpsc::Sender<DebugEvalRequest>>>>,
     lua_worker_tx: Arc<RwLock<Option<mpsc::Sender<lua_runtime::LuaCommand>>>>,
+    /// Forwards UI automation commands (synthetic pointer events,
+    /// screenshots) to the latest launched app. Single-window MVP —
+    /// rebound each time a new app is launched.
+    app_ui_tx: Arc<RwLock<Option<mpsc::Sender<AppUiCommand>>>>,
     app_status: Arc<RwLock<AppStatus>>,
     capture_handle: Arc<RwLock<Option<CaptureHandle>>>,
 }
@@ -80,6 +79,7 @@ impl ShellHandler {
             ui_tx: Arc::new(RwLock::new(None)),
             eval_tx: Arc::new(RwLock::new(None)),
             lua_worker_tx: Arc::new(RwLock::new(None)),
+            app_ui_tx: Arc::new(RwLock::new(None)),
             app_status: Arc::new(RwLock::new(AppStatus::new())),
             capture_handle: Arc::new(RwLock::new(None)),
         }
@@ -105,8 +105,17 @@ impl ShellHandler {
         *self.eval_tx.blocking_write() = Some(tx);
     }
 
+    /// Async variant — usable from inside a tokio runtime.
+    pub async fn set_eval_channel_async(&self, tx: mpsc::Sender<DebugEvalRequest>) {
+        *self.eval_tx.write().await = Some(tx);
+    }
+
     pub fn set_lua_worker_channel_blocking(&self, tx: mpsc::Sender<lua_runtime::LuaCommand>) {
         *self.lua_worker_tx.blocking_write() = Some(tx);
+    }
+
+    pub fn set_app_ui_channel_blocking(&self, tx: mpsc::Sender<AppUiCommand>) {
+        *self.app_ui_tx.blocking_write() = Some(tx);
     }
 }
 
@@ -118,6 +127,7 @@ impl Clone for ShellHandler {
             ui_tx: self.ui_tx.clone(),
             eval_tx: self.eval_tx.clone(),
             lua_worker_tx: self.lua_worker_tx.clone(),
+            app_ui_tx: self.app_ui_tx.clone(),
             app_status: self.app_status.clone(),
             capture_handle: self.capture_handle.clone(),
         }
@@ -129,25 +139,122 @@ fn get_param(params: &Option<serde_json::Value>, key: &str) -> Option<String> {
     params.as_ref()?.get(key)?.as_str().map(|s| s.to_string())
 }
 
+fn get_f64(params: &Option<serde_json::Value>, key: &str) -> Option<f64> {
+    params.as_ref()?.get(key)?.as_f64()
+}
+
+/// Parse the `captures` list in ui_record_start params. If absent or
+/// empty, returns the default DragController capture set.
+fn parse_captures(params: &Option<serde_json::Value>) -> Vec<GlobalCapture> {
+    let arr = params
+        .as_ref()
+        .and_then(|p| p.get("captures"))
+        .and_then(|v| v.as_array());
+
+    if let Some(items) = arr {
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
+            let Some(name) = item.get("name").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let Some(global) = item.get("global").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let Some(prop) = item.get("prop").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            out.push(GlobalCapture {
+                name: name.to_string(),
+                global: global.to_string(),
+                prop: prop.to_string(),
+            });
+        }
+        if !out.is_empty() {
+            return out;
+        }
+    }
+
+    default_drag_controller_captures()
+}
+
+/// Default capture set: every observable on `DragController`.
+fn default_drag_controller_captures() -> Vec<GlobalCapture> {
+    let g = "DragController";
+    [
+        ("dragging", "dragging"),
+        ("cursor_x", "cursor-x"),
+        ("cursor_y", "cursor-y"),
+        ("payload", "payload"),
+        ("kind", "kind"),
+        ("ghost_label", "ghost-label"),
+        ("hover_target", "hover-target"),
+        ("hover_intent", "hover-intent"),
+        ("press_count", "press-count"),
+        ("move_count", "move-count"),
+        ("guideline_y", "guideline-y"),
+        ("guideline_target", "guideline-target"),
+    ]
+    .iter()
+    .map(|(name, prop)| GlobalCapture {
+        name: name.to_string(),
+        global: g.to_string(),
+        prop: prop.to_string(),
+    })
+    .collect()
+}
+
+fn parse_button(params: &Option<serde_json::Value>) -> UiMouseButton {
+    match params
+        .as_ref()
+        .and_then(|p| p.get("button"))
+        .and_then(|v| v.as_str())
+    {
+        Some("right") => UiMouseButton::Right,
+        Some("middle") => UiMouseButton::Middle,
+        _ => UiMouseButton::Left,
+    }
+}
+
 #[async_trait]
 impl CommandHandler for ShellHandler {
-    async fn handle(&self, method: &str, params: Option<serde_json::Value>, id: u64) -> Option<Response> {
+    async fn handle(
+        &self,
+        method: &str,
+        params: Option<serde_json::Value>,
+        id: u64,
+    ) -> Option<Response> {
         match method {
             // Lua Eval
             "eval" => {
                 let code = get_param(&params, "code")?;
                 let eval_tx = self.eval_tx.read().await;
                 let Some(tx) = eval_tx.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Lua eval not available - no app is open"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Lua eval not available - no app is open",
+                    ));
                 };
                 let (response_tx, response_rx) = oneshot::channel();
-                if tx.send(DebugEvalRequest { code, response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send eval request"));
+                if tx
+                    .send(DebugEvalRequest { code, response_tx })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send eval request",
+                    ));
                 }
                 match response_rx.await {
                     Ok(Ok(value)) => Some(Response::ok(id, value)),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "Eval request dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Eval request dropped",
+                    )),
                 }
             }
 
@@ -156,7 +263,11 @@ impl CommandHandler for ShellHandler {
                 let butler = self.butler.read().await;
                 match butler.as_ref() {
                     Some(b) => Some(butler_cmds::list_spaces(b, id).await),
-                    None => Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available")),
+                    None => Some(Response::err(
+                        id,
+                        error_codes::NOT_AUTHENTICATED,
+                        "Butler not available",
+                    )),
                 }
             }
 
@@ -165,7 +276,11 @@ impl CommandHandler for ShellHandler {
                 let butler = self.butler.read().await;
                 match butler.as_ref() {
                     Some(b) => Some(butler_cmds::list_pages(b, &space_id, id).await),
-                    None => Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available")),
+                    None => Some(Response::err(
+                        id,
+                        error_codes::NOT_AUTHENTICATED,
+                        "Butler not available",
+                    )),
                 }
             }
 
@@ -174,7 +289,11 @@ impl CommandHandler for ShellHandler {
                 let butler = self.butler.read().await;
                 match butler.as_ref() {
                     Some(b) => Some(butler_cmds::list_layers(b, &page_id, id).await),
-                    None => Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available")),
+                    None => Some(Response::err(
+                        id,
+                        error_codes::NOT_AUTHENTICATED,
+                        "Butler not available",
+                    )),
                 }
             }
 
@@ -182,43 +301,69 @@ impl CommandHandler for ShellHandler {
                 let page_id = get_param(&params, "page_id")?;
                 let butler = self.butler.read().await;
                 let Some(b) = butler.as_ref() else {
-                    return Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::NOT_AUTHENTICATED,
+                        "Butler not available",
+                    ));
                 };
                 match b.apps().list(&page_id) {
                     Ok(apps) => {
-                        let apps_json: Vec<serde_json::Value> = apps.iter()
+                        let apps_json: Vec<serde_json::Value> = apps
+                            .iter()
                             .map(|name| serde_json::json!({"name": name}))
                             .collect();
-                        Some(Response::ok(id, serde_json::json!({
-                            "page_id": page_id,
-                            "apps": apps_json,
-                            "count": apps_json.len()
-                        })))
+                        Some(Response::ok(
+                            id,
+                            serde_json::json!({
+                                "page_id": page_id,
+                                "apps": apps_json,
+                                "count": apps_json.len()
+                            }),
+                        ))
                     }
-                    Err(e) => Some(Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to list apps: {}", e))),
+                    Err(e) => Some(Response::err(
+                        id,
+                        error_codes::OPERATION_FAILED,
+                        format!("Failed to list apps: {}", e),
+                    )),
                 }
             }
 
             "list_nodes" => {
                 let butler = self.butler.read().await;
                 let Some(b) = butler.as_ref() else {
-                    return Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::NOT_AUTHENTICATED,
+                        "Butler not available",
+                    ));
                 };
                 match b.nodes().list() {
                     Ok(nodes) => {
-                        let nodes_json: Vec<serde_json::Value> = nodes.iter()
-                            .map(|n| serde_json::json!({
-                                "node_id": n.node_id,
-                                "name": n.name,
-                                "connected": n.is_connected,
-                            }))
+                        let nodes_json: Vec<serde_json::Value> = nodes
+                            .iter()
+                            .map(|n| {
+                                serde_json::json!({
+                                    "node_id": n.node_id,
+                                    "name": n.name,
+                                    "connected": n.is_connected,
+                                })
+                            })
                             .collect();
-                        Some(Response::ok(id, serde_json::json!({
-                            "nodes": nodes_json,
-                            "count": nodes_json.len()
-                        })))
+                        Some(Response::ok(
+                            id,
+                            serde_json::json!({
+                                "nodes": nodes_json,
+                                "count": nodes_json.len()
+                            }),
+                        ))
                     }
-                    Err(e) => Some(Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to list nodes: {}", e))),
+                    Err(e) => Some(Response::err(
+                        id,
+                        error_codes::OPERATION_FAILED,
+                        format!("Failed to list nodes: {}", e),
+                    )),
                 }
             }
 
@@ -227,15 +372,26 @@ impl CommandHandler for ShellHandler {
 
                 let courier = self.courier_handle.read().await;
                 let Some(courier_handle) = courier.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "P2P not connected"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "P2P not connected",
+                    ));
                 };
 
                 match courier_handle.is_node_authenticated(&node_id).await {
-                    Ok(is_auth) => Some(Response::ok(id, serde_json::json!({
-                        "node_id": node_id,
-                        "authenticated": is_auth
-                    }))),
-                    Err(e) => Some(Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to check auth: {}", e))),
+                    Ok(is_auth) => Some(Response::ok(
+                        id,
+                        serde_json::json!({
+                            "node_id": node_id,
+                            "authenticated": is_auth
+                        }),
+                    )),
+                    Err(e) => Some(Response::err(
+                        id,
+                        error_codes::OPERATION_FAILED,
+                        format!("Failed to check auth: {}", e),
+                    )),
                 }
             }
 
@@ -244,16 +400,38 @@ impl CommandHandler for ShellHandler {
                 let passphrase = get_param(&params, "passphrase")?;
                 let ui_tx = self.ui_tx.read().await;
                 let Some(tx) = ui_tx.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "UI automation not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "UI automation not available",
+                    ));
                 };
                 let (response_tx, response_rx) = oneshot::channel();
-                if tx.send(UiCommand::DirectLogin { passphrase, response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send login command"));
+                if tx
+                    .send(UiCommand::DirectLogin {
+                        passphrase,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send login command",
+                    ));
                 }
                 match response_rx.await {
-                    Ok(Ok(did)) => Some(Response::ok(id, serde_json::json!({"success": true, "did": did}))),
+                    Ok(Ok(did)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"success": true, "did": did}),
+                    )),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "Login command dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Login command dropped",
+                    )),
                 }
             }
 
@@ -262,16 +440,39 @@ impl CommandHandler for ShellHandler {
                 let passphrase = get_param(&params, "passphrase")?;
                 let ui_tx = self.ui_tx.read().await;
                 let Some(tx) = ui_tx.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "UI automation not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "UI automation not available",
+                    ));
                 };
                 let (response_tx, response_rx) = oneshot::channel();
-                if tx.send(UiCommand::SignUp { username, passphrase, response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send signup command"));
+                if tx
+                    .send(UiCommand::SignUp {
+                        username,
+                        passphrase,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send signup command",
+                    ));
                 }
                 match response_rx.await {
-                    Ok(Ok(did)) => Some(Response::ok(id, serde_json::json!({"success": true, "did": did}))),
+                    Ok(Ok(did)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"success": true, "did": did}),
+                    )),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "Signup command dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Signup command dropped",
+                    )),
                 }
             }
 
@@ -291,48 +492,96 @@ impl CommandHandler for ShellHandler {
 
                 let ui_tx = self.ui_tx.read().await;
                 let Some(tx) = ui_tx.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "UI automation not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "UI automation not available",
+                    ));
                 };
                 let (response_tx, response_rx) = oneshot::channel();
-                if tx.send(UiCommand::OpenApp { page_id: page_id.clone(), app_name: app_name.clone(), response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send open_app command"));
+                if tx
+                    .send(UiCommand::OpenApp {
+                        page_id: page_id.clone(),
+                        app_name: app_name.clone(),
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send open_app command",
+                    ));
                 }
                 match response_rx.await {
-                    Ok(Ok(msg)) => Some(Response::ok(id, serde_json::json!({
-                        "success": true,
-                        "page_id": page_id,
-                        "app_name": app_name,
-                        "message": msg
-                    }))),
+                    Ok(Ok(msg)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({
+                            "success": true,
+                            "page_id": page_id,
+                            "app_name": app_name,
+                            "message": msg
+                        }),
+                    )),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "Open app command dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Open app command dropped",
+                    )),
                 }
             }
 
             "get_app_status" => {
                 let status = self.app_status.read().await.clone();
-                Some(Response::ok(id, serde_json::to_value(status).unwrap_or(serde_json::Value::Null)))
+                Some(Response::ok(
+                    id,
+                    serde_json::to_value(status).unwrap_or(serde_json::Value::Null),
+                ))
             }
 
             "refresh_page" => {
                 let page_dir = get_param(&params, "page_dir")?;
                 let ui_tx = self.ui_tx.read().await;
                 let Some(tx) = ui_tx.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "UI automation not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "UI automation not available",
+                    ));
                 };
                 let (response_tx, response_rx) = oneshot::channel();
-                if tx.send(UiCommand::RefreshPage { page_dir: page_dir.clone(), response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send refresh_page command"));
+                if tx
+                    .send(UiCommand::RefreshPage {
+                        page_dir: page_dir.clone(),
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send refresh_page command",
+                    ));
                 }
                 match response_rx.await {
-                    Ok(Ok(updated_apps)) => Some(Response::ok(id, serde_json::json!({
-                        "success": true,
-                        "page_dir": page_dir,
-                        "updated_apps": updated_apps,
-                        "updated_count": updated_apps.len()
-                    }))),
+                    Ok(Ok(updated_apps)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({
+                            "success": true,
+                            "page_dir": page_dir,
+                            "updated_apps": updated_apps,
+                            "updated_count": updated_apps.len()
+                        }),
+                    )),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "RefreshPage command dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "RefreshPage command dropped",
+                    )),
                 }
             }
 
@@ -350,21 +599,44 @@ impl CommandHandler for ShellHandler {
 
                 let ui_tx = self.ui_tx.read().await;
                 let Some(tx) = ui_tx.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "UI automation not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "UI automation not available",
+                    ));
                 };
                 let (response_tx, response_rx) = oneshot::channel();
-                if tx.send(UiCommand::RefreshApp { app_name: app_name.clone(), app_dir: app_dir.clone(), response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send refresh_app command"));
+                if tx
+                    .send(UiCommand::RefreshApp {
+                        app_name: app_name.clone(),
+                        app_dir: app_dir.clone(),
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send refresh_app command",
+                    ));
                 }
                 match response_rx.await {
-                    Ok(Ok(msg)) => Some(Response::ok(id, serde_json::json!({
-                        "success": true,
-                        "app_name": app_name,
-                        "app_dir": app_dir,
-                        "message": msg
-                    }))),
+                    Ok(Ok(msg)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({
+                            "success": true,
+                            "app_name": app_name,
+                            "app_dir": app_dir,
+                            "message": msg
+                        }),
+                    )),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "RefreshApp command dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "RefreshApp command dropped",
+                    )),
                 }
             }
 
@@ -383,19 +655,42 @@ impl CommandHandler for ShellHandler {
 
                 let ui_tx = self.ui_tx.read().await;
                 let Some(tx) = ui_tx.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "UI automation not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "UI automation not available",
+                    ));
                 };
                 let (response_tx, response_rx) = oneshot::channel();
-                if tx.send(UiCommand::CreateSpace { name, template_path, response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send create_space command"));
+                if tx
+                    .send(UiCommand::CreateSpace {
+                        name,
+                        template_path,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send create_space command",
+                    ));
                 }
                 match response_rx.await {
-                    Ok(Ok((space_id, space_name))) => Some(Response::ok(id, serde_json::json!({
-                        "id": space_id,
-                        "name": space_name,
-                    }))),
+                    Ok(Ok((space_id, space_name))) => Some(Response::ok(
+                        id,
+                        serde_json::json!({
+                            "id": space_id,
+                            "name": space_name,
+                        }),
+                    )),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "Create space command dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Create space command dropped",
+                    )),
                 }
             }
 
@@ -405,12 +700,20 @@ impl CommandHandler for ShellHandler {
 
                 let butler = self.butler.read().await;
                 let Some(b) = butler.as_ref() else {
-                    return Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::NOT_AUTHENTICATED,
+                        "Butler not available",
+                    ));
                 };
 
                 let page_path = PathBuf::from(&page_dir);
                 if !page_path.exists() {
-                    return Some(Response::err(id, error_codes::OPERATION_FAILED, format!("Page directory not found: {}", page_dir)));
+                    return Some(Response::err(
+                        id,
+                        error_codes::OPERATION_FAILED,
+                        format!("Page directory not found: {}", page_dir),
+                    ));
                 }
 
                 // Validate Slint files before importing
@@ -421,13 +724,20 @@ impl CommandHandler for ShellHandler {
                 match b.apps().import_page(&space_id, &page_path).await {
                     Ok(page) => {
                         let apps = b.apps().list(&page.id).unwrap_or_default();
-                        Some(Response::ok(id, serde_json::json!({
-                            "page_id": page.id,
-                            "page_name": page.name,
-                            "apps": apps,
-                        })))
+                        Some(Response::ok(
+                            id,
+                            serde_json::json!({
+                                "page_id": page.id,
+                                "page_name": page.name,
+                                "apps": apps,
+                            }),
+                        ))
                     }
-                    Err(e) => Some(Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to import page: {}", e))),
+                    Err(e) => Some(Response::err(
+                        id,
+                        error_codes::OPERATION_FAILED,
+                        format!("Failed to import page: {}", e),
+                    )),
                 }
             }
 
@@ -436,20 +746,42 @@ impl CommandHandler for ShellHandler {
                 let connection_string = get_param(&params, "connection_string")?;
                 let ui_tx = self.ui_tx.read().await;
                 let Some(tx) = ui_tx.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "UI automation not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "UI automation not available",
+                    ));
                 };
                 let (response_tx, response_rx) = oneshot::channel();
-                if tx.send(UiCommand::AddNode { connection_string, response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send add_node command"));
+                if tx
+                    .send(UiCommand::AddNode {
+                        connection_string,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send add_node command",
+                    ));
                 }
                 match response_rx.await {
-                    Ok(Ok(node_id)) => Some(Response::ok(id, serde_json::json!({
-                        "success": true,
-                        "node_id": node_id,
-                        "triggered": true
-                    }))),
+                    Ok(Ok(node_id)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({
+                            "success": true,
+                            "node_id": node_id,
+                            "triggered": true
+                        }),
+                    )),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "Add node command dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Add node command dropped",
+                    )),
                 }
             }
 
@@ -457,20 +789,42 @@ impl CommandHandler for ShellHandler {
                 let connection_string = get_param(&params, "connection_string")?;
                 let ui_tx = self.ui_tx.read().await;
                 let Some(tx) = ui_tx.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "UI automation not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "UI automation not available",
+                    ));
                 };
                 let (response_tx, response_rx) = oneshot::channel();
-                if tx.send(UiCommand::AddWebsite { connection_string, response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send add_website command"));
+                if tx
+                    .send(UiCommand::AddWebsite {
+                        connection_string,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send add_website command",
+                    ));
                 }
                 match response_rx.await {
-                    Ok(Ok(space_id)) => Some(Response::ok(id, serde_json::json!({
-                        "success": true,
-                        "space_id": space_id,
-                        "triggered": true
-                    }))),
+                    Ok(Ok(space_id)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({
+                            "success": true,
+                            "space_id": space_id,
+                            "triggered": true
+                        }),
+                    )),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "Add website command dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Add website command dropped",
+                    )),
                 }
             }
 
@@ -480,31 +834,58 @@ impl CommandHandler for ShellHandler {
 
                 let butler = self.butler.read().await;
                 let Some(b) = butler.as_ref() else {
-                    return Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::NOT_AUTHENTICATED,
+                        "Butler not available",
+                    ));
                 };
 
                 let node = match b.nodes().get(&node_id) {
                     Ok(Some(n)) => n,
-                    Ok(None) => return Some(Response::err(id, error_codes::NOT_FOUND, format!("Node not found: {}", node_id))),
-                    Err(e) => return Some(Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to get node: {}", e))),
+                    Ok(None) => {
+                        return Some(Response::err(
+                            id,
+                            error_codes::NOT_FOUND,
+                            format!("Node not found: {}", node_id),
+                        ))
+                    }
+                    Err(e) => {
+                        return Some(Response::err(
+                            id,
+                            error_codes::OPERATION_FAILED,
+                            format!("Failed to get node: {}", e),
+                        ))
+                    }
                 };
 
                 let courier = self.courier_handle.read().await;
                 let Some(courier_handle) = courier.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "P2P not connected"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "P2P not connected",
+                    ));
                 };
 
                 match courier_handle.publish_space(&space_id, &node_id).await {
                     Ok(_) => {
                         let _ = b.publish().mark_space_published(&space_id, &node_id);
-                        Some(Response::ok(id, serde_json::json!({
-                            "success": true,
-                            "space_id": space_id,
-                            "node_id": node_id,
-                            "node_name": node.name
-                        })))
+                        Some(Response::ok(
+                            id,
+                            serde_json::json!({
+                                "success": true,
+                                "space_id": space_id,
+                                "node_id": node_id,
+                                "node_name": node.name
+                            }),
+                        ))
                     }
-                    Err(e) => Some(Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to publish space: {}", e))),
+                    Err(e) => Some(Response::err(
+                        id,
+                        error_codes::OPERATION_FAILED,
+                        format!("Failed to publish space: {}", e),
+                    )),
                 }
             }
 
@@ -514,50 +895,80 @@ impl CommandHandler for ShellHandler {
 
                 let courier = self.courier_handle.read().await;
                 let Some(courier_handle) = courier.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "P2P not connected"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "P2P not connected",
+                    ));
                 };
 
                 match courier_handle.get_shareable_link(&space_id, &node_id).await {
-                    Ok(connection_string) => Some(Response::ok(id, serde_json::json!({
-                        "connection_string": connection_string,
-                        "space_id": space_id,
-                        "node_id": node_id
-                    }))),
-                    Err(e) => Some(Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to get shareable link: {}", e))),
+                    Ok(connection_string) => Some(Response::ok(
+                        id,
+                        serde_json::json!({
+                            "connection_string": connection_string,
+                            "space_id": space_id,
+                            "node_id": node_id
+                        }),
+                    )),
+                    Err(e) => Some(Response::err(
+                        id,
+                        error_codes::OPERATION_FAILED,
+                        format!("Failed to get shareable link: {}", e),
+                    )),
                 }
             }
 
             "p2p_status" => {
                 let butler_ready = self.butler.read().await.is_some();
                 let courier_ready = self.courier_handle.read().await.is_some();
-                Some(Response::ok(id, serde_json::json!({
-                    "butler_ready": butler_ready,
-                    "courier_ready": courier_ready,
-                    "p2p_ready": butler_ready && courier_ready
-                })))
+                Some(Response::ok(
+                    id,
+                    serde_json::json!({
+                        "butler_ready": butler_ready,
+                        "courier_ready": courier_ready,
+                        "p2p_ready": butler_ready && courier_ready
+                    }),
+                ))
             }
 
             "go_offline" => {
                 let courier = self.courier_handle.read().await;
                 let Some(courier_handle) = courier.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "P2P not connected"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "P2P not connected",
+                    ));
                 };
 
                 match courier_handle.go_offline().await {
                     Ok(()) => Some(Response::ok(id, serde_json::json!({"status": "offline"}))),
-                    Err(e) => Some(Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to go offline: {}", e))),
+                    Err(e) => Some(Response::err(
+                        id,
+                        error_codes::OPERATION_FAILED,
+                        format!("Failed to go offline: {}", e),
+                    )),
                 }
             }
 
             "go_online" => {
                 let courier = self.courier_handle.read().await;
                 let Some(courier_handle) = courier.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "P2P not connected"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "P2P not connected",
+                    ));
                 };
 
                 match courier_handle.go_online().await {
                     Ok(()) => Some(Response::ok(id, serde_json::json!({"status": "online"}))),
-                    Err(e) => Some(Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to go online: {}", e))),
+                    Err(e) => Some(Response::err(
+                        id,
+                        error_codes::OPERATION_FAILED,
+                        format!("Failed to go online: {}", e),
+                    )),
                 }
             }
 
@@ -565,21 +976,42 @@ impl CommandHandler for ShellHandler {
             "capture_start" => {
                 let handle_guard = self.capture_handle.read().await;
                 let Some(ref handle) = *handle_guard else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "CaptureHandle not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "CaptureHandle not available",
+                    ));
                 };
 
                 let Some(params_obj) = params.as_ref().and_then(|p| p.as_object()) else {
-                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Invalid params object"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        "Invalid params object",
+                    ));
                 };
 
                 let Some(file_path) = params_obj.get("file_path").and_then(|v| v.as_str()) else {
-                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing file_path"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        "Missing file_path",
+                    ));
                 };
 
-                let include_logs = params_obj.get("include_logs").and_then(|v| v.as_bool()).unwrap_or(false);
+                let include_logs = params_obj
+                    .get("include_logs")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
 
-                match handle.start_capture(PathBuf::from(file_path), include_logs).await {
-                    Ok(()) => Some(Response::ok(id, serde_json::json!({"status": "capturing", "file_path": file_path}))),
+                match handle
+                    .start_capture(PathBuf::from(file_path), include_logs)
+                    .await
+                {
+                    Ok(()) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"status": "capturing", "file_path": file_path}),
+                    )),
                     Err(e) => Some(Response::err(id, error_codes::INTERNAL_ERROR, &e)),
                 }
             }
@@ -587,7 +1019,11 @@ impl CommandHandler for ShellHandler {
             "capture_end" => {
                 let handle_guard = self.capture_handle.read().await;
                 let Some(ref handle) = *handle_guard else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "CaptureHandle not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "CaptureHandle not available",
+                    ));
                 };
 
                 match handle.stop_capture().await {
@@ -599,49 +1035,423 @@ impl CommandHandler for ShellHandler {
             // Time control commands (test mode only)
             "set_time" => {
                 let Some(unix_seconds) = params.as_ref()?.get("unix_seconds")?.as_i64() else {
-                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing or invalid unix_seconds"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        "Missing or invalid unix_seconds",
+                    ));
                 };
 
                 let lua_tx = self.lua_worker_tx.read().await;
                 let Some(tx) = lua_tx.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Lua runtime not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Lua runtime not available",
+                    ));
                 };
 
                 let (response_tx, response_rx) = oneshot::channel();
-                if tx.send(lua_runtime::LuaCommand::SetTime { unix_seconds, response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send set_time command"));
+                if tx
+                    .send(lua_runtime::LuaCommand::SetTime {
+                        unix_seconds,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send set_time command",
+                    ));
                 }
 
                 match response_rx.await {
-                    Ok(Ok(new_time)) => Some(Response::ok(id, serde_json::json!({
-                        "unix_seconds": new_time
-                    }))),
+                    Ok(Ok(new_time)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({
+                            "unix_seconds": new_time
+                        }),
+                    )),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "SetTime command dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "SetTime command dropped",
+                    )),
                 }
             }
 
             "advance_time" => {
                 let Some(seconds) = params.as_ref()?.get("seconds")?.as_u64() else {
-                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing or invalid seconds"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        "Missing or invalid seconds",
+                    ));
                 };
 
                 let lua_tx = self.lua_worker_tx.read().await;
                 let Some(tx) = lua_tx.as_ref() else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Lua runtime not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Lua runtime not available",
+                    ));
                 };
 
                 let (response_tx, response_rx) = oneshot::channel();
-                if tx.send(lua_runtime::LuaCommand::AdvanceTime { seconds, response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send advance_time command"));
+                if tx
+                    .send(lua_runtime::LuaCommand::AdvanceTime {
+                        seconds,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send advance_time command",
+                    ));
                 }
 
                 match response_rx.await {
-                    Ok(Ok(new_time)) => Some(Response::ok(id, serde_json::json!({
-                        "unix_seconds": new_time
-                    }))),
+                    Ok(Ok(new_time)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({
+                            "unix_seconds": new_time
+                        }),
+                    )),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "AdvanceTime command dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "AdvanceTime command dropped",
+                    )),
+                }
+            }
+
+            // UI Automation Commands
+
+            "ui_window_size" => {
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open — UI automation not available",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::WindowSize { response_tx })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_window_size",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok((w, h))) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"width": w, "height": h}),
+                    )),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_window_size dropped",
+                    )),
+                }
+            }
+
+            "ui_mouse_move" => {
+                let x = get_f64(&params, "x")? as f32;
+                let y = get_f64(&params, "y")? as f32;
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::MouseMove { x, y, response_tx })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_mouse_move",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok(())) => Some(Response::ok(id, serde_json::json!({"ok": true}))),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_mouse_move dropped",
+                    )),
+                }
+            }
+
+            "ui_mouse_press" => {
+                let x = get_f64(&params, "x")? as f32;
+                let y = get_f64(&params, "y")? as f32;
+                let button = parse_button(&params);
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::MousePress {
+                        x,
+                        y,
+                        button,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_mouse_press",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok(())) => Some(Response::ok(id, serde_json::json!({"ok": true}))),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_mouse_press dropped",
+                    )),
+                }
+            }
+
+            "ui_mouse_release" => {
+                let x = get_f64(&params, "x")? as f32;
+                let y = get_f64(&params, "y")? as f32;
+                let button = parse_button(&params);
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::MouseRelease {
+                        x,
+                        y,
+                        button,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_mouse_release",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok(())) => Some(Response::ok(id, serde_json::json!({"ok": true}))),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_mouse_release dropped",
+                    )),
+                }
+            }
+
+            "ui_mouse_drag" => {
+                let from_x = get_f64(&params, "from_x")? as f32;
+                let from_y = get_f64(&params, "from_y")? as f32;
+                let to_x = get_f64(&params, "to_x")? as f32;
+                let to_y = get_f64(&params, "to_y")? as f32;
+                let steps = params
+                    .as_ref()
+                    .and_then(|p| p.get("steps"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(30) as u32;
+                let button = parse_button(&params);
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::Drag {
+                        from: (from_x, from_y),
+                        to: (to_x, to_y),
+                        steps,
+                        button,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_mouse_drag",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok(())) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"ok": true, "steps": steps}),
+                    )),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_mouse_drag dropped",
+                    )),
+                }
+            }
+
+            "ui_record_start" => {
+                let gif_path = get_param(&params, "gif_path")?;
+                let states_path = get_param(&params, "states_path")?;
+                let captures = parse_captures(&params);
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::RecordStart {
+                        gif_path: PathBuf::from(&gif_path),
+                        states_path: PathBuf::from(&states_path),
+                        captures,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_record_start",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok(())) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"recording": true, "gif_path": gif_path, "states_path": states_path}),
+                    )),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_record_start dropped",
+                    )),
+                }
+            }
+
+            "ui_record_stop" => {
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::RecordStop { response_tx })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_record_stop",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok((gif, states))) => Some(Response::ok(
+                        id,
+                        serde_json::json!({
+                            "gif_path": gif.to_string_lossy(),
+                            "states_path": states.to_string_lossy(),
+                        }),
+                    )),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_record_stop dropped",
+                    )),
+                }
+            }
+
+            "ui_screenshot" => {
+                let path = get_param(&params, "path")?;
+                let app_ui = self.app_ui_tx.read().await;
+                let Some(tx) = app_ui.as_ref() else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "No app open",
+                    ));
+                };
+                let (response_tx, response_rx) = oneshot::channel();
+                if tx
+                    .send(AppUiCommand::Screenshot {
+                        path: PathBuf::from(&path),
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send ui_screenshot",
+                    ));
+                }
+                match response_rx.await {
+                    Ok(Ok(p)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"path": p.to_string_lossy()}),
+                    )),
+                    Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "ui_screenshot dropped",
+                    )),
                 }
             }
 
@@ -656,9 +1466,7 @@ impl CommandHandler for ShellHandler {
     }
 }
 
-// Public API
-
-/// Shell control server wrapper
+/// Shell control server wrapper.
 pub struct ControlServer {
     inner: BaseControlServer<ShellHandler>,
     handler: Arc<ShellHandler>,
@@ -692,12 +1500,22 @@ impl ControlServer {
         self.handler.set_eval_channel_blocking(tx);
     }
 
+    /// Async variant of `set_eval_channel` — the sync version's `blocking_write`
+    /// panics inside a tokio runtime, so the egui (async) launch path uses this.
+    pub async fn set_eval_channel_async(&self, tx: mpsc::Sender<DebugEvalRequest>) {
+        self.handler.set_eval_channel_async(tx).await;
+    }
+
     pub fn set_capture_handle(&self, handle: CaptureHandle) {
         self.handler.set_capture_handle_blocking(handle);
     }
 
     pub fn set_lua_worker_channel(&self, tx: mpsc::Sender<lua_runtime::LuaCommand>) {
         self.handler.set_lua_worker_channel_blocking(tx);
+    }
+
+    pub fn set_app_ui_channel(&self, tx: mpsc::Sender<AppUiCommand>) {
+        self.handler.set_app_ui_channel_blocking(tx);
     }
 
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

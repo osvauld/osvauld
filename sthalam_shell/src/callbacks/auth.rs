@@ -16,11 +16,7 @@ use crate::Shell;
 pub type OnLoginSuccess = Arc<dyn Fn(Identity) + Send + Sync + 'static>;
 
 /// Register authentication callbacks on the shell
-pub fn register(
-    shell: &Shell,
-    butler: Arc<Butler>,
-    on_login_success: OnLoginSuccess,
-) {
+pub fn register(shell: &Shell, butler: Arc<Butler>, on_login_success: OnLoginSuccess) {
     register_import_key(shell);
     register_login(shell, butler.clone(), on_login_success);
     register_signup(shell, butler);
@@ -33,11 +29,7 @@ fn register_import_key(shell: &Shell) {
     });
 }
 
-fn register_login(
-    shell: &Shell,
-    butler: Arc<Butler>,
-    on_login_success: OnLoginSuccess,
-) {
+fn register_login(shell: &Shell, butler: Arc<Butler>, on_login_success: OnLoginSuccess) {
     let shell_weak = shell.as_weak();
 
     shell.on_login(move |passphrase| {
@@ -47,13 +39,11 @@ fn register_login(
             Ok(identity) => {
                 tracing::info!(did = %identity.did(), "Login successful");
 
-                // Update UI immediately
                 if let Some(shell) = shell_weak.upgrade() {
                     shell.set_authenticated(true);
                     shell.set_current_screen("spaces".into());
                 }
 
-                // Notify main binary of successful login with the identity
                 on_login_success(identity);
             }
             Err(e) => {

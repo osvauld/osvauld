@@ -1,13 +1,10 @@
-//! Slint Runtime - UI layer on main thread
+//! Slint Runtime — UI layer on the main thread.
 //!
-//! Owns: ComponentInstance, VecModels
-//! Receives: UiMutation from Lua thread
-//! Applies: VecModel operations via AppAPI global
-//!
-//! **Threading**: Must stay on main thread (Rc<ComponentInstance>, Rc<VecModel>)
-//! **Pattern**: Pull mutations from channel via process_ui_mutations()
-//! **Global API**: Uses `set_global_property` and `set_global_callback` for AppAPI
+//! Owns the `ComponentInstance` and `VecModel`s; receives `UiMutation`s from
+//! the Lua thread and applies them via the `AppAPI` global. Must stay on the
+//! Slint event-loop thread (Rc-based, !Send).
 
+use crate::asset_image::{image_from_rgba_bytes, ImageCache, ImageLoadRequest, ImageLoadResponse};
 use crate::value_convert::{json_to_slint_value, slint_value_to_json};
 use lua_runtime::{LuaCommand, PropertyUpdate, UiMutation, UiQuery, VecModelOp};
 use slint::{Model, VecModel};
@@ -17,66 +14,44 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use tokio::sync::mpsc;
 
-/// Request to open native file picker for asset upload
+/// Request to open native file picker for asset upload.
 ///
-/// **Context**: Triggered by Slint button click via `pick_asset_file` callback
-/// **Security**: Only user-initiated UI actions can trigger this
+/// Only user-initiated UI actions (Slint button click via `pick_asset_file`) trigger this.
 #[derive(Debug)]
 pub struct AssetPickRequest {
-    /// Filter type: "images" for image files, "all" for all files
+    /// Filter type: "images" for image files, "all" for all files.
     pub filter: String,
 }
 
-/// Global API name - apps define their public interface via `export global AppAPI`
+/// Apps define their public interface via `export global AppAPI`.
 const GLOBAL_API_NAME: &str = "AppAPI";
 
-/// Slint runtime state (main thread only)
-///
-/// **Ownership**: Rc-based (NOT Send), stays on Slint event loop thread
-/// **Lifetime**: Lives until app window closes
+/// Slint runtime state, pinned to the Slint event-loop thread.
 pub struct SlintRuntime {
-    /// App/Page identifier
     pub page_id: String,
-
-    /// Slint component instance (UI window)
     slint_instance: Rc<ComponentInstance>,
-
-    /// VecModels by property name in AppAPI global (e.g., "products", "orders")
+    /// VecModels by property name in AppAPI global.
     global_models: HashMap<String, Rc<VecModel<SlintValue>>>,
-
-    /// Channel to receive UI mutations from Lua thread
     ui_rx: mpsc::Receiver<UiMutation>,
-
-    /// Channel to receive UI queries from Lua thread (for ui:get)
     query_rx: mpsc::Receiver<UiQuery>,
-
-    /// Channel to send commands to Lua thread
     lua_tx: mpsc::Sender<LuaCommand>,
-
-    /// Channel to send tab switch requests (std::sync for Slint callback)
     tab_switch_tx: Option<std::sync::mpsc::Sender<String>>,
-
-    /// Channel to send asset pick requests (std::sync for Slint callback)
     asset_pick_tx: Option<std::sync::mpsc::Sender<AssetPickRequest>>,
+    image_cache: ImageCache,
+    image_req_tx: Option<mpsc::Sender<ImageLoadRequest>>,
+    image_resp_rx: Option<mpsc::Receiver<ImageLoadResponse>>,
 }
 
 impl SlintRuntime {
-    /// Load Slint UI from file and create runtime
-    ///
-    /// **Parameters**:
-    /// - `slint_path`: Path to .slint file
-    /// - `page_id`: App/page identifier
-    /// - `ui_rx`: Channel to receive UI mutations from Lua
-    /// - `query_rx`: Channel to receive UI queries from Lua (for ui:get)
-    /// - `lua_tx`: Channel to send commands to Lua
-    ///
-    /// **Returns**: SlintRuntime ready to process mutations
+    /// Compile and load Slint UI from `slint_path` and create the runtime.
     pub fn load(
         slint_path: PathBuf,
         page_id: String,
         ui_rx: mpsc::Receiver<UiMutation>,
         query_rx: mpsc::Receiver<UiQuery>,
         lua_tx: mpsc::Sender<LuaCommand>,
+        image_req_tx: Option<mpsc::Sender<ImageLoadRequest>>,
+        image_resp_rx: Option<mpsc::Receiver<ImageLoadResponse>>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         tracing::info!(
             page_id = %page_id,
@@ -84,24 +59,20 @@ impl SlintRuntime {
             "Loading Slint UI"
         );
 
-        // Compile Slint component
         let compiler = Compiler::default();
 
-        // Note: This is running on the main thread (not Tokio)
-        // We need to block on the async compilation
+        // Block on async compilation: we run on the main thread, not on Tokio.
         let result = match tokio::runtime::Handle::try_current() {
             Ok(handle) => tokio::task::block_in_place(|| {
                 handle.block_on(compiler.build_from_path(&slint_path))
             }),
             Err(_) => {
-                // No runtime, create a temporary one
                 let rt = tokio::runtime::Runtime::new()
                     .map_err(|e| format!("Failed to create runtime: {}", e))?;
                 rt.block_on(compiler.build_from_path(&slint_path))
             }
         };
 
-        // Check for compilation errors
         let diagnostics: Vec<_> = result
             .diagnostics()
             .filter(|d| d.level() == slint_interpreter::DiagnosticLevel::Error)
@@ -111,11 +82,9 @@ impl SlintRuntime {
             return Err(format!("Slint compilation errors: {}", errors.join("; ")).into());
         }
 
-        // Get the component definition (use default component name)
         let definition = result
             .component("App")
             .or_else(|| {
-                // Try to get the first component if "App" doesn't exist
                 result
                     .component_names()
                     .next()
@@ -123,7 +92,6 @@ impl SlintRuntime {
             })
             .ok_or_else(|| "No component found in .slint file")?;
 
-        // Create component instance
         let slint_instance = definition
             .create()
             .map_err(|e| format!("Failed to create instance: {:?}", e))?;
@@ -133,7 +101,6 @@ impl SlintRuntime {
             "Slint component instance created"
         );
 
-        // Initialize models HashMap
         let global_models = HashMap::new();
 
         let runtime = Self {
@@ -145,18 +112,16 @@ impl SlintRuntime {
             lua_tx,
             tab_switch_tx: None,
             asset_pick_tx: None,
+            image_cache: ImageCache::new(),
+            image_req_tx,
+            image_resp_rx,
         };
 
-        // Models are initialized via init_models() after load, passing manifest.models
-        // This allows apps to declare their models in manifest.json
-
+        // Models are initialized via init_models() after load, passing manifest.models.
         Ok(runtime)
     }
 
-    /// Initialize VecModels for array properties declared in manifest
-    ///
-    /// **Called by**: App loader after parsing manifest.json
-    /// **Pattern**: Pre-create VecModels for declared models to enable incremental updates
+    /// Pre-create VecModels for array properties declared in manifest.
     pub fn init_models(
         &mut self,
         model_names: &[String],
@@ -179,45 +144,31 @@ impl SlintRuntime {
         Ok(())
     }
 
-    /// Get reference to Slint instance (for showing window, etc.)
     pub fn slint_instance(&self) -> &Rc<ComponentInstance> {
         &self.slint_instance
     }
 
-    /// Set the channel for tab switch requests
-    ///
-    /// **Context**: Called from app management to receive tab switch events
     pub fn set_tab_switch_channel(&mut self, tx: std::sync::mpsc::Sender<String>) {
         self.tab_switch_tx = Some(tx);
     }
 
-    /// Set the channel for asset pick requests
-    ///
-    /// **Context**: Called from app management to receive asset upload requests
-    /// **Security**: Channel is triggered by Slint button click (user-initiated)
     pub fn set_asset_pick_channel(&mut self, tx: std::sync::mpsc::Sender<AssetPickRequest>) {
         self.asset_pick_tx = Some(tx);
     }
 
-    /// Get or create a VecModel for a property
-    ///
-    /// **Pattern**: Dynamically create VecModels when needed
+    /// Get or create a VecModel for an `AppAPI` global property.
     pub fn get_or_create_model(&mut self, prop_name: &str) -> Option<Rc<VecModel<SlintValue>>> {
-        // Return existing model if we have it
         if let Some(model) = self.global_models.get(prop_name) {
             return Some(model.clone());
         }
 
-        // Check if this property exists and is a Model type
         if let Ok(value) = self
             .slint_instance
             .get_global_property(GLOBAL_API_NAME, prop_name)
         {
             if matches!(value, SlintValue::Model(_)) {
-                // Create new VecModel
                 let model = Rc::new(VecModel::<SlintValue>::default());
 
-                // Set as global property
                 if let Err(e) = self.slint_instance.set_global_property(
                     GLOBAL_API_NAME,
                     prop_name,
@@ -233,7 +184,6 @@ impl SlintRuntime {
                     return None;
                 }
 
-                // Store and return
                 self.global_models
                     .insert(prop_name.to_string(), model.clone());
                 tracing::info!(
@@ -249,17 +199,12 @@ impl SlintRuntime {
         None
     }
 
-    /// Process pending UI mutations (called from timer or event loop)
-    ///
-    /// **Pattern**: Non-blocking drain of ui_rx channel
-    /// **Frequency**: Call this in Slint timer (e.g., every 100ms)
+    /// Non-blocking drain of pending UI mutations; call each timer tick.
     pub fn process_ui_mutations(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut mutation_count = 0;
         let mut error_count = 0;
 
-        // Drain all pending mutations (non-blocking)
         while let Ok(mutation) = self.ui_rx.try_recv() {
-            // Apply property updates (continue on error to process remaining)
             for prop in mutation.properties {
                 if let Err(e) = self.apply_property_update(prop) {
                     tracing::warn!(
@@ -271,7 +216,6 @@ impl SlintRuntime {
                 }
             }
 
-            // Apply VecModel operations (continue on error to process remaining)
             for op in mutation.model_ops {
                 if let Err(e) = self.apply_vecmodel_op(op) {
                     tracing::warn!(
@@ -298,20 +242,15 @@ impl SlintRuntime {
         Ok(())
     }
 
-    /// Process pending UI queries (called from timer or event loop)
-    ///
-    /// **Pattern**: Non-blocking drain of query_rx channel
-    /// **Frequency**: Call this in Slint timer alongside process_ui_mutations
+    /// Non-blocking drain of pending UI queries; call alongside `process_ui_mutations`.
     pub fn process_ui_queries(&mut self) {
-        // Drain all pending queries (non-blocking)
         while let Ok(query) = self.query_rx.try_recv() {
             let result = self.read_property(&query.prop_name);
-            // Send response back to Lua thread (ignore send errors - Lua may have timed out)
+            // Lua may have timed out; ignore send errors.
             let _ = query.response_tx.send(result);
         }
     }
 
-    /// Read a property from AppAPI global and convert to JSON
     fn read_property(&self, prop_name: &str) -> Option<serde_json::Value> {
         match self
             .slint_instance
@@ -331,17 +270,12 @@ impl SlintRuntime {
         }
     }
 
-    /// Apply property update to AppAPI global
-    ///
-    /// **Pattern**: All app properties go through AppAPI global
-    /// **Triggers**: Property change notification in Slint
     fn apply_property_update(
         &self,
         update: PropertyUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let slint_val = json_to_slint_value(&update.value)?;
 
-        // All properties go to AppAPI global
         if let Err(e) =
             self.slint_instance
                 .set_global_property(GLOBAL_API_NAME, &update.key, slint_val)
@@ -366,9 +300,6 @@ impl SlintRuntime {
         Ok(())
     }
 
-    /// Apply single VecModel operation to AppAPI global model
-    ///
-    /// **Triggers**: ModelNotify events (row_added, row_removed, row_changed)
     fn apply_vecmodel_op(&mut self, op: VecModelOp) -> Result<(), Box<dyn std::error::Error>> {
         use VecModelOp::*;
 
@@ -376,7 +307,8 @@ impl SlintRuntime {
             Push { model_name, item } => {
                 let model = self.ensure_model(&model_name, "Push")?;
                 let slint_val = json_to_slint_value(&item)?;
-                model.push(slint_val);
+                let row_index = model.row_count(); // index after push
+                model.push(slint_val.clone());
 
                 tracing::debug!(
                     page_id = %self.page_id,
@@ -385,6 +317,8 @@ impl SlintRuntime {
                     row_count = model.row_count(),
                     "VecModel::push"
                 );
+
+                self.check_row_for_attachment(&model_name, row_index, &slint_val);
             }
             Insert {
                 model_name,
@@ -393,7 +327,7 @@ impl SlintRuntime {
             } => {
                 let model = self.ensure_model(&model_name, "Insert")?;
                 let slint_val = json_to_slint_value(&item)?;
-                model.insert(index, slint_val);
+                model.insert(index, slint_val.clone());
 
                 tracing::trace!(
                     page_id = %self.page_id,
@@ -402,6 +336,9 @@ impl SlintRuntime {
                     index = index,
                     "VecModel::insert"
                 );
+
+                // Check for attachment_hash and enqueue image load if needed
+                self.check_row_for_attachment(&model_name, index, &slint_val);
             }
             Remove { model_name, index } => {
                 let model = self.ensure_model(&model_name, "Remove")?;
@@ -434,7 +371,7 @@ impl SlintRuntime {
                 let model = self.ensure_model(&model_name, "Set")?;
                 if index < model.row_count() {
                     let slint_val = json_to_slint_value(&item)?;
-                    model.set_row_data(index, slint_val);
+                    model.set_row_data(index, slint_val.clone());
 
                     tracing::trace!(
                         page_id = %self.page_id,
@@ -443,6 +380,9 @@ impl SlintRuntime {
                         index = index,
                         "VecModel::set"
                     );
+
+                    // Check for attachment_hash and enqueue image load if needed
+                    self.check_row_for_attachment(&model_name, index, &slint_val);
                 } else {
                     tracing::warn!(
                         page_id = %self.page_id,
@@ -470,7 +410,6 @@ impl SlintRuntime {
             Replace { model_name, items } => {
                 let model = self.ensure_model(&model_name, "Replace")?;
 
-                // Convert all items to Slint values
                 let slint_items: Vec<SlintValue> = items
                     .into_iter()
                     .filter_map(|item| json_to_slint_value(&item).ok())
@@ -478,8 +417,8 @@ impl SlintRuntime {
 
                 let count = slint_items.len();
 
-                // Use set_vec for atomic replacement (single UI update)
-                model.set_vec(slint_items);
+                // `set_vec` is an atomic replacement (single UI update).
+                model.set_vec(slint_items.clone());
 
                 tracing::debug!(
                     page_id = %self.page_id,
@@ -488,10 +427,222 @@ impl SlintRuntime {
                     items = count,
                     "VecModel::replace (atomic)"
                 );
+
+                for (row_index, slint_val) in slint_items.iter().enumerate() {
+                    self.check_row_for_attachment(&model_name, row_index, slint_val);
+                }
             }
         }
 
         Ok(())
+    }
+
+    /// Inspect a row for `attachment_hash` and enqueue (or inject cached) image.
+    fn check_row_for_attachment(&mut self, model_name: &str, row_index: usize, value: &SlintValue) {
+        let fields = match value {
+            SlintValue::Struct(s) => s.clone(),
+            _ => return,
+        };
+
+        let hash = match fields.get_field("attachment_hash") {
+            Some(SlintValue::String(s)) if !s.is_empty() => s.to_string(),
+            _ => return,
+        };
+
+        if let Some(cached_image) = self.image_cache.get(&hash) {
+            let cached_image = cached_image.clone();
+            self.inject_image_into_row(model_name, row_index, &hash, cached_image);
+            return;
+        }
+
+        if self.image_cache.is_loading(&hash) {
+            tracing::trace!(
+                page_id = %self.page_id,
+                model = %model_name,
+                row = row_index,
+                hash = %hash,
+                "Image already loading — will inject on response"
+            );
+            return;
+        }
+
+        self.enqueue_image_load(hash, model_name.to_string(), row_index);
+    }
+
+    /// Send an `ImageLoadRequest` to the background task and mark the hash as loading.
+    fn enqueue_image_load(&mut self, hash: String, model_name: String, row_index: usize) {
+        let Some(ref tx) = self.image_req_tx else {
+            tracing::debug!(
+                page_id = %self.page_id,
+                hash = %hash,
+                "Image load requested but no image channel configured"
+            );
+            return;
+        };
+
+        let req = ImageLoadRequest {
+            hash: hash.clone(),
+            page_id: self.page_id.clone(),
+            model_name,
+            row_index,
+        };
+
+        match tx.try_send(req) {
+            Ok(_) => {
+                self.image_cache.mark_loading(hash.clone());
+                tracing::debug!(
+                    page_id = %self.page_id,
+                    hash = %hash,
+                    "Image load request enqueued"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    hash = %hash,
+                    error = %e,
+                    "Failed to enqueue image load request"
+                );
+            }
+        }
+    }
+
+    /// Write a decoded `slint::Image` into the `attachment_image` field of a model row.
+    fn inject_image_into_row(
+        &self,
+        model_name: &str,
+        row_index: usize,
+        hash: &str,
+        image: slint::Image,
+    ) {
+        let Some(model) = self.global_models.get(model_name) else {
+            tracing::warn!(
+                page_id = %self.page_id,
+                model = %model_name,
+                hash = %hash,
+                "Cannot inject image — model not found"
+            );
+            return;
+        };
+
+        if row_index >= model.row_count() {
+            tracing::warn!(
+                page_id = %self.page_id,
+                model = %model_name,
+                row = row_index,
+                len = model.row_count(),
+                hash = %hash,
+                "Cannot inject image — row index out of bounds"
+            );
+            return;
+        }
+
+        let current = model.row_data(row_index);
+        let updated = match current {
+            Some(SlintValue::Struct(mut s)) => {
+                s.set_field("attachment_image".into(), SlintValue::Image(image));
+                SlintValue::Struct(s)
+            }
+            Some(other) => {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    model = %model_name,
+                    row = row_index,
+                    "Row is not a struct — cannot inject attachment_image"
+                );
+                other
+            }
+            None => {
+                tracing::warn!(
+                    page_id = %self.page_id,
+                    model = %model_name,
+                    row = row_index,
+                    "Row data is None — cannot inject attachment_image"
+                );
+                return;
+            }
+        };
+
+        model.set_row_data(row_index, updated);
+
+        tracing::debug!(
+            page_id = %self.page_id,
+            model = %model_name,
+            row = row_index,
+            hash = %hash,
+            "attachment_image injected into row"
+        );
+    }
+
+    /// Drain decoded image responses and inject them into matching VecModel rows.
+    pub fn apply_loaded_images(&mut self) {
+        let Some(ref mut rx) = self.image_resp_rx else {
+            return;
+        };
+
+        // Collect first, to avoid holding a borrow on self while injecting.
+        let mut responses = Vec::new();
+        while let Ok(resp) = rx.try_recv() {
+            responses.push(resp);
+        }
+
+        for resp in responses {
+            tracing::debug!(
+                page_id = %self.page_id,
+                hash = %resp.hash,
+                model = %resp.model_name,
+                row = resp.row_index,
+                "Image load response received"
+            );
+
+            if resp.rgba_bytes.is_empty() || resp.width == 0 || resp.height == 0 {
+                self.image_cache.clear_loading(&resp.hash);
+                tracing::debug!(
+                    page_id = %self.page_id,
+                    hash = %resp.hash,
+                    "Image load failed; cleared loading state"
+                );
+                continue;
+            }
+
+            // Reconstruct on the main thread; slint::Image is !Send.
+            let image = image_from_rgba_bytes(&resp.rgba_bytes, resp.width, resp.height);
+
+            self.image_cache.insert(resp.hash.clone(), image.clone());
+
+            // Collect model names first to avoid borrow conflicts during injection.
+            let model_names: Vec<String> = self.global_models.keys().cloned().collect();
+            for model_name in model_names {
+                let row_count = self
+                    .global_models
+                    .get(&model_name)
+                    .map(|m| m.row_count())
+                    .unwrap_or(0);
+
+                for row_index in 0..row_count {
+                    let row_hash = self
+                        .global_models
+                        .get(&model_name)
+                        .and_then(|m| m.row_data(row_index))
+                        .and_then(|v| match v {
+                            SlintValue::Struct(s) => match s.get_field("attachment_hash") {
+                                Some(SlintValue::String(h)) if !h.is_empty() => Some(h.to_string()),
+                                _ => None,
+                            },
+                            _ => None,
+                        });
+
+                    if row_hash.as_deref() == Some(resp.hash.as_str()) {
+                        self.inject_image_into_row(
+                            &model_name,
+                            row_index,
+                            &resp.hash,
+                            image.clone(),
+                        );
+                    }
+                }
+            }
+        }
     }
 
     fn ensure_model(
@@ -519,18 +670,13 @@ impl SlintRuntime {
         }
     }
 
-    /// Setup shell-level callbacks (tab switching, add-app)
-    ///
-    /// **Pattern**: Wire shell callbacks to appropriate handlers
-    /// **Special callbacks**:
-    /// - `select-tab(name)` → sent to tab_switch_tx for tab switching
-    /// - `add-app()` → could be wired to Lua if needed
+    /// Wire shell-level callbacks. Currently `select-tab` is forwarded to the
+    /// tab-switch channel; `add-app` is a no-op placeholder.
     pub fn setup_callbacks(&self) -> Result<(), Box<dyn std::error::Error>> {
         let definition = self.slint_instance.definition();
 
         let mut callback_count = 0;
         for callback_name in definition.callbacks() {
-            // Handle select-tab specially - send to tab switch channel
             if callback_name == "select-tab" || callback_name == "select_tab" {
                 if let Some(ref tx) = self.tab_switch_tx {
                     let tx = tx.clone();
@@ -550,7 +696,6 @@ impl SlintRuntime {
                     callback_count += 1;
                 }
             }
-            // add-app callback - currently no-op, could wire to Lua
         }
 
         tracing::debug!(
@@ -562,18 +707,9 @@ impl SlintRuntime {
         Ok(())
     }
 
-    /// Setup AppAPI global callbacks (generic Event Bus callbacks)
-    ///
-    /// **Pattern**: Wire AppAPI global callbacks to Lua
-    /// Slint `AppAPI.callback foo(args)` → Lua `foo(args)`
-    ///
-    /// Only wires 3 generic callbacks - apps use Event Bus pattern:
-    /// - on_click(target) - button clicks, selections
-    /// - on_field_changed(field, value) - text input changes
-    /// - on_modal_action(modal, action) - modal open/close/submit
+    /// Wire generic AppAPI callbacks (event-bus style) to the Lua thread.
+    /// Slint `AppAPI.callback foo(args)` → `LuaCommand::UiCallback { foo, args }`.
     pub fn setup_global_callbacks(&self) -> Result<(), Box<dyn std::error::Error>> {
-        // Generic Event Bus callbacks - same for ALL apps
-        // Apps define these in their AppAPI and call them from UI elements
         let generic_callbacks = [
             "on_click",
             "on_field_changed",
@@ -584,6 +720,7 @@ impl SlintRuntime {
             "on_key_pressed",   // For games/interactive apps that need keyboard input
             "on_submit",        // For form submissions (chat, search, etc.)
             "on_text_input",    // For text input changes (typing indicators, etc.)
+            "on_drop",          // For drop events from the drag engine (zone, payload, kind, y_intent, x_intent, y_frac, x_frac)
         ];
 
         let mut callback_count = 0;
@@ -591,12 +728,11 @@ impl SlintRuntime {
             let lua_tx = self.lua_tx.clone();
             let callback_name_owned = callback_name.to_string();
 
-            // Try to set the global callback - if it doesn't exist, that's OK (not all apps have all callbacks)
+            // Not all apps define every callback; missing ones are fine.
             match self.slint_instance.set_global_callback(
                 GLOBAL_API_NAME,
                 callback_name,
                 move |args| {
-                    // Convert Slint args to JSON for Lua
                     let json_args: Vec<serde_json::Value> =
                         args.iter().map(slint_value_to_json).collect();
 
@@ -624,7 +760,6 @@ impl SlintRuntime {
                     );
                 }
                 Err(e) => {
-                    // Log at warn level to debug callback registration issues
                     tracing::warn!(
                         page_id = %self.page_id,
                         global = GLOBAL_API_NAME,
@@ -643,8 +778,7 @@ impl SlintRuntime {
             "AppAPI callbacks configured"
         );
 
-        // Asset file picker callback - triggers native file dialog
-        // This requires a user click in Slint (security: user-initiated only)
+        // Asset file picker: must be user-initiated (Slint button click) for security.
         if let Some(ref tx) = self.asset_pick_tx {
             let tx = tx.clone();
             let page_id = self.page_id.clone();

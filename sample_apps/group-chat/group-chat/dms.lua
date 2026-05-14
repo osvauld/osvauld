@@ -8,6 +8,7 @@ local M = {}
 local page_id = nil
 local my_did = nil
 local my_name = nil
+local my_role = nil
 local active_dm = nil
 local dm_entries = {}
 
@@ -27,22 +28,16 @@ local function make_dm_id(did_a, did_b)
     return "dm-" .. a:sub(-8) .. "-" .. b:sub(-8)
 end
 
-local function dm_owner_did(did_a, did_b)
-    if did_a < did_b then
-        return did_a
-    end
-    return did_b
-end
-
 -- Sanitize a name for use as layer id
 local function sanitize_id(name)
     return name:lower():gsub("%s+", "-"):gsub("[^%w%-]", "")
 end
 
-function M.init(pid, did, name, callback)
+function M.init(pid, did, name, role, callback)
     page_id = pid
     my_did = did
     my_name = name
+    my_role = role or "viewer"
     on_dm_switch = callback
 
     dm_entries = {}
@@ -110,14 +105,15 @@ function M.create_dm(other_did, other_name)
     -- Reuse an existing participant layer if already visible, otherwise create.
     local layer_path = find_existing_dm_layer_path(dm_id)
     if not layer_path then
-        -- Canonical owner creates the DM layer; other participant waits to discover it.
-        local owner_did = dm_owner_did(my_did, other_did)
-        if my_did ~= owner_did then
+        -- Try to create the DM layer. Only roles with create permission (owner,
+        -- collaborator) will succeed; viewers discover DMs via __sync_meta.
+        local ok, result = pcall(function()
+            return scribe:create_layer("dms/{id}/messages", dm_id)
+        end)
+        if not ok or not result then
             return false
         end
-
-        local result = scribe:create_layer("dms/{id}/messages", dm_id)
-        layer_path = normalize_layer_path(result and result.layer_name)
+        layer_path = normalize_layer_path(result.layer_name)
     end
 
     dm_entries[dm_id] = {
@@ -165,7 +161,7 @@ function M.open_dm(other_did, other_name)
         is_group = false,
         participants = { my_did, other_did },
         participant_names = { [my_did] = my_name, [other_did] = other_name },
-        created_by = dm_owner_did(my_did, other_did),
+        created_by = my_did,
         created_at = os.time(),
         layer_path = layer_path,
     }

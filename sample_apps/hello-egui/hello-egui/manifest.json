@@ -1,0 +1,7 @@
+{
+    "name": "Hello egui",
+    "version": "0.1.0",
+    "description": "Phase 1 smoke test for renderer_egui — no scribe state, just paints.",
+    "entry_logic": "app.lua",
+    "renderer": "egui"
+}

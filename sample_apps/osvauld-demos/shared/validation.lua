@@ -90,7 +90,7 @@ end
 --- **Signature**: validate_ops(layer_name, ops, from_did, role, page_id) -> boolean
 ---
 --- @param layer_name string Layer being updated
---- @param ops table List of operations (JsonOp format)
+--- @param ops table List of operations (Parivarta format)
 --- @param from_did string DID of the remote peer
 --- @param role string Role of the peer ("viewer", "owner", "peer", etc.)
 --- @param page_id string Page ID for context

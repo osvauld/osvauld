@@ -1,8 +1,9 @@
-mod handshake;
-mod publish;
-mod permission;
-mod layer_sync;
 mod app_sync;
-mod presence;
 mod derivation;
+mod handshake;
+mod layer_sync;
+mod permission;
+mod permit_upgrade;
+mod presence;
+mod publish;
 mod validation;

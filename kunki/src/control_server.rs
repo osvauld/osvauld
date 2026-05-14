@@ -2,10 +2,10 @@
 //!
 //! Uses shared control_server infrastructure with node-specific commands.
 
-use butler::{Butler, ValidationHandle, JsonOp};
+use butler::{Butler, Parivarta, ValidationHandle};
 use control_server::{
-    async_trait, CommandHandler, ControlServer, Response, error_codes,
-    commands::butler as butler_cmds,
+    async_trait, commands::butler as butler_cmds, error_codes, CommandHandler, ControlServer,
+    Response,
 };
 use logging_utils::CaptureHandle;
 use serde::Serialize;
@@ -67,7 +67,11 @@ impl KunkiHandler {
     async fn handle_capture_start(&self, params: Option<serde_json::Value>, id: u64) -> Response {
         let handle_guard = self.capture_handle.read().await;
         let Some(ref handle) = *handle_guard else {
-            return Response::err(id, error_codes::INTERNAL_ERROR, "CaptureHandle not available");
+            return Response::err(
+                id,
+                error_codes::INTERNAL_ERROR,
+                "CaptureHandle not available",
+            );
         };
 
         let Some(params_obj) = params.as_ref().and_then(|p| p.as_object()) else {
@@ -78,10 +82,19 @@ impl KunkiHandler {
             return Response::err(id, error_codes::INVALID_PARAMS, "Missing file_path");
         };
 
-        let include_logs = params_obj.get("include_logs").and_then(|v| v.as_bool()).unwrap_or(false);
+        let include_logs = params_obj
+            .get("include_logs")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        match handle.start_capture(PathBuf::from(file_path), include_logs).await {
-            Ok(()) => Response::ok(id, serde_json::json!({"status": "capturing", "file_path": file_path})),
+        match handle
+            .start_capture(PathBuf::from(file_path), include_logs)
+            .await
+        {
+            Ok(()) => Response::ok(
+                id,
+                serde_json::json!({"status": "capturing", "file_path": file_path}),
+            ),
             Err(e) => Response::err(id, error_codes::INTERNAL_ERROR, &e),
         }
     }
@@ -90,7 +103,11 @@ impl KunkiHandler {
     async fn handle_capture_end(&self, id: u64) -> Response {
         let handle_guard = self.capture_handle.read().await;
         let Some(ref handle) = *handle_guard else {
-            return Response::err(id, error_codes::INTERNAL_ERROR, "CaptureHandle not available");
+            return Response::err(
+                id,
+                error_codes::INTERNAL_ERROR,
+                "CaptureHandle not available",
+            );
         };
 
         match handle.stop_capture().await {
@@ -124,12 +141,16 @@ impl KunkiHandler {
 
     /// Handle validate_ops command (for testing validation RPC)
     ///
-    /// **Params**: page_id, layer_name, ops (array of JsonOp), from_did, role
+    /// **Params**: page_id, layer_name, ops (array of Parivarta), from_did, role
     /// **Returns**: {passed: bool, error?: string}
     async fn handle_validate_ops(&self, params: Option<serde_json::Value>, id: u64) -> Response {
         let handle_guard = self.validation_handle.read().await;
         let Some(ref handle) = *handle_guard else {
-            return Response::err(id, error_codes::INTERNAL_ERROR, "ValidationHandle not available");
+            return Response::err(
+                id,
+                error_codes::INTERNAL_ERROR,
+                "ValidationHandle not available",
+            );
         };
 
         // Extract parameters
@@ -158,13 +179,26 @@ impl KunkiHandler {
         };
 
         // Parse ops
-        let ops: Vec<JsonOp> = match ops_array.iter().map(|v| serde_json::from_value(v.clone())).collect() {
+        let ops: Vec<Parivarta> = match ops_array
+            .iter()
+            .map(|v| serde_json::from_value(v.clone()))
+            .collect()
+        {
             Ok(ops) => ops,
-            Err(e) => return Response::err(id, error_codes::INVALID_PARAMS, &format!("Failed to parse ops: {}", e)),
+            Err(e) => {
+                return Response::err(
+                    id,
+                    error_codes::INVALID_PARAMS,
+                    &format!("Failed to parse ops: {}", e),
+                )
+            }
         };
 
         // Call validation
-        match handle.validate_ops(page_id, layer_name, &ops, from_did, role).await {
+        match handle
+            .validate_ops(page_id, layer_name, &ops, from_did, role)
+            .await
+        {
             Ok((passed, error_msg)) => {
                 let result = if passed {
                     serde_json::json!({
@@ -178,14 +212,23 @@ impl KunkiHandler {
                 };
                 Response::ok(id, result)
             }
-            Err(e) => Response::err(id, error_codes::INTERNAL_ERROR, &format!("Validation error: {}", e)),
+            Err(e) => Response::err(
+                id,
+                error_codes::INTERNAL_ERROR,
+                &format!("Validation error: {}", e),
+            ),
         }
     }
 }
 
 #[async_trait]
 impl CommandHandler for KunkiHandler {
-    async fn handle(&self, method: &str, params: Option<serde_json::Value>, id: u64) -> Option<Response> {
+    async fn handle(
+        &self,
+        method: &str,
+        params: Option<serde_json::Value>,
+        id: u64,
+    ) -> Option<Response> {
         match method {
             "state" => Some(self.handle_state(id).await),
 
@@ -199,94 +242,195 @@ impl CommandHandler for KunkiHandler {
                 if let Some(ref butler) = self.butler {
                     Some(butler_cmds::list_spaces(butler, id).await)
                 } else {
-                    Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available"))
+                    Some(Response::err(
+                        id,
+                        error_codes::NOT_AUTHENTICATED,
+                        "Butler not available",
+                    ))
                 }
             }
 
             "list_pages" => {
                 let space_id = butler_cmds::get_string_param(&params, "space_id");
                 match (self.butler.as_ref(), space_id) {
-                    (Some(butler), Some(sid)) => Some(butler_cmds::list_pages(butler, &sid, id).await),
-                    (None, _) => Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available")),
-                    (_, None) => Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing space_id parameter")),
+                    (Some(butler), Some(sid)) => {
+                        Some(butler_cmds::list_pages(butler, &sid, id).await)
+                    }
+                    (None, _) => Some(Response::err(
+                        id,
+                        error_codes::NOT_AUTHENTICATED,
+                        "Butler not available",
+                    )),
+                    (_, None) => Some(Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        "Missing space_id parameter",
+                    )),
                 }
             }
 
             "list_layers" => {
                 let page_id = butler_cmds::get_string_param(&params, "page_id");
                 match (self.butler.as_ref(), page_id) {
-                    (Some(butler), Some(pid)) => Some(butler_cmds::list_layers(butler, &pid, id).await),
-                    (None, _) => Some(Response::err(id, error_codes::NOT_AUTHENTICATED, "Butler not available")),
-                    (_, None) => Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing page_id parameter")),
+                    (Some(butler), Some(pid)) => {
+                        Some(butler_cmds::list_layers(butler, &pid, id).await)
+                    }
+                    (None, _) => Some(Response::err(
+                        id,
+                        error_codes::NOT_AUTHENTICATED,
+                        "Butler not available",
+                    )),
+                    (_, None) => Some(Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        "Missing page_id parameter",
+                    )),
                 }
             }
 
             // Test-time controls
             "set_time" => {
                 let Some(params_obj) = params.as_ref().and_then(|p| p.as_object()) else {
-                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Invalid params object"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        "Invalid params object",
+                    ));
                 };
 
-                let Some(unix_seconds) = params_obj.get("unix_seconds").and_then(|v| v.as_i64()) else {
-                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing unix_seconds parameter"));
+                let Some(unix_seconds) = params_obj.get("unix_seconds").and_then(|v| v.as_i64())
+                else {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        "Missing unix_seconds parameter",
+                    ));
                 };
 
                 let Some(page_id) = params_obj.get("page_id").and_then(|v| v.as_str()) else {
-                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing page_id parameter"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        "Missing page_id parameter",
+                    ));
                 };
 
                 let runtime_guard = self.node_runtime.read().await;
                 let Some(ref runtime) = *runtime_guard else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Node runtime not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Node runtime not available",
+                    ));
                 };
 
                 let Some(cmd_tx) = runtime.get_cmd_tx(page_id).await else {
-                    return Some(Response::err(id, error_codes::NOT_FOUND, format!("No node runtime for page {}", page_id)));
+                    return Some(Response::err(
+                        id,
+                        error_codes::NOT_FOUND,
+                        format!("No node runtime for page {}", page_id),
+                    ));
                 };
 
                 let (response_tx, response_rx) = tokio::sync::oneshot::channel();
-                if cmd_tx.send(lua_runtime::LuaCommand::SetTime { unix_seconds, response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send set_time command"));
+                if cmd_tx
+                    .send(lua_runtime::LuaCommand::SetTime {
+                        unix_seconds,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send set_time command",
+                    ));
                 }
 
                 match response_rx.await {
-                    Ok(Ok(new_time)) => Some(Response::ok(id, serde_json::json!({"unix_seconds": new_time}))),
+                    Ok(Ok(new_time)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"unix_seconds": new_time}),
+                    )),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "SetTime command dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "SetTime command dropped",
+                    )),
                 }
             }
 
             "advance_time" => {
                 let Some(params_obj) = params.as_ref().and_then(|p| p.as_object()) else {
-                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Invalid params object"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        "Invalid params object",
+                    ));
                 };
 
                 let Some(seconds) = params_obj.get("seconds").and_then(|v| v.as_u64()) else {
-                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing seconds parameter"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        "Missing seconds parameter",
+                    ));
                 };
 
                 let Some(page_id) = params_obj.get("page_id").and_then(|v| v.as_str()) else {
-                    return Some(Response::err(id, error_codes::INVALID_PARAMS, "Missing page_id parameter"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INVALID_PARAMS,
+                        "Missing page_id parameter",
+                    ));
                 };
 
                 let runtime_guard = self.node_runtime.read().await;
                 let Some(ref runtime) = *runtime_guard else {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Node runtime not available"));
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Node runtime not available",
+                    ));
                 };
 
                 let Some(cmd_tx) = runtime.get_cmd_tx(page_id).await else {
-                    return Some(Response::err(id, error_codes::NOT_FOUND, format!("No node runtime for page {}", page_id)));
+                    return Some(Response::err(
+                        id,
+                        error_codes::NOT_FOUND,
+                        format!("No node runtime for page {}", page_id),
+                    ));
                 };
 
                 let (response_tx, response_rx) = tokio::sync::oneshot::channel();
-                if cmd_tx.send(lua_runtime::LuaCommand::AdvanceTime { seconds, response_tx }).await.is_err() {
-                    return Some(Response::err(id, error_codes::INTERNAL_ERROR, "Failed to send advance_time command"));
+                if cmd_tx
+                    .send(lua_runtime::LuaCommand::AdvanceTime {
+                        seconds,
+                        response_tx,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "Failed to send advance_time command",
+                    ));
                 }
 
                 match response_rx.await {
-                    Ok(Ok(new_time)) => Some(Response::ok(id, serde_json::json!({"unix_seconds": new_time}))),
+                    Ok(Ok(new_time)) => Some(Response::ok(
+                        id,
+                        serde_json::json!({"unix_seconds": new_time}),
+                    )),
                     Ok(Err(e)) => Some(Response::err(id, error_codes::OPERATION_FAILED, e)),
-                    Err(_) => Some(Response::err(id, error_codes::INTERNAL_ERROR, "AdvanceTime command dropped")),
+                    Err(_) => Some(Response::err(
+                        id,
+                        error_codes::INTERNAL_ERROR,
+                        "AdvanceTime command dropped",
+                    )),
                 }
             }
 
@@ -296,7 +440,9 @@ impl CommandHandler for KunkiHandler {
 
     async fn get_connection_string(&self) -> Option<String> {
         let state_guard = self.state.read().await;
-        state_guard.as_ref().and_then(|s| s.connection_string.clone())
+        state_guard
+            .as_ref()
+            .and_then(|s| s.connection_string.clone())
     }
 }
 

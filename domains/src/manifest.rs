@@ -5,7 +5,7 @@ pub struct AppManifest {
     pub version: String,
     pub entry_logic: String,
 
-    /// Renderer type: "slint" (default) or "raylib"
+    /// Renderer type: "slint" (default), "raylib", or "egui"
     #[serde(default = "default_renderer")]
     pub renderer: String,
 

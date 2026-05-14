@@ -1,5 +1,5 @@
 -- Group Chat App — Slack-like with channels, threads, reactions
--- Entry point: on_init, on_click routing, presence, typing
+-- Entry point: on_init, on_click routing, typing
 
 local channels = require("channels")
 local dms = require("dms")
@@ -7,8 +7,6 @@ local messages = require("messages")
 local threads = require("threads")
 local helpers = require("ui_helpers")
 local read_tracker = require("read_tracker")
-
-local presence = presence_lib
 
 -- State
 local page_id = nil
@@ -45,39 +43,26 @@ function on_init()
     threads.init(my_did, my_name)
     read_tracker.init(page_id, my_did, my_name)
 
-    -- Init presence
-    presence.init(page_id, my_did, my_name)
+    -- Init presence (writes heartbeat to CRDT presence layer)
+    presence_lib.init(page_id, my_did, my_name)
 
     -- Set profile footer state
     ui:set("my_display_name", my_name)
     ui:set("my_online", true)
 
-    -- Bind presence to online users sidebar
-    scribe:bind("online_users", "presence", {
-        key = "did",
-        transform = function(entry)
-            if not entry or not entry.did then return nil end
-            return {
-                did = entry.did,
-                did_short = entry.did:sub(-8),
-                name = entry.name or entry.did:sub(-8),
-                is_online = entry.status == "online",
-            }
-        end
-    })
-
     -- Init channels — callback fires on every channel switch (including initial "general")
+    local my_role = permit:role()
     local messages_bound = false
-    channels.init(page_id, my_did, my_name, function(channel_id, layer_path)
-        -- Reset pagination state for the new channel
-        messages.reset_pagination(channel_id)
-
+    channels.init(page_id, my_did, my_name, my_role, function(channel_id, layer_path)
         -- First call: create binding. Subsequent calls: rebind to new layer.
         if not messages_bound then
             scribe:bind("messages", layer_path, {
                 key = "id",
-                max_items = 100,
-                transform = function(msg)
+                transform = function(layer_name_or_msg, maybe_msg)
+                    local msg = maybe_msg or layer_name_or_msg
+                    if type(msg) ~= "table" then
+                        return nil
+                    end
                     if not msg then
                         return nil
                     end
@@ -103,7 +88,7 @@ function on_init()
     end, read_tracker)
 
     -- Init DMs — callback rebinds "messages" to the DM layer
-    dms.init(page_id, my_did, my_name, function(dm_id, layer_path)
+    dms.init(page_id, my_did, my_name, my_role, function(dm_id, layer_path)
         view_mode = "dms"
         ui:set("view_mode", "dms")
 
@@ -136,19 +121,31 @@ local function get_active_messages_layer()
     end
 end
 
--- Build member picker model from presence (online users)
+-- Refresh online users sidebar from presence layer
+local function refresh_online_users()
+    local users = presence_lib.get_online_users()
+    local online_list = {}
+    for _, u in ipairs(users) do
+        table.insert(online_list, {
+            did = u.did:sub(-8),
+            name = u.name or u.did:sub(-8),
+            full_did = u.did,
+            is_online = true,
+        })
+    end
+    ui:set("online_users", online_list)
+end
+
+-- Build member picker model from online peers
 local function refresh_member_picker()
-    local users = presence.get_online_users()
+    local users = presence_lib.get_online_users()
     local picker = {}
     for _, u in ipairs(users) do
-        if u.did ~= my_did then
-            local selected = selected_member_dids[u.did] ~= nil
-            table.insert(picker, {
-                did = u.did,
-                name = u.name or u.did:sub(-8),
-                selected = selected,
-            })
-        end
+        table.insert(picker, {
+            did = u.did,
+            name = u.name or u.did:sub(-8),
+            is_selected = selected_member_dids[u.did] ~= nil,
+        })
     end
     ui:set("member_picker", picker)
 end
@@ -162,28 +159,7 @@ function refresh_messages()
     channels.refresh_channel_list()
 end
 
-local function fast_mark_active_channel_read()
-    if view_mode ~= "channels" then return end
-    local channel_id = channels.get_active_channel()
-    if channel_id and read_tracker then
-        read_tracker.mark_read_now(channel_id, os.time())
-    end
-end
-
 function on_click(target)
-    -- Load older messages (pagination)
-    if target == "load_older" then
-        local channel_id = channels.get_active_channel()
-        local layer = get_active_messages_layer()
-        if channel_id and layer then
-            local loaded = messages.load_older(channel_id, layer)
-            if loaded == 0 then
-                ui:set("has_older_messages", false)
-            end
-        end
-        return
-    end
-
     -- Sidebar collapse toggles
     if target == "toggle_channels" then
         ui:set("channels_collapsed", not ui:get("channels_collapsed"))
@@ -469,6 +445,7 @@ function on_submit()
         ui:set("draft_text", "")
         ui:set("replying_to_id", "")
         ui:set("replying_to_text", "")
+        refresh_messages()
         return
     end
 
@@ -482,7 +459,7 @@ function on_submit()
     ui:set("replying_to_text", "")
     ui:set("selected_message_id", "")
 
-    fast_mark_active_channel_read()
+    refresh_messages()
 end
 
 function on_text_input(text)
@@ -539,7 +516,7 @@ function on_asset_uploaded(asset)
             asset.hash,
             asset.filename or "file"
         )
-        fast_mark_active_channel_read()
+        refresh_messages()
     end
 end
 
@@ -550,7 +527,7 @@ function on_layer_discovered(layer_name)
     if dms.on_layer_discovered(layer_name) then return end
 end
 
--- Periodic typing cleanup
+-- Periodic typing cleanup + presence refresh
 timer.setInterval(1000, function()
     refresh_typing_indicator()
 end)
@@ -566,23 +543,13 @@ end)
 -- API exports
 api.export("send_message", function(text)
     messages.send(channels.get_messages_layer(), text)
-    fast_mark_active_channel_read()
+    refresh_messages()
 end)
 api.export("create_channel", function(name) channels.create_channel(name) end)
 api.export("switch_channel", function(id) channels.switch_channel(id) end)
 api.export("get_active_channel", function() return channels.get_active_channel() end)
 api.export("get_message_count", function()
-    local layer = channels.get_messages_layer()
-    if not layer then return 0 end
-    return layer:length()
-end)
-api.export("load_older_messages", function()
-    local channel_id = channels.get_active_channel()
-    local layer = channels.get_messages_layer()
-    if channel_id and layer then
-        return messages.load_older(channel_id, layer)
-    end
-    return 0
+    return channels.get_total_message_count()
 end)
 
 -- DM API exports
@@ -603,3 +570,11 @@ api.export("get_dm_message_count", function()
     return layer:length()
 end)
 api.export("get_active_dm", function() return dms.get_active_dm() end)
+
+-- Presence API exports
+api.export("get_online_users", function()
+    return presence_lib.get_online_users()
+end)
+api.export("get_online_count", function()
+    return presence_lib.get_online_count()
+end)

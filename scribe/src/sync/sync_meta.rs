@@ -370,24 +370,31 @@ pub fn populate_dynamic_layers_for_late_joiner(state: &mut ScribeState, peer_did
 
             // Check stored authority to determine if this peer is authorized
             let full_name = format!("{}/{}", page_id, entry.layer_name);
+            let discover_mode = dynamic_discover_mode(state, &entry.layer_name);
             let is_authorized = if let Some(ref issuer) = state.permit_issuer {
                 match issuer.get_authority_for_layer(&full_name) {
                     Ok(Some((_creator, _ver, token))) => {
                         if let Ok(auth) = gurkha::PolicyPermit::from_token(&token) {
-                            policy_compat::is_peer_authorized(&auth, peer_did)
+                            match discover_mode {
+                                gurkha::DiscoverMode::Grant => policy_compat::authorized_peers(&auth)
+                                    .map(|peers| peers.iter().any(|p| p == peer_did))
+                                    .unwrap_or(false),
+                                gurkha::DiscoverMode::Sync => {
+                                    policy_compat::is_peer_authorized(&auth, peer_did)
+                                }
+                            }
                         } else {
                             false
                         }
                     }
                     _ => {
-                        // No authority stored yet — could be open-grant where
-                        // the layer hasn't been subscribed via LayerSubscribe yet.
-                        // Allow for now; the actual permit issuance will check.
-                        true
+                        // No authority stored yet.
+                        // discover=sync can still announce; discover=grant requires explicit authority.
+                        matches!(discover_mode, gurkha::DiscoverMode::Sync)
                     }
                 }
             } else {
-                true
+                matches!(discover_mode, gurkha::DiscoverMode::Sync)
             };
 
             if is_authorized {
@@ -487,13 +494,12 @@ pub fn handle_fan_out_layer_to_users(
         dids
     };
 
-    let target_dids: Vec<&String> = match authorized_peers {
-        None => all_peer_dids.iter().collect(),
-        Some(list) => all_peer_dids
-            .iter()
-            .filter(|did| list.iter().any(|d| d == *did))
-            .collect(),
-    };
+    let discover_mode = dynamic_discover_mode(state, layer_name);
+    let target_dids: Vec<&String> = select_target_dids_for_discovery(
+        &all_peer_dids,
+        authorized_peers,
+        discover_mode,
+    );
 
     for peer_did in target_dids {
         let peer_entries = read_sync_meta_entries(state, peer_did);
@@ -507,6 +513,45 @@ pub fn handle_fan_out_layer_to_users(
             );
         }
     }
+}
+
+fn select_target_dids_for_discovery<'a>(
+    all_peer_dids: &'a [String],
+    authorized_peers: Option<&[String]>,
+    discover_mode: gurkha::DiscoverMode,
+) -> Vec<&'a String> {
+    match (discover_mode, authorized_peers) {
+        (gurkha::DiscoverMode::Grant, Some(list)) => all_peer_dids
+            .iter()
+            .filter(|did| list.iter().any(|d| d == *did))
+            .collect(),
+        (gurkha::DiscoverMode::Grant, None) => Vec::new(),
+        (gurkha::DiscoverMode::Sync, Some(list)) => all_peer_dids
+            .iter()
+            .filter(|did| list.iter().any(|d| d == *did))
+            .collect(),
+        (gurkha::DiscoverMode::Sync, None) => all_peer_dids.iter().collect(),
+    }
+}
+
+fn dynamic_discover_mode(state: &ScribeState, layer_name: &str) -> gurkha::DiscoverMode {
+    let Some(permit) = state.our_permit.as_ref() else {
+        return gurkha::DiscoverMode::Sync;
+    };
+    let Some(validation) = state.validation_artifact.as_ref() else {
+        return gurkha::DiscoverMode::Sync;
+    };
+
+    let schemas = policy_compat::dynamic_layer_schemas(permit);
+    let Some(dynamic_ref) = gurkha::parse_dynamic_layer(&schemas, layer_name) else {
+        return gurkha::DiscoverMode::Sync;
+    };
+
+    validation
+        .dynamic_layers
+        .get(&dynamic_ref.schema_key)
+        .and_then(|policy| policy.discover.clone())
+        .unwrap_or(gurkha::DiscoverMode::Sync)
 }
 
 #[cfg(test)]
@@ -539,6 +584,8 @@ mod tests {
             pending_update_source: Arc::new(Mutex::new(None)),
             validation_handle: None,
             our_permit: None,
+            schema_artifact: None,
+            validation_artifact: None,
             our_did: "did:key:node".to_string(),
             node_script_shutdown: None,
             peer_role_cache: HashMap::new(),
@@ -630,5 +677,35 @@ mod tests {
         assert!(!is_protocol_layer(
             "channels/did:key:alice/general/messages"
         ));
+    }
+
+    #[test]
+    fn grant_discovery_requires_authorized_peers() {
+        let all = vec![
+            "did:key:alice".to_string(),
+            "did:key:bob".to_string(),
+            "did:key:carol".to_string(),
+        ];
+        let allow = vec!["did:key:bob".to_string()];
+
+        let targets = select_target_dids_for_discovery(
+            &all,
+            Some(&allow),
+            gurkha::DiscoverMode::Grant,
+        );
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0], "did:key:bob");
+
+        let none_targets =
+            select_target_dids_for_discovery(&all, None, gurkha::DiscoverMode::Grant);
+        assert!(none_targets.is_empty());
+    }
+
+    #[test]
+    fn sync_discovery_falls_back_to_all_when_unscoped() {
+        let all = vec!["did:key:alice".to_string(), "did:key:bob".to_string()];
+        let targets = select_target_dids_for_discovery(&all, None, gurkha::DiscoverMode::Sync);
+        assert_eq!(targets.len(), 2);
     }
 }

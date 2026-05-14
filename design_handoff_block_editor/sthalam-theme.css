@@ -1,0 +1,104 @@
+/* sthalam-theme.css
+   Tokens for the HTML exploration. Each custom-property has a comment
+   showing the corresponding Slint `Palette.*` field, so translating is
+   mechanical when we commit to a direction.
+
+   Scope of this file: the Sthalam shell *only*. Landing site / marketing
+   lives elsewhere and uses a different system.
+*/
+
+:root {
+  /* -- Surfaces (Palette.surface-*) -- */
+  --s-bg-page:   #0A0B10;  /* Palette.bg-page       */
+  --s-bg-1:      #0D0E13;  /* Palette.bg-surface    */
+  --s-bg-2:      #14151C;  /* Palette.bg-raised     */
+  --s-bg-3:      #1C1D27;  /* Palette.bg-elevated   */
+  --s-bg-4:      #262735;  /* Palette.bg-interactive */
+
+  /* -- Foreground (Palette.fg-*) -- */
+  --s-fg-1:      #F5F5F7;  /* Palette.fg-primary    */
+  --s-fg-2:      #B6B7C3;  /* Palette.fg-secondary  */
+  --s-fg-3:      #7F8192;  /* Palette.fg-muted      */
+  --s-fg-4:      #4D4E5C;  /* Palette.fg-disabled   */
+
+  /* -- Borders (Palette.border-*) -- */
+  --s-bd-1:      rgba(255, 255, 255, 0.06);  /* Palette.border-hairline */
+  --s-bd-2:      rgba(255, 255, 255, 0.12);  /* Palette.border         */
+  --s-bd-3:      rgba(255, 255, 255, 0.22);  /* Palette.border-hover   */
+
+  /* -- Accent (single purple family) -- */
+  --s-ac:        #8A86E5;  /* Palette.accent          */
+  --s-ac-hover:  #A09DEE;  /* Palette.accent-hover    */
+  --s-ac-press:  #6E6AD0;  /* Palette.accent-press    */
+  --s-ac-soft:   #CBA6F7;  /* Palette.accent-soft     */
+  --s-ac-bg:     rgba(138, 134, 229, 0.14);
+  --s-ac-bg-2:   rgba(138, 134, 229, 0.28);
+
+  /* -- Semantic -- */
+  --s-ok:        #7EE787;
+  --s-ok-bg:     rgba(126, 231, 135, 0.12);
+  --s-warn:      #F5C06A;
+  --s-warn-bg:   rgba(245, 192, 106, 0.12);
+  --s-err:       #F47068;
+  --s-err-bg:    rgba(244, 112, 104, 0.12);
+
+  /* -- Presence (for peer dots / avatars) -- */
+  --s-peer-1:    #E8C3FF;
+  --s-peer-2:    #B0E5FF;
+  --s-peer-3:    #FFD49A;
+  --s-peer-4:    #C6FFD4;
+  --s-peer-5:    #FFB6C1;
+
+  /* -- Typography --
+     Host Grotesk = display / section headers
+     Inter         = product UI (rows, buttons, labels)
+     JetBrains Mono= code, keys, DIDs, node IDs
+     VT323         = pixel-accent (splashes, empty states) */
+  --s-font-display: "Host Grotesk", "Inter", system-ui, sans-serif;
+  --s-font-ui:      "Inter", "Host Grotesk", system-ui, sans-serif;
+  --s-font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --s-font-pixel:   "VT323", "JetBrains Mono", monospace;
+
+  /* -- Spacing (4px grid; named 1..12) -- */
+  --s-sp-1:  4px;
+  --s-sp-2:  8px;
+  --s-sp-3:  12px;
+  --s-sp-4:  16px;
+  --s-sp-5:  20px;
+  --s-sp-6:  24px;
+  --s-sp-8:  32px;
+  --s-sp-10: 40px;
+  --s-sp-12: 48px;
+
+  /* -- Radii --
+     Pixel accents = 0. Product UI = 4–8. Cards = 10–14. */
+  --s-r-0: 0px;
+  --s-r-1: 2px;
+  --s-r-2: 4px;
+  --s-r-3: 6px;
+  --s-r-4: 8px;
+  --s-r-5: 10px;
+  --s-r-6: 12px;
+  --s-r-7: 14px;
+  --s-r-full: 999px;
+
+  /* -- Shadow / elevation -- */
+  --s-el-1: 0 1px 2px rgba(0,0,0,0.4);
+  --s-el-2: 0 4px 16px rgba(0,0,0,0.45);
+  --s-el-3: 0 12px 40px rgba(0,0,0,0.55);
+  --s-el-accent: 3px 3px 0 0 var(--s-ac);  /* signature pixel offset */
+}
+
+/* ── Base reset for the exploration page ─────────────────── */
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--s-bg-page);
+  color: var(--s-fg-1);
+  font-family: var(--s-font-ui);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+* { box-sizing: border-box; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }

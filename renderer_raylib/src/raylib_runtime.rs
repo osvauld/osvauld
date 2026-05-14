@@ -1,15 +1,16 @@
 //! Raylib Runtime - Game loop and Lua integration
 //!
-//! Owns: Raylib window, Lua VM
-//! Executes: Game loop (init → update → draw)
+//! Owns: Raylib window, AudioDevice, SharedSynth, Lua VM
+//! Executes: Game loop (init → update → draw → audio fill)
 //! Receives: Sync updates via channel
 
 use butler::{Butler, ScribeMessage};
 use domains::AppManifest;
 use ractor::ActorRef;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::game_loop::GameLoop;
+use crate::synth::{SharedSynth, Synth};
 
 /// Raylib runtime state
 pub struct RaylibRuntime {
@@ -46,8 +47,11 @@ impl RaylibRuntime {
     }
 
     /// Run the game loop
+    ///
+    /// **Context**: Called from the OS thread spawned by spawn_app
+    /// **We own**: Raylib window + AudioDevice + SharedSynth
+    /// **Audio**: AudioStream filled from Synth every frame when processed
     pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Get identity for multiplayer
         let app_ctx = self.butler.app_context(&self.page_id);
         let our_did = app_ctx.user_did;
 
@@ -61,48 +65,116 @@ impl RaylibRuntime {
             "Starting Raylib game"
         );
 
-        // Initialize Raylib
-        let (mut rl, thread) = raylib::init()
-            .size(self.width as i32, self.height as i32)
-            .title(&self.app_name)
-            .build();
+        // MSAA for smooth spheres/cylinders
+        tracing::info!(page_id = %self.page_id, "Calling raylib::init().build()");
+        let w = self.width as i32;
+        let h = self.height as i32;
+        let title = self.app_name.clone();
+        let fps = self.target_fps;
+        let (mut rl, thread) = match std::panic::catch_unwind(|| {
+            raylib::init().size(w, h).title(&title).msaa_4x().build()
+        }) {
+            Ok(result) => {
+                tracing::info!("raylib::init().build() succeeded");
+                result
+            }
+            Err(panic) => {
+                let msg = panic
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| panic.downcast_ref::<String>().map(|s| s.as_str()))
+                    .unwrap_or("unknown panic");
+                tracing::error!(page_id = %self.page_id, panic = msg, "raylib::init().build() panicked");
+                return Err(format!("raylib init panicked: {}", msg).into());
+            }
+        };
+        rl.set_target_fps(fps);
 
-        rl.set_target_fps(self.target_fps);
+        // No audio hardware on this machine: synth still exists so audio Lua bindings
+        // don't crash; it just produces no sound.
+        let synth: SharedSynth = Arc::new(Mutex::new(Synth::new()));
 
-        // Create game loop
-        let mut game_loop = GameLoop::new(
-            &self.lua_code,
-            &self.page_id,
-            &self.app_name,
-            self.butler.clone(),
-            self.scribe_ref.clone(),
-            our_did,
-        )?;
+        tracing::info!(page_id = %self.page_id, "Calling GameLoop::new()");
+        let lua_code = self.lua_code.clone();
+        let page_id2 = self.page_id.clone();
+        let app_name2 = self.app_name.clone();
+        let butler2 = self.butler.clone();
+        let scribe_ref2 = self.scribe_ref.clone();
+        let our_did2 = our_did.clone();
+        let synth2 = synth.clone();
+        let mut game_loop = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            GameLoop::new(
+                &lua_code,
+                &page_id2,
+                &app_name2,
+                butler2,
+                scribe_ref2,
+                our_did2,
+                synth2,
+            )
+        })) {
+            Ok(Ok(gl)) => {
+                tracing::info!(page_id = %self.page_id, "GameLoop::new() succeeded");
+                gl
+            }
+            Ok(Err(e)) => {
+                tracing::error!(page_id = %self.page_id, error = %e, "GameLoop::new() error");
+                return Err(e);
+            }
+            Err(panic) => {
+                let msg = panic
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| panic.downcast_ref::<String>().map(|s| s.as_str()))
+                    .unwrap_or("unknown panic");
+                tracing::error!(page_id = %self.page_id, panic = msg, "GameLoop::new() panicked");
+                return Err(format!("GameLoop::new panicked: {}", msg).into());
+            }
+        };
 
-        // Initialize game
-        game_loop.init()?;
+        tracing::info!(page_id = %self.page_id, "Calling game_loop.init()");
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| game_loop.init())) {
+            Ok(Ok(())) => tracing::info!(page_id = %self.page_id, "game_loop.init() succeeded"),
+            Ok(Err(e)) => {
+                tracing::error!(page_id = %self.page_id, error = %e, "game_loop.init() returned error");
+                return Err(e);
+            }
+            Err(panic) => {
+                let msg = panic
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| panic.downcast_ref::<String>().map(|s| s.as_str()))
+                    .unwrap_or("unknown panic");
+                tracing::error!(page_id = %self.page_id, panic = msg, "game_loop.init() panicked");
+                return Err(format!("init panicked: {}", msg).into());
+            }
+        }
 
-        // Main game loop
+        tracing::info!(page_id = %self.page_id, "Entering game loop, window_should_close={}", rl.window_should_close());
+
+        let mut frame = 0u64;
         while !rl.window_should_close() {
+            frame += 1;
             let dt = rl.get_frame_time();
 
-            // Process sync updates
             game_loop.process_sync_updates();
+            game_loop.handle_input(&mut rl);
+            if let Err(e) = game_loop.update(dt) {
+                tracing::error!(page_id = %self.page_id, frame, error = %e, "update failed");
+                break;
+            }
 
-            // Handle input
-            game_loop.handle_input(&rl);
-
-            // Update game state
-            game_loop.update(dt)?;
-
-            // Render
             let mut d = rl.begin_drawing(&thread);
-            game_loop.draw(&mut d)?;
+            if let Err(e) = game_loop.draw(&mut d) {
+                tracing::error!(page_id = %self.page_id, frame, error = %e, "draw failed");
+                break;
+            }
         }
 
         tracing::info!(
             page_id = %self.page_id,
             app_name = %self.app_name,
+            frames = frame,
             "Raylib game ended"
         );
 

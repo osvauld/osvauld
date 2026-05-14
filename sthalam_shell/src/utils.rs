@@ -2,8 +2,8 @@
 
 use std::collections::HashSet;
 
-use butler::{ConnectionType, SovereignNode};
 use crate::NodeInfo;
+use butler::{ConnectionType, SovereignNode};
 
 /// Format timestamp as "X hours/days ago" or "Never"
 pub fn format_timestamp(ts: Option<i64>) -> String {

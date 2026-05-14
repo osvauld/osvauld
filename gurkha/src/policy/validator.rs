@@ -190,6 +190,8 @@ mod tests {
             }],
             delegation_rules: vec![],
             dynamic_layer_schemas: vec![],
+            schema: None,
+            validation: None,
         };
 
         let err = validate_facts(&facts).expect_err("validator should fail");

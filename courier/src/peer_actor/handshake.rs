@@ -181,7 +181,10 @@ impl<C: Connection> PeerActor<C> {
         let our_secret = match state.butler.encryption_key().await {
             Ok(key) => key,
             Err(e) => {
-                error!("Failed to get encryption key for session key derivation: {}", e);
+                error!(
+                    "Failed to get encryption key for session key derivation: {}",
+                    e
+                );
                 self.reject("Internal error", state).await;
                 return;
             }
@@ -505,7 +508,10 @@ impl<C: Connection> PeerActor<C> {
         let our_secret = match state.butler.encryption_key().await {
             Ok(key) => key,
             Err(e) => {
-                error!("Failed to get encryption key for session key derivation: {}", e);
+                error!(
+                    "Failed to get encryption key for session key derivation: {}",
+                    e
+                );
                 state.state = PeerState::fail("Internal error");
                 return;
             }

@@ -124,14 +124,11 @@ impl<'a> AppsApi<'a> {
         let app_name = manifest
             .get("name")
             .and_then(|n| n.as_str())
-            .ok_or_else(|| {
-                ButlerError::Database("manifest.json missing 'name' field".to_string())
-            })?
+            .ok_or_else(|| ButlerError::Database("manifest.json missing 'name' field".to_string()))?
             .to_string();
 
         // Read files from disk
-        let files =
-            services::app_service::collect_app_files_from_directory(app_dir)?;
+        let files = services::app_service::collect_app_files_from_directory(app_dir)?;
 
         // Ensure Scribe is open for this page (spawns if needed)
         let scribe_ref = self.butler.open_page(page_id).await?;

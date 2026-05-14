@@ -34,6 +34,7 @@ impl LuaRuntime {
             let has_bindings = {
                 let manager = self.binding_manager.lock();
                 !manager.get_bindings_for_layer(&normalized_layer).is_empty()
+                    || !manager.text_bindings_for_layer(&normalized_layer).is_empty()
             };
 
             if has_bindings {
@@ -100,8 +101,8 @@ impl LuaRuntime {
 
     /// Fetch layer data as JSON from Scribe.
     pub(super) fn fetch_layer_data(&self, layer_name: &str) -> Result<JsonValue, String> {
-        match self.scribe.get_layer_json(layer_name)? {
-            Some(data) => Ok(data),
+        match self.scribe.get_layer_sthithi(layer_name)? {
+            Some(data) => Ok(JsonValue::from(&data)),
             None => Ok(JsonValue::Array(vec![])),
         }
     }

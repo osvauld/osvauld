@@ -1,6 +1,6 @@
+use serde::Serialize;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
-use serde::Serialize;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use tracing_tree::HierarchicalLayer;
@@ -28,7 +28,7 @@ impl Display for Short<'_> {
         let s = self.0;
         if s.len() > 16 {
             // Show first 6 and last 4 characters
-            write!(f, "{}..{}", &s[..6], &s[s.len()-4..])
+            write!(f, "{}..{}", &s[..6], &s[s.len() - 4..])
         } else {
             write!(f, "{}", s)
         }
@@ -56,9 +56,9 @@ impl Display for ShortDid<'_> {
         let s = self.0;
         if s.starts_with("did:") && s.len() > 12 {
             // Show "did:.." + last 4 characters
-            write!(f, "did:..{}", &s[s.len()-4..])
+            write!(f, "did:..{}", &s[s.len() - 4..])
         } else if s.len() > 16 {
-            write!(f, "{}..{}", &s[..6], &s[s.len()-4..])
+            write!(f, "{}..{}", &s[..6], &s[s.len() - 4..])
         } else {
             write!(f, "{}", s)
         }
@@ -79,13 +79,13 @@ impl Display for ShortLayer<'_> {
             let prefix = &s[..did_pos];
             let did_part = &s[did_pos..];
             if did_part.len() > 12 {
-                write!(f, "{}did:..{}", prefix, &did_part[did_part.len()-4..])
+                write!(f, "{}did:..{}", prefix, &did_part[did_part.len() - 4..])
             } else {
                 write!(f, "{}", s)
             }
         } else if s.len() > 24 {
             // Just truncate long layer names
-            write!(f, "{}..{}", &s[..12], &s[s.len()-8..])
+            write!(f, "{}..{}", &s[..12], &s[s.len() - 8..])
         } else {
             write!(f, "{}", s)
         }
@@ -107,7 +107,7 @@ impl Display for ShortLayer<'_> {
 pub fn short<T: Display>(value: &T) -> String {
     let s = value.to_string();
     if s.len() > 16 {
-        format!("{}..{}", &s[..6], &s[s.len()-4..])
+        format!("{}..{}", &s[..6], &s[s.len() - 4..])
     } else {
         s
     }
@@ -116,9 +116,9 @@ pub fn short<T: Display>(value: &T) -> String {
 /// Shorten a DID string
 pub fn short_did(did: &str) -> String {
     if did.starts_with("did:") && did.len() > 12 {
-        format!("did:..{}", &did[did.len()-4..])
+        format!("did:..{}", &did[did.len() - 4..])
     } else if did.len() > 16 {
-        format!("{}..{}", &did[..6], &did[did.len()-4..])
+        format!("{}..{}", &did[..6], &did[did.len() - 4..])
     } else {
         did.to_string()
     }
@@ -174,7 +174,9 @@ where
         event.record(&mut visitor);
 
         let entry = DebugLogEntry {
-            ts: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            ts: chrono::Utc::now()
+                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string(),
             level,
             target,
             msg,
@@ -514,21 +516,22 @@ pub fn init_rich_tracing(
     ))?;
 
     // Create optional debug capture layer (sends logs to broadcast channel)
-    let debug_layer = config.debug_tx.map(|tx| {
-        DebugCaptureLayer::new(tx, config.instance_name.clone())
-    });
+    let debug_layer = config
+        .debug_tx
+        .map(|tx| DebugCaptureLayer::new(tx, config.instance_name.clone()));
 
-    let registry = tracing_subscriber::registry().with(filter).with(debug_layer);
+    let registry = tracing_subscriber::registry()
+        .with(filter)
+        .with(debug_layer);
 
     // JSON stdout mode (for ai_interface to parse)
     if config.log_to_stdout && config.stdout_json {
-        let json_layer = fmt::Layer::new()
-            .json()
-            .with_ansi(false);
+        let json_layer = fmt::Layer::new().json().with_ansi(false);
 
         // Also add file layer if configured
         if config.log_to_file {
-            if let (Some(dir), Some(prefix)) = (config.log_dir.as_ref(), config.file_prefix.as_ref())
+            if let (Some(dir), Some(prefix)) =
+                (config.log_dir.as_ref(), config.file_prefix.as_ref())
             {
                 let file_appender = tracing_appender::rolling::daily(dir, prefix);
                 let (file_writer, file_guard) = tracing_appender::non_blocking(file_appender);
@@ -541,7 +544,9 @@ pub fn init_rich_tracing(
                 let _ = registry.with(json_layer).with(file_layer).try_init();
                 guard = Some(file_guard);
             } else {
-                return Err("Log directory and file prefix required when log_to_file is true".into());
+                return Err(
+                    "Log directory and file prefix required when log_to_file is true".into(),
+                );
             }
         } else {
             let _ = registry.with(json_layer).try_init();
@@ -550,7 +555,7 @@ pub fn init_rich_tracing(
     // Tree layer for stdout (hierarchical, beautiful)
     else if config.log_to_stdout && config.use_tree_format {
         let tree_layer = HierarchicalLayer::new(2)
-            .with_targets(true)  // Always show targets (lib/module prefix like "gurkha::parser")
+            .with_targets(true) // Always show targets (lib/module prefix like "gurkha::parser")
             .with_bracketed_fields(true)
             .with_indent_lines(true)
             .with_indent_amount(2)
@@ -562,7 +567,8 @@ pub fn init_rich_tracing(
 
         // File layer (JSON structured for parsing)
         if config.log_to_file {
-            if let (Some(dir), Some(prefix)) = (config.log_dir.as_ref(), config.file_prefix.as_ref())
+            if let (Some(dir), Some(prefix)) =
+                (config.log_dir.as_ref(), config.file_prefix.as_ref())
             {
                 let file_appender = tracing_appender::rolling::daily(dir, prefix);
                 let (file_writer, file_guard) = tracing_appender::non_blocking(file_appender);
@@ -575,7 +581,9 @@ pub fn init_rich_tracing(
                 let _ = registry.with(tree_layer).with(file_layer).try_init();
                 guard = Some(file_guard);
             } else {
-                return Err("Log directory and file prefix required when log_to_file is true".into());
+                return Err(
+                    "Log directory and file prefix required when log_to_file is true".into(),
+                );
             }
         } else {
             let _ = registry.with(tree_layer).try_init();
@@ -591,7 +599,8 @@ pub fn init_rich_tracing(
             .with_thread_names(config.show_thread_info);
 
         if config.log_to_file {
-            if let (Some(dir), Some(prefix)) = (config.log_dir.as_ref(), config.file_prefix.as_ref())
+            if let (Some(dir), Some(prefix)) =
+                (config.log_dir.as_ref(), config.file_prefix.as_ref())
             {
                 let file_appender = tracing_appender::rolling::daily(dir, prefix);
                 let (file_writer, file_guard) = tracing_appender::non_blocking(file_appender);
@@ -604,7 +613,9 @@ pub fn init_rich_tracing(
                 let _ = registry.with(stdout_layer).with(file_layer).try_init();
                 guard = Some(file_guard);
             } else {
-                return Err("Log directory and file prefix required when log_to_file is true".into());
+                return Err(
+                    "Log directory and file prefix required when log_to_file is true".into(),
+                );
             }
         } else {
             let _ = registry.with(stdout_layer).try_init();

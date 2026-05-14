@@ -30,11 +30,11 @@
 //! - `iroh-blobs` - Binary asset transfers (for asset sync)
 
 pub mod events;
+pub mod iroh_connection;
+pub mod mock;
 pub mod pool;
 pub mod protocol;
 pub mod traits;
-pub mod iroh_connection;
-pub mod mock;
 
 pub use events::TransportEvent;
 pub use pool::{ConnectionHandle, ConnectionPool};
@@ -45,7 +45,10 @@ pub use traits::{BiStream, Connection, ConnectionEvent, Transport as TransportTr
 
 // Re-export connection implementations
 pub use iroh_connection::{IrohBiStream, IrohConnection};
-pub use mock::{MockConnection, MockBiStream, mock_connection_pair, mock_connection_pair_named, mock_node_id, node_id_from_secret, DatagramCallback};
+pub use mock::{
+    mock_connection_pair, mock_connection_pair_named, mock_node_id, node_id_from_secret,
+    DatagramCallback, MockBiStream, MockConnection,
+};
 
 // Re-export iroh types so consumers don't need direct iroh dependency
 // Note: iroh 0.95 renamed NodeId to EndpointId, we re-export as NodeId for compatibility
@@ -139,10 +142,7 @@ impl Transport {
         let endpoint = Endpoint::builder()
             .secret_key(secret_key)
             .relay_mode(RelayMode::Default)
-            .alpns(vec![
-                ALPN_PROTOCOL.to_vec(),
-                iroh_blobs::ALPN.to_vec(),
-            ])
+            .alpns(vec![ALPN_PROTOCOL.to_vec(), iroh_blobs::ALPN.to_vec()])
             .bind()
             .await
             .map_err(|e| anyhow!("Failed to bind endpoint: {}", e))?;
@@ -417,7 +417,8 @@ impl Transport {
     /// **Context**: Preparing asset for peer to download
     /// **Returns**: iroh-blobs Hash (blake3) for the blob
     pub async fn add_blob(&self, data: &[u8]) -> Result<iroh_blobs::Hash> {
-        let tag = self.blob_store
+        let tag = self
+            .blob_store
             .add_slice(data.to_vec())
             .await
             .map_err(|e| anyhow!("Failed to add blob: {}", e))?;
@@ -429,7 +430,11 @@ impl Transport {
     ///
     /// **Context**: Peer has prepared a blob, we fetch it via iroh-blobs
     /// **Flow**: Connect to peer with blobs ALPN, stream download, verify hash
-    pub async fn download_blob(&self, hash: iroh_blobs::Hash, from_node: NodeId) -> Result<Vec<u8>> {
+    pub async fn download_blob(
+        &self,
+        hash: iroh_blobs::Hash,
+        from_node: NodeId,
+    ) -> Result<Vec<u8>> {
         info!(hash = %hash, from = %from_node, "Downloading blob from peer");
 
         // Create downloader and fetch from peer
@@ -449,7 +454,8 @@ impl Transport {
     ///
     /// **Context**: Blob already exists locally (uploaded or downloaded)
     pub async fn get_blob(&self, hash: iroh_blobs::Hash) -> Result<Vec<u8>> {
-        let bytes = self.blob_store
+        let bytes = self
+            .blob_store
             .blobs()
             .get_bytes(hash)
             .await
@@ -459,11 +465,7 @@ impl Transport {
 
     /// Check if a blob exists in local store
     pub async fn has_blob(&self, hash: iroh_blobs::Hash) -> bool {
-        self.blob_store
-            .blobs()
-            .has(hash)
-            .await
-            .unwrap_or(false)
+        self.blob_store.blobs().has(hash).await.unwrap_or(false)
     }
 
     /// Remove blob from local store (cleanup after transfer)

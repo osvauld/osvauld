@@ -11,15 +11,10 @@ use courier::{CourierEvent, CourierHandle};
 use sthalam_shell::Shell;
 use tokio::sync::{mpsc::Receiver, watch};
 
-/// Spawn event listener for courier events
+/// Spawn event listener for courier events.
 ///
-/// **Context**: Listens for P2P events from Courier and updates UI + storage.
-/// On PeerDisconnected, spawns a background reconnection task with exponential
-/// backoff. On PeerAuthenticated, cancels any pending reconnection for that node.
-///
-/// Handles: PeerAuthenticated, ConnectionFailed, PeerDisconnected,
-/// SpacePublished, PublishFailed, ShareableLinkReceived,
-/// ViewerSpaceReceived, ViewerSyncComplete
+/// On PeerDisconnected spawns a background reconnect task with exponential
+/// backoff; PeerAuthenticated cancels any pending reconnect for that node.
 pub fn spawn_event_listener(
     mut event_rx: Receiver<CourierEvent>,
     shell_weak: slint::Weak<Shell>,
@@ -33,10 +28,11 @@ pub fn spawn_event_listener(
 
         while let Some(event) = event_rx.recv().await {
             match event {
-                CourierEvent::PeerAuthenticated { node_id, username, .. } => {
+                CourierEvent::PeerAuthenticated {
+                    node_id, username, ..
+                } => {
                     tracing::info!(username = %username, node_id = %node_id, "Peer authenticated");
 
-                    // Cancel any pending reconnection task for this node
                     if let Some(tx) = reconnect_cancellers.remove(&node_id) {
                         tracing::info!(node_id = %node_id, "Cancelling reconnection task — peer authenticated");
                         let _ = tx.send(true);
@@ -51,10 +47,8 @@ pub fn spawn_event_listener(
                             shell.set_show_add_modal(false);
                             shell.set_connection_string("".into());
 
-                            // Mark node as connected in storage
                             let _ = butler.nodes().set_connected(&node_id_str, true);
 
-                            // Refresh nodes list
                             let nodes = butler.nodes().list().unwrap_or_default();
                             let node_infos: Vec<sthalam_shell::NodeInfo> = nodes
                                 .iter()
@@ -88,7 +82,6 @@ pub fn spawn_event_listener(
                 CourierEvent::PeerDisconnected { node_id } => {
                     tracing::info!(node_id = %node_id, "Peer disconnected");
 
-                    // Update UI and storage
                     let shell_weak_clone = shell_weak.clone();
                     let butler_clone = butler.clone();
                     let node_id_str = node_id.clone();
@@ -106,21 +99,14 @@ pub fn spawn_event_listener(
                     })
                     .ok();
 
-                    // Cancel any existing reconnect task for this node before spawning a new one
                     if let Some(old_tx) = reconnect_cancellers.remove(&node_id) {
                         let _ = old_tx.send(true);
                     }
 
-                    // Spawn reconnection task with exponential backoff
                     let (cancel_tx, cancel_rx) = watch::channel(false);
                     reconnect_cancellers.insert(node_id.clone(), cancel_tx);
 
-                    spawn_reconnect_task(
-                        node_id,
-                        butler.clone(),
-                        handle.clone(),
-                        cancel_rx,
-                    );
+                    spawn_reconnect_task(node_id, butler.clone(), handle.clone(), cancel_rx);
                 }
                 CourierEvent::SpacePublished { node_id, space_id } => {
                     tracing::info!(space_id = %space_id, node_id = %node_id, "Space published");
@@ -134,11 +120,11 @@ pub fn spawn_event_listener(
                             shell.set_toast_is_error(false);
                             shell.set_toast_visible(true);
 
-                            // Refresh connected-nodes list with updated published state
                             let current_space_id = shell.get_current_space_id().to_string();
                             if current_space_id == published_space_id {
                                 let published_node_dids: HashSet<String> = butler
-                                    .publish().get_nodes_with_permits(&current_space_id)
+                                    .publish()
+                                    .get_nodes_with_permits(&current_space_id)
                                     .unwrap_or_default()
                                     .into_iter()
                                     .collect();
@@ -147,9 +133,16 @@ pub fn spawn_event_listener(
                                 let connected_nodes: Vec<sthalam_shell::NodeInfo> = nodes
                                     .iter()
                                     .filter(|n| n.is_connected)
-                                    .map(|n| sthalam_shell::sovereign_node_to_node_info_with_published(n, &published_node_dids))
+                                    .map(|n| {
+                                        sthalam_shell::sovereign_node_to_node_info_with_published(
+                                            n,
+                                            &published_node_dids,
+                                        )
+                                    })
                                     .collect();
-                                shell.set_connected_nodes(slint::ModelRc::new(slint::VecModel::from(connected_nodes)));
+                                shell.set_connected_nodes(slint::ModelRc::new(
+                                    slint::VecModel::from(connected_nodes),
+                                ));
                             }
                         }
                     })
@@ -202,7 +195,6 @@ pub fn spawn_event_listener(
                             shell.set_connecting_website(false);
                             shell.set_show_add_website_modal(false);
 
-                            // Refresh spaces list
                             let spaces = butler.spaces().list().unwrap_or_default();
                             let space_infos: Vec<sthalam_shell::SpaceInfo> = spaces
                                 .iter()
@@ -212,9 +204,12 @@ pub fn spawn_event_listener(
                                     app_count: 0,
                                 })
                                 .collect();
-                            shell.set_spaces(slint::ModelRc::new(slint::VecModel::from(space_infos)));
+                            shell.set_spaces(slint::ModelRc::new(slint::VecModel::from(
+                                space_infos,
+                            )));
 
-                            shell.set_toast_message(format!("Synced {} pages", pages_synced).into());
+                            shell
+                                .set_toast_message(format!("Synced {} pages", pages_synced).into());
                             shell.set_toast_is_error(false);
                             shell.set_toast_visible(true);
                         }
@@ -227,15 +222,10 @@ pub fn spawn_event_listener(
     });
 }
 
-/// Spawn a background reconnection task for a disconnected peer.
+/// Spawn a background reconnect task for a disconnected peer.
 ///
-/// **Context**: When a peer disconnects (node goes down), we retry connecting
-/// with exponential backoff. The task looks up the stored permit in Butler
-/// (sovereign nodes for owners, node contacts for viewers) and calls
-/// `handle.connect()` repeatedly until success or cancellation.
-///
-/// **Backoff schedule**: 2s, 4s, 8s, 16s, 30s, 30s, ... (max 30s, indefinite retries)
-/// **Cancellation**: Via watch channel when PeerAuthenticated is received
+/// Backoff: 2s, 4s, 8s, 16s, 30s, ... (capped at 30s, indefinite retries).
+/// Cancelled via watch channel when PeerAuthenticated arrives.
 fn spawn_reconnect_task(
     node_id: String,
     butler: Arc<Butler>,
@@ -243,7 +233,6 @@ fn spawn_reconnect_task(
     mut cancel_rx: watch::Receiver<bool>,
 ) {
     tokio::spawn(async move {
-        // Look up stored permit for this node
         let permit = find_stored_permit(&butler, &node_id);
         let permit = match permit {
             Some(p) => p,
@@ -257,14 +246,12 @@ fn spawn_reconnect_task(
         let max_delay_secs: u64 = 30;
 
         loop {
-            // Wait with cancellation support
             tokio::select! {
                 result = cancel_rx.changed() => {
                     if result.is_ok() && *cancel_rx.borrow() {
                         tracing::info!(node_id = %node_id, "Reconnection cancelled (peer authenticated)");
                         return;
                     }
-                    // Sender dropped — also stop
                     if result.is_err() {
                         return;
                     }
@@ -272,7 +259,6 @@ fn spawn_reconnect_task(
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay_secs)) => {}
             }
 
-            // Check cancellation before attempting
             if *cancel_rx.borrow() {
                 tracing::info!(node_id = %node_id, "Reconnection cancelled before attempt");
                 return;
@@ -282,9 +268,8 @@ fn spawn_reconnect_task(
 
             match handle.connect(&node_id, &permit) {
                 Ok(()) => {
-                    // connect() is fire-and-forget — it sends a message to Coordinator.
-                    // We'll get PeerAuthenticated or ConnectionFailed via the event channel.
-                    // Wait a bit for the connection attempt to resolve before next retry.
+                    // connect() is fire-and-forget; PeerAuthenticated/ConnectionFailed
+                    // resolve it asynchronously via the event channel. Pause before next retry.
                     tokio::select! {
                         result = cancel_rx.changed() => {
                             if result.is_ok() && *cancel_rx.borrow() {
@@ -296,7 +281,6 @@ fn spawn_reconnect_task(
                             }
                         }
                         _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
-                            // Connection attempt didn't resolve yet; will retry
                             tracing::debug!(node_id = %node_id, "Reconnection attempt timed out, will retry");
                         }
                     }
@@ -306,18 +290,14 @@ fn spawn_reconnect_task(
                 }
             }
 
-            // Exponential backoff, capped at max_delay_secs
             delay_secs = (delay_secs * 2).min(max_delay_secs);
         }
     });
 }
 
-/// Look up stored permit for a node from Butler storage.
-///
-/// **Context**: Checks both sovereign nodes (owner-side) and node contacts
-/// (viewer-side) since either type of peer may need reconnection.
+/// Look up stored permit for a node, checking both sovereign nodes (owner-side)
+/// and node contacts (viewer-side).
 fn find_stored_permit(butler: &Butler, node_id: &str) -> Option<String> {
-    // Owner-side: check sovereign nodes
     let nodes = butler.nodes().list().unwrap_or_default();
     for node in &nodes {
         if node.node_id == node_id {
@@ -327,7 +307,6 @@ fn find_stored_permit(butler: &Butler, node_id: &str) -> Option<String> {
         }
     }
 
-    // Viewer-side: check node contacts
     let contacts = butler.contacts().list_nodes().unwrap_or_default();
     for contact in &contacts {
         if contact.node_id.as_deref() == Some(node_id) {

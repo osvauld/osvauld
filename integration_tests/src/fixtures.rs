@@ -39,10 +39,7 @@ pub fn app_dir(name: &str) -> PathBuf {
 /// Initialize tracing for tests (idempotent)
 pub fn init_tracing() {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::from_default_env()
-                .add_directive("info".parse().unwrap()),
-        )
+        .with_env_filter(EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
         .try_init();
 }
 

@@ -451,31 +451,78 @@ class ControlClient:
         return self.send("eval", {"code": code})
 
     # ============================================================
-    # UI automation
+    # UI automation (synthetic pointer events on the live winit window)
     # ============================================================
 
-    def ui_click(self, label: str) -> None:
-        """Click an element by accessible-label."""
-        self.send("ui_click", {"label": label})
+    def ui_window_size(self) -> tuple:
+        """Get the current window's logical (width, height) in pixels."""
+        result = self.send("ui_window_size")
+        if isinstance(result, dict):
+            return (result.get("width", 0.0), result.get("height", 0.0))
+        return (0.0, 0.0)
 
-    def ui_type(self, label: str, text: str) -> None:
-        """Type text into an element by accessible-label."""
-        self.send("ui_type", {"label": label, "text": text})
+    def ui_mouse_move(self, x: float, y: float) -> None:
+        """Synthesize a mouse-move at logical (x, y)."""
+        self.send("ui_mouse_move", {"x": x, "y": y})
 
-    def ui_get_text(self, label: str) -> str:
-        """Get text from an element by accessible-label."""
-        result = self.send("ui_get_text", {"label": label})
-        return result.get("value", "") if isinstance(result, dict) else str(result)
+    def ui_mouse_press(self, x: float, y: float, button: str = "left") -> None:
+        """Synthesize a mouse-press at logical (x, y). button = left|right|middle."""
+        self.send("ui_mouse_press", {"x": x, "y": y, "button": button})
 
-    def ui_get_screen(self) -> str:
-        """Get the current screen name."""
-        result = self.send("ui_get_screen")
-        return result.get("screen", "") if isinstance(result, dict) else ""
+    def ui_mouse_release(self, x: float, y: float, button: str = "left") -> None:
+        """Synthesize a mouse-release at logical (x, y)."""
+        self.send("ui_mouse_release", {"x": x, "y": y, "button": button})
 
-    def ui_list_elements(self) -> list:
-        """List all accessible UI elements (for debugging)."""
-        result = self.send("ui_list_elements")
-        return result.get("elements", []) if isinstance(result, dict) else []
+    def ui_mouse_drag(
+        self,
+        from_x: float,
+        from_y: float,
+        to_x: float,
+        to_y: float,
+        steps: int = 30,
+        button: str = "left",
+    ) -> dict:
+        """Synthesize a drag: press at (from_x, from_y), interpolate over `steps`
+        timer ticks to (to_x, to_y), then release. Returns immediately after the
+        press; motion happens asynchronously over ~steps * 100ms."""
+        return self.send(
+            "ui_mouse_drag",
+            {
+                "from_x": from_x,
+                "from_y": from_y,
+                "to_x": to_x,
+                "to_y": to_y,
+                "steps": steps,
+                "button": button,
+            },
+        )
+
+    def ui_screenshot(self, path: str) -> str:
+        """Snapshot the live window and save as PNG. Returns the saved path."""
+        result = self.send("ui_screenshot", {"path": path})
+        return result.get("path", path) if isinstance(result, dict) else path
+
+    def ui_record_start(
+        self,
+        gif_path: str,
+        states_path: str,
+        captures: Optional[list] = None,
+    ) -> dict:
+        """Begin a recording. Each timer tick (~100ms) a frame is captured
+        plus the configured global properties as a JSON state object.
+
+        captures: list of {"name", "global", "prop"} dicts. If None or empty,
+        defaults to the full DragController observable set.
+        """
+        params = {"gif_path": gif_path, "states_path": states_path}
+        if captures:
+            params["captures"] = captures
+        return self.send("ui_record_start", params)
+
+    def ui_record_stop(self) -> dict:
+        """Flush the in-flight recording: encode GIF + write JSONL.
+        Returns {"gif_path", "states_path"}."""
+        return self.send("ui_record_stop")
 
     # ============================================================
     # Asset commands

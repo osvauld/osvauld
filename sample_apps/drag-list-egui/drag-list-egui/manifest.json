@@ -1,0 +1,7 @@
+{
+    "name": "Drag List (egui)",
+    "version": "0.1.0",
+    "description": "Draggable, reorderable list — phase 3 demo for renderer_egui.",
+    "entry_logic": "app.lua",
+    "renderer": "egui"
+}

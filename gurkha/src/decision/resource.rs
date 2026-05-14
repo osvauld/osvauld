@@ -230,7 +230,8 @@ pub fn decide_page_owner_token_from_policy(
         build_node_template(&layers, &dynamic_schemas, &policy_json, &viewer_template);
     let layer_authority_template = json!({
         "token_type": "layer_authority",
-        "relationship": "layer_authority"
+        "relationship": "layer_authority",
+        "osv_policy": policy_json
     });
 
     decision.add_fact(
@@ -320,7 +321,8 @@ fn build_node_template(
 ) -> Value {
     let layer_authority_template = json!({
         "token_type": "layer_authority",
-        "relationship": "layer_authority"
+        "relationship": "layer_authority",
+        "osv_policy": policy_json
     });
 
     let mut template = serde_json::Map::new();

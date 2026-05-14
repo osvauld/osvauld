@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 use crate::canvas_bindings::{parse_color, DrawCommand};
+use crate::synth::SharedSynth;
 
 /// Game loop state
 pub struct GameLoop {
@@ -27,6 +28,8 @@ pub struct GameLoop {
     draw_commands: Arc<Mutex<Vec<DrawCommand>>>,
     /// Channel for receiving page updates (ephemeral, peer join/leave)
     page_update_rx: mpsc::Receiver<PageUpdate>,
+    /// Shared synthesizer — Lua loads music_ir, runtime fills AudioStream
+    synth: SharedSynth,
 }
 
 impl GameLoop {
@@ -38,6 +41,7 @@ impl GameLoop {
         butler: Arc<Butler>,
         scribe_ref: ActorRef<ScribeMessage>,
         our_did: String,
+        synth: SharedSynth,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let lua = Lua::new();
         let draw_commands = Arc::new(Mutex::new(Vec::new()));
@@ -62,6 +66,7 @@ impl GameLoop {
             our_did,
             draw_commands,
             page_update_rx: rx,
+            synth,
         })
     }
 
@@ -83,7 +88,10 @@ impl GameLoop {
 
         // Call on_init if it exists
         if let Ok(init_fn) = self.lua.globals().get::<Function>("on_init") {
-            init_fn.call::<()>(())?;
+            if let Err(e) = init_fn.call::<()>(()) {
+                tracing::error!(page_id = %self.page_id, error = %e, "Lua on_init() error");
+                return Err(Box::new(e));
+            }
             tracing::debug!(page_id = %self.page_id, "Called on_init");
         }
 
@@ -94,12 +102,10 @@ impl GameLoop {
     fn register_canvas_bindings(&self) -> Result<(), Box<dyn std::error::Error>> {
         let globals = self.lua.globals();
 
-        // Create canvas table
         let canvas = self.lua.create_table()?;
 
-        // Note: All canvas methods use colon syntax (canvas:method), so self is passed as first arg
+        // All canvas methods use colon syntax (canvas:method), so self is passed as first arg.
 
-        // canvas:clear(color)
         let cmds = self.draw_commands.clone();
         let clear_fn =
             self.lua
@@ -110,7 +116,6 @@ impl GameLoop {
                 })?;
         canvas.set("clear", clear_fn)?;
 
-        // canvas:rect(x, y, w, h, color)
         let cmds = self.draw_commands.clone();
         let rect_fn = self.lua.create_function(
             move |_, (_self, x, y, w, h, color): (mlua::Value, f32, f32, f32, f32, String)| {
@@ -123,7 +128,6 @@ impl GameLoop {
         )?;
         canvas.set("rect", rect_fn)?;
 
-        // canvas:circle(x, y, r, color)
         let cmds = self.draw_commands.clone();
         let circle_fn = self.lua.create_function(
             move |_, (_self, x, y, r, color): (mlua::Value, f32, f32, f32, String)| {
@@ -136,7 +140,6 @@ impl GameLoop {
         )?;
         canvas.set("circle", circle_fn)?;
 
-        // canvas:text(x, y, text, size, color)
         let cmds = self.draw_commands.clone();
         let text_fn = self.lua.create_function(
             move |_,
@@ -161,7 +164,6 @@ impl GameLoop {
         )?;
         canvas.set("text", text_fn)?;
 
-        // canvas:line(x1, y1, x2, y2, color)
         let cmds = self.draw_commands.clone();
         let line_fn = self.lua.create_function(
             move |_, (_self, x1, y1, x2, y2, color): (mlua::Value, f32, f32, f32, f32, String)| {
@@ -178,13 +180,115 @@ impl GameLoop {
         )?;
         canvas.set("line", line_fn)?;
 
+        let cmds = self.draw_commands.clone();
+        let begin_3d_fn = self.lua.create_function(
+            move |_,
+                  (_self, cam_x, cam_y, cam_z, target_x, target_y, target_z, fovy): (
+                mlua::Value,
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+            )| {
+                cmds.lock().unwrap().push(DrawCommand::BeginMode3D {
+                    cam_x,
+                    cam_y,
+                    cam_z,
+                    target_x,
+                    target_y,
+                    target_z,
+                    fovy,
+                });
+                Ok(())
+            },
+        )?;
+        canvas.set("begin_3d", begin_3d_fn)?;
+
+        let cmds = self.draw_commands.clone();
+        let end_3d_fn = self.lua.create_function(move |_, _self: mlua::Value| {
+            cmds.lock().unwrap().push(DrawCommand::EndMode3D);
+            Ok(())
+        })?;
+        canvas.set("end_3d", end_3d_fn)?;
+
+        let cmds = self.draw_commands.clone();
+        let sphere_fn = self.lua.create_function(
+            move |_, (_self, x, y, z, r, color): (mlua::Value, f32, f32, f32, f32, String)| {
+                let color = parse_color(&color);
+                cmds.lock()
+                    .unwrap()
+                    .push(DrawCommand::Sphere3D { x, y, z, r, color });
+                Ok(())
+            },
+        )?;
+        canvas.set("sphere", sphere_fn)?;
+
+        let cmds = self.draw_commands.clone();
+        let line3d_fn = self.lua.create_function(
+            move |_,
+                  (_self, x1, y1, z1, x2, y2, z2, color): (
+                mlua::Value,
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+                String,
+            )| {
+                let color = parse_color(&color);
+                cmds.lock().unwrap().push(DrawCommand::Line3D {
+                    x1,
+                    y1,
+                    z1,
+                    x2,
+                    y2,
+                    z2,
+                    color,
+                });
+                Ok(())
+            },
+        )?;
+        canvas.set("line3d", line3d_fn)?;
+
+        let cmds = self.draw_commands.clone();
+        let cyl_fn = self.lua.create_function(
+            move |_,
+                  (_self, x1, y1, z1, x2, y2, z2, radius, color): (
+                mlua::Value,
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+                String,
+            )| {
+                let color = parse_color(&color);
+                cmds.lock().unwrap().push(DrawCommand::Cylinder3D {
+                    x1,
+                    y1,
+                    z1,
+                    x2,
+                    y2,
+                    z2,
+                    radius,
+                    color,
+                });
+                Ok(())
+            },
+        )?;
+        canvas.set("cylinder3d", cyl_fn)?;
+
         globals.set("canvas", canvas)?;
 
-        // Create input table
         let input = self.lua.create_table()?;
 
-        // input:key_down(key) - will be populated in handle_input
-        // Note: Using colon syntax (input:key_down) passes self as first arg
+        // Stub: real key_down is installed per-frame in handle_input.
         let key_down_fn = self
             .lua
             .create_function(|_, (_self, _key): (mlua::Value, String)| Ok(false))?;
@@ -192,12 +296,38 @@ impl GameLoop {
 
         globals.set("input", input)?;
 
+        // audio: Lua calls play_music_ir / stop / is_playing.
+        let audio_tbl = self.lua.create_table()?;
+
+        let synth_play = self.synth.clone();
+        let play_fn = self.lua.create_function(
+            move |_, (_self, json, energy): (mlua::Value, String, f32)| {
+                synth_play.lock().unwrap().load_music_ir(&json, energy);
+                Ok(())
+            },
+        )?;
+        audio_tbl.set("play_music_ir", play_fn)?;
+
+        let synth_stop = self.synth.clone();
+        let stop_fn = self.lua.create_function(move |_, _self: mlua::Value| {
+            synth_stop.lock().unwrap().stop();
+            Ok(())
+        })?;
+        audio_tbl.set("stop", stop_fn)?;
+
+        let synth_check = self.synth.clone();
+        let playing_fn = self.lua.create_function(move |_, _self: mlua::Value| {
+            Ok(synth_check.lock().unwrap().is_playing())
+        })?;
+        audio_tbl.set("is_playing", playing_fn)?;
+
+        globals.set("audio", audio_tbl)?;
+
         Ok(())
     }
 
     /// Handle input (called before update)
-    pub fn handle_input(&mut self, rl: &RaylibHandle) {
-        // Poll key states into a HashMap (owned data)
+    pub fn handle_input(&mut self, rl: &mut RaylibHandle) {
         let mut key_states: HashMap<String, bool> = HashMap::new();
         key_states.insert("w".to_string(), rl.is_key_down(KeyboardKey::KEY_W));
         key_states.insert("up".to_string(), rl.is_key_down(KeyboardKey::KEY_UP));
@@ -208,46 +338,133 @@ impl GameLoop {
         key_states.insert("d".to_string(), rl.is_key_down(KeyboardKey::KEY_D));
         key_states.insert("right".to_string(), rl.is_key_down(KeyboardKey::KEY_RIGHT));
         key_states.insert("space".to_string(), rl.is_key_down(KeyboardKey::KEY_SPACE));
-        key_states.insert("enter".to_string(), rl.is_key_down(KeyboardKey::KEY_ENTER));
+        key_states.insert(
+            "enter".to_string(),
+            rl.is_key_pressed(KeyboardKey::KEY_ENTER),
+        );
+        key_states.insert(
+            "backspace".to_string(),
+            rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE),
+        );
         key_states.insert(
             "escape".to_string(),
             rl.is_key_down(KeyboardKey::KEY_ESCAPE),
         );
         key_states.insert("r".to_string(), rl.is_key_down(KeyboardKey::KEY_R));
+        // Preset camera-view keys (graph-camera-interaction.om: key-1/2/3-ahara)
+        key_states.insert("1".to_string(), rl.is_key_pressed(KeyboardKey::KEY_ONE));
+        key_states.insert("2".to_string(), rl.is_key_pressed(KeyboardKey::KEY_TWO));
+        key_states.insert("3".to_string(), rl.is_key_pressed(KeyboardKey::KEY_THREE));
 
-        // Update input bindings based on current key state
+        let mut chars_this_frame = String::new();
+        while let Some(c) = rl.get_char_pressed() {
+            chars_this_frame.push(c);
+        }
+
+        let mouse_pos = rl.get_mouse_position();
+        let mouse_clicked = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT);
+        let mouse_down = rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT);
+        let mouse_right_down = rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_RIGHT);
+        let mouse_delta = rl.get_mouse_delta();
+        let mouse_wheel = rl.get_mouse_wheel_move();
+
         let globals = self.lua.globals();
         if let Ok(input) = globals.get::<Table>("input") {
-            // Create closure that captures the polled key states
-            // Note: Using colon syntax (input:key_down) passes self as first arg
+            let ks = key_states.clone();
             let key_down_fn =
                 self.lua
                     .create_function(move |_, (_self, key): (mlua::Value, String)| {
                         let key_lower = key.to_lowercase();
-                        // Check for combined keys (w/up, s/down, etc.)
                         let is_down = match key_lower.as_str() {
                             "w" | "up" => {
-                                *key_states.get("w").unwrap_or(&false)
-                                    || *key_states.get("up").unwrap_or(&false)
+                                *ks.get("w").unwrap_or(&false) || *ks.get("up").unwrap_or(&false)
                             }
                             "s" | "down" => {
-                                *key_states.get("s").unwrap_or(&false)
-                                    || *key_states.get("down").unwrap_or(&false)
+                                *ks.get("s").unwrap_or(&false) || *ks.get("down").unwrap_or(&false)
                             }
                             "a" | "left" => {
-                                *key_states.get("a").unwrap_or(&false)
-                                    || *key_states.get("left").unwrap_or(&false)
+                                *ks.get("a").unwrap_or(&false) || *ks.get("left").unwrap_or(&false)
                             }
                             "d" | "right" => {
-                                *key_states.get("d").unwrap_or(&false)
-                                    || *key_states.get("right").unwrap_or(&false)
+                                *ks.get("d").unwrap_or(&false) || *ks.get("right").unwrap_or(&false)
                             }
-                            _ => *key_states.get(&key_lower).unwrap_or(&false),
+                            _ => *ks.get(&key_lower).unwrap_or(&false),
                         };
                         Ok(is_down)
                     });
             if let Ok(key_fn) = key_down_fn {
                 let _ = input.set("key_down", key_fn);
+            }
+
+            // key_pressed: single press this frame (enter/backspace use is_key_pressed above).
+            let ks2 = key_states.clone();
+            let key_pressed_fn =
+                self.lua
+                    .create_function(move |_, (_self, key): (mlua::Value, String)| {
+                        let key_lower = key.to_lowercase();
+                        Ok(*ks2.get(&key_lower).unwrap_or(&false))
+                    });
+            if let Ok(kp_fn) = key_pressed_fn {
+                let _ = input.set("key_pressed", kp_fn);
+            }
+
+            let chars = chars_this_frame.clone();
+            let chars_fn = self
+                .lua
+                .create_function(move |_, _self: mlua::Value| Ok(chars.clone()));
+            if let Ok(cf) = chars_fn {
+                let _ = input.set("chars", cf);
+            }
+
+            let mx = mouse_pos.x;
+            let my = mouse_pos.y;
+            let mouse_pos_fn = self
+                .lua
+                .create_function(move |_, _self: mlua::Value| Ok((mx, my)));
+            if let Ok(mpf) = mouse_pos_fn {
+                let _ = input.set("mouse_pos", mpf);
+            }
+
+            let clicked = mouse_clicked;
+            if let Ok(mcf) = self
+                .lua
+                .create_function(move |_, _self: mlua::Value| Ok(clicked))
+            {
+                let _ = input.set("mouse_clicked", mcf);
+            }
+
+            let down = mouse_down;
+            if let Ok(mdf) = self
+                .lua
+                .create_function(move |_, _self: mlua::Value| Ok(down))
+            {
+                let _ = input.set("mouse_down", mdf);
+            }
+
+            // right button — used by orbit-kriya in 3D scenes
+            let rdown = mouse_right_down;
+            if let Ok(mrdf) = self
+                .lua
+                .create_function(move |_, _self: mlua::Value| Ok(rdown))
+            {
+                let _ = input.set("mouse_right_down", mrdf);
+            }
+
+            let dx = mouse_delta.x;
+            let dy = mouse_delta.y;
+            if let Ok(mdf2) = self
+                .lua
+                .create_function(move |_, _self: mlua::Value| Ok((dx, dy)))
+            {
+                let _ = input.set("mouse_delta", mdf2);
+            }
+
+            let wheel = mouse_wheel;
+            if let Ok(mwf) = self
+                .lua
+                .create_function(move |_, _self: mlua::Value| Ok(wheel))
+            {
+                let _ = input.set("mouse_wheel", mwf);
             }
         }
     }
@@ -255,37 +472,46 @@ impl GameLoop {
     /// Update game state (call update(dt))
     pub fn update(&mut self, dt: f32) -> Result<(), Box<dyn std::error::Error>> {
         if let Ok(update_fn) = self.lua.globals().get::<Function>("update") {
-            update_fn.call::<()>(dt)?;
+            if let Err(e) = update_fn.call::<()>(dt) {
+                tracing::error!(page_id = %self.page_id, error = %e, "Lua update() error");
+                return Err(Box::new(e));
+            }
         }
         Ok(())
     }
 
     /// Draw frame (call draw())
     pub fn draw(&mut self, d: &mut RaylibDrawHandle) -> Result<(), Box<dyn std::error::Error>> {
-        // Clear with default color (may be overridden by Lua)
+        // Default clear; Lua may override via canvas:clear().
         d.clear_background(Color::BLACK);
 
-        // Call Lua draw function to populate draw_commands
         if let Ok(draw_fn) = self.lua.globals().get::<Function>("draw") {
-            draw_fn.call::<()>(())?;
+            if let Err(e) = draw_fn.call::<()>(()) {
+                tracing::error!(page_id = %self.page_id, error = %e, "Lua draw() error");
+                return Err(Box::new(e));
+            }
         }
 
-        // Execute draw commands collected from Lua
         let commands: Vec<DrawCommand> = {
             let mut cmds = self.draw_commands.lock().unwrap();
             std::mem::take(&mut *cmds)
         };
 
-        for command in commands {
-            match command {
+        // Walk commands in order, entering mode3D on BeginMode3D and exiting on EndMode3D.
+        let mut i = 0;
+        while i < commands.len() {
+            match &commands[i] {
                 DrawCommand::Clear { color } => {
-                    d.clear_background(color);
+                    d.clear_background(*color);
+                    i += 1;
                 }
                 DrawCommand::Rect { x, y, w, h, color } => {
-                    d.draw_rectangle(x as i32, y as i32, w as i32, h as i32, color);
+                    d.draw_rectangle(*x as i32, *y as i32, *w as i32, *h as i32, *color);
+                    i += 1;
                 }
                 DrawCommand::Circle { x, y, r, color } => {
-                    d.draw_circle(x as i32, y as i32, r, color);
+                    d.draw_circle(*x as i32, *y as i32, *r, *color);
+                    i += 1;
                 }
                 DrawCommand::Text {
                     x,
@@ -294,7 +520,8 @@ impl GameLoop {
                     size,
                     color,
                 } => {
-                    d.draw_text(&text, x as i32, y as i32, size as i32, color);
+                    d.draw_text(text, *x as i32, *y as i32, *size as i32, *color);
+                    i += 1;
                 }
                 DrawCommand::Line {
                     x1,
@@ -303,7 +530,88 @@ impl GameLoop {
                     y2,
                     color,
                 } => {
-                    d.draw_line(x1 as i32, y1 as i32, x2 as i32, y2 as i32, color);
+                    d.draw_line(*x1 as i32, *y1 as i32, *x2 as i32, *y2 as i32, *color);
+                    i += 1;
+                }
+                DrawCommand::BeginMode3D {
+                    cam_x,
+                    cam_y,
+                    cam_z,
+                    target_x,
+                    target_y,
+                    target_z,
+                    fovy,
+                } => {
+                    let camera = Camera3D::perspective(
+                        Vector3::new(*cam_x, *cam_y, *cam_z),
+                        Vector3::new(*target_x, *target_y, *target_z),
+                        Vector3::new(0.0, 1.0, 0.0),
+                        *fovy,
+                    );
+                    let mut mode3d = d.begin_mode3D(camera);
+                    i += 1;
+                    while i < commands.len() {
+                        match &commands[i] {
+                            DrawCommand::EndMode3D => {
+                                i += 1;
+                                break;
+                            }
+                            DrawCommand::Sphere3D { x, y, z, r, color } => {
+                                mode3d.draw_sphere(Vector3::new(*x, *y, *z), *r, *color);
+                                i += 1;
+                            }
+                            DrawCommand::Line3D {
+                                x1,
+                                y1,
+                                z1,
+                                x2,
+                                y2,
+                                z2,
+                                color,
+                            } => {
+                                mode3d.draw_line_3D(
+                                    Vector3::new(*x1, *y1, *z1),
+                                    Vector3::new(*x2, *y2, *z2),
+                                    *color,
+                                );
+                                i += 1;
+                            }
+                            DrawCommand::Cylinder3D {
+                                x1,
+                                y1,
+                                z1,
+                                x2,
+                                y2,
+                                z2,
+                                radius,
+                                color,
+                            } => {
+                                // draw_cylinder_ex: start_pos, end_pos, start_r, end_r, slices.
+                                mode3d.draw_cylinder_ex(
+                                    Vector3::new(*x1, *y1, *z1),
+                                    Vector3::new(*x2, *y2, *z2),
+                                    *radius,
+                                    *radius,
+                                    8,
+                                    *color,
+                                );
+                                i += 1;
+                            }
+                            // 2D commands inside a 3D block — skip gracefully
+                            _ => {
+                                i += 1;
+                            }
+                        }
+                    }
+                }
+                DrawCommand::EndMode3D => {
+                    i += 1;
+                } // stray end — ignore
+                DrawCommand::Sphere3D { .. }
+                | DrawCommand::Line3D { .. }
+                | DrawCommand::Cylinder3D { .. } => {
+                    // 3D commands outside a BeginMode3D block — ignore
+                    i += 1;
                 }
             }
         }

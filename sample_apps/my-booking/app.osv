@@ -1,15 +1,13 @@
-app "my-booking" version "1.0.0" {
+app "my-booking" version "2.0.0" {
   role owner can share, delegate, accept_publish;
   role node can relay, share, accept_publish;
   role customer;
 
   ui_app "Service Provider" {
-    entry "service-provider/app.lua";
     allow owner;
   }
 
   ui_app "Service Customer" {
-    entry "service-customer/app.lua";
-    allow customer,owner,node;
+    allow customer, owner, node;
   }
 }

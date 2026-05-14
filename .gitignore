@@ -3,6 +3,9 @@
 recordings/
 Cargo.lock
 
+.env
+.agent-workspace/
+.agent-workspaces/
 # Python
 __pycache__/
 *.pyc

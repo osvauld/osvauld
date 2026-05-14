@@ -54,9 +54,12 @@ impl Tracer {
     pub fn assert_sequence(&self, expected: &[&str]) {
         let actual = self.sequence();
         assert_eq!(
-            actual, expected,
+            actual,
+            expected,
             "\nMessage sequence mismatch!\nExpected: {:?}\nActual:   {:?}\n\nFull trace:\n{}",
-            expected, actual, self.format_trace()
+            expected,
+            actual,
+            self.format_trace()
         );
     }
 
@@ -87,9 +90,13 @@ impl Tracer {
     pub fn assert_count(&self, msg_type: &str, expected: usize) {
         let actual = self.messages_of_type(msg_type).len();
         assert_eq!(
-            actual, expected,
+            actual,
+            expected,
             "\nCount mismatch for '{}'! Expected: {}, Actual: {}\n\nFull trace:\n{}",
-            msg_type, expected, actual, self.format_trace()
+            msg_type,
+            expected,
+            actual,
+            self.format_trace()
         );
     }
 

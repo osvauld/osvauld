@@ -6,21 +6,21 @@
 //! We set up observers for all layers at startup so that both UI notifications and
 //! peer broadcasts are handled through the observer pattern (no manual callbacks needed).
 
-use base64::Engine;
 use loro::event::{Diff, DiffEvent, ListDiffItem};
-use loro::{LoroValue, ValueOrContainer};
+use loro::{TreeDiffItem, TreeExternalDiff, TreeParentId, ValueOrContainer};
 use tokio::sync::mpsc;
 use tracing::{debug, info, instrument, warn};
 
-use crate::message::{BroadcastPayload, ListOp, LoroDelta, PageUpdate};
+use crate::message::{BroadcastPayload, ListOp, LoroDelta, PageUpdate, TextOp, TreeOp};
+use loro::TextDelta;
 use crate::policy_compat;
 use crate::state::ScribeState;
-use domains::JsonOp;
+use domains::{OpKind, Parivarta, Sthithi};
 
 /// Data sent through observer channel (delta + ops for reactive bindings)
 struct ObserverSignal {
     delta: Option<LoroDelta>,
-    ops: Vec<JsonOp>,
+    ops: Vec<Parivarta>,
     /// Source of the change: None = local, Some = remote peer (user_did, device_id)
     /// Used for sender exclusion in broadcasts
     from_peer: Option<(String, String)>,
@@ -28,12 +28,12 @@ struct ObserverSignal {
 
 // Delta Conversion Helpers
 
-/// Convert DiffEvent to structured JsonOps for reactive bindings
+/// Convert DiffEvent to structured Parivarta ops for reactive bindings
 ///
 /// **Context**: Observer receives DiffEvent on Loro changes
 /// **We do**: Extract structured ops (insert/update/delete) with keys/values
 /// **Used by**: Lua's on_loro_change(layer, ops, full_data) for surgical UI updates
-pub fn diff_event_to_ops(diff_event: &DiffEvent) -> Vec<JsonOp> {
+pub fn diff_event_to_ops(diff_event: &DiffEvent) -> Vec<Parivarta> {
     let mut ops = Vec::new();
 
     for container_diff in &diff_event.events {
@@ -47,14 +47,17 @@ pub fn diff_event_to_ops(diff_event: &DiffEvent) -> Vec<JsonOp> {
                     match item {
                         ListDiffItem::Insert { insert, .. } => {
                             for (i, value) in insert.iter().enumerate() {
-                                let json_value = value_or_container_to_json(value);
-                                ops.push(JsonOp {
-                                    op: "insert".to_string(),
+                                let sthithi_value = value_or_container_to_sthithi(value);
+                                ops.push(Parivarta {
+                                    layer: String::new(),
+                                    op: OpKind::Insert,
                                     path: path.clone(),
                                     key: None,
                                     index: Some(pos + i),
-                                    value: Some(json_value),
+                                    value: Some(sthithi_value),
                                     old_value: None,
+                                    intent: None,
+                                    from_peer: None,
                                 });
                             }
                             pos += insert.len();
@@ -62,13 +65,16 @@ pub fn diff_event_to_ops(diff_event: &DiffEvent) -> Vec<JsonOp> {
                         ListDiffItem::Delete { delete } => {
                             // Each delete is a single op
                             for _ in 0..*delete {
-                                ops.push(JsonOp {
-                                    op: "delete".to_string(),
+                                ops.push(Parivarta {
+                                    layer: String::new(),
+                                    op: OpKind::Delete,
                                     path: path.clone(),
                                     key: None,
                                     index: Some(pos),
                                     value: None,
                                     old_value: None,
+                                    intent: None,
+                                    from_peer: None,
                                 });
                             }
                             // Position doesn't advance for deletes
@@ -83,27 +89,33 @@ pub fn diff_event_to_ops(diff_event: &DiffEvent) -> Vec<JsonOp> {
 
             Diff::Map(map_delta) => {
                 for (key, value) in map_delta.updated.iter() {
-                    let json_value = value.as_ref().map(|v| value_or_container_to_json(v));
+                    let sthithi_value = value.as_ref().map(|v| value_or_container_to_sthithi(v));
 
-                    if let Some(val) = json_value {
-                        // Could be insert or update - we use "set" for both
-                        ops.push(JsonOp {
-                            op: "set".to_string(),
+                    if let Some(val) = sthithi_value {
+                        // Could be insert or update - we use Set for both
+                        ops.push(Parivarta {
+                            layer: String::new(),
+                            op: OpKind::Set,
                             path: path.clone(),
                             key: Some(key.to_string()),
                             index: None,
                             value: Some(val),
                             old_value: None,
+                            intent: None,
+                            from_peer: None,
                         });
                     } else {
                         // Value is None = deletion
-                        ops.push(JsonOp {
-                            op: "delete".to_string(),
+                        ops.push(Parivarta {
+                            layer: String::new(),
+                            op: OpKind::Delete,
                             path: path.clone(),
                             key: Some(key.to_string()),
                             index: None,
                             value: None,
                             old_value: None,
+                            intent: None,
+                            from_peer: None,
                         });
                     }
                 }
@@ -125,7 +137,7 @@ pub fn diff_event_to_ops(diff_event: &DiffEvent) -> Vec<JsonOp> {
 
 /// Convert Loro's Diff to our LoroDelta format
 ///
-/// **Context**: Loro observer provides Diff on changes, we convert to JSON-serializable format
+/// **Context**: Loro observer provides Diff on changes, we convert to Sthithi-based format
 /// **Returns**: LoroDelta for List/Map/Text containers, None for unsupported types
 pub fn convert_loro_diff_to_delta(diff: &Diff) -> Option<LoroDelta> {
     match diff {
@@ -135,10 +147,9 @@ pub fn convert_loro_diff_to_delta(diff: &Diff) -> Option<LoroDelta> {
                 .map(|item| {
                     match item {
                         ListDiffItem::Insert { insert, .. } => {
-                            // Convert ValueOrContainer to JSON values
                             let values = insert
                                 .iter()
-                                .map(|v| value_or_container_to_json(v))
+                                .map(value_or_container_to_sthithi)
                                 .collect();
                             ListOp::Insert { values }
                         }
@@ -156,12 +167,27 @@ pub fn convert_loro_diff_to_delta(diff: &Diff) -> Option<LoroDelta> {
                 .updated
                 .iter()
                 .map(|(k, v)| {
-                    let value = v.as_ref().map(|v| value_or_container_to_json(v));
+                    let value = v.as_ref().map(value_or_container_to_sthithi);
                     (k.to_string(), value)
                 })
                 .collect();
 
             Some(LoroDelta::Map { updated })
+        }
+
+        Diff::Tree(tree_diff) => {
+            let ops = tree_diff
+                .diff
+                .iter()
+                .map(|item| tree_diff_item_to_op(item))
+                .collect();
+            Some(LoroDelta::Tree { ops })
+        }
+
+        Diff::Text(text_delta) => {
+            // Strip mark attributes for the MVP — bindings use Retain/Insert/Delete only.
+            let ops = text_delta.iter().map(text_delta_to_op).collect();
+            Some(LoroDelta::Text { ops })
         }
 
         _ => {
@@ -171,44 +197,53 @@ pub fn convert_loro_diff_to_delta(diff: &Diff) -> Option<LoroDelta> {
     }
 }
 
-/// Convert Loro ValueOrContainer to serde_json::Value
+/// Convert a Loro `TreeDiffItem` to our wire-format `TreeOp`.
 ///
-/// **Context**: Loro stores values as LoroValue or nested Containers
-/// **We do**: Extract deep value and convert to JSON
-fn value_or_container_to_json(value: &ValueOrContainer) -> serde_json::Value {
-    // Use ValueOrContainer::get_deep_value() to resolve containers
-    let deep_value = value.get_deep_value();
-    loro_value_to_json(&deep_value)
+/// **Context**: Loro tree changes carry `TreeID` + structured `TreeExternalDiff`.
+/// **We do**: Stringify ids, project parent into `Option<String>` (`None` = root).
+fn tree_diff_item_to_op(item: &TreeDiffItem) -> TreeOp {
+    let id = item.target.to_string();
+    match &item.action {
+        TreeExternalDiff::Create { parent, index, .. } => TreeOp::Create {
+            id,
+            parent: tree_parent_to_string(parent),
+            index: *index,
+        },
+        TreeExternalDiff::Move { parent, index, .. } => TreeOp::Move {
+            id,
+            parent: tree_parent_to_string(parent),
+            index: *index,
+        },
+        TreeExternalDiff::Delete { .. } => TreeOp::Delete { id },
+    }
 }
 
-/// Convert LoroValue to serde_json::Value
+/// Project a Loro `TextDelta` segment into our `TextOp` wire form.
 ///
-/// **Context**: Loro's native value type → JSON for Lua consumption
-pub fn loro_value_to_json(value: &LoroValue) -> serde_json::Value {
-    match value {
-        LoroValue::Null => serde_json::Value::Null,
-        LoroValue::Bool(b) => serde_json::Value::Bool(*b),
-        LoroValue::I64(i) => serde_json::json!(*i),
-        LoroValue::Double(f) => serde_json::json!(*f),
-        LoroValue::String(s) => serde_json::Value::String(s.to_string()),
-        LoroValue::List(arr) => {
-            serde_json::Value::Array(arr.iter().map(loro_value_to_json).collect())
-        }
-        LoroValue::Map(map) => serde_json::Value::Object(
-            map.iter()
-                .map(|(k, v)| (k.to_string(), loro_value_to_json(v)))
-                .collect(),
-        ),
-        LoroValue::Binary(bytes) => {
-            // Encode binary as base64 string
-            serde_json::Value::String(base64::engine::general_purpose::STANDARD.encode(&**bytes))
-        }
-        LoroValue::Container(_) => {
-            // Containers are resolved by get_deep_value, shouldn't appear in deltas
-            debug!("Container in delta value (unexpected), converting to null");
-            serde_json::Value::Null
-        }
+/// **Context**: Loro carries `attributes` (marks for bold/italic/links) on
+/// retain/insert. We discard them at this layer — formatting will land later.
+fn text_delta_to_op(delta: &TextDelta) -> TextOp {
+    match delta {
+        TextDelta::Retain { retain, .. } => TextOp::Retain { count: *retain },
+        TextDelta::Insert { insert, .. } => TextOp::Insert {
+            content: insert.clone(),
+        },
+        TextDelta::Delete { delete } => TextOp::Delete { count: *delete },
     }
+}
+
+fn tree_parent_to_string(parent: &TreeParentId) -> Option<String> {
+    match parent {
+        TreeParentId::Node(id) => Some(id.to_string()),
+        TreeParentId::Root => None,
+        // Deleted/Unexist surface as `None` for binding consumers — they only
+        // need to know "no live parent". Delete ops carry their own signal.
+        TreeParentId::Deleted | TreeParentId::Unexist => None,
+    }
+}
+
+fn value_or_container_to_sthithi(value: &ValueOrContainer) -> Sthithi {
+    Sthithi::from(value.get_deep_value())
 }
 
 // Startup Observer Setup
@@ -340,14 +375,15 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
             }
 
             // Check if there are page_update subscribers (Lua/UI) that need notification
-            let has_page_subscribers = if crate::sync::sync_meta::is_protocol_layer(&layer_name_for_task) {
-                false
-            } else {
-                page_update_subscribers_for_task
-                    .read()
-                    .map(|subs| !subs.is_empty())
-                    .unwrap_or(false)
-            };
+            let has_page_subscribers =
+                if crate::sync::sync_meta::is_protocol_layer(&layer_name_for_task) {
+                    false
+                } else {
+                    page_update_subscribers_for_task
+                        .read()
+                        .map(|subs| !subs.is_empty())
+                        .unwrap_or(false)
+                };
 
             // If no subscribers need notification AND we won't broadcast, skip all expensive work
             let will_broadcast = !is_local_only && !is_remote;
@@ -364,13 +400,13 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
                     Some(signal.ops.clone())
                 };
 
-                // Only compute expensive get_content() when there's no delta available.
+                // Only compute expensive get_content_sthithi() when there's no delta available.
                 // When delta is present, the binding system uses surgical updates (Insert/Set/Delete).
                 // full_data is only needed as a Replace fallback when delta is None.
                 let full_data = if signal.delta.is_some() {
                     None
                 } else {
-                    Some(layer_for_task.get_content(&layer_name_for_task))
+                    Some(layer_for_task.get_content_sthithi(&layer_name_for_task))
                 };
 
                 let page_update = PageUpdate::LayerChanged {
@@ -383,7 +419,9 @@ pub fn setup_layer_observer(state: &mut ScribeState, layer_name: &str) {
                     created: false,
                     dynamic_ref: dynamic_schemas_for_task
                         .as_ref()
-                        .and_then(|schemas| gurkha::parse_dynamic_layer(schemas, &layer_name_for_task))
+                        .and_then(|schemas| {
+                            gurkha::parse_dynamic_layer(schemas, &layer_name_for_task)
+                        })
                         .map(|parsed| crate::message::DynamicLayerMeta {
                             schema_key: parsed.schema_key,
                             creator_did: parsed.creator_did,

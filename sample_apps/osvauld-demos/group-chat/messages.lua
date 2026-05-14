@@ -25,6 +25,13 @@ function M.init(did, name)
     my_name = name
 end
 
+local function now_unix()
+    if clock and clock.count then
+        return clock:count()
+    end
+    return os.time()
+end
+
 -- Transform raw LoroMap message data to UI format
 -- Filters to top-level only, sorts by timestamp
 function M.transform_messages(messages_layer)
@@ -77,6 +84,7 @@ function M.to_ui_message(msg)
         reactions = reactions,
         has_attachment = (msg.attachment_hash and msg.attachment_hash ~= "") and true or false,
         attachment_name = msg.attachment_name or "",
+        attachment_hash = msg.attachment_hash or "",
     }
 end
 
@@ -101,13 +109,13 @@ end
 function M.send(messages_layer, text, reply_to_id, reply_preview)
     if not text or text == "" or not messages_layer then return end
 
-    local msg_id = helpers.generate_id(my_did)
+    local msg_id = helpers.generate_id()
     local msg = {
         id = msg_id,
         sender_did = my_did,
         sender_name = my_name,
         text = text,
-        timestamp = os.time(),
+        timestamp = now_unix(),
         deleted = false,
         edited = false,
         thread_parent_id = "",
@@ -127,13 +135,13 @@ end
 function M.send_with_attachment(messages_layer, text, hash, filename)
     if not messages_layer then return end
 
-    local msg_id = helpers.generate_id(my_did)
+    local msg_id = helpers.generate_id()
     local msg = {
         id = msg_id,
         sender_did = my_did,
         sender_name = my_name,
         text = text or "",
-        timestamp = os.time(),
+        timestamp = now_unix(),
         deleted = false,
         edited = false,
         thread_parent_id = "",
@@ -229,82 +237,6 @@ end
 function M.get_raw(messages_layer, msg_id)
     if not messages_layer or not msg_id then return nil end
     return messages_layer:get(msg_id)
-end
-
--- Pagination state per channel
-local PAGE_SIZE = 100
-local oldest_loaded_ts = {}  -- channel_id -> oldest timestamp in current window
-local all_loaded = {}        -- channel_id -> true if no more older messages
-
---- Load older messages for the given channel.
---- Fetches from CRDT, finds messages older than current window,
---- prepends them to UI via ui:insert("messages", 0, item).
---- Returns number of messages loaded.
-function M.load_older(channel_id, messages_layer)
-    if not messages_layer or not channel_id then return 0 end
-    if all_loaded[channel_id] then return 0 end
-
-    local cutoff_ts = oldest_loaded_ts[channel_id] or math.huge
-
-    -- Fetch all messages from CRDT, filter to top-level only
-    local older = {}
-    local keys = messages_layer:keys()
-    if not keys then return 0 end
-
-    for _, key in ipairs(keys) do
-        local msg = messages_layer:get(key)
-        if msg
-            and (not msg.thread_parent_id or msg.thread_parent_id == "")
-            and (msg.timestamp or 0) < cutoff_ts
-        then
-            table.insert(older, msg)
-        end
-    end
-
-    if #older == 0 then
-        all_loaded[channel_id] = true
-        return 0
-    end
-
-    -- Sort oldest first
-    table.sort(older, function(a, b)
-        return (a.timestamp or 0) < (b.timestamp or 0)
-    end)
-
-    -- Take only the latest PAGE_SIZE of the older messages
-    local start_idx = math.max(1, #older - PAGE_SIZE + 1)
-    local page = {}
-    for i = start_idx, #older do
-        table.insert(page, older[i])
-    end
-
-    if start_idx <= 1 then
-        all_loaded[channel_id] = true
-    end
-
-    -- Prepend to UI in order (insert at 0, pushing existing items down)
-    for i, msg in ipairs(page) do
-        ui:insert("messages", i - 1, M.to_ui_message(msg))
-    end
-
-    -- Update oldest loaded timestamp
-    if #page > 0 then
-        oldest_loaded_ts[channel_id] = page[1].timestamp or 0
-    end
-
-    return #page
-end
-
---- Reset pagination state for a channel (call on channel switch)
-function M.reset_pagination(channel_id)
-    oldest_loaded_ts[channel_id] = nil
-    all_loaded[channel_id] = nil
-end
-
---- Get total message count from CRDT (not UI window)
-function M.total_count(messages_layer)
-    if not messages_layer then return 0 end
-    return messages_layer:length()
 end
 
 return M

@@ -27,6 +27,7 @@
 //! ```
 
 use mlua::{Function, Lua, RegistryKey, Result as LuaResult, Value};
+use serde_json::Value as JsonValue;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use tracing::debug;
@@ -35,6 +36,10 @@ use crate::ui_types::{PropertyUpdate, UiMutation, VecModelOp};
 use butler::{ListOp, LoroDelta};
 
 use super::convert::{json_to_lua, lua_to_json};
+
+fn sthithi_to_json_value(value: &butler::Sthithi) -> serde_json::Value {
+    serde_json::Value::from(value)
+}
 
 /// Options for a binding (transform, key, max_items)
 ///
@@ -83,6 +88,62 @@ pub struct LayerBinding {
     pub key_index: RefCell<HashMap<String, usize>>,
 }
 
+/// A single map-key → string-property binding.
+///
+/// **Context**: text bindings sync one specific string-valued key of a map
+/// layer to a Slint scalar property. Used by `scribe:bind_text(prop, layer, key)`
+/// to back text-valued UI properties without per-app boilerplate.
+pub struct TextBinding {
+    /// Expanded layer name (e.g., "abc123/doc")
+    pub expanded_layer: String,
+    /// Map key inside the layer (e.g., "body")
+    pub key: String,
+    /// UI property to push the string into (e.g., "doc_text")
+    pub ui_property: String,
+}
+
+/// A `LoroText` layer → string-property binding.
+///
+/// **Context**: distinct from `TextBinding` (which projects one key of a map
+/// layer). This binding mirrors a *whole* `LoroText` layer's content into a
+/// Slint scalar string. Used by `scribe:bind_loro_text(prop, layer)` so apps
+/// can wire char-level CRDT text to a Slint text property without per-app
+/// boilerplate.
+///
+/// **Why a separate kind**: the existing `TextBinding` reads via map-get; this
+/// reads via `text_snapshot()`. Same string-property output, different source.
+pub struct LoroTextBinding {
+    /// Expanded layer name (e.g., "abc123/body")
+    pub expanded_layer: String,
+    /// Slint string property to keep in sync (e.g., "doc_text")
+    pub ui_property: String,
+    /// Last snapshot we pushed. Used to skip no-op updates and to give
+    /// future per-character diffing a place to compare against.
+    pub last_snapshot: RefCell<String>,
+}
+
+/// A tree-layer → VecModel binding.
+///
+/// **Context**: tree bindings sync a `LoroTree`-backed layer to a Slint VecModel
+/// as a flattened depth-first array. Used by `scribe:bind_tree(prop, layer)` so
+/// block-based editor apps can render a list of editor rows keyed by
+/// node id, with hierarchy reconstructed via `parent` + `depth` fields.
+///
+/// **Diffing**: we cache the last-pushed rows and emit surgical
+/// `VecModelOp::Set` entries when only props change at stable indices. This
+/// matters for editor apps — `Replace` (set_vec) tears down the for-loop's
+/// child elements, killing focus and cursor in mid-typing. We fall back to
+/// Replace whenever structure (id sequence) shifts.
+pub struct TreeBinding {
+    /// Expanded layer name (e.g., "abc123/doc")
+    pub expanded_layer: String,
+    /// VecModel to push the flattened node list into (e.g., "blocks")
+    pub ui_property: String,
+    /// Last walk we pushed — `(node_id, json blob)` pairs, ordered as they
+    /// sit in the VecModel. Used by the diff to decide Set vs Replace.
+    pub prev_rows: RefCell<Vec<(String, JsonValue)>>,
+}
+
 /// Manages all bindings for a page/app
 pub struct BindingManager {
     /// Map of ui_property → binding
@@ -93,6 +154,15 @@ pub struct BindingManager {
     /// Wildcard patterns: (expanded_pattern_prefix, ui_property)
     /// e.g., ("abc123/orders/", "all_orders")
     wildcard_patterns: Vec<(String, String)>,
+    /// Text bindings indexed by expanded layer name.
+    /// One layer can back multiple text properties (different keys).
+    text_bindings: HashMap<String, Vec<TextBinding>>,
+    /// Tree bindings indexed by expanded layer name.
+    /// One layer can back multiple tree-shaped UI models (rare but allowed).
+    tree_bindings: HashMap<String, Vec<TreeBinding>>,
+    /// LoroText bindings indexed by expanded layer name.
+    /// One layer can back multiple string properties (rare but allowed).
+    loro_text_bindings: HashMap<String, Vec<LoroTextBinding>>,
 }
 
 impl BindingManager {
@@ -102,7 +172,157 @@ impl BindingManager {
             bindings: HashMap::new(),
             layer_to_properties: HashMap::new(),
             wildcard_patterns: Vec::new(),
+            text_bindings: HashMap::new(),
+            tree_bindings: HashMap::new(),
+            loro_text_bindings: HashMap::new(),
         }
+    }
+
+    /// Register a `LoroText` layer → string-property binding.
+    ///
+    /// **Context**: `scribe:bind_loro_text(prop, layer)` calls this after
+    /// expanding the layer pattern with the page_id prefix.
+    pub fn register_loro_text(&mut self, expanded_layer: String, ui_property: String) {
+        debug!(
+            ui_property = %ui_property,
+            layer = %expanded_layer,
+            "Registering LoroText binding"
+        );
+        self.loro_text_bindings
+            .entry(expanded_layer.clone())
+            .or_default()
+            .push(LoroTextBinding {
+                expanded_layer,
+                ui_property,
+                last_snapshot: RefCell::new(String::new()),
+            });
+    }
+
+    /// Fetch all `LoroText` bindings registered against an expanded layer.
+    pub fn loro_text_bindings_for_layer(&self, expanded_layer: &str) -> &[LoroTextBinding] {
+        self.loro_text_bindings
+            .get(expanded_layer)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Push a fresh snapshot through a `LoroText` binding.
+    ///
+    /// Returns `Some(PropertyUpdate)` if the snapshot differs from what was
+    /// last pushed, otherwise `None` (no-op suppression). Updates the cached
+    /// snapshot when emitting.
+    pub fn diff_loro_text(
+        binding: &LoroTextBinding,
+        new_snapshot: String,
+    ) -> Option<crate::ui_types::PropertyUpdate> {
+        if *binding.last_snapshot.borrow() == new_snapshot {
+            return None;
+        }
+        *binding.last_snapshot.borrow_mut() = new_snapshot.clone();
+        Some(crate::ui_types::PropertyUpdate {
+            key: binding.ui_property.clone(),
+            value: JsonValue::String(new_snapshot),
+        })
+    }
+
+    /// Register a tree binding (one tree layer → one VecModel property).
+    ///
+    /// **Context**: `scribe:bind_tree(prop, layer)` calls this after expanding
+    /// the layer pattern with the page_id prefix.
+    pub fn register_tree(&mut self, expanded_layer: String, ui_property: String) {
+        debug!(
+            ui_property = %ui_property,
+            layer = %expanded_layer,
+            "Registering tree binding"
+        );
+        self.tree_bindings
+            .entry(expanded_layer.clone())
+            .or_default()
+            .push(TreeBinding {
+                expanded_layer,
+                ui_property,
+                prev_rows: RefCell::new(Vec::new()),
+            });
+    }
+
+    /// Compute surgical model ops for a tree binding given the new walk.
+    ///
+    /// **Strategy**: if the id sequence matches what we last pushed (same
+    /// length, same ids in same order) we emit `Set` for each row whose
+    /// JSON shape changed — preserving Slint child identity (and therefore
+    /// keyboard focus / cursor position in any embedded TextInput). On any
+    /// structural shift we fall back to `Replace`, which is correct but
+    /// destroys child state. Apps in mid-edit live overwhelmingly in the
+    /// Set path.
+    pub fn diff_tree_rows(
+        binding: &TreeBinding,
+        new_rows: Vec<(String, JsonValue)>,
+    ) -> Vec<VecModelOp> {
+        let mut ops = Vec::new();
+        let prev = binding.prev_rows.borrow();
+
+        let stable = prev.len() == new_rows.len()
+            && prev.iter().zip(new_rows.iter()).all(|(a, b)| a.0 == b.0);
+
+        if stable {
+            for (i, ((_, old_json), (_, new_json))) in
+                prev.iter().zip(new_rows.iter()).enumerate()
+            {
+                if old_json != new_json {
+                    ops.push(VecModelOp::Set {
+                        model_name: binding.ui_property.clone(),
+                        index: i,
+                        item: new_json.clone(),
+                    });
+                }
+            }
+        } else {
+            ops.push(VecModelOp::Replace {
+                model_name: binding.ui_property.clone(),
+                items: new_rows.iter().map(|(_, v)| v.clone()).collect(),
+            });
+        }
+
+        drop(prev);
+        *binding.prev_rows.borrow_mut() = new_rows;
+        ops
+    }
+
+    /// Get tree bindings for a specific layer.
+    pub fn tree_bindings_for_layer(&self, expanded_layer: &str) -> &[TreeBinding] {
+        self.tree_bindings
+            .get(expanded_layer)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Register a text binding (one map key → one string property).
+    ///
+    /// **Context**: `scribe:bind_text(prop, layer, key)` calls this after
+    /// expanding the layer pattern with the page_id prefix.
+    pub fn register_text(&mut self, expanded_layer: String, key: String, ui_property: String) {
+        debug!(
+            ui_property = %ui_property,
+            layer = %expanded_layer,
+            key = %key,
+            "Registering text binding"
+        );
+        self.text_bindings
+            .entry(expanded_layer.clone())
+            .or_default()
+            .push(TextBinding {
+                expanded_layer,
+                key,
+                ui_property,
+            });
+    }
+
+    /// Get text bindings for a specific layer.
+    pub fn text_bindings_for_layer(&self, expanded_layer: &str) -> &[TextBinding] {
+        self.text_bindings
+            .get(expanded_layer)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Register a new binding
@@ -256,6 +476,8 @@ impl BindingManager {
     /// Check if any bindings are registered
     pub fn has_bindings(&self) -> bool {
         !self.bindings.is_empty()
+            || !self.text_bindings.is_empty()
+            || !self.tree_bindings.is_empty()
     }
 
     /// Get all bindings
@@ -478,10 +700,15 @@ pub fn convert_delta_for_binding(
                     ListOp::Insert { values } => {
                         // Apply transform to each inserted value if binding has one
                         for (i, value) in values.iter().enumerate() {
+                            let value_json = sthithi_to_json_value(value);
                             let item = if let Some(ref transform_key) = binding.options.transform {
                                 // Transform single item
-                                match apply_transform_single(lua, transform_key, value, layer_name)
-                                {
+                                match apply_transform_single(
+                                    lua,
+                                    transform_key,
+                                    &value_json,
+                                    layer_name,
+                                ) {
                                     Ok(Some(transformed)) => transformed,
                                     Ok(None) => continue, // nil = skip (filtered out by transform)
                                     Err(e) => {
@@ -490,7 +717,7 @@ pub fn convert_delta_for_binding(
                                     }
                                 }
                             } else {
-                                value.clone()
+                                value_json
                             };
 
                             // When max_items is active, the model is shorter than
@@ -540,9 +767,11 @@ pub fn convert_delta_for_binding(
             for (map_key, value) in updated {
                 match value {
                     Some(val) => {
+                        let val_json = sthithi_to_json_value(val);
                         // Apply transform if binding has one
                         let item = if let Some(ref transform_key) = binding.options.transform {
-                            match apply_transform_single(lua, transform_key, val, layer_name) {
+                            match apply_transform_single(lua, transform_key, &val_json, layer_name)
+                            {
                                 Ok(Some(transformed)) => transformed,
                                 Ok(None) => continue, // nil = filtered out
                                 Err(e) => {
@@ -551,7 +780,7 @@ pub fn convert_delta_for_binding(
                                 }
                             }
                         } else {
-                            val.clone()
+                            val_json
                         };
 
                         if let Some(&existing_idx) = cache.get(map_key) {
@@ -618,6 +847,18 @@ pub fn convert_delta_for_binding(
 
             binding.model_len.set(model_len);
             result
+        }
+        LoroDelta::Tree { .. } => {
+            // Tree deltas are not yet wired into list-style bindings; consumers
+            // that bind to a tree layer fall back to the full-data Replace path
+            // (binding system rebuilds from scribe:tree(layer):walk()).
+            Vec::new()
+        }
+        LoroDelta::Text { .. } => {
+            // Text deltas drive `bind_text`-style string bindings, not VecModel.
+            // The runtime/engine handles Text bindings on a separate path; this
+            // converter is list-shaped so we just no-op here.
+            Vec::new()
         }
     }
 }

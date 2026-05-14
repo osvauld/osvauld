@@ -73,6 +73,11 @@ pub enum CourierEvent {
         page: butler::Page,
         is_last: bool,
     },
+    /// Page permit was updated (stored on receiver side)
+    ///
+    /// **Context**: PermitUpdate message received and stored successfully.
+    /// Emitted by both viewers (receiving from node) and nodes (receiving from coordinator distribution).
+    PermitUpdated { page_id: String, version: u64 },
 }
 
 /// Handle for interacting with Courier

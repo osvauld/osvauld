@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from osvauld.scenario import AppTestScenario
 
-APP_PATH = Path(__file__).parent.parent / "sample_apps" / "group-chat"
+APP_PATH = Path(__file__).parent.parent / "sample_apps" / "osvauld-demos"
 
 CYCLES = 3
 MESSAGES_PER_CYCLE = 2  # each peer sends 2 per cycle

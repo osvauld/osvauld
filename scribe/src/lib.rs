@@ -13,7 +13,7 @@
 //!
 //! - Message types (BroadcastPayload, PageUpdate, LoroDelta, etc.)
 //! - ValidationHandle for delegating validation to kunki
-//! - JsonOp (re-exported from domains for ops extraction)
+//! - Parivarta (re-exported from domains for ops extraction)
 //!
 //! ## Design
 //!
@@ -48,12 +48,13 @@ pub mod test_strategies;
 
 // Re-export common types
 pub use message::{
-    BroadcastPayload, DynamicLayerMeta, EphemeralBroadcast, EphemeralOutbound, ListOp, LoroDelta,
-    PageUpdate, PageUpdateTx, ScribeMessage, SyncEvent,
+    BroadcastPayload, DynamicLayerMeta, EphemeralBroadcast, EphemeralOutbound, FlatTreeNode,
+    ListOp, LoroDelta, PageUpdate, PageUpdateTx, ScribeMessage, SyncEvent, TextOp, TreeNodeView,
+    TreeOp,
 };
 
-// JsonOp comes from domains (Layer::extract_ops_from_bytes)
-pub use domains::JsonOp;
+// Op types from domains
+pub use domains::{OpKind, Parivarta, Sthithi};
 pub use validation_handle::{ValidationHandle, ValidationRequest};
 
 pub use error::{Result, ScribeError};

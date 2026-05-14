@@ -73,7 +73,11 @@ async fn test_owner_app_layer_has_files() -> Result<()> {
     init_tracing();
 
     let app_path = app_dir("group-chat");
-    assert!(app_path.exists(), "sample_apps/group-chat must exist: {:?}", app_path);
+    assert!(
+        app_path.exists(),
+        "sample_apps/group-chat must exist: {:?}",
+        app_path
+    );
 
     let mut s = Scenario::builder()
         .app("group-chat")
@@ -84,15 +88,14 @@ async fn test_owner_app_layer_has_files() -> Result<()> {
     let page_id = s.space().page_id.clone();
 
     // Wait for app files on owner via import
-    let files = wait_for_app_files(
-        &s.owner().butler,
-        &page_id,
-        "Group Chat",
-        PAGE_SYNC_TIMEOUT,
-    ).await?;
+    let files =
+        wait_for_app_files(&s.owner().butler, &page_id, "Group Chat", PAGE_SYNC_TIMEOUT).await?;
 
     assert!(!files.is_empty(), "App layer should have files");
-    assert!(files.contains_key("manifest.json"), "Should have manifest.json");
+    assert!(
+        files.contains_key("manifest.json"),
+        "Should have manifest.json"
+    );
     assert!(files.contains_key("app.lua"), "Should have app.lua");
 
     s.shutdown().await;
@@ -115,16 +118,18 @@ async fn test_app_layer_syncs_to_node() -> Result<()> {
     let page_id = s.space().page_id.clone();
 
     // Wait for app files to arrive on node
-    let node_files = wait_for_app_files(
-        &s.node().butler,
-        &page_id,
-        "Group Chat",
-        PAGE_SYNC_TIMEOUT,
-    ).await?;
+    let node_files =
+        wait_for_app_files(&s.node().butler, &page_id, "Group Chat", PAGE_SYNC_TIMEOUT).await?;
 
     assert!(!node_files.is_empty(), "Node should have app files");
-    assert!(node_files.contains_key("manifest.json"), "Node should have manifest.json");
-    assert!(node_files.contains_key("app.lua"), "Node should have app.lua");
+    assert!(
+        node_files.contains_key("manifest.json"),
+        "Node should have manifest.json"
+    );
+    assert!(
+        node_files.contains_key("app.lua"),
+        "Node should have app.lua"
+    );
 
     // Verify content is non-trivial (not empty LoroDoc)
     let manifest = node_files.get("manifest.json").unwrap();
@@ -137,7 +142,10 @@ async fn test_app_layer_syncs_to_node() -> Result<()> {
 
     // Verify app.lua content
     let lua_content = node_files.get("app.lua").unwrap();
-    assert!(lua_content.contains("on_init"), "app.lua should contain on_init function");
+    assert!(
+        lua_content.contains("on_init"),
+        "app.lua should contain on_init function"
+    );
 
     s.shutdown().await;
     Ok(())
@@ -162,12 +170,8 @@ async fn test_app_layer_syncs_to_viewer() -> Result<()> {
     let space_id = s.space().space_id.clone();
 
     // Wait for app files to reach node first
-    let node_files = wait_for_app_files(
-        &s.node().butler,
-        &page_id,
-        "Group Chat",
-        PAGE_SYNC_TIMEOUT,
-    ).await?;
+    let node_files =
+        wait_for_app_files(&s.node().butler, &page_id, "Group Chat", PAGE_SYNC_TIMEOUT).await?;
     assert!(!node_files.is_empty(), "Node should have app files");
 
     // Connect viewer
@@ -180,11 +184,18 @@ async fn test_app_layer_syncs_to_viewer() -> Result<()> {
         &page_id,
         "Group Chat",
         PAGE_SYNC_TIMEOUT,
-    ).await?;
+    )
+    .await?;
 
     assert!(!viewer_files.is_empty(), "Viewer should have app files");
-    assert!(viewer_files.contains_key("manifest.json"), "Viewer should have manifest.json");
-    assert!(viewer_files.contains_key("app.lua"), "Viewer should have app.lua");
+    assert!(
+        viewer_files.contains_key("manifest.json"),
+        "Viewer should have manifest.json"
+    );
+    assert!(
+        viewer_files.contains_key("app.lua"),
+        "Viewer should have app.lua"
+    );
 
     // Verify manifest content
     let manifest = viewer_files.get("manifest.json").unwrap();
@@ -222,7 +233,10 @@ async fn test_refresh_app_propagates_to_node() -> Result<()> {
 
     let node_app_lua =
         wait_for_app_lua_contains(&s.node().butler, &page_id, "Group Chat", marker).await?;
-    assert!(node_app_lua.contains(marker), "Node should receive refreshed app.lua content");
+    assert!(
+        node_app_lua.contains(marker),
+        "Node should receive refreshed app.lua content"
+    );
 
     s.shutdown().await;
     Ok(())

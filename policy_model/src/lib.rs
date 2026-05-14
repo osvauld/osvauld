@@ -126,6 +126,117 @@ pub struct DynamicLayerSchema {
     pub resolution: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SchemaArtifact {
+    #[serde(default)]
+    pub entities: HashMap<String, EntitySchema>,
+    #[serde(default)]
+    pub layer_bindings: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct EntitySchema {
+    #[serde(default)]
+    pub fields: Vec<FieldSchema>,
+    #[serde(default)]
+    pub transitions: Vec<TransitionSchema>,
+    #[serde(default)]
+    pub entity_rules: Vec<EntityRuleSchema>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldSchema {
+    pub name: String,
+    pub required: bool,
+    pub immutable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransitionSchema {
+    pub field: String,
+    pub from: String,
+    pub to: String,
+    pub allowed_roles: Vec<String>,
+    #[serde(default)]
+    pub predicates: Vec<Predicate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EntityRuleSchema {
+    OnUpdateSet {
+        field: String,
+        source: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        literal: Option<LiteralValue>,
+    },
+    OnDeleteReject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LiteralValue {
+    String(String),
+    Int(i64),
+    Bool(bool),
+    Null,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ValidationArtifact {
+    #[serde(default)]
+    pub lua_validators: HashMap<String, String>,
+    #[serde(default)]
+    pub broadcasts: HashMap<String, Vec<BroadcastPolicy>>,
+    #[serde(default)]
+    pub orderings: HashMap<String, OrderPolicy>,
+    #[serde(default)]
+    pub dynamic_layers: HashMap<String, DynamicLayerPolicy>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DynamicLayerPolicy {
+    #[serde(default)]
+    pub create_allow: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discover: Option<DiscoverMode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscoverMode {
+    Sync,
+    Grant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BroadcastPolicy {
+    pub target: BroadcastTarget,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debounce_ms: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BroadcastTarget {
+    All,
+    Granted,
+    ToRoles(Vec<String>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrderPolicy {
+    pub field: String,
+    pub direction: SortDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortDirection {
+    Ascending,
+    Descending,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PolicyFacts {
     #[serde(default)]
@@ -136,6 +247,10 @@ pub struct PolicyFacts {
     pub delegation_rules: Vec<DelegationRule>,
     #[serde(default)]
     pub dynamic_layer_schemas: Vec<DynamicLayerSchema>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<SchemaArtifact>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation: Option<ValidationArtifact>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

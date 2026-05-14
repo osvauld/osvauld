@@ -2,7 +2,7 @@
 //!
 //! These commands use Butler to query spaces, pages, and layers.
 
-use crate::{Response, error_codes};
+use crate::{error_codes, Response};
 use butler::Butler;
 use std::sync::Arc;
 
@@ -12,18 +12,28 @@ use std::sync::Arc;
 pub async fn list_spaces(butler: &Arc<Butler>, id: u64) -> Response {
     match butler.spaces().list() {
         Ok(spaces) => {
-            let space_list: Vec<serde_json::Value> = spaces.iter().map(|s| {
-                serde_json::json!({
-                    "id": s.id,
-                    "name": s.name,
+            let space_list: Vec<serde_json::Value> = spaces
+                .iter()
+                .map(|s| {
+                    serde_json::json!({
+                        "id": s.id,
+                        "name": s.name,
+                    })
                 })
-            }).collect();
-            Response::ok(id, serde_json::json!({
-                "spaces": space_list,
-                "count": space_list.len()
-            }))
+                .collect();
+            Response::ok(
+                id,
+                serde_json::json!({
+                    "spaces": space_list,
+                    "count": space_list.len()
+                }),
+            )
         }
-        Err(e) => Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to list spaces: {:?}", e)),
+        Err(e) => Response::err(
+            id,
+            error_codes::OPERATION_FAILED,
+            format!("Failed to list spaces: {:?}", e),
+        ),
     }
 }
 
@@ -33,19 +43,29 @@ pub async fn list_spaces(butler: &Arc<Butler>, id: u64) -> Response {
 pub async fn list_pages(butler: &Arc<Butler>, space_id: &str, id: u64) -> Response {
     match butler.pages().list(space_id) {
         Ok(pages) => {
-            let page_list: Vec<serde_json::Value> = pages.iter().map(|p| {
-                serde_json::json!({
-                    "id": p.id,
-                    "name": p.name,
+            let page_list: Vec<serde_json::Value> = pages
+                .iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "id": p.id,
+                        "name": p.name,
+                    })
                 })
-            }).collect();
-            Response::ok(id, serde_json::json!({
-                "space_id": space_id,
-                "pages": page_list,
-                "count": page_list.len()
-            }))
+                .collect();
+            Response::ok(
+                id,
+                serde_json::json!({
+                    "space_id": space_id,
+                    "pages": page_list,
+                    "count": page_list.len()
+                }),
+            )
         }
-        Err(e) => Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to list pages: {:?}", e)),
+        Err(e) => Response::err(
+            id,
+            error_codes::OPERATION_FAILED,
+            format!("Failed to list pages: {:?}", e),
+        ),
     }
 }
 
@@ -54,13 +74,18 @@ pub async fn list_pages(butler: &Arc<Butler>, space_id: &str, id: u64) -> Respon
 /// **Context**: Returns all data layer names in the specified page
 pub async fn list_layers(butler: &Arc<Butler>, page_id: &str, id: u64) -> Response {
     match butler.apps().list_data_layers(page_id) {
-        Ok(layers) => {
-            Response::ok(id, serde_json::json!({
+        Ok(layers) => Response::ok(
+            id,
+            serde_json::json!({
                 "layers": layers,
                 "count": layers.len()
-            }))
-        }
-        Err(e) => Response::err(id, error_codes::OPERATION_FAILED, format!("Failed to list layers: {:?}", e)),
+            }),
+        ),
+        Err(e) => Response::err(
+            id,
+            error_codes::OPERATION_FAILED,
+            format!("Failed to list layers: {:?}", e),
+        ),
     }
 }
 

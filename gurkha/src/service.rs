@@ -155,11 +155,28 @@ pub async fn issue_page_owner_token_from_policy(
     let signing_key = SigningKey::from_bytes(signing_key_bytes);
     let verifying_key = signing_key.verifying_key();
 
-    let decision =
-        decision::decide_page_owner_token_from_policy(&verifying_key, page_id, policy, layer_names)?;
+    let decision = decision::decide_page_owner_token_from_policy(
+        &verifying_key,
+        page_id,
+        policy,
+        layer_names,
+    )?;
     trace!("Token decision created from typed policy");
 
     let (token, cid) = crypto::sign_permit(signing_key_bytes, &decision).await?;
+
+    if let Ok(parsed) = Permit::from_token(&token) {
+        let issue_on_keys = parsed
+            .get_fact("issue_on")
+            .and_then(|v| v.as_object())
+            .map(|m| m.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        info!(
+            issue_on_keys = ?issue_on_keys,
+            has_node_template = %parsed.get_issue_template("node").is_some(),
+            "Issued page owner token templates"
+        );
+    }
 
     info!("Page owner token generated from typed policy: cid={}", cid);
     Ok((token, cid))
@@ -227,6 +244,7 @@ pub async fn delegate_page(
 
     Ok((token, cid))
 }
+
 
 /// Issue space owner token
 ///
@@ -430,6 +448,15 @@ pub async fn reissue_permit_with_layers(
         layers_map.insert(name.clone(), serde_json::Value::Object(layer_obj));
     }
     facts.insert("layers".to_string(), serde_json::Value::Object(layers_map));
+
+    // Monotonic version for permit upgrade ordering.
+    // Receivers can reject stale PermitUpdate deliveries.
+    let next_version = facts
+        .get("version")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0)
+        .saturating_add(1);
+    facts.insert("version".to_string(), serde_json::json!(next_version));
 
     // Build new token with merged facts
     let decision = crate::decision::TokenDecision {

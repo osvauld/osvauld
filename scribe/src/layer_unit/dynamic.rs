@@ -35,6 +35,8 @@ pub fn handle_create_dynamic_layer(
         .cloned()
         .ok_or_else(|| format!("Schema '{}' not found in permit", schema_key))?;
 
+    enforce_dynamic_create_allow(state, permit, schema_key)?;
+
     // Generate full layer path with our DID
     // Schema: "channels/{id}/messages" → Path: "channels/{our_did}/{layer_id}/messages"
     let bare_path =
@@ -106,6 +108,39 @@ pub fn handle_create_dynamic_layer(
     }
 
     Ok(full_name)
+}
+
+fn enforce_dynamic_create_allow(
+    state: &ScribeState,
+    permit: &gurkha::PolicyPermit,
+    schema_key: &str,
+) -> Result<(), String> {
+    let Some(validation) = state.validation_artifact.as_ref() else {
+        return Ok(());
+    };
+    let Some(policy) = validation.dynamic_layers.get(schema_key) else {
+        return Ok(());
+    };
+    if policy.create_allow.is_empty() {
+        return Ok(());
+    }
+
+    let actor_roles = policy_compat::actor_roles(permit);
+    let allowed = role_list_allows_create(&actor_roles, &policy.create_allow);
+    if allowed {
+        return Ok(());
+    }
+
+    Err(format!(
+        "create denied for '{}': actor roles {:?} not in create_allow {:?}",
+        schema_key, actor_roles, policy.create_allow
+    ))
+}
+
+fn role_list_allows_create(actor_roles: &[String], create_allow: &[String]) -> bool {
+    actor_roles
+        .iter()
+        .any(|role| create_allow.iter().any(|allowed| allowed == role))
 }
 
 /// Generate a dynamic layer path from schema pattern, creator DID, and layer ID
@@ -409,5 +444,19 @@ mod tests {
         // No match: too short
         let result = find_matching_dynamic_schema_in_schemas(&schemas, "orders", "page1");
         assert!(result.is_none(), "Should not match — too short");
+    }
+
+    #[test]
+    fn create_allow_accepts_matching_role() {
+        let allow = vec!["owner".to_string(), "admin".to_string()];
+        let actor = vec!["viewer".to_string(), "owner".to_string()];
+        assert!(role_list_allows_create(&actor, &allow));
+    }
+
+    #[test]
+    fn create_allow_rejects_non_matching_role() {
+        let allow = vec!["owner".to_string()];
+        let actor = vec!["viewer".to_string(), "customer".to_string()];
+        assert!(!role_list_allows_create(&actor, &allow));
     }
 }

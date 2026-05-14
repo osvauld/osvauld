@@ -17,7 +17,7 @@ use tokio::time::sleep;
 
 use butler::ScribeMessage;
 use domains::{ClockSource, ManualClock, RealClock};
-use lua_runtime::{LuaCommand, LuaRuntime, LuaRuntimeConfig, ActorScribeHandle};
+use lua_runtime::{ActorScribeHandle, LuaCommand, LuaRuntime, LuaRuntimeConfig};
 
 use crate::fixtures::init_tracing;
 use crate::scenario::Scenario;
@@ -88,7 +88,10 @@ end
     })
     .map_err(|e| anyhow::anyhow!("Failed to spawn Lua runtime: {}", e))?;
 
-    Ok(PresenceApp { cmd_tx, runtime_handle })
+    Ok(PresenceApp {
+        cmd_tx,
+        runtime_handle,
+    })
 }
 
 /// Query presence layer and return all entries
@@ -109,7 +112,9 @@ async fn query_presence(
         .map_err(|_| anyhow::anyhow!("Failed to receive response"))?
         .ok_or_else(|| anyhow::anyhow!("Presence layer '{}' does not exist", layer_name))?;
 
-    let map: HashMap<String, serde_json::Value> = data
+    let data_json = serde_json::Value::from(&data);
+
+    let map: HashMap<String, serde_json::Value> = data_json
         .as_object()
         .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
         .unwrap_or_default();
@@ -156,7 +161,6 @@ fn count_online_with_now(
     threshold_secs: i64,
     now: i64,
 ) -> usize {
-
     presence
         .values()
         .filter(|entry| {
@@ -214,7 +218,11 @@ async fn test_presence_local_stale_detection() -> Result<()> {
     let presence = query_presence(&scribe_ref, &presence_layer).await?;
 
     assert_eq!(presence.len(), 2, "Should have 2 presence entries");
-    assert_eq!(count_online(&presence, 10), 2, "Both users should be online");
+    assert_eq!(
+        count_online(&presence, 10),
+        2,
+        "Both users should be online"
+    );
 
     // Kill user2's app
     app2.shutdown().await;
@@ -224,7 +232,11 @@ async fn test_presence_local_stale_detection() -> Result<()> {
 
     let presence = query_presence(&scribe_ref, &presence_layer).await?;
     assert_eq!(presence.len(), 2, "Should still have 2 presence entries");
-    assert_eq!(count_online(&presence, 10), 1, "Only 1 user should be online (user2 is stale)");
+    assert_eq!(
+        count_online(&presence, 10),
+        1,
+        "Only 1 user should be online (user2 is stale)"
+    );
 
     app1.shutdown().await;
     s.shutdown().await;

@@ -70,7 +70,6 @@ fn extract_layer_names_from_policy(policy: &policy_model::PolicyFacts) -> Vec<St
     names.into_iter().collect()
 }
 
-
 /// Load page policy from app.osv.
 #[instrument(skip_all)]
 fn load_page_policy(page_dir: &Path) -> Result<PagePolicyResult> {
@@ -97,10 +96,7 @@ fn load_page_policy(page_dir: &Path) -> Result<PagePolicyResult> {
     let policy = compiled.permit.osv_policy;
     let layer_names = extract_layer_names_from_policy(&policy);
 
-    tracing::info!(
-        layer_count = layer_names.len(),
-        "Loaded app.osv policy"
-    );
+    tracing::info!(layer_count = layer_names.len(), "Loaded app.osv policy");
 
     Ok(PagePolicyResult {
         page_name: None, // Page name comes from directory or manifest
@@ -485,12 +481,7 @@ pub async fn import_page_from_directory(
     // 6. Create page with all layers
     let page = butler
         .pages()
-        .create(
-            space_id,
-            &page_name,
-            layer_names,
-            &policy_result.policy,
-        )
+        .create(space_id, &page_name, layer_names, &policy_result.policy)
         .await?;
 
     tracing::info!(page_id = %page.id, page_name = %page.name, "Created page");

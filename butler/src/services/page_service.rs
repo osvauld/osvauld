@@ -34,14 +34,10 @@ pub async fn create_page(
     let aes_key = generate_aes_key();
 
     // Issue page owner permit via typed policy path in gurkha
-    let (owner_permit, _cid) = gurkha::issue_page_owner_token_from_policy(
-        signing_key,
-        &page_id,
-        policy,
-        &layer_names,
-    )
-    .await
-    .map_err(|e| ButlerError::permit_error(e.to_string()))?;
+    let (owner_permit, _cid) =
+        gurkha::issue_page_owner_token_from_policy(signing_key, &page_id, policy, &layer_names)
+            .await
+            .map_err(|e| ButlerError::permit_error(e.to_string()))?;
 
     // Create and encrypt layers for each layer_name
     for layer_name in &layer_names {

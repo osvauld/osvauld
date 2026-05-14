@@ -312,6 +312,8 @@ mod tests {
             ],
             delegation_rules: vec![],
             dynamic_layer_schemas: vec![],
+            schema: None,
+            validation: None,
         };
 
         let decision = can_access(&facts, &ctx("customer", Action::Write, "orders"));
@@ -345,6 +347,8 @@ mod tests {
                 condition: None,
             }],
             dynamic_layer_schemas: vec![],
+            schema: None,
+            validation: None,
         };
 
         let request = DelegationRequest {

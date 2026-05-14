@@ -3,10 +3,10 @@
 //! **Context**: Runs node.lua scripts for pages that define `entry_node` in manifest
 //! **Uses**: LuaRuntime from lua_runtime with PageUpdate bridge for CRDT events
 
-use lua_runtime::{LuaCommand, LuaRuntime, LuaRuntimeConfig, ActorScribeHandle};
-use butler::{PageUpdate, ScribeMessage};
 use butler::Butler;
+use butler::{PageUpdate, ScribeMessage};
 use domains::AppManifest;
+use lua_runtime::{ActorScribeHandle, LuaCommand, LuaRuntime, LuaRuntimeConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
@@ -55,11 +55,17 @@ impl NodeRuntimeManager {
         }
 
         // Open page to get scribe reference
-        let scribe_ref = self.butler.open_page(page_id).await
+        let scribe_ref = self
+            .butler
+            .open_page(page_id)
+            .await
             .map_err(|e| format!("Failed to open page: {}", e))?;
 
         // List apps in this page
-        let apps = self.butler.apps().list(page_id)
+        let apps = self
+            .butler
+            .apps()
+            .list(page_id)
             .map_err(|e| format!("Failed to list apps: {}", e))?;
 
         if apps.is_empty() {
@@ -69,11 +75,13 @@ impl NodeRuntimeManager {
         // Check each app for entry_node
         for app_name in apps {
             // Get app files from Scribe
-            let files = get_app_files_from_scribe(&scribe_ref, &app_name).await
+            let files = get_app_files_from_scribe(&scribe_ref, &app_name)
+                .await
                 .map_err(|e| format!("Failed to get app files: {}", e))?;
 
             // Parse manifest
-            let manifest_str = files.get("manifest.json")
+            let manifest_str = files
+                .get("manifest.json")
                 .ok_or_else(|| "No manifest.json in app".to_string())?;
 
             let manifest: AppManifest = serde_json::from_str(manifest_str)
@@ -91,8 +99,9 @@ impl NodeRuntimeManager {
             info!(page_id = %page_id, app_name = %app_name, node_script = %node_script_name, "Starting node script");
 
             // Get node script content
-            let node_script = files.get(&node_script_name)
-                .ok_or_else(|| format!("Node script '{}' not found in app files", node_script_name))?;
+            let node_script = files.get(&node_script_name).ok_or_else(|| {
+                format!("Node script '{}' not found in app files", node_script_name)
+            })?;
 
             // Get init.lua if present (derivation rules)
             let init_code = files.get("init.lua").cloned();
@@ -104,10 +113,15 @@ impl NodeRuntimeManager {
             };
 
             // Get identity info for permit bindings
-            let identity = self.butler.get_identity().await
+            let identity = self
+                .butler
+                .get_identity()
+                .await
                 .map_err(|e| format!("Failed to get identity: {}", e))?;
 
-            let identity_data = self.butler.identity_data()
+            let identity_data = self
+                .butler
+                .identity_data()
                 .ok()
                 .flatten()
                 .ok_or_else(|| "Identity data not found".to_string())?;
@@ -130,16 +144,18 @@ impl NodeRuntimeManager {
 
             // Trigger derivation rebuild if init.lua was loaded
             if init_code.is_some() {
-                cmd_tx.send(LuaCommand::RebuildDerivation).await
+                cmd_tx
+                    .send(LuaCommand::RebuildDerivation)
+                    .await
                     .map_err(|_| "Failed to send RebuildDerivation command")?;
                 info!(page_id = %page_id, "Sent RebuildDerivation after init.lua");
             }
 
             // Subscribe to page updates from Scribe
             let (page_update_tx, mut page_update_rx) = mpsc::channel(256);
-            scribe_ref.cast(ScribeMessage::SubscribeToPageUpdates {
-                tx: page_update_tx,
-            }).map_err(|e| format!("Failed to subscribe to page updates: {}", e))?;
+            scribe_ref
+                .cast(ScribeMessage::SubscribeToPageUpdates { tx: page_update_tx })
+                .map_err(|e| format!("Failed to subscribe to page updates: {}", e))?;
 
             // Spawn async bridge: forwards PageUpdate → LuaCommand
             let bridge_cmd_tx = cmd_tx.clone();
@@ -155,36 +171,45 @@ impl NodeRuntimeManager {
                             dynamic_ref,
                             ..
                         } => {
-                            let _ = bridge_cmd_tx.send(LuaCommand::LayerChanged {
-                                layer_name: layer,
-                                created,
-                                delta,
-                                full_data,
-                                dynamic_ref,
-                            }).await;
+                            let _ = bridge_cmd_tx
+                                .send(LuaCommand::LayerChanged {
+                                    layer_name: layer,
+                                    created,
+                                    delta,
+                                    full_data,
+                                    dynamic_ref,
+                                })
+                                .await;
                         }
-                        PageUpdate::Ephemeral { user_did, payload, .. } => {
-                            let _ = bridge_cmd_tx.send(LuaCommand::Ephemeral {
-                                user_did,
-                                payload,
-                            }).await;
+                        PageUpdate::Ephemeral {
+                            user_did, payload, ..
+                        } => {
+                            let _ = bridge_cmd_tx
+                                .send(LuaCommand::Ephemeral { user_did, payload })
+                                .await;
                         }
-                        PageUpdate::StructuredEphemeral { from_did, func, args } => {
-                            let _ = bridge_cmd_tx.send(LuaCommand::StructuredEphemeral {
-                                from_did,
-                                func,
-                                args,
-                            }).await;
+                        PageUpdate::StructuredEphemeral {
+                            from_did,
+                            func,
+                            args,
+                        } => {
+                            let _ = bridge_cmd_tx
+                                .send(LuaCommand::StructuredEphemeral {
+                                    from_did,
+                                    func,
+                                    args,
+                                })
+                                .await;
                         }
                         PageUpdate::PeerSubscribed { did, .. } => {
-                            let _ = bridge_cmd_tx.send(LuaCommand::PeerJoined {
-                                user_did: did,
-                            }).await;
+                            let _ = bridge_cmd_tx
+                                .send(LuaCommand::PeerJoined { user_did: did })
+                                .await;
                         }
                         PageUpdate::PeerUnsubscribed { did } => {
-                            let _ = bridge_cmd_tx.send(LuaCommand::PeerLeft {
-                                user_did: did,
-                            }).await;
+                            let _ = bridge_cmd_tx
+                                .send(LuaCommand::PeerLeft { user_did: did })
+                                .await;
                         }
                         PageUpdate::QueryUpdated { .. } => {}
                     }
@@ -195,10 +220,13 @@ impl NodeRuntimeManager {
             // Store instance
             {
                 let mut instances = self.instances.write().await;
-                instances.insert(page_id.to_string(), NodeInstance {
-                    cmd_tx,
-                    thread_handle: Some(thread),
-                });
+                instances.insert(
+                    page_id.to_string(),
+                    NodeInstance {
+                        cmd_tx,
+                        thread_handle: Some(thread),
+                    },
+                );
             }
 
             info!(page_id = %page_id, app_name = %app_name, "Node script started successfully");

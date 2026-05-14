@@ -9,7 +9,7 @@ use crate::message::PageUpdate;
 use crate::permit::glob_match;
 use crate::Result;
 use crate::ScribeError;
-use domains::{QueryDelta, QueryResult, QuerySpec, SortOrder};
+use domains::{QueryDelta, QueryResult, QuerySpec, SortOrder, Sthithi};
 
 use crate::state::{QuerySubscriberInfo, ScribeState};
 
@@ -61,12 +61,12 @@ pub fn handle_list_layers(state: &ScribeState, pattern: &str) -> Vec<String> {
 /// Handle GetLayerData message
 ///
 /// **Context**: Lua/UI wants the full content of a specific layer.
-/// **We do**: Return the layer's content as JSON, or error if not found.
-pub fn handle_get_layer_data(state: &ScribeState, layer_name: &str) -> Result<serde_json::Value> {
+/// **We do**: Return the layer's content as Sthithi, or error if not found.
+pub fn handle_get_layer_data(state: &ScribeState, layer_name: &str) -> Result<Sthithi> {
     state
         .units
         .get(layer_name)
-        .map(|unit| unit.layer().get_content(layer_name))
+        .map(|unit| unit.layer().get_content_sthithi(layer_name))
         .ok_or_else(|| ScribeError::LayerNotFound(layer_name.to_string()))
 }
 
@@ -91,7 +91,8 @@ pub fn handle_query(state: &ScribeState, spec: &QuerySpec) -> Result<QueryResult
     };
 
     // Get the data at the specified path
-    let layer_json = unit.layer().to_json();
+    let layer_sthithi = unit.layer().to_sthithi();
+    let layer_json = serde_json::Value::from(&layer_sthithi);
     let data = get_path_value(&layer_json, &spec.path);
 
     // Extract array items
@@ -104,7 +105,7 @@ pub fn handle_query(state: &ScribeState, spec: &QuerySpec) -> Result<QueryResult
     let total_count = items.len();
 
     // Apply sort
-    let sorted_items = apply_sort(&items, spec);
+    let sorted_items = apply_sort(state, &items, spec);
 
     // Apply pagination
     let offset = spec.offset;
@@ -163,29 +164,29 @@ pub async fn handle_subscribe_query(
     );
 }
 
-/// Build a JSON context from all layers for egui rendering
+/// Build a Sthithi context from all layers for rendering
 ///
-/// **Context**: egui window needs all layer data for CEL evaluation
-/// **We do**: Export each layer's JSON and merge into a single object
+/// **Context**: renderer needs all layer data for CEL evaluation
+/// **We do**: Export each layer's Sthithi and merge into a single map
 #[instrument(skip(state), fields(page_id = %state.page_id))]
-pub fn build_context_json(state: &ScribeState) -> serde_json::Value {
-    let mut context = serde_json::Map::new();
+pub fn build_context_sthithi(state: &ScribeState) -> Sthithi {
+    let mut context = Vec::new();
 
     for (layer_name, unit) in &state.units {
-        let layer_json = unit.layer().to_json();
+        let layer_sthithi = unit.layer().to_sthithi();
 
-        // If layer JSON is an object, flatten its fields into context
+        // If layer value is a map, flatten its fields into context
         // Otherwise, store under layer name
-        if let serde_json::Value::Object(map) = layer_json {
+        if let Sthithi::Map(map) = layer_sthithi {
             for (key, value) in map {
-                context.insert(key, value);
+                context.push((key, value));
             }
         } else {
-            context.insert(layer_name.clone(), layer_json);
+            context.push((layer_name.clone(), layer_sthithi));
         }
     }
 
-    serde_json::Value::Object(context)
+    Sthithi::Map(context)
 }
 
 // Helper Functions
@@ -228,17 +229,18 @@ fn get_path_value(data: &serde_json::Value, path: &str) -> Option<serde_json::Va
 ///
 /// **Note**: Basic implementation - sorts by string comparison
 /// Full sorting with type awareness will be in QueryBridge
-fn apply_sort(items: &[serde_json::Value], spec: &QuerySpec) -> Vec<serde_json::Value> {
-    let Some(sort_by) = &spec.sort_by else {
+fn apply_sort(state: &ScribeState, items: &[serde_json::Value], spec: &QuerySpec) -> Vec<serde_json::Value> {
+    let (sort_by, desc) = resolve_sort_config(state, spec);
+    let Some(sort_by) = sort_by else {
         return items.to_vec();
     };
+    let sort_by_ref = sort_by.as_str();
 
     let mut sorted = items.to_vec();
-    let desc = matches!(spec.sort_order, Some(SortOrder::Desc));
 
     sorted.sort_by(|a, b| {
-        let a_val = a.get(sort_by);
-        let b_val = b.get(sort_by);
+        let a_val = a.get(sort_by_ref);
+        let b_val = b.get(sort_by_ref);
 
         let cmp = match (a_val, b_val) {
             (Some(serde_json::Value::Number(a)), Some(serde_json::Value::Number(b))) => a
@@ -261,4 +263,99 @@ fn apply_sort(items: &[serde_json::Value], spec: &QuerySpec) -> Vec<serde_json::
     });
 
     sorted
+}
+
+fn resolve_sort_config(state: &ScribeState, spec: &QuerySpec) -> (Option<String>, bool) {
+    resolve_sort_config_with_policy(spec, state.validation_artifact.as_ref())
+}
+
+fn resolve_sort_config_with_policy(
+    spec: &QuerySpec,
+    validation: Option<&gurkha::ValidationArtifact>,
+) -> (Option<String>, bool) {
+    if let Some(sort_by) = &spec.sort_by {
+        let desc = matches!(spec.sort_order, Some(SortOrder::Desc));
+        return (Some(sort_by.clone()), desc);
+    }
+
+    let Some(validation) = validation else {
+        return (None, false);
+    };
+    let Some(order) = validation.orderings.get(&spec.layer_name) else {
+        return (None, false);
+    };
+
+    let desc = matches!(order.direction, gurkha::SortDirection::Descending);
+    (Some(order.field.clone()), desc)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_sort_overrides_policy_default() {
+        let spec = QuerySpec {
+            query_id: "q1".to_string(),
+            layer_name: "orders/{customer}/entries".to_string(),
+            path: "entries".to_string(),
+            filter: None,
+            sort_by: Some("created_at".to_string()),
+            sort_order: Some(SortOrder::Asc),
+            offset: 0,
+            limit: None,
+        };
+
+        let mut orderings = std::collections::HashMap::new();
+        orderings.insert(
+            "orders/{customer}/entries".to_string(),
+            gurkha::OrderPolicy {
+                field: "updated_at".to_string(),
+                direction: gurkha::SortDirection::Descending,
+            },
+        );
+        let validation = gurkha::ValidationArtifact {
+            lua_validators: std::collections::HashMap::new(),
+            broadcasts: std::collections::HashMap::new(),
+            orderings,
+            dynamic_layers: std::collections::HashMap::new(),
+        };
+
+        let (field, desc) = resolve_sort_config_with_policy(&spec, Some(&validation));
+        assert_eq!(field.as_deref(), Some("created_at"));
+        assert!(!desc);
+    }
+
+    #[test]
+    fn policy_default_sort_applies_when_query_unspecified() {
+        let spec = QuerySpec {
+            query_id: "q1".to_string(),
+            layer_name: "orders/{customer}/entries".to_string(),
+            path: "entries".to_string(),
+            filter: None,
+            sort_by: None,
+            sort_order: None,
+            offset: 0,
+            limit: None,
+        };
+
+        let mut orderings = std::collections::HashMap::new();
+        orderings.insert(
+            "orders/{customer}/entries".to_string(),
+            gurkha::OrderPolicy {
+                field: "updated_at".to_string(),
+                direction: gurkha::SortDirection::Descending,
+            },
+        );
+        let validation = gurkha::ValidationArtifact {
+            lua_validators: std::collections::HashMap::new(),
+            broadcasts: std::collections::HashMap::new(),
+            orderings,
+            dynamic_layers: std::collections::HashMap::new(),
+        };
+
+        let (field, desc) = resolve_sort_config_with_policy(&spec, Some(&validation));
+        assert_eq!(field.as_deref(), Some("updated_at"));
+        assert!(desc);
+    }
 }

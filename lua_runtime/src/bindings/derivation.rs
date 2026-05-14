@@ -11,7 +11,7 @@ use mlua::{
 };
 use tracing::info;
 
-use super::convert::{json_to_lua, lua_to_json, matches_layer_pattern};
+use super::convert::{lua_to_sthithi, matches_layer_pattern, sthithi_to_lua};
 use crate::scribe_handle::ActorScribeHandle;
 
 // Local Derivation Rule
@@ -183,7 +183,7 @@ impl DerivationBindings {
             // Convert to Lua table
             // Layer data structure: { "container_name": [entries...] } for lists
             //                    or { "container_name": { key: entry, ... } } for maps
-            let data_lua = json_to_lua(lua, &layer_data)?;
+            let data_lua = sthithi_to_lua(lua, &layer_data)?;
 
             // Extract entries from the container structure
             let entries = extract_layer_entries(&data_lua)?;
@@ -237,9 +237,9 @@ impl DerivationBindings {
 
         // Insert new derived entries via ScribeHandle
         for (key, value) in derived_entries {
-            let json_value = lua_to_json(&value)?;
+            let sthithi_value = lua_to_sthithi(&value)?;
             self.scribe
-                .map_insert(target, "", &key, json_value)
+                .map_insert(target, "", &key, sthithi_value)
                 .map_err(|e| LuaError::RuntimeError(format!("Failed to insert: {}", e)))?;
         }
 

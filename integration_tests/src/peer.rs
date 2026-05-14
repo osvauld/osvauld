@@ -8,9 +8,9 @@ use std::time::Duration;
 use anyhow::Result;
 use tokio::sync::{mpsc, RwLock};
 use tracing::info;
-use transport::{MockBlobStore, MockConnection, NodeId, mock_connection_pair, node_id_from_secret};
+use transport::{mock_connection_pair, node_id_from_secret, MockBlobStore, MockConnection, NodeId};
 
-use butler::{Butler, LayerCache, RedbStore, signup};
+use butler::{signup, Butler, LayerCache, RedbStore};
 use courier::coordinator::{Coordinator, CoordinatorMessage, CourierMode};
 use courier::peer_actor::BlobStore;
 use courier::trace::MessageTrace;
@@ -50,7 +50,12 @@ impl Peer {
 
         // Wire sync_event channel so Scribe -> EnsureSync -> Coordinator works
         let (sync_tx, mut sync_rx) = mpsc::channel::<butler::SyncEvent>(100);
-        let butler = Arc::new(Butler::new(store.clone(), layer_cache, asset_store, Some(sync_tx)));
+        let butler = Arc::new(Butler::new(
+            store.clone(),
+            layer_cache,
+            asset_store,
+            Some(sync_tx),
+        ));
 
         // Create identity
         let signup_result = signup(&store, name, "password")?;
@@ -71,7 +76,16 @@ impl Peer {
         let (coordinator, _) = Actor::spawn(
             Some(format!("coordinator-{}-{}", name, node_id)),
             Coordinator::<MockConnection>::new(),
-            (node_id, mode, butler.clone(), blob, Some(connect_tx), Some(event_tx), message_tx, None),
+            (
+                node_id,
+                mode,
+                butler.clone(),
+                blob,
+                Some(connect_tx),
+                Some(event_tx),
+                message_tx,
+                None,
+            ),
         )
         .await?;
 
@@ -83,14 +97,25 @@ impl Peer {
                     butler::SyncEvent::EnsureSync { user_did } => {
                         let _ = coord.cast(CoordinatorMessage::EnsureSync { user_did });
                     }
-                    butler::SyncEvent::SubscribeLayers { page_id, creator_did, layers } => {
-                        let _ = coord.cast(CoordinatorMessage::SubscribeLayers { page_id, creator_did, layers });
+                    butler::SyncEvent::SubscribeLayers {
+                        page_id,
+                        creator_did,
+                        layers,
+                    } => {
+                        let _ = coord.cast(CoordinatorMessage::SubscribeLayers {
+                            page_id,
+                            creator_did,
+                            layers,
+                        });
                     }
                 }
             }
         });
 
-        info!("Peer '{}' created: node_id={}, mode={:?}", name, node_id, mode);
+        info!(
+            "Peer '{}' created: node_id={}, mode={:?}",
+            name, node_id, mode
+        );
 
         Ok(Self {
             name: name.to_string(),
@@ -143,7 +168,11 @@ impl Peer {
                     return Ok((did, username));
                 }
                 Ok(Some(CourierEvent::ConnectionFailed { node_id, error })) => {
-                    return Err(anyhow::anyhow!("Connection failed to {}: {}", node_id, error));
+                    return Err(anyhow::anyhow!(
+                        "Connection failed to {}: {}",
+                        node_id,
+                        error
+                    ));
                 }
                 Ok(Some(_)) => continue,
                 Ok(None) => return Err(anyhow::anyhow!("Event channel closed")),
@@ -160,6 +189,38 @@ impl Peer {
             .ok_or_else(|| anyhow::anyhow!("Event channel closed"))
     }
 
+    /// Wait for a PermitUpdated event matching a page with version >= min_version
+    ///
+    /// **Context**: Tests need deterministic waiting for permit distribution.
+    /// Drains the event channel looking for `PermitUpdated` where
+    /// `page_id == expected_page_id && version >= min_version`.
+    pub async fn wait_permit_updated(
+        &mut self,
+        expected_page_id: &str,
+        min_version: u64,
+        timeout: Duration,
+    ) -> Result<u64> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            match tokio::time::timeout_at(deadline, self.events.recv()).await {
+                Ok(Some(CourierEvent::PermitUpdated { page_id, version }))
+                    if page_id == expected_page_id && version >= min_version =>
+                {
+                    return Ok(version);
+                }
+                Ok(Some(_)) => continue,
+                Ok(None) => return Err(anyhow::anyhow!("Event channel closed")),
+                Err(_) => {
+                    return Err(anyhow::anyhow!(
+                        "Timeout waiting for PermitUpdated (page={}, min_version={})",
+                        expected_page_id,
+                        min_version
+                    ))
+                }
+            }
+        }
+    }
+
     /// Simulate disconnect from another peer
     ///
     /// **Context**: Injects `CoordinatorMessage::Disconnected` into both coordinators.
@@ -167,12 +228,16 @@ impl Peer {
     /// Butler state (permits, pages, layers) persists for reconnection.
     pub fn disconnect_from(&self, other: &Peer) -> Result<()> {
         self.coordinator
-            .cast(CoordinatorMessage::Disconnected { node_id: other.node_id })
+            .cast(CoordinatorMessage::Disconnected {
+                node_id: other.node_id,
+            })
             .map_err(|e| anyhow::anyhow!("Failed to inject disconnect: {:?}", e))?;
 
         other
             .coordinator
-            .cast(CoordinatorMessage::Disconnected { node_id: self.node_id })
+            .cast(CoordinatorMessage::Disconnected {
+                node_id: self.node_id,
+            })
             .map_err(|e| anyhow::anyhow!("Failed to inject disconnect: {:?}", e))?;
 
         info!("Mock disconnect: {} <-> {}", self.name, other.name);

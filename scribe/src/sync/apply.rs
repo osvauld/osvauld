@@ -14,7 +14,7 @@
 use logging_utils::ShortLayer;
 use tracing::{debug, error, info, instrument, warn};
 
-use domains::Layer;
+use domains::{Layer, OpKind, Sthithi};
 
 use super::broadcast::{broadcast_update, notify_layer_discovered};
 use super::sync_meta;
@@ -27,7 +27,7 @@ use crate::permit::Permissions;
 use crate::policy_compat;
 use crate::state::normalize_layer_name;
 use crate::state::ScribeState;
-use crate::JsonOp;
+use crate::Parivarta;
 
 // Update Context - Centralized Decision Logic
 
@@ -50,6 +50,8 @@ pub struct UpdateContext {
     pub is_local_only: bool,
     /// Does this update need Lua validation?
     pub should_validate: bool,
+    /// Does this update need compiled schema enforcement?
+    pub should_enforce_schema: bool,
     /// Should we broadcast after applying?
     pub should_broadcast: bool,
     /// Is this a new layer (needs creation)?
@@ -61,7 +63,11 @@ impl UpdateContext {
     ///
     /// **Context**: Computes all decisions based on state and update metadata
     /// **Note**: Permission checks are done separately (may reject before context is useful)
-    pub fn new(state: &mut ScribeState, layer_name: &str, from_peer: Option<(String, String)>) -> Self {
+    pub fn new(
+        state: &mut ScribeState,
+        layer_name: &str,
+        from_peer: Option<(String, String)>,
+    ) -> Self {
         let is_remote = from_peer.is_some();
         let is_local_only = Permissions::is_local_only(state, layer_name);
         let is_new_layer = !state.units.contains_key(layer_name);
@@ -75,6 +81,8 @@ impl UpdateContext {
 
         // Should validate: remote update AND ValidationHandle exists
         let should_validate = is_remote && state.validation_handle.is_some();
+        // Schema enforcement runs whenever schema artifact exists.
+        let should_enforce_schema = state.schema_artifact.is_some();
 
         // Should broadcast: remote update (local updates use observer)
         let should_broadcast = is_remote;
@@ -86,6 +94,7 @@ impl UpdateContext {
             is_remote,
             is_local_only,
             should_validate,
+            should_enforce_schema,
             should_broadcast,
             is_new_layer,
         }
@@ -105,7 +114,7 @@ pub enum ApplyOutcome {
         /// Layer that was updated
         layer_name: String,
         /// Ops extracted from update (for derivation)
-        ops: Vec<JsonOp>,
+        ops: Vec<Parivarta>,
         /// Was a new layer created?
         created_layer: bool,
     },
@@ -241,9 +250,9 @@ async fn apply_update_core(
     }
 
     // Step 3: Extract ops for validation (using optimized pre-commit method)
-    let extracted_ops = if ctx.should_validate {
-        // Use Layer::extract_ops_from_bytes (5-10x faster than old fork+diff)
-        match Layer::extract_ops_from_bytes(update) {
+    let extracted_ops = if ctx.should_validate || ctx.should_enforce_schema {
+        // Use canonical Parivarta extraction path
+        match Layer::extract_ops(update) {
             Ok(ops) => Some(ops),
             Err(e) => {
                 // Log extraction failure - validation will proceed with empty ops
@@ -256,14 +265,21 @@ async fn apply_update_core(
         None
     };
 
-    // Step 4: Validate with Lua (if needed)
+    // Step 4: Enforce compiled schema (required/immutable) before apply
+    if ctx.should_enforce_schema {
+        if let Err(e) = validate_with_compiled_schema(state, ctx, &extracted_ops) {
+            return ApplyOutcome::Rejected { reason: e };
+        }
+    }
+
+    // Step 5: Validate with Lua (if needed)
     if ctx.should_validate {
         if let Err(e) = validate_update_with_context(state, ctx, &extracted_ops).await {
             return ApplyOutcome::Rejected { reason: e };
         }
     }
 
-    // Step 5: Create layer if needed (remote only)
+    // Step 6: Create layer if needed (remote only)
     let created_layer = if ctx.is_new_layer {
         if ctx.is_remote {
             create_layer_from_peer(state, &ctx.layer_name);
@@ -277,15 +293,679 @@ async fn apply_update_core(
         false
     };
 
-    // Step 6: Apply CRDT update
+    // Step 7: Apply CRDT update
     if let Err(e) = apply_crdt_update(state, &ctx.layer_name, update, ctx.from_peer.clone()) {
         return ApplyOutcome::Rejected { reason: e };
+    }
+
+    // Step 8: Apply entity on-update rules from compiled schema
+    if let Err(e) = apply_entity_on_update_rules(state, ctx, &extracted_ops) {
+        warn!(layer = %ctx.layer_name, error = %e, "Failed to apply entity on-update rules");
     }
 
     ApplyOutcome::Applied {
         layer_name: ctx.layer_name.clone(),
         ops: extracted_ops.unwrap_or_default(),
         created_layer,
+    }
+}
+
+fn validate_with_compiled_schema(
+    state: &ScribeState,
+    ctx: &UpdateContext,
+    extracted_ops: &Option<Vec<Parivarta>>,
+) -> Result<(), String> {
+    let Some(schema) = state.schema_artifact.as_ref() else {
+        return Ok(());
+    };
+    let Some(ops) = extracted_ops.as_ref() else {
+        return Ok(());
+    };
+    if ops.is_empty() {
+        return Ok(());
+    }
+
+    let Some(entity_name) = find_bound_entity_name(schema, &ctx.layer_name) else {
+        return Ok(());
+    };
+
+    let Some(entity_schema) = schema.entities.get(entity_name) else {
+        return Ok(());
+    };
+
+    for op in ops {
+        validate_entity_delete_rules(entity_schema, op)?;
+        validate_required_fields(entity_schema, op)?;
+        validate_immutable_fields(state, &ctx.layer_name, entity_schema, op)?;
+        validate_transition_rules(state, ctx, &ctx.layer_name, entity_schema, op)?;
+    }
+
+    Ok(())
+}
+
+fn validate_entity_delete_rules(
+    entity_schema: &gurkha::EntitySchema,
+    op: &Parivarta,
+) -> Result<(), String> {
+    if !matches!(op.op, OpKind::Delete) {
+        return Ok(());
+    }
+
+    let reject_delete = entity_schema
+        .entity_rules
+        .iter()
+        .any(|rule| matches!(rule, gurkha::EntityRuleSchema::OnDeleteReject));
+    if reject_delete {
+        return Err("delete rejected by entity rule".to_string());
+    }
+
+    Ok(())
+}
+
+fn apply_entity_on_update_rules(
+    state: &mut ScribeState,
+    ctx: &UpdateContext,
+    extracted_ops: &Option<Vec<Parivarta>>,
+) -> Result<(), String> {
+    let Some(schema) = state.schema_artifact.as_ref() else {
+        return Ok(());
+    };
+    let Some(ops) = extracted_ops.as_ref() else {
+        return Ok(());
+    };
+
+    let has_update = ops
+        .iter()
+        .any(|op| matches!(op.op, OpKind::Insert | OpKind::Update | OpKind::Set));
+    if !has_update {
+        return Ok(());
+    }
+
+    let Some(entity_name) = find_bound_entity_name(schema, &ctx.layer_name) else {
+        return Ok(());
+    };
+    let Some(entity_schema) = schema.entities.get(entity_name) else {
+        return Ok(());
+    };
+
+    let mut updates = Vec::new();
+    for rule in &entity_schema.entity_rules {
+        if let gurkha::EntityRuleSchema::OnUpdateSet {
+            field,
+            source,
+            literal,
+        } = rule
+        {
+            if let Some(value) = resolve_entity_rule_value(source, literal.as_ref(), state, ctx) {
+                updates.push((field.clone(), value));
+            }
+        }
+    }
+
+    if updates.is_empty() {
+        return Ok(());
+    }
+
+    let Some(layer_unit) = state.units.get(&ctx.layer_name) else {
+        return Ok(());
+    };
+    for (field, value) in updates {
+        layer_unit
+            .layer()
+            .set_from_sthithi(&field, &value)
+            .map_err(|e| format!("failed to set entity rule field '{}': {}", field, e))?;
+    }
+
+    Ok(())
+}
+
+fn resolve_entity_rule_value(
+    source: &str,
+    literal: Option<&gurkha::LiteralValue>,
+    state: &ScribeState,
+    ctx: &UpdateContext,
+) -> Option<Sthithi> {
+    match source {
+        "from_clock" | "fromclock" => {
+            let millis = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_millis() as i64;
+            Some(Sthithi::Int(millis))
+        }
+        "from_peer" | "frompeer" => {
+            let did = if let Some((did, _)) = &ctx.from_peer {
+                did.clone()
+            } else {
+                state.our_did.clone()
+            };
+            Some(Sthithi::Str(did))
+        }
+        "from_mode" | "frommode" => {
+            let mode = if let Some(sync_config) = &state.sync_config {
+                match sync_config.mode {
+                    crate::state::SyncMode::ToSource => "to_source",
+                    crate::state::SyncMode::Broadcast => "broadcast",
+                }
+            } else {
+                "local"
+            };
+            Some(Sthithi::Str(mode.to_string()))
+        }
+        "to_literal" => match literal? {
+            value => Some(literal_value_to_sthithi(value)),
+        },
+        _ => None,
+    }
+}
+
+fn literal_value_to_sthithi(literal: &gurkha::LiteralValue) -> Sthithi {
+    match literal {
+        gurkha::LiteralValue::String(v) => Sthithi::Str(v.clone()),
+        gurkha::LiteralValue::Int(v) => Sthithi::Int(*v),
+        gurkha::LiteralValue::Bool(v) => Sthithi::Bool(*v),
+        gurkha::LiteralValue::Null => Sthithi::Null,
+    }
+}
+
+fn validate_transition_rules(
+    state: &ScribeState,
+    ctx: &UpdateContext,
+    layer_name: &str,
+    entity_schema: &gurkha::EntitySchema,
+    op: &Parivarta,
+) -> Result<(), String> {
+    let Some(field_name) = &op.key else {
+        return Ok(());
+    };
+
+    let has_transition_for_field = entity_schema
+        .transitions
+        .iter()
+        .any(|t| t.field == *field_name);
+    if !has_transition_for_field {
+        return Ok(());
+    }
+
+    let Some(new_state) = op.value.as_ref().and_then(sthithi_as_str) else {
+        return Ok(());
+    };
+
+    let Some(old_state) = current_field_value(state.units.get(layer_name).map(|u| u.layer()), field_name)
+        .as_ref()
+        .and_then(sthithi_as_str)
+        .map(|s| s.to_string())
+    else {
+        return Ok(());
+    };
+
+    if old_state == new_state {
+        return Ok(());
+    }
+
+    let actor_role = actor_role_for_update(state, ctx);
+    let actor_did = actor_did_for_update(state, ctx);
+    let layer = state.units.get(layer_name).map(|u| u.layer());
+    if is_transition_allowed(
+        entity_schema,
+        layer,
+        op,
+        field_name,
+        &old_state,
+        new_state,
+        &actor_role,
+        &actor_did,
+    ) {
+        return Ok(());
+    }
+
+    Err(format!(
+        "transition denied for field '{}': '{}' -> '{}' by role '{}'",
+        field_name, old_state, new_state, actor_role
+    ))
+}
+
+fn actor_role_for_update(state: &ScribeState, ctx: &UpdateContext) -> String {
+    if ctx.is_remote {
+        return ctx.peer_role.clone();
+    }
+
+    state
+        .our_permit
+        .as_ref()
+        .and_then(policy_compat::role)
+        .unwrap_or_else(|| "local".to_string())
+}
+
+fn actor_did_for_update(state: &ScribeState, ctx: &UpdateContext) -> String {
+    if let Some((did, _)) = &ctx.from_peer {
+        return did.clone();
+    }
+    state.our_did.clone()
+}
+
+fn is_transition_allowed(
+    entity_schema: &gurkha::EntitySchema,
+    layer: Option<&Layer>,
+    op: &Parivarta,
+    field_name: &str,
+    from_state: &str,
+    to_state: &str,
+    actor_role: &str,
+    actor_did: &str,
+) -> bool {
+    entity_schema.transitions.iter().any(|t| {
+        t.field == field_name
+            && t.from == from_state
+            && t.to == to_state
+            && t.allowed_roles.iter().any(|r| r == actor_role)
+            && transition_predicates_match(layer, op, &t.predicates, actor_did)
+    })
+}
+
+fn transition_predicates_match(
+    layer: Option<&Layer>,
+    op: &Parivarta,
+    predicates: &[gurkha::Predicate],
+    actor_did: &str,
+) -> bool {
+    predicates
+        .iter()
+        .all(|predicate| evaluate_transition_predicate(layer, op, predicate, actor_did))
+}
+
+fn evaluate_transition_predicate(
+    layer: Option<&Layer>,
+    op: &Parivarta,
+    predicate: &gurkha::Predicate,
+    actor_did: &str,
+) -> bool {
+    use gurkha::{Predicate, Ref, Value};
+
+    let resolve_value = |value: &Value| -> Option<Sthithi> {
+        match value {
+            Value::Str(v) => Some(Sthithi::Str(v.clone())),
+            Value::Num(v) => Some(Sthithi::Int(*v)),
+            Value::Bool(v) => Some(Sthithi::Bool(*v)),
+            Value::Ref(reference) => match reference {
+                Ref::ActorDid => Some(Sthithi::Str(actor_did.to_string())),
+                Ref::TargetField { field } => {
+                    if op.key.as_deref() == Some(field.as_str()) {
+                        op.value.clone()
+                    } else {
+                        current_field_value(layer, field)
+                    }
+                }
+                _ => None,
+            },
+        }
+    };
+
+    let eq = |l: &Sthithi, r: &Sthithi| l == r;
+    let gt = |l: &Sthithi, r: &Sthithi| match (l, r) {
+        (Sthithi::Int(a), Sthithi::Int(b)) => a > b,
+        (Sthithi::Float(a), Sthithi::Float(b)) => a > b,
+        (Sthithi::Int(a), Sthithi::Float(b)) => (*a as f64) > *b,
+        (Sthithi::Float(a), Sthithi::Int(b)) => *a > (*b as f64),
+        _ => false,
+    };
+    let lt = |l: &Sthithi, r: &Sthithi| match (l, r) {
+        (Sthithi::Int(a), Sthithi::Int(b)) => a < b,
+        (Sthithi::Float(a), Sthithi::Float(b)) => a < b,
+        (Sthithi::Int(a), Sthithi::Float(b)) => (*a as f64) < *b,
+        (Sthithi::Float(a), Sthithi::Int(b)) => *a < (*b as f64),
+        _ => false,
+    };
+
+    match predicate {
+        Predicate::Eq { left, right } => match (resolve_value(left), resolve_value(right)) {
+            (Some(l), Some(r)) => eq(&l, &r),
+            _ => false,
+        },
+        Predicate::Ne { left, right } => match (resolve_value(left), resolve_value(right)) {
+            (Some(l), Some(r)) => !eq(&l, &r),
+            _ => false,
+        },
+        Predicate::Le { left, right } => match (resolve_value(left), resolve_value(right)) {
+            (Some(l), Some(r)) => lt(&l, &r) || eq(&l, &r),
+            _ => false,
+        },
+        Predicate::Gt { left, right } => match (resolve_value(left), resolve_value(right)) {
+            (Some(l), Some(r)) => gt(&l, &r),
+            _ => false,
+        },
+        Predicate::Ge { left, right } => match (resolve_value(left), resolve_value(right)) {
+            (Some(l), Some(r)) => gt(&l, &r) || eq(&l, &r),
+            _ => false,
+        },
+        Predicate::Lt { left, right } => match (resolve_value(left), resolve_value(right)) {
+            (Some(l), Some(r)) => lt(&l, &r),
+            _ => false,
+        },
+        Predicate::In { item, set } => {
+            let Some(item_val) = resolve_value(item) else {
+                return false;
+            };
+            set.iter()
+                .filter_map(resolve_value)
+                .any(|candidate| candidate == item_val)
+        }
+        Predicate::Matches { .. }
+        | Predicate::Exists { .. }
+        | Predicate::RoleIs { .. } => false,
+    }
+}
+
+fn sthithi_as_str(value: &Sthithi) -> Option<&str> {
+    match value {
+        Sthithi::Str(s) => Some(s.as_str()),
+        _ => None,
+    }
+}
+
+fn find_bound_entity_name<'a>(
+    schema: &'a gurkha::SchemaArtifact,
+    layer_name: &str,
+) -> Option<&'a String> {
+    schema
+        .layer_bindings
+        .iter()
+        .find_map(|(template, entity)| path_matches_template(template, layer_name).then_some(entity))
+}
+
+fn path_matches_template(template: &str, layer_name: &str) -> bool {
+    let t_parts: Vec<&str> = template.split('/').collect();
+    let l_parts: Vec<&str> = layer_name.split('/').collect();
+    if t_parts.len() != l_parts.len() {
+        return false;
+    }
+    t_parts.iter().zip(l_parts.iter()).all(|(t, l)| {
+        (t.starts_with('{') && t.ends_with('}')) || *t == *l
+    })
+}
+
+fn validate_required_fields(entity_schema: &gurkha::EntitySchema, op: &Parivarta) -> Result<(), String> {
+    if let Some(key) = &op.key {
+        if let Some(field) = entity_schema.fields.iter().find(|f| f.name == *key && f.required) {
+            if matches!(op.op, OpKind::Delete) || matches!(op.value, Some(Sthithi::Null) | None) {
+                return Err(format!("required field '{}' cannot be unset", field.name));
+            }
+        }
+    }
+
+    if matches!(op.op, OpKind::Insert | OpKind::Set | OpKind::Update) {
+        if let Some(Sthithi::Map(entries)) = &op.value {
+            for field in entity_schema.fields.iter().filter(|f| f.required) {
+                let present = entries
+                    .iter()
+                    .find(|(k, _)| k == &field.name)
+                    .map(|(_, v)| !matches!(v, Sthithi::Null))
+                    .unwrap_or(false);
+                if !present {
+                    return Err(format!("required field '{}' missing in entity payload", field.name));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_immutable_fields(
+    state: &ScribeState,
+    layer_name: &str,
+    entity_schema: &gurkha::EntitySchema,
+    op: &Parivarta,
+) -> Result<(), String> {
+    let Some(key) = &op.key else {
+        return Ok(());
+    };
+    let Some(field) = entity_schema
+        .fields
+        .iter()
+        .find(|f| f.name == *key && f.immutable)
+    else {
+        return Ok(());
+    };
+
+    let Some(layer_unit) = state.units.get(layer_name) else {
+        return Ok(());
+    };
+
+    let existing = current_field_value(Some(layer_unit.layer()), key);
+    let new_value = op.value.as_ref();
+
+    if let Some(existing_value) = existing {
+        if new_value != Some(&existing_value) {
+            return Err(format!("immutable field '{}' cannot be modified", field.name));
+        }
+    }
+
+    Ok(())
+}
+
+fn current_field_value(layer: Option<&Layer>, key: &str) -> Option<Sthithi> {
+    let layer = layer?;
+    let root = layer.get_content_sthithi("root");
+    let Sthithi::Map(entries) = root else {
+        return None;
+    };
+    entries
+        .into_iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn template_path_matches_dynamic_layer_name() {
+        assert!(path_matches_template(
+            "channels/{id}/messages",
+            "channels/general/messages"
+        ));
+        assert!(!path_matches_template(
+            "channels/{id}/messages",
+            "channels/general/threads"
+        ));
+    }
+
+    #[test]
+    fn required_field_delete_is_rejected() {
+        let schema = gurkha::EntitySchema {
+            fields: vec![gurkha::FieldSchema {
+                name: "text".to_string(),
+                required: true,
+                immutable: false,
+            }],
+            transitions: vec![],
+            entity_rules: vec![],
+        };
+
+        let op = Parivarta {
+            layer: "messages".to_string(),
+            op: OpKind::Delete,
+            path: "root".to_string(),
+            key: Some("text".to_string()),
+            index: None,
+            value: None,
+            old_value: None,
+            intent: None,
+            from_peer: None,
+        };
+
+        let result = validate_required_fields(&schema, &op);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn transition_is_allowed_for_matching_role_and_path() {
+        let schema = gurkha::EntitySchema {
+            fields: vec![],
+            transitions: vec![gurkha::TransitionSchema {
+                field: "status".to_string(),
+                from: "pending".to_string(),
+                to: "confirmed".to_string(),
+                allowed_roles: vec!["owner".to_string()],
+                predicates: vec![],
+            }],
+            entity_rules: vec![],
+        };
+
+        let op = Parivarta {
+            layer: "messages".to_string(),
+            op: OpKind::Update,
+            path: "root".to_string(),
+            key: Some("status".to_string()),
+            index: None,
+            value: Some(Sthithi::Str("confirmed".to_string())),
+            old_value: Some(Sthithi::Str("pending".to_string())),
+            intent: None,
+            from_peer: None,
+        };
+
+        assert!(is_transition_allowed(
+            &schema,
+            None,
+            &op,
+            "status",
+            "pending",
+            "confirmed",
+            "owner",
+            "did:key:owner"
+        ));
+    }
+
+    #[test]
+    fn transition_is_rejected_for_non_matching_role() {
+        let schema = gurkha::EntitySchema {
+            fields: vec![],
+            transitions: vec![gurkha::TransitionSchema {
+                field: "status".to_string(),
+                from: "pending".to_string(),
+                to: "confirmed".to_string(),
+                allowed_roles: vec!["owner".to_string()],
+                predicates: vec![],
+            }],
+            entity_rules: vec![],
+        };
+
+        let op = Parivarta {
+            layer: "messages".to_string(),
+            op: OpKind::Update,
+            path: "root".to_string(),
+            key: Some("status".to_string()),
+            index: None,
+            value: Some(Sthithi::Str("confirmed".to_string())),
+            old_value: Some(Sthithi::Str("pending".to_string())),
+            intent: None,
+            from_peer: None,
+        };
+
+        assert!(!is_transition_allowed(
+            &schema,
+            None,
+            &op,
+            "status",
+            "pending",
+            "confirmed",
+            "customer",
+            "did:key:customer"
+        ));
+    }
+
+    #[test]
+    fn entity_on_delete_reject_blocks_delete_ops() {
+        let schema = gurkha::EntitySchema {
+            fields: vec![],
+            transitions: vec![],
+            entity_rules: vec![gurkha::EntityRuleSchema::OnDeleteReject],
+        };
+
+        let op = Parivarta {
+            layer: "messages".to_string(),
+            op: OpKind::Delete,
+            path: "root".to_string(),
+            key: Some("text".to_string()),
+            index: None,
+            value: None,
+            old_value: None,
+            intent: None,
+            from_peer: None,
+        };
+
+        assert!(validate_entity_delete_rules(&schema, &op).is_err());
+    }
+
+    #[test]
+    fn transition_predicate_eq_with_actor_did_matches() {
+        let op = Parivarta {
+            layer: "messages".to_string(),
+            op: OpKind::Update,
+            path: "root".to_string(),
+            key: Some("owner".to_string()),
+            index: None,
+            value: Some(Sthithi::Str("did:key:alice".to_string())),
+            old_value: Some(Sthithi::Str("did:key:bob".to_string())),
+            intent: None,
+            from_peer: None,
+        };
+
+        let predicate = gurkha::Predicate::Eq {
+            left: gurkha::Value::Ref(gurkha::Ref::TargetField {
+                field: "owner".to_string(),
+            }),
+            right: gurkha::Value::Ref(gurkha::Ref::ActorDid),
+        };
+
+        assert!(evaluate_transition_predicate(
+            None,
+            &op,
+            &predicate,
+            "did:key:alice"
+        ));
+    }
+
+    #[test]
+    fn transition_predicate_gt_reads_other_field_from_layer() {
+        let layer = Layer::new();
+        layer
+            .set_from_sthithi("priority", &Sthithi::Int(9))
+            .expect("set priority");
+
+        let op = Parivarta {
+            layer: "messages".to_string(),
+            op: OpKind::Update,
+            path: "root".to_string(),
+            key: Some("status".to_string()),
+            index: None,
+            value: Some(Sthithi::Str("confirmed".to_string())),
+            old_value: Some(Sthithi::Str("pending".to_string())),
+            intent: None,
+            from_peer: None,
+        };
+
+        let predicate = gurkha::Predicate::Gt {
+            left: gurkha::Value::Ref(gurkha::Ref::TargetField {
+                field: "priority".to_string(),
+            }),
+            right: gurkha::Value::Num(5),
+        };
+
+        assert!(evaluate_transition_predicate(
+            Some(&layer),
+            &op,
+            &predicate,
+            "did:key:alice"
+        ));
+    }
+
+    #[test]
+    fn literal_value_to_sthithi_converts_to_runtime_value() {
+        let value = literal_value_to_sthithi(&gurkha::LiteralValue::String("confirmed".to_string()));
+        assert_eq!(value, Sthithi::Str("confirmed".to_string()));
     }
 }
 
@@ -300,7 +980,7 @@ async fn apply_update_core(
 async fn validate_update_with_context(
     state: &ScribeState,
     ctx: &UpdateContext,
-    extracted_ops: &Option<Vec<JsonOp>>,
+    extracted_ops: &Option<Vec<Parivarta>>,
 ) -> Result<(), String> {
     let Some(ref ops) = extracted_ops else {
         return Ok(()); // No ops to validate
@@ -393,7 +1073,11 @@ fn create_layer_from_peer(state: &mut ScribeState, layer_name: &str) {
                             can_write,
                             info.broadcast_tx.clone(),
                         );
-                        state.emit_layer_auth_capture(layer_name, did, "subscriber_added_from_peer");
+                        state.emit_layer_auth_capture(
+                            layer_name,
+                            did,
+                            "subscriber_added_from_peer",
+                        );
                     }
                 }
             }
@@ -538,7 +1222,9 @@ fn get_peer_role(state: &mut ScribeState, peer_did: &str) -> String {
     }
 
     let role = get_peer_role_uncached(state, peer_did);
-    state.peer_role_cache.insert(peer_did.to_string(), role.clone());
+    state
+        .peer_role_cache
+        .insert(peer_did.to_string(), role.clone());
     role
 }
 

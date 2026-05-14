@@ -124,7 +124,6 @@ fn register_upload_page(shell: &Shell, butler: Arc<Butler>) {
 
             tracing::info!(page_name = %page.name, "Page uploaded successfully");
 
-            // Refresh pages list
             if let Some(shell) = shell_weak.upgrade() {
                 let pages = butler.pages().list(&current_space_id).unwrap_or_default();
                 let page_infos: Vec<crate::PageInfo> = pages
@@ -165,7 +164,6 @@ fn register_reload_page(shell: &Shell, butler: Arc<Butler>) {
 
         tracing::info!(page_id = %current_page_id, "Page reload requested");
 
-        // Refresh apps list
         if let Some(shell) = shell_weak.upgrade() {
             let apps = butler.apps().list(&current_page_id).unwrap_or_default();
             let app_infos: Vec<crate::AppInfo> = apps
@@ -212,13 +210,9 @@ fn register_delete_app(shell: &Shell) {
     });
 }
 
-/// Register refresh_app callback - updates an existing app from filesystem via Scribe
+/// Register refresh_app callback - hot-updates an app from filesystem via Scribe.
 ///
-/// **Context**: Developer workflow -- hot-update an app in place without re-importing the page
-/// **Shell sends**: app_name (unused for routing), app_dir (path to app directory on disk)
-/// **We read**: current_page_id from shell state
-/// **We call**: butler.apps().update() which goes through Scribe so CRDT, observers, and sync fire
-/// **We emit**: info on success, warn/error on validation or update failure
+/// Goes through `butler.apps().update()` so CRDT, observers, and sync fire.
 fn register_refresh_app(shell: &Shell, butler: Arc<Butler>) {
     let shell_weak = shell.as_weak();
     shell.on_refresh_app(move |app_name, app_dir| {

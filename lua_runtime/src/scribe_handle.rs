@@ -6,12 +6,12 @@
 //!
 //! **Production**: `ActorScribeHandle` wraps `ActorRef<ScribeMessage>` with `block_in_place()`
 
-use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use domains::Sthithi;
 use ractor::ActorRef;
-use scribe::ScribeMessage;
+use scribe::{FlatTreeNode, ScribeMessage, TreeNodeView};
 use tokio::sync::oneshot;
 
 /// Helper: block_on an async oneshot that returns `Result<T, ScribeError>`,
@@ -92,7 +92,7 @@ impl ActorScribeHandle {
     // -- List operations --
 
     /// Push item to end of list
-    pub fn list_push(&self, layer_name: &str, path: &str, item: JsonValue) -> Result<(), String> {
+    pub fn list_push(&self, layer_name: &str, path: &str, item: Sthithi) -> Result<(), String> {
         self.scribe_ref
             .cast(ScribeMessage::ListPush {
                 layer_name: layer_name.to_string(),
@@ -108,7 +108,7 @@ impl ActorScribeHandle {
         layer_name: &str,
         path: &str,
         index: usize,
-        item: JsonValue,
+        item: Sthithi,
     ) -> Result<(), String> {
         self.scribe_ref
             .cast(ScribeMessage::ListInsert {
@@ -132,7 +132,7 @@ impl ActorScribeHandle {
     }
 
     /// Get item at index
-    pub fn list_get(&self, layer_name: &str, index: usize) -> Result<Option<JsonValue>, String> {
+    pub fn list_get(&self, layer_name: &str, index: usize) -> Result<Option<Sthithi>, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::ListGet {
@@ -164,7 +164,7 @@ impl ActorScribeHandle {
         layer_name: &str,
         path: &str,
         key: &str,
-        value: JsonValue,
+        value: Sthithi,
     ) -> Result<(), String> {
         self.scribe_ref
             .cast(ScribeMessage::MapInsert {
@@ -177,7 +177,7 @@ impl ActorScribeHandle {
     }
 
     /// Get value by key
-    pub fn map_get(&self, layer_name: &str, key: &str) -> Result<Option<JsonValue>, String> {
+    pub fn map_get(&self, layer_name: &str, key: &str) -> Result<Option<Sthithi>, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::MapGet {
@@ -224,6 +224,298 @@ impl ActorScribeHandle {
         rpc(rx)
     }
 
+    // -- Tree operations --
+
+    /// Ensure a tree layer exists (creates if needed)
+    pub fn ensure_tree(&self, layer_name: &str) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::EnsureLoroTree {
+                layer_name: layer_name.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to ensure tree: {}", e))?;
+        rpc(rx)
+    }
+
+    /// Create a new tree node. `parent` = None for root.
+    ///
+    /// `text_keys` lists meta keys that should be materialised as nested
+    /// LoroText containers in the same commit as the node creation. This
+    /// makes the creator solely responsible for container instantiation, so
+    /// peers who later edit the same field can't race on `meta.insert_container`.
+    /// Pass an empty Vec for plain prop-only nodes.
+    pub fn tree_create(
+        &self,
+        layer_name: &str,
+        parent: Option<String>,
+        index: Option<usize>,
+        props: Sthithi,
+        text_keys: Vec<String>,
+    ) -> Result<String, String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TreeCreate {
+                layer_name: layer_name.to_string(),
+                parent,
+                index,
+                props,
+                text_keys,
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to create tree node: {}", e))?;
+        rpc(rx)
+    }
+
+    /// Move a tree node to a new parent/index.
+    pub fn tree_move(
+        &self,
+        layer_name: &str,
+        node_id: &str,
+        parent: Option<String>,
+        index: Option<usize>,
+    ) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TreeMove {
+                layer_name: layer_name.to_string(),
+                node_id: node_id.to_string(),
+                parent,
+                index,
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to move tree node: {}", e))?;
+        rpc(rx)
+    }
+
+    /// Delete a tree node.
+    pub fn tree_delete(&self, layer_name: &str, node_id: &str) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TreeDelete {
+                layer_name: layer_name.to_string(),
+                node_id: node_id.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to delete tree node: {}", e))?;
+        rpc(rx)
+    }
+
+    /// Set a single property on a tree node's meta map.
+    pub fn tree_set_prop(
+        &self,
+        layer_name: &str,
+        node_id: &str,
+        key: &str,
+        value: Sthithi,
+    ) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TreeSetProp {
+                layer_name: layer_name.to_string(),
+                node_id: node_id.to_string(),
+                key: key.to_string(),
+                value,
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to set tree prop: {}", e))?;
+        rpc(rx)
+    }
+
+    /// Read a tree node's view (props + immediate children).
+    pub fn tree_get_node(
+        &self,
+        layer_name: &str,
+        node_id: &str,
+    ) -> Result<Option<TreeNodeView>, String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TreeGetNode {
+                layer_name: layer_name.to_string(),
+                node_id: node_id.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to get tree node: {}", e))?;
+        rpc(rx)
+    }
+
+    /// Depth-first flattened walk from root.
+    pub fn tree_walk(&self, layer_name: &str) -> Result<Vec<FlatTreeNode>, String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TreeWalk {
+                layer_name: layer_name.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to walk tree: {}", e))?;
+        rpc(rx)
+    }
+
+    // -- Text operations --
+
+    /// Ensure a text layer exists (creates if needed).
+    pub fn ensure_text(&self, layer_name: &str) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::EnsureLoroText {
+                layer_name: layer_name.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to ensure text: {}", e))?;
+        rpc(rx).map(|_| ()).map_err(|e: String| e)
+    }
+
+    /// Insert a string at the given codepoint position.
+    pub fn text_insert(
+        &self,
+        layer_name: &str,
+        pos: usize,
+        content: &str,
+    ) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TextInsert {
+                layer_name: layer_name.to_string(),
+                pos,
+                content: content.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to insert text: {}", e))?;
+        rpc(rx)
+    }
+
+    /// Delete `len` codepoints starting at `pos`.
+    pub fn text_delete(
+        &self,
+        layer_name: &str,
+        pos: usize,
+        len: usize,
+    ) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TextDelete {
+                layer_name: layer_name.to_string(),
+                pos,
+                len,
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to delete text: {}", e))?;
+        rpc(rx)
+    }
+
+    /// Snapshot the current full text content as a `String`.
+    pub fn text_snapshot(&self, layer_name: &str) -> Result<String, String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TextSnapshot {
+                layer_name: layer_name.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to snapshot text: {}", e))?;
+        rpc(rx)
+    }
+
+    /// Length of the text in unicode codepoints.
+    pub fn text_length(&self, layer_name: &str) -> Result<usize, String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TextLength {
+                layer_name: layer_name.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to get text length: {}", e))?;
+        rpc(rx)
+    }
+
+    // Per-tree-node nested-LoroText ops. Each tree node's meta map can carry
+    // a nested LoroText container under a meta key (typically `"text"`),
+    // giving char-level CRDT merge for that block's content. The `tree:text(
+    // node_id)` Lua accessor returns a userdata that calls into these.
+
+    /// Insert into the nested LoroText at `meta[key]` of a tree node.
+    pub fn tree_text_insert(
+        &self,
+        layer_name: &str,
+        node_id: &str,
+        key: &str,
+        pos: usize,
+        content: &str,
+    ) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TreeTextInsert {
+                layer_name: layer_name.to_string(),
+                node_id: node_id.to_string(),
+                key: key.to_string(),
+                pos,
+                content: content.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to insert tree text: {}", e))?;
+        rpc(rx)
+    }
+
+    /// Delete from the nested LoroText at `meta[key]` of a tree node.
+    pub fn tree_text_delete(
+        &self,
+        layer_name: &str,
+        node_id: &str,
+        key: &str,
+        pos: usize,
+        len: usize,
+    ) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TreeTextDelete {
+                layer_name: layer_name.to_string(),
+                node_id: node_id.to_string(),
+                key: key.to_string(),
+                pos,
+                len,
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to delete tree text: {}", e))?;
+        rpc(rx)
+    }
+
+    /// Snapshot the nested LoroText at `meta[key]` of a tree node.
+    pub fn tree_text_snapshot(
+        &self,
+        layer_name: &str,
+        node_id: &str,
+        key: &str,
+    ) -> Result<String, String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TreeTextSnapshot {
+                layer_name: layer_name.to_string(),
+                node_id: node_id.to_string(),
+                key: key.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to snapshot tree text: {}", e))?;
+        rpc(rx)
+    }
+
+    /// Codepoint length of the nested LoroText at `meta[key]` of a tree node.
+    pub fn tree_text_length(
+        &self,
+        layer_name: &str,
+        node_id: &str,
+        key: &str,
+    ) -> Result<usize, String> {
+        let (tx, rx) = oneshot::channel();
+        self.scribe_ref
+            .cast(ScribeMessage::TreeTextLength {
+                layer_name: layer_name.to_string(),
+                node_id: node_id.to_string(),
+                key: key.to_string(),
+                reply: tx,
+            })
+            .map_err(|e| format!("Failed to get tree text length: {}", e))?;
+        rpc(rx)
+    }
+
     // -- Query --
 
     /// List layer names matching a glob pattern
@@ -238,8 +530,8 @@ impl ActorScribeHandle {
         rpc_direct(rx)
     }
 
-    /// Get layer content as JSON (returns None if layer doesn't exist)
-    pub fn get_layer_json(&self, layer_name: &str) -> Result<Option<JsonValue>, String> {
+    /// Get layer content as Sthithi (returns None if layer doesn't exist)
+    pub fn get_layer_sthithi(&self, layer_name: &str) -> Result<Option<Sthithi>, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::GetLayerJson {
@@ -250,8 +542,8 @@ impl ActorScribeHandle {
         rpc_direct(rx)
     }
 
-    /// Get layer data as JSON (returns error if layer doesn't exist)
-    pub fn get_layer_data(&self, layer_name: &str) -> Result<JsonValue, String> {
+    /// Get layer data as Sthithi (returns error if layer doesn't exist)
+    pub fn get_layer_data(&self, layer_name: &str) -> Result<Sthithi, String> {
         let (tx, rx) = oneshot::channel();
         self.scribe_ref
             .cast(ScribeMessage::GetLayerData {

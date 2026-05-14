@@ -18,7 +18,7 @@ use ractor::{Actor, ActorProcessingErr, ActorRef};
 use tokio::time::{interval, Duration};
 use tracing::{debug, info, instrument, warn};
 
-use domains::Layer;
+use domains::{Layer, Sthithi};
 
 use crate::ephemeral::{
     broadcast_ephemeral_to_subscribers, emit_raw_ephemeral, handle_remote_structured_ephemeral,
@@ -180,8 +180,7 @@ impl Actor for Scribe {
                 reply,
             } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result =
-                    sync::handle_replace_layer(state, &layer_name, &snapshot, from_peer);
+                let result = sync::handle_replace_layer(state, &layer_name, &snapshot, from_peer);
                 let _ = reply.send(result);
             }
 
@@ -219,10 +218,7 @@ impl Actor for Scribe {
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
                         let list = layer.loro().get_list(layer_name.clone());
-                        list.get(index).map(|v| {
-                            let deep = v.get_deep_value();
-                            domains::loro_value_to_json(deep)
-                        })
+                        list.get(index).map(|v| Sthithi::from(v.get_deep_value()))
                     });
                 let _ = reply.send(result);
             }
@@ -254,10 +250,7 @@ impl Actor for Scribe {
                     .ok_or_else(|| ScribeError::LayerNotFound(layer_name.clone()))
                     .map(|layer| {
                         let map = layer.loro().get_map(layer_name.clone());
-                        map.get(&key).map(|v| {
-                            let deep = v.get_deep_value();
-                            domains::loro_value_to_json(deep)
-                        })
+                        map.get(&key).map(|v| Sthithi::from(v.get_deep_value()))
                     });
                 let _ = reply.send(result);
             }
@@ -320,12 +313,12 @@ impl Actor for Scribe {
                     state
                         .units
                         .get(&layer_name)
-                        .map(|unit| unit.layer().get_content(&layer_name)),
+                        .map(|unit| unit.layer().get_content_sthithi(&layer_name)),
                 );
             }
 
             ScribeMessage::GetContext { reply } => {
-                let _ = reply.send(query::build_context_json(state));
+                let _ = reply.send(query::build_context_sthithi(state));
             }
 
             ScribeMessage::Query { spec, reply } => {
@@ -341,14 +334,14 @@ impl Actor for Scribe {
                 debug!(page_id = %state.page_id, query_id = %query_id, "Query subscription removed");
             }
 
-            ScribeMessage::UpdateFromJson {
+            ScribeMessage::UpdateFromSthithi {
                 layer_name,
                 path,
                 value,
                 reply,
             } => {
                 let layer_name = normalize_layer_name(&layer_name, &state.page_id);
-                let result = handle_update_from_json(state, &layer_name, &path, value).await;
+                let result = handle_update_from_sthithi(state, &layer_name, &path, value).await;
                 if let Some(tx) = reply {
                     let _ = tx.send(result);
                 }
@@ -419,6 +412,193 @@ impl Actor for Scribe {
                 {
                     warn!(error = %e, "MapDelete failed");
                 }
+            }
+
+            ScribeMessage::EnsureLoroTree { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                ensure_layer_for_lua(state, &layer_name, "tree");
+                let _ = reply.send(Ok(()));
+            }
+
+            ScribeMessage::TreeCreate {
+                layer_name,
+                parent,
+                index,
+                props,
+                text_keys,
+                reply,
+            } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result = operations::handle_tree_create(
+                    state,
+                    &layer_name,
+                    parent,
+                    index,
+                    props,
+                    text_keys,
+                )
+                .await;
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::TreeMove {
+                layer_name,
+                node_id,
+                parent,
+                index,
+                reply,
+            } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result =
+                    operations::handle_tree_move(state, &layer_name, &node_id, parent, index).await;
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::TreeDelete {
+                layer_name,
+                node_id,
+                reply,
+            } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result = operations::handle_tree_delete(state, &layer_name, &node_id).await;
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::TreeSetProp {
+                layer_name,
+                node_id,
+                key,
+                value,
+                reply,
+            } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result =
+                    operations::handle_tree_set_prop(state, &layer_name, &node_id, &key, value)
+                        .await;
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::TreeGetNode {
+                layer_name,
+                node_id,
+                reply,
+            } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result = operations::handle_tree_get_node(state, &layer_name, &node_id);
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::TreeWalk { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result = operations::handle_tree_walk(state, &layer_name);
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::EnsureLoroText { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                ensure_layer_for_lua(state, &layer_name, "text");
+                let _ = reply.send(Ok(()));
+            }
+
+            ScribeMessage::TextInsert {
+                layer_name,
+                pos,
+                content,
+                reply,
+            } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result =
+                    operations::handle_text_insert(state, &layer_name, pos, &content).await;
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::TextDelete {
+                layer_name,
+                pos,
+                len,
+                reply,
+            } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result = operations::handle_text_delete(state, &layer_name, pos, len).await;
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::TextSnapshot { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result = operations::handle_text_snapshot(state, &layer_name);
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::TextLength { layer_name, reply } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result = operations::handle_text_length(state, &layer_name);
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::TreeTextInsert {
+                layer_name,
+                node_id,
+                key,
+                pos,
+                content,
+                reply,
+            } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result = operations::handle_tree_text_insert(
+                    state,
+                    &layer_name,
+                    &node_id,
+                    &key,
+                    pos,
+                    &content,
+                )
+                .await;
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::TreeTextDelete {
+                layer_name,
+                node_id,
+                key,
+                pos,
+                len,
+                reply,
+            } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result = operations::handle_tree_text_delete(
+                    state,
+                    &layer_name,
+                    &node_id,
+                    &key,
+                    pos,
+                    len,
+                )
+                .await;
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::TreeTextSnapshot {
+                layer_name,
+                node_id,
+                key,
+                reply,
+            } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result =
+                    operations::handle_tree_text_snapshot(state, &layer_name, &node_id, &key);
+                let _ = reply.send(result);
+            }
+
+            ScribeMessage::TreeTextLength {
+                layer_name,
+                node_id,
+                key,
+                reply,
+            } => {
+                let layer_name = normalize_layer_name(&layer_name, &state.page_id);
+                let result =
+                    operations::handle_tree_text_length(state, &layer_name, &node_id, &key);
+                let _ = reply.send(result);
             }
 
             ScribeMessage::CounterInc {
@@ -728,6 +908,13 @@ fn build_initial_state(
     let mut units = build_layer_units(args.layers);
     precreate_static_layers(&mut units, &static_layers);
 
+    let schema_artifact = our_permit
+        .as_ref()
+        .and_then(|permit| permit.facts().schema.clone());
+    let validation_artifact = our_permit
+        .as_ref()
+        .and_then(|permit| permit.facts().validation.clone());
+
     let state = ScribeState {
         page_id: args.page_id.clone(),
         units: HashMap::new(),
@@ -745,6 +932,8 @@ fn build_initial_state(
         pending_update_source: Arc::new(Mutex::new(None)),
         validation_handle: args.validation_handle,
         our_permit,
+        schema_artifact,
+        validation_artifact,
         our_did: args.our_did.clone(),
         node_script_shutdown: None,
         peer_role_cache: HashMap::new(),
@@ -806,17 +995,17 @@ fn emit_ensure_sync_on_open(state: &ScribeState) {
 
 // Message Handler Helpers
 
-/// Handle JSON update from UI (CEL commit())
+/// Handle Sthithi update from UI (CEL commit())
 ///
 /// **Broadcast**: Handled automatically by Loro observer after commit()
 #[instrument(skip_all, fields(page_id = %state.page_id, layer = %layer_name, path = %path))]
-async fn handle_update_from_json(
+async fn handle_update_from_sthithi(
     state: &mut ScribeState,
     layer_name: &str,
     path: &str,
-    value: serde_json::Value,
+    value: Sthithi,
 ) -> Result<()> {
-    info!(layer = %layer_name, path = %path, "Updating layer from JSON");
+    info!(layer = %layer_name, path = %path, "Updating layer from Sthithi");
 
     let unit = state
         .units
@@ -824,13 +1013,13 @@ async fn handle_update_from_json(
         .or_insert_with(LayerUnit::new_empty);
 
     unit.layer()
-        .set_from_json(path, &value)
+        .set_from_sthithi(path, &value)
         .map_err(|e| ScribeError::CrdtError(format!("Layer: {}", e)))?;
 
     unit.layer().commit();
     unit.mark_dirty();
 
-    debug!("Layer update from JSON complete, observer will broadcast");
+    debug!("Layer update from Sthithi complete, observer will broadcast");
     Ok(())
 }
 
@@ -848,6 +1037,22 @@ fn ensure_layer_for_lua(state: &mut ScribeState, layer_name: &str, kind: &str) {
     loro_observer::setup_layer_observer(state, layer_name);
     operations::auto_subscribe_sync_target(state, layer_name);
     sync::notify_layer_discovered(state, layer_name);
+
+    // If layer matches a dynamic schema, write to __sync_meta for discovery
+    // This ensures the __sync_meta flow triggers LayerSubscribe on the node
+    if let Some(permit) = &state.our_permit {
+        if crate::layer_unit::find_matching_dynamic_schema(permit, layer_name, &state.page_id)
+            .is_some()
+        {
+            use crate::sync::sync_meta;
+            let our_did = state.our_did.clone();
+            let meta_layer = sync_meta::sync_meta_layer_name(&our_did);
+            if state.units.contains_key(&meta_layer) {
+                sync_meta::write_sync_meta_entry(state, &our_did, layer_name, false);
+                info!(layer = %layer_name, "Wrote __sync_meta entry for ensure_layer (matches dynamic schema)");
+            }
+        }
+    }
 }
 
 /// Handle RemoteEphemeral message
@@ -959,6 +1164,420 @@ mod tests {
     use super::*;
     use crate::test_fixtures::node_scribe_args;
     use std::time::Duration;
+
+    /// Round-trip test for `LoroTree`-backed layers.
+    ///
+    /// **What we verify**: ensure → create (root + nested) → set_prop → walk →
+    /// move (reparent) → walk reflects move → delete → walk reflects delete.
+    /// Goes through the full actor + operations + Loro path in-process.
+    #[tokio::test]
+    async fn test_tree_layer_round_trip() {
+        let args = node_scribe_args("test-page-tree");
+        let (scribe_ref, _handle) =
+            ractor::Actor::spawn(Some("test-scribe-tree".to_string()), Scribe, args)
+                .await
+                .expect("Failed to spawn Scribe");
+
+        let layer = "doc";
+
+        // Ensure the tree layer exists.
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::EnsureLoroTree {
+                layer_name: layer.into(),
+                reply: tx,
+            })
+            .unwrap();
+        rx.await.unwrap().expect("ensure_tree failed");
+
+        // create(root, append, props={kind:"p", text:"hi"})
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeCreate {
+                layer_name: layer.into(),
+                parent: None,
+                index: None,
+                props: domains::Sthithi::Map(vec![
+                    ("kind".into(), domains::Sthithi::Str("p".into())),
+                    ("text".into(), domains::Sthithi::Str("hi".into())),
+                ]),
+                text_keys: vec![],
+                reply: tx,
+            })
+            .unwrap();
+        let root_a = rx.await.unwrap().expect("create root_a failed");
+
+        // create(root, append, props={kind:"p"})
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeCreate {
+                layer_name: layer.into(),
+                parent: None,
+                index: None,
+                props: domains::Sthithi::Null,
+                text_keys: vec![],
+                reply: tx,
+            })
+            .unwrap();
+        let root_b = rx.await.unwrap().expect("create root_b failed");
+
+        // create(child of root_a)
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeCreate {
+                layer_name: layer.into(),
+                parent: Some(root_a.clone()),
+                index: None,
+                props: domains::Sthithi::Map(vec![(
+                    "kind".into(),
+                    domains::Sthithi::Str("li".into()),
+                )]),
+                text_keys: vec![],
+                reply: tx,
+            })
+            .unwrap();
+        let child = rx.await.unwrap().expect("create child failed");
+
+        // set_prop on child
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeSetProp {
+                layer_name: layer.into(),
+                node_id: child.clone(),
+                key: "text".into(),
+                value: domains::Sthithi::Str("nested".into()),
+                reply: tx,
+            })
+            .unwrap();
+        rx.await.unwrap().expect("set_prop failed");
+
+        // walk should yield 3 nodes: root_a (depth 0), child (depth 1), root_b (depth 0)
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeWalk {
+                layer_name: layer.into(),
+                reply: tx,
+            })
+            .unwrap();
+        let walk = rx.await.unwrap().expect("walk failed");
+        assert_eq!(walk.len(), 3, "expected 3 nodes after creates, got {:?}", walk);
+        assert_eq!(walk[0].id, root_a);
+        assert_eq!(walk[0].depth, 0);
+        assert_eq!(walk[1].id, child);
+        assert_eq!(walk[1].depth, 1);
+        assert_eq!(walk[1].parent.as_deref(), Some(root_a.as_str()));
+        assert_eq!(walk[2].id, root_b);
+        assert_eq!(walk[2].depth, 0);
+        // child props reflect both initial create + set_prop
+        let child_props: std::collections::HashMap<String, domains::Sthithi> =
+            match &walk[1].props {
+                domains::Sthithi::Map(entries) => entries.iter().cloned().collect(),
+                other => panic!("child props not a map: {:?}", other),
+            };
+        assert_eq!(
+            child_props.get("kind"),
+            Some(&domains::Sthithi::Str("li".into()))
+        );
+        assert_eq!(
+            child_props.get("text"),
+            Some(&domains::Sthithi::Str("nested".into()))
+        );
+
+        // move child under root_b
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeMove {
+                layer_name: layer.into(),
+                node_id: child.clone(),
+                parent: Some(root_b.clone()),
+                index: None,
+                reply: tx,
+            })
+            .unwrap();
+        rx.await.unwrap().expect("move failed");
+
+        // walk: root_a (depth 0), root_b (depth 0), child (depth 1, parent root_b)
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeWalk {
+                layer_name: layer.into(),
+                reply: tx,
+            })
+            .unwrap();
+        let walk = rx.await.unwrap().expect("walk failed");
+        let child_entry = walk
+            .iter()
+            .find(|n| n.id == child)
+            .expect("child still present");
+        assert_eq!(child_entry.parent.as_deref(), Some(root_b.as_str()));
+        assert_eq!(child_entry.depth, 1);
+
+        // get_node on root_b returns the moved child
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeGetNode {
+                layer_name: layer.into(),
+                node_id: root_b.clone(),
+                reply: tx,
+            })
+            .unwrap();
+        let view = rx
+            .await
+            .unwrap()
+            .expect("get_node failed")
+            .expect("root_b view");
+        assert_eq!(view.children, vec![child.clone()]);
+
+        // delete child
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeDelete {
+                layer_name: layer.into(),
+                node_id: child.clone(),
+                reply: tx,
+            })
+            .unwrap();
+        rx.await.unwrap().expect("delete failed");
+
+        // walk: just the two roots, child gone
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeWalk {
+                layer_name: layer.into(),
+                reply: tx,
+            })
+            .unwrap();
+        let walk = rx.await.unwrap().expect("walk failed");
+        assert_eq!(walk.len(), 2, "expected 2 nodes after delete, got {:?}", walk);
+        assert!(walk.iter().all(|n| n.id != child));
+
+        scribe_ref.stop(Some("test complete".to_string()));
+    }
+
+    /// Round-trip test for `LoroText`-backed layers.
+    ///
+    /// **What we verify**: ensure → insert (twice) → snapshot/length →
+    /// concurrent inserts at different positions merge cleanly →
+    /// delete a range → snapshot reflects deletion.
+    #[tokio::test]
+    async fn test_text_layer_round_trip() {
+        let args = node_scribe_args("test-page-text");
+        let (scribe_ref, _handle) =
+            ractor::Actor::spawn(Some("test-scribe-text".to_string()), Scribe, args)
+                .await
+                .expect("Failed to spawn Scribe");
+
+        let layer = "body";
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::EnsureLoroText {
+                layer_name: layer.into(),
+                reply: tx,
+            })
+            .unwrap();
+        rx.await.unwrap().expect("ensure_text failed");
+
+        // insert "hello" at 0 → "hello"
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TextInsert {
+                layer_name: layer.into(),
+                pos: 0,
+                content: "hello".into(),
+                reply: tx,
+            })
+            .unwrap();
+        rx.await.unwrap().expect("text insert 1 failed");
+
+        // insert " world" at 5 → "hello world"
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TextInsert {
+                layer_name: layer.into(),
+                pos: 5,
+                content: " world".into(),
+                reply: tx,
+            })
+            .unwrap();
+        rx.await.unwrap().expect("text insert 2 failed");
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TextSnapshot {
+                layer_name: layer.into(),
+                reply: tx,
+            })
+            .unwrap();
+        let snap = rx.await.unwrap().expect("snapshot failed");
+        assert_eq!(snap, "hello world");
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TextLength {
+                layer_name: layer.into(),
+                reply: tx,
+            })
+            .unwrap();
+        let len = rx.await.unwrap().expect("length failed");
+        assert_eq!(len, 11);
+
+        // delete "world" → "hello "
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TextDelete {
+                layer_name: layer.into(),
+                pos: 6,
+                len: 5,
+                reply: tx,
+            })
+            .unwrap();
+        rx.await.unwrap().expect("delete failed");
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TextSnapshot {
+                layer_name: layer.into(),
+                reply: tx,
+            })
+            .unwrap();
+        let snap = rx.await.unwrap().expect("snapshot failed");
+        assert_eq!(snap, "hello ");
+
+        scribe_ref.stop(Some("test complete".to_string()));
+    }
+
+    /// Round-trip a nested LoroText inside a tree node's meta map.
+    ///
+    /// **Setup**: create a tree, create a node, then insert/delete/snapshot
+    /// against `meta["text"]` — exercising the per-node nested-text path.
+    #[tokio::test]
+    async fn test_tree_node_nested_text_round_trip() {
+        let args = node_scribe_args("test-page-tree-text");
+        let (scribe_ref, _handle) =
+            ractor::Actor::spawn(Some("test-scribe-tree-text".to_string()), Scribe, args)
+                .await
+                .expect("Failed to spawn Scribe");
+
+        let layer = "doc";
+
+        // Bring the tree layer up.
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::EnsureLoroTree {
+                layer_name: layer.into(),
+                reply: tx,
+            })
+            .unwrap();
+        rx.await.unwrap().expect("ensure_tree failed");
+
+        // Create a root node carrying a `kind` prop. Note we deliberately do
+        // *not* pre-set a `text` prop — the nested LoroText should be created
+        // lazily on first insert.
+        let mut props = std::collections::BTreeMap::new();
+        props.insert("kind".to_string(), domains::Sthithi::Str("p".into()));
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeCreate {
+                layer_name: layer.into(),
+                parent: None,
+                index: None,
+                props: domains::Sthithi::Map(props.into_iter().collect()),
+                text_keys: vec![],
+                reply: tx,
+            })
+            .unwrap();
+        let node_id = rx.await.unwrap().expect("create failed");
+
+        // Snapshot before any insert → "".
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeTextSnapshot {
+                layer_name: layer.into(),
+                node_id: node_id.clone(),
+                key: "text".into(),
+                reply: tx,
+            })
+            .unwrap();
+        assert_eq!(rx.await.unwrap().expect("snap0"), "");
+
+        // insert "hello" at 0 → "hello"
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeTextInsert {
+                layer_name: layer.into(),
+                node_id: node_id.clone(),
+                key: "text".into(),
+                pos: 0,
+                content: "hello".into(),
+                reply: tx,
+            })
+            .unwrap();
+        rx.await.unwrap().expect("insert1");
+
+        // insert " world" at 5 → "hello world"
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeTextInsert {
+                layer_name: layer.into(),
+                node_id: node_id.clone(),
+                key: "text".into(),
+                pos: 5,
+                content: " world".into(),
+                reply: tx,
+            })
+            .unwrap();
+        rx.await.unwrap().expect("insert2");
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeTextSnapshot {
+                layer_name: layer.into(),
+                node_id: node_id.clone(),
+                key: "text".into(),
+                reply: tx,
+            })
+            .unwrap();
+        assert_eq!(rx.await.unwrap().expect("snap1"), "hello world");
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeTextLength {
+                layer_name: layer.into(),
+                node_id: node_id.clone(),
+                key: "text".into(),
+                reply: tx,
+            })
+            .unwrap();
+        assert_eq!(rx.await.unwrap().expect("len"), 11);
+
+        // delete "world" → "hello "
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeTextDelete {
+                layer_name: layer.into(),
+                node_id: node_id.clone(),
+                key: "text".into(),
+                pos: 6,
+                len: 5,
+                reply: tx,
+            })
+            .unwrap();
+        rx.await.unwrap().expect("delete");
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        scribe_ref
+            .cast(ScribeMessage::TreeTextSnapshot {
+                layer_name: layer.into(),
+                node_id,
+                key: "text".into(),
+                reply: tx,
+            })
+            .unwrap();
+        assert_eq!(rx.await.unwrap().expect("snap2"), "hello ");
+
+        scribe_ref.stop(Some("test complete".to_string()));
+    }
 
     /// Test that Scribe with no subscribers doesn't crash on ephemeral send
     #[tokio::test]

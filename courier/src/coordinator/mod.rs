@@ -143,6 +143,16 @@ pub enum CoordinatorMessage<C: Connection> {
         pages_synced: usize,
     },
 
+    /// Page permit was updated on receiver side (PeerActor -> Coordinator)
+    ///
+    /// **Context**: PeerActor stored a PermitUpdate for a page
+    /// **We emit**: PermitUpdated event to app
+    PermitUpdated {
+        node_id: NodeId,
+        page_id: String,
+        version: u64,
+    },
+
     /// Shutdown all actors
     Shutdown,
 
@@ -427,6 +437,18 @@ impl<C: Connection> Actor for Coordinator<C> {
                         pages_synced,
                     },
                 );
+            }
+
+            CoordinatorMessage::PermitUpdated {
+                node_id,
+                page_id,
+                version,
+            } => {
+                debug!(
+                    "Permit updated for page {} (v{}) from {}",
+                    page_id, version, node_id
+                );
+                Self::emit_event(state, CourierEvent::PermitUpdated { page_id, version });
             }
 
             CoordinatorMessage::Shutdown => {
@@ -768,6 +790,13 @@ impl<C: Connection> Coordinator<C> {
         permits: &[(String, String)],
         state: &mut CoordinatorState<C>,
     ) {
+        fn permit_version(token: &str) -> u64 {
+            gurkha::PolicyPermit::from_token(token)
+                .ok()
+                .and_then(|p| p.get_fact("version").and_then(|v| v.as_u64()))
+                .unwrap_or(0)
+        }
+
         info!(
             "Distributing {} page permit updates for page={}",
             permits.len(),
@@ -775,20 +804,51 @@ impl<C: Connection> Coordinator<C> {
         );
 
         for (recipient_did, permit_token) in permits {
-            // Store updated permit in butler
-            if let Err(e) =
-                state
-                    .butler
-                    .permits()
-                    .page()
-                    .store(page_id, recipient_did, permit_token)
+            let incoming_version = permit_version(permit_token);
+            let mut should_store = true;
+            if let Ok(Some(existing_permit)) =
+                state.butler.permits().page().get(page_id, recipient_did)
             {
-                warn!(
-                    recipient = %recipient_did,
-                    error = %e,
-                    "Failed to store updated page permit"
-                );
-                continue;
+                let existing_version = permit_version(&existing_permit);
+                if incoming_version < existing_version {
+                    debug!(
+                        recipient = %recipient_did,
+                        incoming_version,
+                        existing_version,
+                        "Skipping stale page permit update"
+                    );
+                    continue;
+                }
+
+                if incoming_version == existing_version {
+                    if existing_permit != *permit_token {
+                        warn!(
+                            recipient = %recipient_did,
+                            incoming_version,
+                            "Skipping conflicting page permit update with same version"
+                        );
+                        continue;
+                    }
+                    should_store = false;
+                }
+            }
+
+            // Store updated permit in butler
+            if should_store {
+                if let Err(e) =
+                    state
+                        .butler
+                        .permits()
+                        .page()
+                        .store(page_id, recipient_did, permit_token)
+                {
+                    warn!(
+                        recipient = %recipient_did,
+                        error = %e,
+                        "Failed to store updated page permit"
+                    );
+                    continue;
+                }
             }
 
             // Find PeerActor for this recipient and send
@@ -881,19 +941,26 @@ impl<C: Connection> Coordinator<C> {
             Ok(nodes) => {
                 for node in nodes {
                     let Some(permit) = node.permit else {
-                        debug!("No stored permit for sovereign node {}, skipping", node.node_id);
+                        debug!(
+                            "No stored permit for sovereign node {}, skipping",
+                            node.node_id
+                        );
                         continue;
                     };
 
                     let node_id = match node.node_id.parse::<NodeId>() {
                         Ok(id) => id,
                         Err(e) => {
-                            warn!("Failed to parse sovereign node_id {}: {:?}", node.node_id, e);
+                            warn!(
+                                "Failed to parse sovereign node_id {}: {:?}",
+                                node.node_id, e
+                            );
                             continue;
                         }
                     };
 
-                    if state.is_connected(&node_id) || state.pending_connections.contains(&node_id) {
+                    if state.is_connected(&node_id) || state.pending_connections.contains(&node_id)
+                    {
                         continue;
                     }
 
@@ -928,14 +995,13 @@ impl<C: Connection> Coordinator<C> {
                         }
                     };
 
-                    if state.is_connected(&node_id) || state.pending_connections.contains(&node_id) {
+                    if state.is_connected(&node_id) || state.pending_connections.contains(&node_id)
+                    {
                         continue;
                     }
 
                     state.pending_connections.insert(node_id);
-                    state
-                        .pending_permits
-                        .insert(node_id, permit.to_string());
+                    state.pending_permits.insert(node_id, permit.to_string());
 
                     if let Some(ref tx) = state.connect_tx {
                         if tx

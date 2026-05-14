@@ -1,4 +1,4 @@
-app "my-shop" version "1.0.0" {
+app "my-shop" version "2.0.0" {
   role owner can share, delegate, accept_publish, manage_access;
   role node can relay, share, accept_publish, manage_access;
   role customer;
@@ -6,17 +6,14 @@ app "my-shop" version "1.0.0" {
   role layer_authority can manage_access;
 
   ui_app "Shop Owner" {
-    entry "shop-owner/app.lua";
-    allow owner,admin;
+    allow owner, admin;
   }
 
   ui_app "Shop Customer" {
-    entry "shop-customer/app.lua";
-    allow owner,customer,node;
+    allow owner, customer, node;
   }
 
   ui_app "shared" {
-    entry "shared/app.lua";
-    allow owner,customer,node;
+    allow owner, customer, node;
   }
 }

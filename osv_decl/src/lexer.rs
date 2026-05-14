@@ -12,7 +12,7 @@ pub enum TokenKind {
     RParen,
     Comma,
     Semi,
-    Star,
+    Slash,
     Eof,
 }
 
@@ -56,11 +56,12 @@ pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
                 }
                 continue;
             }
-            return Err(Diagnostic::new(
-                "E1001",
-                "unexpected '/' (use // for comments)",
-                Some(span),
-            ));
+            // Lone slash — v2 structural path separator
+            out.push(Token {
+                kind: TokenKind::Slash,
+                span,
+            });
+            continue;
         }
 
         let span = Span::new(line, col);
@@ -110,14 +111,6 @@ pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
                 col += 1;
                 out.push(Token {
                     kind: TokenKind::Semi,
-                    span,
-                });
-            }
-            '*' => {
-                chars.next();
-                col += 1;
-                out.push(Token {
-                    kind: TokenKind::Star,
                     span,
                 });
             }
@@ -225,13 +218,34 @@ fn is_ident_continue(c: char) -> bool {
 
 fn is_keyword(value: &str) -> bool {
     match value {
+        // Structure
         "app" | "version" | "role" | "inherits" | "can" | "layer" | "as" | "path" | "namespace"
         | "grant" | "shard" | "by" | "cache" | "allow" | "to" | "on" | "derive" | "from"
-        | "using" | "ui_app" | "entry" | "shared" | "creator" | "open" | "explicit"
-        | "role_scoped" | "map" | "list" | "text" | "counter" | "blob" | "create" | "read"
+        | "using" | "ui_app" | "shared" | "open" | "explicit"
+        | "role_scoped" | "map" | "list" | "text" | "counter" | "blob" | "tree" | "create" | "read"
         | "write" | "sync" | "revoke" | "minute" | "hour" | "day" | "week" | "month"
         | "manage_access" | "accept_publish" | "delegate" | "share" | "relay" | "ui_window"
-        | "memory_lru" | "sync_mode" | "full_snapshot" | "incremental" | "retention_days" => true,
+        | "memory_lru" | "sync_mode" | "full_snapshot" | "incremental" | "retention_days"
+        // v2 keywords — entity schema
+        | "sthithi" | "field" | "required" | "immutable" | "default" | "transitions"
+        // v2 keywords — predicates
+        | "where" | "is" | "not" | "and" | "in" | "above" | "below"
+        // v2 keywords — layer extensions
+        | "broadcast" | "all" | "granted" | "order" | "ascending" | "descending"
+        | "dynamic" | "discover" | "retain" | "debounce" | "page"
+        // v2 keywords — entity rules, relay events, field sources
+        | "reject" | "set" | "update" | "delete" | "insert" | "child" | "clock"
+        // v2 keywords — permits
+        | "permit" | "issue" | "for"
+        // v2 keywords — validate
+        | "validate"
+        // v2 keywords — value refs and literals
+        | "mode" | "peer" | "node" | "user"
+        // Note: `self`, `true`, `false`, `null` are handled as keywords
+        // but `self` is a Rust keyword so we use the string form
+        | "true" | "false" | "null" => true,
+        // `self` handled via string comparison
+        s if s == "self" => true,
         _ => false,
     }
 }

@@ -295,63 +295,15 @@ mod tests {
 
     const TEST_KEY: [u8; 32] = [1u8; 32];
 
-    fn load_shop_template() -> String {
-        serde_json::json!({
-            "owner_template": {
-                "operations": {
-                    "own": "allow",
-                    "read": "allow",
-                    "write": "allow",
-                    "share_page": "allow"
-                },
-                "peer_capabilities": {
-                    "relay": false,
-                    "share": true,
-                    "accept_publish": true
-                },
-                "layers": {
-                    "{page_id}/products": {"type": "map", "sync": true, "write": true}
-                },
-                "issue_on": {
-                    "node": {
-                        "token_type": "page_share",
-                        "peer_capabilities": {
-                            "relay": true,
-                            "share": true,
-                            "accept_publish": true
-                        },
-                        "operations": {
-                            "read": "allow",
-                            "write": "allow",
-                            "sync": "allow",
-                            "share_page": "allow"
-                        },
-                        "layers": {
-                            "{page_id}/products": {"type": "map", "sync": true, "write": true}
-                        },
-                        "relationship": "node",
-                        "issue_on": {
-                            "layer_authority": {
-                                "token_type": "layer_authority",
-                                "relationship": "layer_authority"
-                            }
-                        }
-                    }
-                }
-            }
-        })
-        .to_string()
-    }
-
     /// C5: ButlerPermitIssuer issues valid layer permits via gurkha
     #[test]
     fn test_butler_permit_issuer() {
-        let template = load_shop_template();
-
         // Create owner → node delegation chain
-        let (owner_token, _) = futures::executor::block_on(gurkha::issue_page_owner_token(
-            &TEST_KEY, "page1", &template,
-        ))
+        let policy = policy_model::PolicyFacts::default();
+        let layer_names = vec!["page1/products".to_string()];
+        let (owner_token, _) = futures::executor::block_on(
+            gurkha::issue_page_owner_token_from_policy(&TEST_KEY, "page1", &policy, &layer_names),
+        )
         .unwrap();
         let (node_token, _) = futures::executor::block_on(gurkha::delegate_page(
             &TEST_KEY,

@@ -15,8 +15,8 @@
 //!
 //! **Invariant**: Node is source of truth for divergence resolution.
 
-use tracing::{debug, error, info, instrument, trace, warn};
 use tokio::time::{timeout, Duration};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::message::*;
 use transport::Connection;
@@ -411,7 +411,9 @@ impl<C: Connection> PeerActor<C> {
         }
 
         // Decrypt update using session key
-        let Some(decrypted_data) = self.decrypt_from_peer(data, "SyncOffer", &peer_did, state).await
+        let Some(decrypted_data) = self
+            .decrypt_from_peer(data, "SyncOffer", &peer_did, state)
+            .await
         else {
             return;
         };
@@ -692,9 +694,9 @@ impl<C: Connection> PeerActor<C> {
         );
 
         // Decrypt snapshot
-        let Some(decrypted_snapshot) =
-            self.decrypt_from_peer(snapshot, "SyncSnapshot", &peer_did, state)
-                .await
+        let Some(decrypted_snapshot) = self
+            .decrypt_from_peer(snapshot, "SyncSnapshot", &peer_did, state)
+            .await
         else {
             return;
         };

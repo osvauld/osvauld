@@ -29,18 +29,21 @@ pub fn register(
 fn register_request_connected_nodes(shell: &Shell, butler: Arc<Butler>) {
     let shell_weak = shell.as_weak();
     shell.on_request_connected_nodes(move || {
-        // Get current space ID
         let current_space_id = if let Some(shell) = shell_weak.upgrade() {
             shell.get_current_space_id().to_string()
         } else {
             return;
         };
 
-        println!("Requesting connected nodes for space {}...", current_space_id);
+        println!(
+            "Requesting connected nodes for space {}...",
+            current_space_id
+        );
 
-        // Get nodes that have published this space
         let published_node_dids: HashSet<String> = if !current_space_id.is_empty() {
-            butler.publish().get_nodes_with_permits(&current_space_id)
+            butler
+                .publish()
+                .get_nodes_with_permits(&current_space_id)
                 .unwrap_or_default()
                 .into_iter()
                 .collect()
@@ -48,7 +51,10 @@ fn register_request_connected_nodes(shell: &Shell, butler: Arc<Butler>) {
             HashSet::new()
         };
 
-        println!("Found {} nodes with space permits", published_node_dids.len());
+        println!(
+            "Found {} nodes with space permits",
+            published_node_dids.len()
+        );
 
         let nodes = butler.nodes().list().unwrap_or_default();
         let connected_nodes: Vec<crate::NodeInfo> = nodes

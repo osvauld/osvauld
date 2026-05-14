@@ -357,7 +357,8 @@ pub struct PeerActorState<C: Connection> {
     /// **Context**: Viewer mode - track which page permits we're expecting from node
     /// **Flow**: SpaceData arrives -> store expected page IDs -> PermitUpdate arrives -> mark received
     /// **Emit**: ViewerSyncComplete when all expected permits received
-    viewer_initial_sync: std::collections::HashMap<String, (Vec<String>, std::collections::HashSet<String>)>,
+    viewer_initial_sync:
+        std::collections::HashMap<String, (Vec<String>, std::collections::HashSet<String>)>,
 
     /// Cached authority permits: (page_id, layer_name, peer_did) -> Option<permit_token>
     /// Avoids repeated redb lookups for the same layer authority permit per peer
